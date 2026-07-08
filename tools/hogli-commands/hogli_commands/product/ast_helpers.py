@@ -20,6 +20,21 @@ def ast_parse_safe(file_path: Path) -> ast.Module | None:
         return None
 
 
+def get_imported_module_names(tree: ast.Module) -> set[str]:
+    """Every dotted module path the tree imports via real import statements.
+
+    'from a.b import c' records both 'a.b' and 'a.b.c' (c may be a submodule); relative
+    imports are skipped — they can't name a path outside the importing package."""
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            imported.add(node.module)
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return imported
+
+
 def _file_imports_django_models(tree: ast.Module) -> bool:
     """Check whether a file imports from django.db.models (or django.db)."""
     for node in ast.walk(tree):

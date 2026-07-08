@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import TestCase
 
+from temporalio.exceptions import ActivityError, ApplicationError
+
 from posthog.temporal.salesforce_enrichment.usage_workflow import (
     EnrichPageResult,
     SalesforceUsageEnrichmentWorkflow,
@@ -15,6 +17,8 @@ from posthog.temporal.salesforce_enrichment.usage_workflow import (
     prepare_salesforce_update_record,
 )
 
+from ee.billing.salesforce_enrichment.constants import ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE
+from ee.billing.salesforce_enrichment.redis_cache import OrgMappingsCacheMissingError
 from ee.billing.salesforce_enrichment.usage_signals import UsageSignals
 
 
@@ -137,6 +141,24 @@ class TestWorkflowParseInputs(TestCase):
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.usage_workflow"
 
 
+def _cache_missing_activity_error() -> ActivityError:
+    error = ActivityError(
+        "enrich page failed",
+        scheduled_event_id=1,
+        started_event_id=1,
+        identity="",
+        activity_type="enrich_org_page_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = ApplicationError(
+        "Org mappings cache is missing or unreadable",
+        type=ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
+        non_retryable=True,
+    )
+    return error
+
+
 class TestCacheOrgMappingsActivity(TestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
@@ -177,12 +199,32 @@ class TestCacheOrgMappingsActivity(TestCase):
         assert stored_mappings[0]["posthog_org_id"] == "org-uuid-1"
         assert stored_mappings[1]["posthog_org_id"] == "org-uuid-2"
 
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.store_org_mappings_in_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_cached_org_mappings_count", new_callable=AsyncMock, return_value=100)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_force_rebuild_replaces_existing_cache(
+        self, _mock_close, _mock_cache_count, mock_sf_client, mock_store
+    ):
+        mock_sf = MagicMock()
+        mock_sf.query_all.return_value = {"records": [{"Id": "001ABC", "Posthog_Org_ID__c": "org-uuid-1"}]}
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await cache_org_mappings_activity(force_rebuild=True)
+
+        # A positive cached count must not short-circuit a forced rebuild.
+        assert result["total_mappings"] == 1
+        assert "cache_reused" not in result
+        mock_store.assert_called_once()
+
 
 class TestEnrichOrgPageActivity(TestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_enriches_page_successfully(self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat):
         mock_get_page.return_value = [
@@ -208,20 +250,19 @@ class TestEnrichOrgPageActivity(TestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
-    async def test_returns_empty_on_cache_miss(self, _mock_close, mock_get_page, _mock_heartbeat):
-        mock_get_page.return_value = None
+    async def test_raises_when_cache_is_missing(self, _mock_close, mock_get_page, _mock_heartbeat):
+        mock_get_page.side_effect = OrgMappingsCacheMissingError("org mappings cache key is missing")
 
-        result = await enrich_org_page_activity(0, 10000, 100)
+        with pytest.raises(ApplicationError) as exc_info:
+            await enrich_org_page_activity(0, 10000, 100)
 
-        assert result.page_size == 0
-        assert result.processed == 0
-        assert result.updated == 0
+        assert exc_info.value.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_returns_empty_on_empty_page(self, _mock_close, mock_get_page, _mock_heartbeat):
         mock_get_page.return_value = []
@@ -234,7 +275,7 @@ class TestEnrichOrgPageActivity(TestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_handles_salesforce_partial_failure(
         self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat
@@ -263,7 +304,7 @@ class TestEnrichOrgPageActivity(TestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_handles_batch_exception(self, _mock_close, mock_get_page, mock_sf_client, _mock_heartbeat):
         mock_get_page.return_value = [
@@ -287,7 +328,7 @@ class TestEnrichOrgPageActivity(TestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
-    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page_from_redis", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
     @patch(f"{WORKFLOW_MODULE}.close_old_connections")
     async def test_passes_offset_to_redis(self, _mock_close, mock_get_page, _mock_heartbeat):
         mock_get_page.return_value = []
@@ -306,7 +347,7 @@ class TestProductionModeContinueAsNew(TestCase):
     async def test_continues_as_new_when_page_is_full(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
             side_effect=[
-                None,  # cache_org_mappings_activity
+                {"success": True, "total_mappings": 20000},  # cache_org_mappings_activity
                 EnrichPageResult(page_size=10000, processed=10000, updated=9500, errors=[]),
             ]
         )
@@ -358,20 +399,80 @@ class TestProductionModeContinueAsNew(TestCase):
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
-    async def test_empty_page_returns_result(self, mock_workflow):
-        mock_workflow.execute_activity = AsyncMock(
-            side_effect=[
-                None,  # cache_org_mappings_activity
-                EnrichPageResult(page_size=0, processed=0, updated=0, errors=[]),
-            ]
-        )
+    async def test_skips_paging_when_no_org_mappings(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(return_value={"success": True, "total_mappings": 0})
 
         wf = SalesforceUsageEnrichmentWorkflow()
         inputs = UsageEnrichmentInputs(batch_size=100)
         result = await wf._run_production_mode(inputs)
 
+        assert mock_workflow.execute_activity.call_count == 1
         assert result["total_orgs_processed"] == 0
         assert result["total_orgs_updated"] == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_recaches_and_retries_page_when_cache_expires_mid_run(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 15000},
+                EnrichPageResult(page_size=5000, processed=5000, updated=4800, errors=[]),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        result = await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 3
+        # The rewarm must force a rebuild — reusing an existing (possibly unreadable)
+        # list would make the retry read the same bad data.
+        rewarm_call = mock_workflow.execute_activity.call_args_list[1]
+        assert rewarm_call.kwargs["args"] == [True]
+        # The retried page must target the same offset and page size as the failed one.
+        retried_call = mock_workflow.execute_activity.call_args_list[2]
+        assert retried_call.kwargs["args"] == [10000, 10000, 100]
+        assert result["total_orgs_processed"] == 15000
+        assert result["total_orgs_updated"] == 14300
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_returns_gracefully_when_recache_finds_no_mappings(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 0},
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        result = await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 2
+        assert result["total_orgs_processed"] == 10000
+        assert result["total_orgs_updated"] == 9500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_second_cache_miss_after_recache_propagates(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 15000},
+                _cache_missing_activity_error(),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000)
+
+        with pytest.raises(ActivityError):
+            await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")

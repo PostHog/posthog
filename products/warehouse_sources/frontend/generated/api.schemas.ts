@@ -116,6 +116,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -261,6 +262,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null

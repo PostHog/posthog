@@ -36,6 +36,8 @@ export type MlMirrorConfig = {
     // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
     // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
+    /** Route anonymization through the native Rust addon (`@posthog/replay-anonymizer`, the default); off → the TS scrubbers. */
+    SESSION_RECORDING_ML_RUST_ANONYMIZER: boolean
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -61,5 +63,6 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
+        SESSION_RECORDING_ML_RUST_ANONYMIZER: true,
     }
 }

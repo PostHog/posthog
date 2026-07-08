@@ -423,6 +423,55 @@ class CIFailureLogs:
     truncated: bool
 
 
+# The one caveat that governs every flaky figure — defined once here (the canonical-types home)
+# so the API/MCP description and any other consumer-facing copy read from it instead of drifting.
+FLAKY_TEST_SIGNAL_CAVEAT = (
+    "All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators "
+    "are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other "
+    "lanes a flake surfaces as a plain failure, which the distinct-PR count catches."
+)
+
+
+@dataclass(frozen=True)
+class FlakyTestItem:
+    """One flaky-test leaderboard row, aggregated from the per-test CI spans in the Traces store.
+
+    See ``FLAKY_TEST_SIGNAL_CAVEAT`` for why these are absolute counts and how the two signals
+    (pass-on-retry vs distinct-PR failures) divide the rerun-enabled and no-rerun lanes.
+    """
+
+    # Reconstructed pytest nodeid (the span name), e.g. 'posthog/api/test/test_x/TestX::test_y'.
+    nodeid: str
+    # Runnable pytest selector ('posthog/api/test/test_x.py::TestX::test_y'). Exact when the CI
+    # reporter stamped it; reconstructed from the nodeid (file/class boundary guessed) for older spans.
+    selector: str
+    # Spans where the test failed first, then passed on an automatic retry.
+    rerun_passed_count: int
+    # Spans with outcome 'failed' or 'error' (the final outcome after any retries).
+    failed_count: int
+    # Distinct PRs among the failed/error spans; master/branch failures carry no PR and don't count.
+    failed_pr_count: int
+    # Distinct git branches across all of the test's signal spans in the window.
+    branch_count: int
+    # Spans where the test failed while quarantined (xfail) — already masked, still flaky.
+    xfailed_count: int
+    # Most recent signal span for this test in the window.
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class FlakyTestList:
+    """The flaky-test leaderboard for a window: qualifying tests ranked by flakiness signal,
+    capped at ``limit`` with an explicit truncation flag (same shape as ``PullRequestList``).
+    A test qualifies when it passed on retry at least ``min_rerun_passes`` times OR failed on
+    at least ``min_failed_prs`` distinct PRs in the window.
+    """
+
+    items: list[FlakyTestItem]
+    truncated: bool
+    limit: int
+
+
 @dataclass(frozen=True)
 class CIStatusRollup:
     """A PR's CI, collapsed from the latest workflow run per workflow on its head
@@ -621,6 +670,31 @@ class WorkflowHealthItem:
 
 
 @dataclass(frozen=True)
+class CostPerMergeBucket:
+    """One time bucket of the repo's CI cost normalized by merged PRs — the "is CI spend per shipped
+    change trending up" series. ``cost_per_merge_usd`` is the headline: estimated Depot cost over a
+    trailing window ending at this bucket (24 h / 7 d / 4 w to match the grain) divided by PRs merged
+    in the same trailing window. The rolling ratio exists because a strict per-bucket division has a
+    hole in every bucket that shipped nothing and pairs spend with merges that usually happened a
+    bucket later. Cost counts by run start and merges by merge time — the same coarse alignment the
+    daily depot tooling uses. ``estimated_cost_usd`` and ``merges`` stay bucket-local (the raw inputs);
+    empty buckets are zero-filled: ``merges`` 0, cost None.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Estimated Depot CI cost (USD) of all runs started in this bucket. None when nothing was costable
+    # (no billable self-hosted Linux jobs, or the job source isn't synced).
+    estimated_cost_usd: float | None
+    # PRs merged in this bucket (all authors, bots included — matches the cost numerator's population).
+    merges: int
+    # Trailing-window cost / trailing-window merges (window sized to the grain). None when the trailing
+    # window had no merges or no costable cost, so a dead stretch is never shown as an infinite or zero
+    # cost-per-merge.
+    cost_per_merge_usd: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -644,6 +718,11 @@ class RepoOverview:
     jobs_available: bool
     # 'master' or 'main', picked by observed run volume in the current window.
     default_branch: str
+    # Cost-per-merged-PR trend across the window, oldest first, zero-filled, bucketed by
+    # `cost_series_granularity`. Empty when the job-level source isn't synced.
+    cost_series: list[CostPerMergeBucket]
+    # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    cost_series_granularity: str
 
 
 @dataclass(frozen=True)

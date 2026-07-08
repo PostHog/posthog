@@ -32,6 +32,19 @@ import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/postho
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
+// Email MX validation runs on every email send, so without a mock the test-panel
+// email tests would do live DNS lookups for their fixture recipients (and
+// example.com publishes a null MX, which validation correctly blocks). Resolve
+// everything as deliverable — validation behavior is covered by
+// email-validation.service.test.ts.
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
+        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
+        resolve6: jest.fn().mockResolvedValue([]),
+    })),
+}))
+
 describe('CDP API', () => {
     let hub: Hub
     let cdpDeps: CdpConsumerBaseDeps

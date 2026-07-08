@@ -982,8 +982,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
-        // Setup wizard sync (CLI ↔ app) funnel. Fired from the onboarding install step's
-        // progress tracker; guards for "once per session" live in that logic.
+        // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
+        // (installationProgressLogic); guards for "once per session" live in that logic.
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -997,18 +997,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
-        }) => props,
-        reportWizardSyncDismissed: (props: {
-            workflowId: string
-            skillId?: string
-            outcome: string
-            elapsedSeconds: number
-        }) => props,
-        reportWizardSyncProgressExpanded: (props: {
-            workflowId?: string
-            skillId?: string
-            displayState: string
-            progressPct: number
         }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
@@ -2378,22 +2366,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 task_count: taskCount,
                 completed_task_count: completedTaskCount,
                 elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncDismissed: ({ workflowId, skillId, outcome, elapsedSeconds }) => {
-            posthog.capture('setup wizard sync dismissed', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                outcome,
-                elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncProgressExpanded: ({ workflowId, skillId, displayState, progressPct }) => {
-            posthog.capture('setup wizard sync progress expanded', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                display_state: displayState,
-                progress_pct: progressPct,
             })
         },
         // command bar

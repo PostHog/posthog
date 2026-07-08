@@ -24,6 +24,7 @@ from products.tasks.backend.constants import (
     SnapshotKind,
     filter_user_sandbox_env_vars,
 )
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -245,6 +246,7 @@ def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> boo
 
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
+    auto_publish: bool | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
     home_quick_action: str | None = None
@@ -510,6 +512,11 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
 
+    if github_integration.installation_unavailable():
+        raise CredentialUnavailableError(
+            "GitHub App installation for this integration is uninstalled or suspended",
+            {"github_integration_id": github_integration_id},
+        )
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 

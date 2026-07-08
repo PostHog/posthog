@@ -49,6 +49,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -150,7 +151,7 @@ class AssistantQueryExecutor:
 
     WAIT_TIME_S = 0.5
 
-    def __init__(self, team: Team, utc_now_datetime: datetime, user: Optional["User"] = None):
+    def __init__(self, team: Team, utc_now_datetime: datetime, user: "User"):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
@@ -342,6 +343,7 @@ class AssistantQueryExecutor:
                         execution_mode=execution_mode,
                         limit_context=LimitContext.POSTHOG_AI,
                         user=user,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
                     )
 
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
@@ -620,10 +622,11 @@ def get_example_prompt(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery
 async def execute_and_format_query(
     team: Team,
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
+    *,
+    user: "User",
     execution_mode: Optional[ExecutionMode] = None,
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
-    user: Optional["User"] = None,
     include_prompt_framing: bool = True,
 ) -> str:
     """

@@ -2031,6 +2031,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             if row_filters is not None:
+                # Only sources that push filters into their query (SQL WHERE) can honor them — a
+                # saved-but-ignored filter would silently sync unfiltered rows.
+                if not source.supports_row_filters:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Row filter not allowed for schema '{schema_name}': "
+                            "row filters are not supported for this source type."
+                        },
+                    )
                 if reason := unsupported_row_filter_reason(
                     is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
