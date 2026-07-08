@@ -11,17 +11,17 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
-    createAttributeColumn,
+    createConfiguredColumn,
     createControlsColumn,
     createMessageColumn,
     createTimestampColumn,
 } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 import {
     LOG_ROW_HEADER_HEIGHT,
-    getAttributeColumnWidth,
     getColumnsFixedWidth,
     getColumnsMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
@@ -159,17 +159,16 @@ export function VirtualizedLogsList({
         expandedLogIds,
         cursorIndex,
         scrollToCursorRequest,
-        attributeColumns,
-        attributeColumnWidths,
+        columns: columnConfigs,
         selectedLogIds,
         prettifiedLogIds,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
         userSetCursorIndex,
-        removeAttributeColumn,
-        setAttributeColumnWidth,
-        moveAttributeColumn,
+        removeColumn,
+        setColumnWidth,
+        moveColumn,
         selectLogRange,
         togglePrettifyLog,
         setFocused,
@@ -195,46 +194,49 @@ export function VirtualizedLogsList({
     const dataSourceRef = useRef<ParsedLogMessage[]>(dataSource)
     dataSourceRef.current = dataSource
 
+    const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
+
+    // Server aliases arrive in request order, which matches the order custom columns are
+    // lowered from the config — zip them positionally to key each column into row values.
+    const aliasById = useMemo(() => {
+        const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
+        return new Map(customConfigs.map((config, index) => [config.id, customColumnAliases?.[index]]))
+    }, [columnConfigs, customColumnAliases])
+
     // Columns memoized on structural deps only — per-row state (selection,
     // expansion, prettify) is read from kea inside cell components.
-    const columns = useMemo(
-        () => [
+    const columns = useMemo(() => {
+        const managed = columnConfigs.filter((config) => config.type !== 'timestamp' && config.type !== 'message')
+        return [
             createControlsColumn({ dataSourceRef }),
-            createTimestampColumn({
-                tzLabelFormat,
-                orderBy,
-                onChangeOrderBy,
-            }),
-            ...attributeColumns.map((attributeKey, index) =>
-                createAttributeColumn({
-                    attributeKey,
-                    width: getAttributeColumnWidth(attributeKey, attributeColumnWidths),
-                    onResize: setAttributeColumnWidth,
-                    onRemove: removeAttributeColumn,
-                    onMove: moveAttributeColumn,
-                    isFirst: index === 0,
-                    isLast: index === attributeColumns.length - 1,
+            ...columnConfigs.map((config) => {
+                if (config.type === 'timestamp') {
+                    return createTimestampColumn({ tzLabelFormat, orderBy, onChangeOrderBy })
+                }
+                if (config.type === 'message') {
+                    return createMessageColumn({ wrapBody, prettifyJson, flexWidthRef })
+                }
+                return createConfiguredColumn({
+                    config,
+                    alias: aliasById.get(config.id),
+                    callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
+                    isFirst: managed.indexOf(config) === 0,
+                    isLast: managed.indexOf(config) === managed.length - 1,
                 })
-            ),
-            createMessageColumn({
-                wrapBody,
-                prettifyJson,
-                flexWidthRef,
             }),
-        ],
-        [
-            tzLabelFormat,
-            orderBy,
-            onChangeOrderBy,
-            attributeColumns,
-            attributeColumnWidths,
-            setAttributeColumnWidth,
-            removeAttributeColumn,
-            moveAttributeColumn,
-            wrapBody,
-            prettifyJson,
         ]
-    )
+    }, [
+        tzLabelFormat,
+        orderBy,
+        onChangeOrderBy,
+        columnConfigs,
+        aliasById,
+        setColumnWidth,
+        removeColumn,
+        moveColumn,
+        wrapBody,
+        prettifyJson,
+    ])
 
     const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
 
