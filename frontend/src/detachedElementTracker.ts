@@ -134,17 +134,27 @@ export function startDetachedElementTracking(posthog: Capturable): void {
     }, IDLE_TIMEOUT_MS)
 }
 
+interface LeakHunterScanSummary {
+    totalElements: number
+    totalDetachedElements: number
+    detachedComponents: Record<string, number>
+}
+
+interface LeakHunterDetachedElementSummary {
+    i: number
+    tag?: string
+    id?: string
+    classes?: string | null
+    components?: string[]
+}
+
 // Dev-only console helpers for hunting detached-DOM retainers. The convenience
 // accessors (`el(i)`, `detached()`) deref WeakRefs on demand rather than holding
 // elements; `scanner` is the raw MemLens instance and keeps its own tracking state.
 function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
     const leakHunter = {
         scanner: scan,
-        scan: (): {
-            totalElements: number
-            totalDetachedElements: number
-            detachedComponents: Record<string, number>
-        } => {
+        scan: (): LeakHunterScanSummary => {
             const result = scan.scan()
             return {
                 totalElements: result.totalElements,
@@ -152,9 +162,7 @@ function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
                 detachedComponents: mapToTopN(result.detachedComponentToFiberNodeCount, 50),
             }
         },
-        detached: (
-            limit: number = 50
-        ): { i: number; tag?: string; id?: string; classes?: string | null; components?: string[] }[] =>
+        detached: (limit: number = 50): LeakHunterDetachedElementSummary[] =>
             scan
                 .getDetachedDOMInfo()
                 .slice(0, limit)
