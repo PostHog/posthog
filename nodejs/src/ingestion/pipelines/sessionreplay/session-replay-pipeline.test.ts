@@ -118,14 +118,8 @@ describe('session-replay-pipeline', () => {
         markSeen: jest.fn().mockResolvedValue(undefined),
     } as unknown as SessionTracker
     const sessionFilter = {
-        handleNewSessions: jest.fn().mockResolvedValue(undefined),
-        isBlocked: jest.fn().mockImplementation((sessions: SessionSet) => {
-            const map = new SessionMap<boolean>()
-            for (const { teamId, sessionId } of sessions) {
-                map.set(teamId, sessionId, false)
-            }
-            return Promise.resolve(map)
-        }),
+        handleNewSessions: jest.fn().mockResolvedValue(new SessionSet()),
+        isBlocked: jest.fn().mockResolvedValue(new SessionSet()),
     } as unknown as SessionFilter
     const keyStore = createMockKeyStore()
 
@@ -133,6 +127,7 @@ describe('session-replay-pipeline', () => {
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn: true,
+        firstPartyHosts: [],
     }
 
     const now = DateTime.now()
@@ -192,6 +187,7 @@ describe('session-replay-pipeline', () => {
             sessionTracker,
             sessionFilter,
             keyStore,
+            sessionKeyResolutionMaxConcurrency: 20,
             topHog,
             isDebugLoggingEnabled,
             ...overrides,
