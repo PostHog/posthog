@@ -6,7 +6,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+import django.db
+
 import redis.exceptions as redis_exceptions
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantEventType,
@@ -27,6 +30,8 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamEvent,
     StreamStatusEvent,
+    TransientStreamError,
+    _is_transient_db_connection_error,
     get_subagent_stream_key,
 )
 from ee.hogai.utils.types.base import AssistantOutput
@@ -344,6 +349,61 @@ class TestRedisStream(BaseTest):
                 await self.redis_stream.write_to_stream(test_generator())
 
             self.assertEqual(mock_client.xadd.call_count, 2)
+
+    @pytest.mark.asyncio
+    async def test_write_to_stream_wraps_and_chains_underlying_error(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock()
+
+            original = ValueError("boom")
+
+            async def failing_generator():
+                raise original
+                yield  # unreachable, makes this an async generator
+
+            with self.assertRaises(StreamError) as ctx:
+                await self.redis_stream.write_to_stream(failing_generator())
+
+            self.assertNotIsInstance(ctx.exception, TransientStreamError)
+            self.assertIn("ValueError", str(ctx.exception))
+            self.assertIs(ctx.exception.__cause__, original)
+
+    @pytest.mark.asyncio
+    async def test_write_to_stream_classifies_transient_db_drop(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock()
+
+            original = django.db.OperationalError("server closed the connection unexpectedly")
+
+            async def failing_generator():
+                raise original
+                yield  # unreachable, makes this an async generator
+
+            with self.assertRaises(TransientStreamError) as ctx:
+                await self.redis_stream.write_to_stream(failing_generator())
+
+            self.assertIs(ctx.exception.__cause__, original)
+            self.assertTrue(getattr(ctx.exception, "skip_error_tracking_capture", False))
+
+    @parameterized.expand(
+        [
+            ("conn_closed", django.db.OperationalError("server closed the connection unexpectedly"), True),
+            ("query_wait_timeout", django.db.OperationalError("FATAL: query_wait_timeout exceeded"), True),
+            ("interface_error", django.db.InterfaceError("connection already closed"), True),
+            ("non_transient_operational", django.db.OperationalError('relation "foo" does not exist'), False),
+            ("non_db_error_same_message", ValueError("server closed the connection unexpectedly"), False),
+        ]
+    )
+    def test_is_transient_db_connection_error(self, _name, exc, expected):
+        self.assertEqual(_is_transient_db_connection_error(exc), expected)
+
+    def test_is_transient_db_connection_error_walks_cause_chain(self):
+        inner = django.db.OperationalError("server closed the connection unexpectedly")
+        outer = RuntimeError("checkpoint write failed")
+        outer.__cause__ = inner
+        self.assertTrue(_is_transient_db_connection_error(outer))
 
     @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):

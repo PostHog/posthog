@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Literal, Optional, cast
 from uuid import UUID
 
+import django.db
 from django.conf import settings
 
 import structlog
@@ -211,6 +212,46 @@ class StreamError(Exception):
     pass
 
 
+class TransientStreamError(StreamError):
+    """A transient, self-recovering failure while writing to the stream, e.g. a pooled
+    Postgres connection drop on the pgbouncer pooler.
+
+    The chat-agent activity carries a Temporal ``RetryPolicy``, so these recover on the next
+    attempt. They opt out of error-tracking capture (via ``skip_error_tracking_capture``,
+    read by the Temporal activity interceptor) so a retry-recovered blip does not surface as
+    a fresh issue and bury genuinely distinct ``StreamError`` root causes under one bucket.
+    """
+
+    # Read reflectively by posthog/temporal/common/posthog_client.py to skip capture_exception.
+    skip_error_tracking_capture = True
+
+
+# pgbouncer (port 6543) recycles or kills pooled backends on failover, deploy, or pool
+# timeout, surfacing as transient connection drops that a retry recovers. psycopg wraps
+# them all in OperationalError/InterfaceError, so we substring-match the driver message.
+_TRANSIENT_DB_ERROR_MARKERS = (
+    "server closed the connection unexpectedly",
+    "connection already closed",
+    "connection failed",
+    "could not connect to server",
+    "query_wait_timeout",
+)
+
+
+def _is_transient_db_connection_error(exc: BaseException) -> bool:
+    """True when ``exc`` (or a cause in its chain) is a transient Postgres connection drop."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, django.db.OperationalError | django.db.InterfaceError):
+            message = str(current)
+            if any(marker in message for marker in _TRANSIENT_DB_ERROR_MARKERS):
+                return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 class ConversationRedisStream:
     """Manages conversation streaming from Redis streams."""
 
@@ -415,4 +456,17 @@ class ConversationRedisStream:
 
         except Exception as e:
             await self._write_status(StatusPayload(status="error", error=str(e)))
-            raise StreamError("Failed to write to stream")
+            error_type = type(e).__name__
+            if _is_transient_db_connection_error(e):
+                # Lean on the activity's Temporal RetryPolicy instead of reporting a fresh issue.
+                await logger.awarning(
+                    "Transient database connection drop while writing to stream, leaning on retry",
+                    stream_key=self._stream_key,
+                    error_type=error_type,
+                )
+                raise TransientStreamError(
+                    f"Transient database connection drop while writing to stream: {error_type}"
+                ) from e
+            # Surface the underlying type so error tracking separates distinct root causes
+            # instead of collapsing them under one generic message.
+            raise StreamError(f"Failed to write to stream: {error_type}") from e

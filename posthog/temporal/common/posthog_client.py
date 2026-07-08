@@ -72,6 +72,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
                 raise
+            # Exceptions that classify themselves as transient and self-recovering (e.g. a
+            # pooled DB connection drop the activity's RetryPolicy recovers) opt out of
+            # error-tracking capture so a retried blip doesn't surface as a fresh issue.
+            if getattr(e, "skip_error_tracking_capture", False):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {

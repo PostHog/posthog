@@ -116,6 +116,28 @@ class EgressBackpressureActivityWorkflow:
         )
 
 
+class _TransientMarkerError(Exception):
+    skip_error_tracking_capture = True
+
+
+@activity.defn
+async def skip_capture_activity(inputs: OptionallyFailingInputs) -> None:
+    raise _TransientMarkerError("transient, self-recovering; lean on retry")
+
+
+@workflow.defn
+class SkipCaptureActivityWorkflow:
+    @workflow.run
+    async def run(self, inputs: OptionallyFailingInputs) -> None:
+        await workflow.execute_activity(
+            skip_capture_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
 @workflow.defn
 class DirectlyFailingWorkflow:
     @workflow.run
@@ -245,6 +267,34 @@ async def test_egress_backpressure_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "EgressBackpressureActivityWorkflow",
+                    OptionallyFailingInputs(fail=True),
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_skip_error_tracking_capture_marker_is_not_captured(temporal_client: Client):
+    """An exception classified as transient and self-recovering (carrying skip_error_tracking_capture)
+    leans on Temporal's retry, so the interceptor must re-raise it without reporting it to error tracking."""
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[SkipCaptureActivityWorkflow],
+            activities=[skip_capture_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "SkipCaptureActivityWorkflow",
                     OptionallyFailingInputs(fail=True),
                     id=workflow_id,
                     task_queue=task_queue,
