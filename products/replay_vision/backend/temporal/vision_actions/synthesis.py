@@ -82,13 +82,11 @@ _SYSTEM_PROMPT = (
 
 _MARKDOWN_HEADING_RE = re.compile(r"^#{1,6}\s*(.+?)\s*#*$", re.MULTILINE)
 _MARKDOWN_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
-# `[obs 3]` citation markers the model emits, keyed to the labeled observation lines (see `_fetch_observations`).
-# The frontend resolves these into links to each observation; Slack drops them until it renders them as links.
+# `[obs N]` citation markers the model emits (see `_fetch_observations`); the in-app view resolves them to
+# observation links, Slack drops them.
 _OBS_CITATION_RE = re.compile(r"\s*\[obs \d+\]")
-# Hard cap on how many observations one run of adjacent citations may keep, enforced on the stored report even
-# when the model over-cites past the prompt's guidance — so a theme backed by dozens of recordings renders as
-# a representative handful, not a wall of links. Both the in-app view and Slack inherit this since it runs on
-# `synthesized_markdown`. It doesn't (and can't cheaply) enforce variety across sections — that's the prompt's job.
+# Cap adjacent citations on the stored report so an over-cited theme renders a representative handful, not a
+# wall of links. Cross-section variety stays the prompt's job.
 _MAX_CITATIONS_PER_RUN = 6
 _CITATION_RUN_RE = re.compile(r"\[obs \d+\](?:\s*\[obs \d+\])+")
 
@@ -150,8 +148,7 @@ def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryR
         logger.warning("vision_action.synthesis.empty_output", vision_action_id=str(action.id))
         return SynthesizeGroupSummaryResult(status=SynthesisStatus.SKIPPED_EMPTY)
 
-    # Defensively trim runaway citation lists before persisting, so a theme the model backed with dozens of
-    # recordings renders as a representative handful in both the in-app view and Slack.
+    # Trim runaway citation lists before persisting (see `_cap_citation_runs`).
     markdown = _cap_citation_runs(markdown)
 
     # Lead with a trusted header stating what this summary covers — scanner, count, and the window it
@@ -364,8 +361,8 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         # text from forging extra descriptor-bearing lines inside the untrusted fence.
         clean = re.sub(r"\s+", " ", EVENT_ID_CITATION_RE.sub("", text)).strip()
         descriptor = describe_output(output)
-        # Label each line `[obs N]` (1-based, in summary order) so the model can cite the observations behind a
-        # theme. N is the observation's position in `observation_ids`, which the serializer mirrors as `index`.
+        # Label each line `[obs N]` (1-based) so the model can cite it; N tracks `observation_ids` order,
+        # which the serializer mirrors as `index`.
         label = f"[obs {len(observation_ids) + 1}]"
         lines.append(f"- {label} ({created_at:%Y-%m-%d}) {f'{descriptor}: ' if descriptor else ''}{clean}")
         # Recorded in lockstep with `lines`: only observations whose summary was actually included.
@@ -450,8 +447,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
 
 def _markdown_to_slack(markdown: str) -> str:
     """Light Markdown→Slack-mrkdwn pass: headings and **bold** become *bold*. Truncates long reports."""
-    # Drop the `[obs N]` citation markers: Slack has no observation deep-link to resolve them to yet, so bare
-    # labels would just read as noise. The canonical `synthesized_markdown` keeps them for the in-app renderer.
+    # Drop `[obs N]` markers — Slack can't resolve them to links yet; `synthesized_markdown` keeps them for in-app.
     text = _OBS_CITATION_RE.sub("", markdown)
     text = _MARKDOWN_HEADING_RE.sub(lambda m: f"*{m.group(1)}*", text)
     text = _MARKDOWN_BOLD_RE.sub(lambda m: f"*{m.group(1)}*", text)
