@@ -3324,6 +3324,8 @@ export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
+export type OrganizationApiEnrichment = { [key: string]: unknown }
+
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -3403,6 +3405,7 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    readonly enrichment: OrganizationApiEnrichment
 }
 
 /**

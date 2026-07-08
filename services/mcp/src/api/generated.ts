@@ -31728,6 +31728,8 @@ export namespace Schemas {
 
     export type OrganizationMetadata = {[key: string]: string};
 
+    export type OrganizationEnrichment = { [key: string]: unknown };
+
     /**
      * * `0` - none
      * * `3` - config
@@ -31823,6 +31825,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion: boolean | null;
+      readonly enrichment: OrganizationEnrichment;
     }
 
     export interface OrganizationAIAccessRequestResponse {
@@ -40420,6 +40423,8 @@ export namespace Schemas {
 
     export type PatchedOrganizationMetadata = {[key: string]: string};
 
+    export type PatchedOrganizationEnrichment = { [key: string]: unknown };
+
     export interface PatchedOrganization {
       readonly id?: string;
       /** @maxLength 64 */
@@ -40499,6 +40504,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly is_pending_deletion?: boolean | null;
+      readonly enrichment?: PatchedOrganizationEnrichment;
     }
 
     export interface PatchedOrganizationDomain {

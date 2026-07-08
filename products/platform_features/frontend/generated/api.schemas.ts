@@ -55,6 +55,8 @@ export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
 
+export type OrganizationApiEnrichment = { [key: string]: unknown }
+
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -134,6 +136,7 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    readonly enrichment: OrganizationApiEnrichment
 }
 
 export interface PaginatedOrganizationListApi {
@@ -150,6 +153,8 @@ export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
 export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type PatchedOrganizationApiMetadata = { [key: string]: string }
+
+export type PatchedOrganizationApiEnrichment = { [key: string]: unknown }
 
 export interface PatchedOrganizationApi {
     readonly id?: string
@@ -230,6 +235,7 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    readonly enrichment?: PatchedOrganizationApiEnrichment
 }
 
 export interface OrganizationAIAccessRequestResponseApi {
