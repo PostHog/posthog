@@ -313,6 +313,47 @@ def refresh_team_github_integration(
         return existing
 
 
+def team_github_installation_id(team_id: int) -> str | None:
+    """Installation id of the team's GitHub App integration, or None when not installed."""
+    row = (
+        Integration.objects.filter(team_id=team_id, kind="github")
+        .exclude(integration_id__isnull=True)
+        .exclude(integration_id="")
+        .order_by("id")
+        .first()
+    )
+    return str(row.integration_id) if row is not None and row.integration_id else None
+
+
+def build_personal_github_oauth_authorize_url(
+    *, user: User, team_id: int, connect_from: str | None, next_url: str | None = None
+) -> str | None:
+    """OAuth-only ``/login/oauth/authorize`` URL that links the user's personal GitHub against
+    the team's existing App installation — no org picker, no install page. Returns None when
+    the fast path doesn't apply (no team installation, or the user already linked it).
+    ``connect_from`` is preserved so first-party surfaces return to the right client;
+    ``team_id``/``next_url`` ride along so the finish leg can restart the team install flow
+    when the installation turns out to be gone on GitHub."""
+    installation_id = team_github_installation_id(team_id)
+    if installation_id is None:
+        return None
+    if UserIntegration.objects.filter(user=user, kind="github", integration_id=installation_id).exists():
+        return None
+    token = get_random_string(48)
+    github_callback_state.store_unified_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.PERSONAL_OAUTH,
+            user_id=user.id,
+            team_id=team_id,
+            installation_id=installation_id,
+            next_url=next_url,
+            connect_from=connect_from,
+        ),
+    )
+    return github_oauth_authorize_url(urlencode({"token": token, "source": "user_integration"}))
+
+
 def build_team_github_oauth_authorize_url(
     *,
     user_id: int,

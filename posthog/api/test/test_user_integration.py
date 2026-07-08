@@ -433,7 +433,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_success=1", response["Location"])
         self.assertTrue(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
-        self.assertFalse(UserIntegration.objects.filter(integration_id="999").exists())
+        self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="999").exists())
         # The installation-access check went against the cached id, not the query one.
         verify_url = mock_verify_get.call_args[0][0]
         self.assertIn("/installations/12345/repositories", verify_url)
@@ -661,6 +661,67 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.get("/complete/github-link/", {"code": "test_code"})
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_error=missing_params", response["Location"])
+
+    @parameterized.expand(
+        [
+            # Uninstalled on GitHub (e.g. missed webhook): both probes 404 → purge rows, restart install.
+            ("installation_gone", [404, 404], True),
+            # Alive on the first probe: the user genuinely lacks access — one probe, keep the row.
+            ("user_lacks_access", [200], False),
+            # A transient 404 (GitHub incident): the confirmatory re-probe disagrees → keep the rows.
+            ("flapping_404", [404, 200], False),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch(
+        "posthog.api.github_callback.types.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch(
+        "posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access",
+        return_value=False,
+    )
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_personal_oauth_heals_stale_installation(
+        self, _name, probe_statuses, expect_heal, mock_user_from_code, _mock_verify, mock_client_request, _mock_settings
+    ):
+        mock_user_from_code.return_value = _authorization()
+        mock_client_request.side_effect = [MagicMock(status_code=status) for status in probe_statuses]
+        Integration.objects.create(team=self.team, kind="github", integration_id="145", config={})
+        state = f"heal_state_{_name}"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_OAUTH,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                installation_id="145",
+                next_url="/account-connected/github-integration?provider=github&connect_from=slack",
+                connect_from="slack",
+            ),
+        )
+
+        response = self.client.get("/complete/github-link/", {"code": "test_code", "state": state})
+
+        self.assertEqual(response.status_code, 302)
+        # A 404 must be confirmed by a re-probe before purging; a lone 200 short-circuits.
+        self.assertEqual(mock_client_request.call_count, len(probe_statuses))
+        if expect_heal:
+            self.assertIn("github.com/apps/posthog-dev/installations/new", response["Location"])
+            self.assertFalse(Integration.objects.filter(kind="github", integration_id="145").exists())
+            # The restart state must carry the team + return page so the install flow completes
+            # exactly like a fresh connect from the same surface.
+            restart_state = parse_qs(urlparse(response["Location"]).query)["state"][0]
+            token = parse_qs(restart_state)["token"][0]
+            cached = load_authorize_state(token, user_id=self.user.id)
+            assert cached is not None
+            self.assertEqual(cached.flow, FlowKind.TEAM_INSTALL)
+            self.assertEqual(cached.team_id, self.team.pk)
+            self.assertIn("connect_from=slack", cached.next_url or "")
+        else:
+            self.assertIn("error=installation_not_authorized", response["Location"])
+            self.assertTrue(Integration.objects.filter(kind="github", integration_id="145").exists())
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
     def test_github_link_personal_install_without_code_recovers_via_oauth_discover(self):

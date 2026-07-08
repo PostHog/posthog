@@ -42,7 +42,7 @@ from products.slack_app.backend.inbox_channel import (
     invite_user_to_inbox,
 )
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
-from products.slack_app.backend.onboarding import _public_url
+from products.slack_app.backend.onboarding import _github_connect_url, _public_url, is_github_connected
 from products.slack_app.backend.services import slack_search
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
 
@@ -84,6 +84,7 @@ EVENT_PERSONA_SELECTED = "slack_persona_onboarding_persona_selected"
 EVENT_FLEET_SHOWN = "slack_persona_onboarding_fleet_shown"
 EVENT_CONNECT_CLICKED = "slack_persona_onboarding_connect_clicked"
 EVENT_MCP_CONNECTED = "slack_persona_onboarding_mcp_connected"
+EVENT_GITHUB_CONNECTED = "slack_persona_onboarding_github_connected"
 EVENT_CHANNEL_INVITE_NEEDED = "slack_persona_onboarding_channel_invite_needed"
 EVENT_CHANNEL_CONFIGURED = "slack_persona_onboarding_channel_configured"
 EVENT_COMPLETED = "slack_persona_onboarding_completed"
@@ -451,6 +452,16 @@ def check_csm_data_readiness(team_id: int, posthog_user_id: int | None = None) -
     )
 
 
+def check_engineer_github_connected(team_id: int, posthog_user_id: int | None) -> bool:
+    """Presentation-only probe for the engineer completion (mirrors the setup DM's GitHub step) —
+    a failure renders the connect offer, never blocks onboarding."""
+    try:
+        return is_github_connected(team_id, posthog_user_id)
+    except Exception:
+        logger.warning("persona_onboarding_github_probe_failed", exc_info=True)
+        return False
+
+
 # ============================================================================
 # Settings-row state helpers
 # ============================================================================
@@ -742,6 +753,38 @@ def build_locked_in_blocks(
 
 FLEET_REVEAL_TEXT = "I'm going to create a few scouts for you."
 ENGINEER_COMPLETION_TEXT = "Got it, engineer it is."
+ENGINEER_GITHUB_CONNECTED_TEXT = (
+    f"{ENGINEER_COMPLETION_TEXT}\n\nGitHub is already connected, so I can start shipping code when you're ready."
+)
+ENGINEER_GITHUB_NEEDED_TEXT = f"{ENGINEER_COMPLETION_TEXT}\n\nOne thing first: connect your GitHub so I can open PRs and help you ship code.\n\nMention `@PostHog` in a channel or message me here to hand me a task."
+GITHUB_CONNECTED_NOTE = "✅ GitHub connected."
+GITHUB_CONNECTED_FOLLOWUP_TEXT = (
+    "🎉 GitHub is connected, you're all set! Mention `@PostHog` in a channel or message me here to hand me a task."
+)
+
+
+def build_engineer_completion_blocks(team_id: int, github_connected: bool) -> list[dict]:
+    if github_connected:
+        return [_section(ENGINEER_GITHUB_CONNECTED_TEXT)]
+    # Same OAuth entry as the setup DM's Connect GitHub button — one flow connects the team
+    # install and the user's personal GitHub, then returns to Slack.
+    return [
+        _section(ENGINEER_GITHUB_NEEDED_TEXT),
+        {
+            "type": "actions",
+            "elements": [
+                _button(
+                    "Connect GitHub",
+                    CONNECT_SOURCE_ACTION_ID,
+                    "github",
+                    style="primary",
+                    url=_github_connect_url(team_id),
+                )
+            ],
+        },
+    ]
+
+
 OTHER_COMPLETION_TEXT = (
     "Thanks! Message me here any time — ask about your product data, dashboards, or anything PostHog."
 )
@@ -1114,7 +1157,7 @@ def handle_block_action(payload: dict, action: dict) -> HttpResponse:
 
 def _run_action(handler: Callable[[], None], payload: dict, action_id: str) -> None:
     # A double-click lands two handler threads that both clear the `step ==` guard before either
-    # writes state (double-posting a completion). A per-user
+    # writes state (double-posting a completion, re-writing the github-connect followup). A per-user
     # claim makes handling single-flight: only the first thread runs the handler; the duplicate
     # skips. The first thread's `_freeze_buttons` (a chat_update on the shared message) is what the
     # user sees, so a skipped duplicate never strands frozen buttons.
@@ -1290,6 +1333,85 @@ def _refresh_fleet_reveal(
         logger.warning("persona_onboarding_fleet_refresh_failed", exc_info=True)
 
 
+def _remember_github_followup(ctx: _FlowContext, posted: SlackResponse) -> None:
+    """Track the completion message whose Connect GitHub offer is open, so the post-OAuth signal
+    (see ``resolve_github_connect_followups``) can flip it to ✅ and confirm in the thread."""
+    ts = posted.get("ts")
+    if not ts:
+        return
+    ctx.row.github_connect_followup = {
+        "integration_id": ctx.integration.id,
+        "team_id": ctx.integration.team_id,
+        "posthog_user_id": ctx.state.get("posthog_user_id"),
+        "channel_id": ctx.state.get("dm_channel_id"),
+        "message_ts": ts,
+        "thread_ts": ctx.state.get("thread_ts"),
+    }
+    ctx.row.save(update_fields=["github_connect_followup", "updated_at"])
+
+
+def resolve_github_connect_followups(*, posthog_user_id: int | None = None, team_id: int | None = None) -> None:
+    """GitHub-connected return leg. There is no browser callback into Slack here (the GitHub
+    OAuth ends on a generic web page), so signal receivers call this when a GitHub integration
+    row appears: every completion message still offering a connect that the new row could
+    satisfy gets flipped to ✅ plus a confirmation reply. Idempotent — a compare-and-clear on
+    the pointer makes each message resolve exactly once, even when the team install and the
+    personal link land in separate requests."""
+    if posthog_user_id is None and team_id is None:
+        return
+    rows = SlackSettings.objects.filter(github_connect_followup__isnull=False)
+    if posthog_user_id is not None:
+        rows = rows.filter(github_connect_followup__posthog_user_id=posthog_user_id)
+    if team_id is not None:
+        rows = rows.filter(github_connect_followup__team_id=team_id)
+    for row in rows:
+        followup = row.github_connect_followup or {}
+        if not is_github_connected(followup.get("team_id"), followup.get("posthog_user_id")):
+            continue  # the other half (team install or personal link) hasn't arrived yet
+        claimed = SlackSettings.objects.filter(pk=row.pk, github_connect_followup=followup).update(
+            github_connect_followup=None, updated_at=timezone.now()
+        )
+        if not claimed:
+            continue
+        integration = Integration.objects.filter(id=followup.get("integration_id"), kind="slack").first()
+        if integration is None or integration.integration_id != row.slack_workspace_id:
+            continue
+        _post_github_connected_followup(integration, row, followup)
+
+
+def _post_github_connected_followup(integration: Integration, row: SlackSettings, followup: dict) -> None:
+    """Rewrite the connect offer to its ✅ note and confirm in the thread. Best-effort per
+    message — the pointer is already claimed, so failures log and drop rather than retry."""
+    client = SlackIntegration(integration).client
+    channel_id = str(followup.get("channel_id") or "")
+    message_ts = str(followup.get("message_ts") or "")
+    if channel_id and message_ts:
+        note_text = f"{ENGINEER_COMPLETION_TEXT} {GITHUB_CONNECTED_NOTE}"
+        blocks = [_section(ENGINEER_COMPLETION_TEXT), _context(GITHUB_CONNECTED_NOTE)]
+        try:
+            client.chat_update(channel=channel_id, ts=message_ts, text=note_text, blocks=blocks)
+        except Exception:
+            logger.warning("persona_onboarding_github_followup_update_failed", exc_info=True)
+    if channel_id:
+        try:
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=followup.get("thread_ts"),
+                text=GITHUB_CONNECTED_FOLLOWUP_TEXT,
+                blocks=[_section(GITHUB_CONNECTED_FOLLOWUP_TEXT)],
+            )
+        except Exception:
+            logger.warning("persona_onboarding_github_followup_post_failed", exc_info=True)
+    capture_slack_event(
+        integration,
+        EVENT_GITHUB_CONNECTED,
+        slack_user_id=row.slack_user_id,
+        distinct_id=slack_user_distinct_id(row.slack_workspace_id, row.slack_user_id or ""),
+        persona=row.persona,
+        posthog_user_id=followup.get("posthog_user_id"),
+    )
+
+
 def _handle_persona_select(payload: dict, action: dict) -> None:
     ctx = _load_context(payload)
     if ctx is None:
@@ -1320,11 +1442,20 @@ def _handle_persona_select(payload: dict, action: dict) -> None:
         ctx.row.onboarding_state = None
         ctx.row.save(update_fields=["persona", "onboarded_at", "onboarding_state", "updated_at"])
         completion_props: dict[str, object] = {}
+        github_connected = True
         if persona == PERSONA_ENGINEER:
-            text = ENGINEER_COMPLETION_TEXT
+            github_connected = check_engineer_github_connected(
+                ctx.integration.team_id, ctx.state.get("posthog_user_id")
+            )
+            completion_props["github_connected"] = github_connected
+            text = ENGINEER_GITHUB_CONNECTED_TEXT if github_connected else ENGINEER_GITHUB_NEEDED_TEXT
+            blocks = build_engineer_completion_blocks(ctx.integration.team_id, github_connected)
         else:
             text = OTHER_COMPLETION_TEXT
-        _post(ctx, [_section(text)], text)
+            blocks = [_section(text)]
+        posted = _post(ctx, blocks, text)
+        if not github_connected:
+            _remember_github_followup(ctx, posted)
         _capture_flow_event(ctx, EVENT_COMPLETED, persona=persona, scouts_provisioned=0, **completion_props)
         _republish_home(ctx.integration, ctx.slack_user_id)
         return

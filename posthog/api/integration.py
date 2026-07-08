@@ -2,7 +2,7 @@ import os
 import re
 import json
 from typing import Any, cast
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -22,11 +22,13 @@ from rest_framework.response import Response
 
 from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.team_services import (
+    build_personal_github_oauth_authorize_url,
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
 )
 from posthog.api.github_callback.types import (
+    APP_CONNECT_FROM_VALUES,
     FlowKind,
     GitHubAuthorizeState,
     github_app_install_url,
@@ -952,6 +954,22 @@ class IntegrationViewSet(
         elif kind == "github":
             if next and not is_relative_url(next):
                 raise ValidationError("next must be a relative path starting with /")
+            # Surface-tagged connect flows (the Slack/desktop/mobile Connect buttons) need the
+            # user's personal GitHub link as well as the team install. When the App is already
+            # installed, GitHub's /installations/new page only re-configures it and never runs
+            # the user-authorization leg — so those flows go straight to the OAuth-only
+            # authorize that links the missing personal half. Web-app callers keep the
+            # install page unconditionally: their `next` expects a team-level round trip.
+            connect_from = dict(parse_qsl(urlparse(next).query)).get("connect_from")
+            if connect_from in APP_CONNECT_FROM_VALUES:
+                oauth_url = build_personal_github_oauth_authorize_url(
+                    user=cast(User, request.user),
+                    team_id=self.team_id,
+                    connect_from=connect_from,
+                    next_url=next or None,
+                )
+                if oauth_url is not None:
+                    return redirect(oauth_url)
             state_param = urlencode({"next": next, "token": token})
             installation_url = github_app_install_url(state_param)
             github_callback_state.store_unified_authorize_state(

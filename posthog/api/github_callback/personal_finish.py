@@ -9,6 +9,7 @@ import requests
 import structlog
 
 from posthog.api.github_callback import state
+from posthog.api.github_callback.installation_events import purge_installation_rows
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
@@ -176,6 +177,10 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                     installation_id=installation_id,
                     user_id=user.id,
                 )
+                if flow == FlowKind.PERSONAL_OAUTH:
+                    healed = _restart_install_for_dead_installation(user, installation_id, authorize_state)
+                    if healed is not None:
+                        return healed
                 return _error("installation_not_authorized")
 
         try:
@@ -213,6 +218,66 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         )
 
     return FinishResult(redirect_kind="personal_finish", connect_from=connect_from_value)
+
+
+def _restart_install_for_dead_installation(
+    user: User, installation_id: str, authorize_state: GitHubAuthorizeState
+) -> FinishResult | None:
+    """Self-healing for a stale fast path: PERSONAL_OAUTH is the one flow whose installation id
+    comes from our database, which can outlive the GitHub installation when an uninstall webhook
+    is missed. When GitHub confirms the installation is gone, purge the stale rows and restart
+    the team install flow instead of dead-ending. Returns None when the installation is alive
+    (the user genuinely lacks access) or the probe is inconclusive."""
+    if authorize_state.team_id is None:
+        return None
+    try:
+        probe = GitHubIntegration.client_request(f"installations/{installation_id}")
+    except Exception:
+        logger.warning("github_link: stale-installation probe failed", installation_id=installation_id, exc_info=True)
+        return None
+    if probe.status_code != 404:
+        return None
+    # `purge_installation_rows` deletes every Integration/UserIntegration row for this installation
+    # across all teams, so a lone 404 — which a transient GitHub incident can emit — must not drive
+    # it. Require a confirmatory second 404 before the destructive path; on any disagreement, take
+    # the non-destructive branch (return None) instead of wiping cross-team rows.
+    try:
+        confirm = GitHubIntegration.client_request(f"installations/{installation_id}")
+    except Exception:
+        logger.warning(
+            "github_link: stale-installation re-probe failed", installation_id=installation_id, exc_info=True
+        )
+        return None
+    if confirm.status_code != 404:
+        logger.info(
+            "github_link: stale-installation probes disagreed, skipping purge",
+            installation_id=installation_id,
+            first_status=probe.status_code,
+            second_status=confirm.status_code,
+        )
+        return None
+    team_deleted, user_deleted = purge_installation_rows(installation_id)
+    logger.info(
+        "github_link: installation gone on GitHub, purged stale rows and restarting install flow",
+        installation_id=installation_id,
+        user_id=user.id,
+        team_integrations_deleted=team_deleted,
+        user_integrations_deleted=user_deleted,
+    )
+    token = get_random_string(48)
+    state.store_unified_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.TEAM_INSTALL,
+            user_id=user.id,
+            team_id=authorize_state.team_id,
+            next_url=authorize_state.next_url,
+        ),
+    )
+    return FinishResult(
+        redirect_kind="oauth_url",
+        oauth_url=github_app_install_url(urlencode({"next": authorize_state.next_url or "", "token": token})),
+    )
 
 
 def finish_personal_setup_update(request: HttpRequest) -> FinishResult:

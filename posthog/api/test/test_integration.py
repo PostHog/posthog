@@ -3,7 +3,7 @@ import json
 import time
 import hashlib
 from datetime import timedelta
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlparse
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -1867,6 +1867,52 @@ class TestGitHubIntegrationStateValidation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "next must be a relative path" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            # Surface-tagged flow + personal link missing → OAuth-only leg that creates it.
+            ("slack_needs_personal_link", "slack", False, "https://github.com/login/oauth/authorize"),
+            # Personal link already exists → the install page (repo re-configuration) as before.
+            ("slack_already_linked", "slack", True, "https://github.com/apps/posthog-dev/installations/new"),
+            # Web-app flows (no connect_from) keep the team-level round trip unconditionally.
+            ("web_needs_personal_link", None, False, "https://github.com/apps/posthog-dev/installations/new"),
+        ]
+    )
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id")
+    @patch(
+        "posthog.api.github_callback.types.get_instance_settings",
+        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
+    )
+    def test_github_authorize_routes_to_personal_oauth_when_team_installed(
+        self, _name, connect_from, personal_linked, expected_prefix, _mock_settings
+    ):
+        client = HttpClient()
+        client.force_login(self.user)
+        Integration.objects.create(team=self.team, kind="github", integration_id="145", config={})
+        if personal_linked:
+            UserIntegration.objects.create(
+                user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="145"
+            )
+        next_params = {"provider": "github", "project_id": self.team.pk}
+        if connect_from:
+            next_params["connect_from"] = connect_from
+        next_path = f"/account-connected/github-integration?{urlencode(next_params)}"
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/",
+            {"kind": "github", "next": next_path},
+        )
+
+        assert response.status_code == 302
+        assert response["Location"].startswith(expected_prefix)
+        if expected_prefix.endswith("/oauth/authorize"):
+            state = dict(parse_qsl(urlparse(response["Location"]).query))["state"]
+            token = dict(parse_qsl(state))["token"]
+            cached = cache.get(f"github_authorize:{token}")
+            assert cached is not None
+            assert cached["flow"] == "personal_oauth"
+            assert cached["installation_id"] == "145"
+            assert cached["connect_from"] == "slack"
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
