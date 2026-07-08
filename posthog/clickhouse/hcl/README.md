@@ -50,7 +50,9 @@ The convergence gate closes it, in **two steps** that run inside the multinode m
 
 1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
-   cluster (a `--network host` container, or `HCLEXP_BIN` locally).
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
+   `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
+   informational provenance, not gated by `check-live.sh`.
 2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
    `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
    `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.

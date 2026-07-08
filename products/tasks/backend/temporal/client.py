@@ -18,6 +18,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -407,6 +408,21 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             # TERMINATE_IF_RUNNING closes any prior workflow under this ID
             # atomically before starting the new one, avoiding the async-cancel
             # race where a best-effort cancel signal hasn't landed yet.
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
+    """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "build-sandbox-image",
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id),
+            id=f"build-sandbox-image-{image_id}",
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),

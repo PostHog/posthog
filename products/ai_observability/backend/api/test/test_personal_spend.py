@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import time
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import (
@@ -14,15 +16,25 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory, force_authenticate
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.ai_observability.backend.api.personal_spend import (
+    CROSS_REGION_SIGNATURE_HEADER,
+    CROSS_REGION_TIMESTAMP_HEADER,
+    PersonalSpendEUProxyViewSet,
+    sign_cross_region_spend_request,
+)
 
 ENDPOINT = "/api/llm_analytics/@me/spend/"
 # `product` is required server-side; spell that out once for every happy-path test.
@@ -536,3 +548,216 @@ class TestPersonalSpendNonSessionAuth(APIBaseTest):
         token = self._make_oauth_token(scope)
         response = self.client.get(ENDPOINT_OK, headers={"authorization": f"Bearer {token}"})
         assert response.status_code == expected, response.content
+
+
+INTERNAL_ENDPOINT = "/api/llm_analytics/internal/spend/"
+CROSS_REGION_SECRET = "test-cross-region-secret"
+
+
+def _json_body(payload: dict) -> bytes:
+    return json.dumps(payload).encode("utf-8")
+
+
+def _signed_headers(body: bytes, secret: str = CROSS_REGION_SECRET, timestamp: int | None = None) -> dict[str, str]:
+    signature, ts = sign_cross_region_spend_request(body, secret, timestamp=timestamp)
+    return {CROSS_REGION_SIGNATURE_HEADER: signature, CROSS_REGION_TIMESTAMP_HEADER: ts}
+
+
+class TestPersonalSpendInternalEndpoint(ClickhouseTestMixin, APIBaseTest):
+    """The US-side receiver of the EU→US proxy: HMAC-gated, no user auth."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        overrides = override_settings(
+            LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id,
+            PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET,
+        )
+        overrides.enable()
+        self.addCleanup(overrides.disable)
+        cache.clear()
+        # No session — the endpoint must work purely off the signature.
+        self.client.logout()
+        self.payload = {"email": "someone@example.com", "product": "posthog_code"}
+        self.body = _json_body(self.payload)
+
+    def _post(self, body: bytes, headers: dict[str, str] | None = None):
+        return self.client.post(
+            INTERNAL_ENDPOINT,
+            data=body,
+            content_type="application/json",
+            headers=headers or {},
+        )
+
+    def test_unsigned_request_rejected(self) -> None:
+        response = self._post(self.body)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_wrong_secret_rejected(self) -> None:
+        response = self._post(self.body, _signed_headers(self.body, secret="wrong-secret"))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_tampered_body_rejected(self) -> None:
+        headers = _signed_headers(self.body)
+        tampered = _json_body({**self.payload, "email": "victim@example.com"})
+        response = self._post(tampered, headers)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_expired_timestamp_rejected(self) -> None:
+        stale_ts = int(time.time()) - 3600
+        response = self._post(self.body, _signed_headers(self.body, timestamp=stale_ts))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_invalid_utf8_body_rejected(self) -> None:
+        headers = {
+            CROSS_REGION_SIGNATURE_HEADER: "irrelevant",
+            CROSS_REGION_TIMESTAMP_HEADER: str(int(time.time())),
+        }
+        response = self._post(b"\xff\xfe\xfa", headers)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_unset_secret_disables_endpoint(self) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=""):
+            response = self._post(self.body, _signed_headers(self.body))
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_missing_email_rejected(self) -> None:
+        body = _json_body({"product": "posthog_code"})
+        response = self._post(body, _signed_headers(body))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_invalid_product_rejected(self) -> None:
+        body = _json_body({"email": "someone@example.com", "product": "wibble"})
+        response = self._post(body, _signed_headers(body))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_signed_request_computes_spend_for_asserted_email(self) -> None:
+        _create_person(distinct_ids=["eu-user"], team=self.team, properties={"email": "someone@example.com"})
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="eu-user",
+            properties={
+                "$ai_input_tokens": 100,
+                "$ai_output_tokens": 10,
+                "$ai_model": "claude-opus-4-8",
+                "$ai_trace_id": "trace-eu-1",
+                "$ai_total_cost_usd": 2.5,
+                "ai_product": "posthog_code",
+            },
+        )
+        flush_persons_and_events()
+
+        response = self._post(self.body, _signed_headers(self.body))
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.json()
+        assert body["summary"]["scoped_cost_usd"] == 2.5
+        assert body["summary"]["scoped_event_count"] == 1
+
+    def test_signed_request_other_email_sees_nothing(self) -> None:
+        _create_person(distinct_ids=["eu-user"], team=self.team, properties={"email": "someone@example.com"})
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="eu-user",
+            properties={"$ai_total_cost_usd": 2.5, "ai_product": "posthog_code"},
+        )
+        flush_persons_and_events()
+
+        body = _json_body({"email": "other@example.com", "product": "posthog_code"})
+        response = self._post(body, _signed_headers(body))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["summary"]["scoped_cost_usd"] == 0
+
+
+class TestPersonalSpendEUProxy(APIBaseTest):
+    """The EU-side view: authenticates locally, then relays a signed call to US."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _get(self, query: dict | None = None, *, user=None):
+        factory = APIRequestFactory()
+        request = factory.get("/api/llm_analytics/@me/spend/", data=query or {"product": "posthog_code"})
+        if user is not None:
+            force_authenticate(request, user=user)
+        return PersonalSpendEUProxyViewSet.as_view({"get": "list"})(request)
+
+    def test_unauthenticated_rejected_in_region(self) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            response = self._get()
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_falls_back_to_redirect_while_secret_unset(self) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=""):
+            response = self._get(user=self.user)
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith("https://us.posthog.com/api/llm_analytics/@me/spend/")
+
+    def test_invalid_params_rejected_without_upstream_call(self) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                response = self._get({"product": "wibble"}, user=self.user)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        post.assert_not_called()
+
+    def test_relays_upstream_success_and_signs_asserted_email(self) -> None:
+        upstream_payload = {"summary": {"scoped_cost_usd": 1.25}}
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                post.return_value.status_code = status.HTTP_200_OK
+                post.return_value.json.return_value = upstream_payload
+                response = self._get(user=self.user)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == upstream_payload
+
+        (target_url,) = post.call_args.args
+        assert target_url.endswith("/api/llm_analytics/internal/spend/")
+        sent_body = post.call_args.kwargs["data"]
+        sent = json.loads(sent_body)
+        assert sent["email"] == self.user.email
+        assert sent["product"] == "posthog_code"
+        headers = post.call_args.kwargs["headers"]
+        ts = int(headers[CROSS_REGION_TIMESTAMP_HEADER])
+        expected_signature, _ = sign_cross_region_spend_request(sent_body, CROSS_REGION_SECRET, timestamp=ts)
+        assert headers[CROSS_REGION_SIGNATURE_HEADER] == expected_signature
+
+    def test_repeat_request_served_from_local_cache(self) -> None:
+        upstream_payload = {"summary": {"scoped_cost_usd": 1.25}}
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                post.return_value.status_code = status.HTTP_200_OK
+                post.return_value.json.return_value = upstream_payload
+                first = self._get(user=self.user)
+                second = self._get(user=self.user)
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        assert second.data == upstream_payload
+        assert post.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("upstream_throttle", status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("upstream_validation", status.HTTP_400_BAD_REQUEST, status.HTTP_400_BAD_REQUEST),
+            ("upstream_signature_mismatch", status.HTTP_401_UNAUTHORIZED, status.HTTP_502_BAD_GATEWAY),
+            ("upstream_server_error", status.HTTP_500_INTERNAL_SERVER_ERROR, status.HTTP_502_BAD_GATEWAY),
+        ]
+    )
+    def test_upstream_error_mapping(self, _label: str, upstream_status: int, expected: int) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch("products.ai_observability.backend.api.personal_spend.requests.post") as post:
+                post.return_value.status_code = upstream_status
+                post.return_value.json.return_value = {"detail": "upstream detail"}
+                response = self._get(user=self.user)
+        assert response.status_code == expected
+
+    def test_transport_failure_maps_to_bad_gateway(self) -> None:
+        with override_settings(PERSONAL_SPEND_CROSS_REGION_SECRET=CROSS_REGION_SECRET):
+            with patch(
+                "products.ai_observability.backend.api.personal_spend.requests.post",
+                side_effect=requests.ConnectionError("boom"),
+            ):
+                response = self._get(user=self.user)
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY

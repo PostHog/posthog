@@ -100,11 +100,12 @@ describe('Hogflow Executor', () => {
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-        // Kill switch off — getSkipReason short-circuits to null, so email validation never does real DNS here.
-        const emailValidationService = new EmailValidationService(
-            { CDP_EMAIL_MX_VALIDATION_ENABLED: false, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '' },
-            null
-        )
+        // Stubbed to always allow: this suite covers executor routing and flow control,
+        // not MX validation (email-validation.service.test.ts does), and the real
+        // service would fire live DNS lookups for the fixture recipients here.
+        const emailValidationService = {
+            getSkipReason: () => Promise.resolve(null),
+        } as unknown as EmailValidationService
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
