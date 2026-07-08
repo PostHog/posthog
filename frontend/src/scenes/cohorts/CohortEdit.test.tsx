@@ -342,7 +342,7 @@ describe('cohortEditLogic', () => {
 
             // Verify Retry button is shown as the primary action in the error banner
             // LemonBanner renders action buttons - find the one with "Retry" text
-            const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
+            const retryButtons = screen.getAllByText('Retry')
             expect(retryButtons.length).toBeGreaterThan(0)
             const retryButton = retryButtons[0]
 

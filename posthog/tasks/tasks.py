@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import ProgrammingError, connection
+from django.db import OperationalError, ProgrammingError, connection
 from django.utils import timezone
 
 import requests
@@ -753,6 +753,11 @@ def capture_task_run_state_metrics() -> None:
         # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
         # not an error worth reporting every minute.
         logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
+    except OperationalError as err:
+        # Transient Postgres connection blips (connection-acquisition timeouts, dropped connections)
+        # on this every-60s gauge task are infra noise, not a real failure — demote to a warning so a
+        # momentary DB hiccup doesn't masquerade as a genuine error in error tracking.
+        logger.warning("capture_task_run_state_metrics_transient_db_error", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)

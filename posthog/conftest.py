@@ -27,13 +27,13 @@ def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
-        CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
+        SEED_DATA_TABLES,
         build_query,
         get_table_name,
     )
@@ -74,8 +74,16 @@ def create_clickhouse_tables():
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    run_clickhouse_statement_in_parallel(data_queries)
+    # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
+    # string on every pytest invocation. With a reused database the seed data is already
+    # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
+    # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
+    # so a new seed table added there is automatically picked up here.
+    # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
+    for table_name, query_fn in SEED_DATA_TABLES:
+        count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
+        if not count:
+            run_clickhouse_statement_in_parallel([build_query(query_fn)])
 
 
 def reset_clickhouse_tables():

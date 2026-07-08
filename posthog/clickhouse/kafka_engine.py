@@ -44,6 +44,8 @@ CONSUMER_GROUP_PERSON_DISTINCT_ID_OVERRIDES_WS = "clickhouse_person_distinct_id_
 CONSUMER_GROUP_AI_EVENTS_WS = "clickhouse_ai_events_ws"
 CONSUMER_GROUP_HEATMAPS_WS = "clickhouse_heatmaps_ws"
 CONSUMER_GROUP_INGESTION_WARNINGS_WS = "clickhouse_ingestion_warnings_ws"
+# v2 reads the same topic as v1 via its own consumer group, so it gets the full stream independently.
+CONSUMER_GROUP_INGESTION_WARNINGS_V2 = "clickhouse_ingestion_warnings_v2"
 CONSUMER_GROUP_SESSION_REPLAY_EVENTS_WS = "clickhouse_session_replay_events_ws"
 CONSUMER_GROUP_SESSION_REPLAY_FEATURES_WS = "clickhouse_session_replay_features_ws"
 CONSUMER_GROUP_COHORT_MEMBERSHIP_WS = "clickhouse_cohort_membership_ws"

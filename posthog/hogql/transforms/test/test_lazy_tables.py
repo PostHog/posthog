@@ -93,6 +93,18 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select("select count() from persons")
         self._assert_matches_snapshot(printed)
 
+    def test_sample_on_lazy_table_is_stripped(self):
+        # A lazy table expands into an aggregating subquery; ClickHouse rejects a SAMPLE modifier on
+        # a subquery, so it must be dropped rather than left to produce invalid SQL — but not
+        # silently: the user asked for sampling and needs to know it did not apply.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers())
+        expr = parse_select("select session_id, $channel_type from sessions SAMPLE 10")
+        printed, _ = prepare_and_print_ast(expr, context, "clickhouse")
+        assert "SAMPLE" not in printed
+        assert [warning.message for warning in context.warnings] == [
+            'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
+        ]
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(

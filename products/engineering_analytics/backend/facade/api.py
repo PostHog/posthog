@@ -25,6 +25,7 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -35,6 +36,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequestResult,
     RepoOverview,
     RunFailureLogs,
+    WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowJobAggregate,
@@ -185,6 +187,23 @@ def get_workflow_runner_costs(
     )
 
 
+def list_author_workflow_costs(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowCost]:
+    return logic.build_author_workflow_costs(
+        curated=_authorized_source(team, source_id, user_access_control),
+        author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
 def list_workflow_jobs(
     *,
     team: Team,
@@ -234,6 +253,27 @@ def list_workflow_health(
     )
 
 
+def list_flaky_tests(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> FlakyTestList:
+    return logic.build_flaky_tests(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
+
+
 def list_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     return logic.build_github_sources(team=team, user_access_control=user_access_control)
 
@@ -272,6 +312,23 @@ def get_repo_overview(
         curated=_authorized_source(team, source_id, user_access_control),
         date_from=date_from,
         date_to=date_to,
+    )
+
+
+def get_repo_run_activity(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunActivity:
+    return logic.build_repo_run_activity(
+        curated=_authorized_source(team, source_id, user_access_control),
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
     )
 
 

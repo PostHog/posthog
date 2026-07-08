@@ -56,6 +56,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
@@ -2509,6 +2510,8 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
+            # A SAMPLE on a lazy table is dropped when the table expands into a subquery: ClickHouse
+            # rejects SAMPLE on a subquery, and sampling a pre-aggregated table is meaningless.
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
@@ -2527,7 +2530,7 @@ class TestPrinter(BaseTest):
                     "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
                     "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
                     "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
-                    "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
+                    "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                     f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
                 ),
             )
@@ -2559,6 +2562,7 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
+            # SAMPLE on the lazy persons table is dropped once it expands into a subquery.
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
                 context,
@@ -2571,7 +2575,7 @@ class TestPrinter(BaseTest):
                     f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                     f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
                     f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
-                    f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+                    f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
                 ),
             )
 
@@ -3829,6 +3833,35 @@ class TestPrinter(BaseTest):
         printed = self._print("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
         self.assertIn("toDecimal128(100, 10)", printed)
         self.assertNotIn("toDecimal64(100", printed)
+
+    def test_decimal_division_uses_divide_decimal(self):
+        # Regression guard: dividing two Decimal columns whose scales differ (e.g. a warehouse
+        # Decimal(38, 2) column over a Decimal(38, 18) one) makes ClickHouse's plain divide() derive a
+        # negative result scale and error with "Decimal result's scale is less than argument's one".
+        # divideDecimal derives a valid result scale instead, so the query runs. Non-division decimal
+        # arithmetic (and non-decimal division) must stay on the plain operators.
+        from posthog.hogql.database.models import DecimalDatabaseField
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        assert context.database is not None
+        events = context.database.get_table("events")
+        events.fields["wholesale"] = DecimalDatabaseField(name="wholesale", nullable=True)
+        events.fields["rate"] = DecimalDatabaseField(name="rate", nullable=True)
+
+        # The reported shape: a decimal column divided by nullIf(decimal_column, 0).
+        printed = self._select("SELECT wholesale / nullIf(rate, 0) AS ratio FROM events", context)
+        assert "divideDecimal(" in printed, printed
+        assert "divide(" not in printed, printed
+
+        # Multiplication of the same decimals is unaffected.
+        printed_mult = self._select("SELECT wholesale * rate AS product FROM events", context)
+        assert "multiply(" in printed_mult, printed_mult
+        assert "divideDecimal" not in printed_mult, printed_mult
+
+        # Non-decimal division still uses plain divide().
+        printed_int = self._select("SELECT 10 / 3 AS q FROM events", context)
+        assert "divide(10, 3)" in printed_int, printed_int
+        assert "divideDecimal" not in printed_int, printed_int
 
     def test_sortable_semver(self):
         # Also test different capitalizations
@@ -6720,6 +6753,26 @@ class TestPostgresPrinter(BaseTest):
         self.assertEqual(type(parsed), type(node), f"AST type changed after roundtrip of: {printed!r}")
         reprinted = parsed.to_hogql()
         self.assertEqual(printed, reprinted)
+
+    @parameterized.expand(
+        [
+            ("array_access_over_alias", "(1 as x)[1]"),
+            ("nullish_array_access_over_alias", "(1 as x)?.[1]"),
+            ("property_access_over_alias", "(1 as x).a"),
+            ("array_access_over_between", "(1 between 2 and 3)[1]"),
+            ("array_access_over_is_distinct_from", "(1 is distinct from 2)[1]"),
+        ]
+    )
+    def test_array_access_over_loose_operand_roundtrips(self, _name: str, source: str):
+        """Regression: `[...]` binds tighter than the infix-printed forms (alias,
+        BETWEEN, IS DISTINCT FROM), so the printer must parenthesize such an array
+        operand — `(1 as x)[1]` used to print as `1 AS x[1]`, which does not parse
+        back, and `(1 between 2 and 3)[1]` silently regrouped on reparse."""
+        node = parse_expr(source)
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(clear_locations(parsed), clear_locations(node), f"AST changed after roundtrip: {printed!r}")
+        self.assertEqual(parsed.to_hogql(), printed)
 
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")

@@ -859,6 +859,24 @@ class ClickHousePrinter(BasePrinter):
         else:
             raise ImpossibleASTError("Impossible")
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        # ClickHouse's plain divide() derives a decimal result scale of (dividend_scale - divisor_scale).
+        # When the divisor's scale exceeds the dividend's — e.g. a Decimal(38, 2) column divided by a
+        # Decimal(38, 18) one — that underflows to a negative scale and the query errors out with
+        # "Decimal result's scale is less than argument's one". divideDecimal derives a valid result scale
+        # (the max of the two operand scales, computed at runtime) instead, mirroring the currency-conversion
+        # path in _render_posthog_function_call which uses divideDecimal for the same reason.
+        if node.op == ast.ArithmeticOperationOp.Div and self._both_operands_decimal(node):
+            return f"divideDecimal({self.visit(node.left)}, {self.visit(node.right)})"
+        return super().visit_arithmetic_operation(node)
+
+    def _both_operands_decimal(self, node: ast.ArithmeticOperation) -> bool:
+        if node.left.type is None or node.right.type is None:
+            return False
+        left_type = node.left.type.resolve_constant_type(self.context)
+        right_type = node.right.type.resolve_constant_type(self.context)
+        return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
+
     def visit_call(self, node: ast.Call):
         serialized = self._serialize_to_json_string_call(node)
         if serialized is not None:

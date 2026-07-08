@@ -5,6 +5,7 @@ from typing import Any, Optional, Union
 from dateutil.parser import isoparse, parser
 
 from posthog.clickhouse.client import sync_execute
+from posthog.interval_specs import INTERVAL_SPECS
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -143,19 +144,11 @@ class ThresholdMode(Enum):
 staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
         None: timedelta(hours=6),
-        "minute": timedelta(minutes=5),
-        "hour": timedelta(hours=1),
-        "day": timedelta(hours=6),
-        "week": timedelta(days=1),
-        "month": timedelta(days=1),
+        **{name: spec.staleness_default for name, spec in INTERVAL_SPECS.items() if spec.staleness_default is not None},
     },
     ThresholdMode.LAZY: {
         None: timedelta(hours=12),
-        "minute": timedelta(minutes=15),
-        "hour": timedelta(hours=2),
-        "day": timedelta(hours=12),
-        "week": timedelta(days=1),
-        "month": timedelta(days=1),
+        **{name: spec.staleness_lazy for name, spec in INTERVAL_SPECS.items() if spec.staleness_lazy is not None},
     },
     ThresholdMode.AI: {
         None: timedelta(hours=1),

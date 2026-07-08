@@ -34,6 +34,8 @@ import type {
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
+    ZendeskImportJobApi,
+    ZendeskImportStartApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -636,5 +638,36 @@ export const conversationsViewsDestroy = async (
     return apiMutator<void>(getConversationsViewsDestroyUrl(projectId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsZendeskImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/`
+}
+
+export const conversationsZendeskImportsCreate = async (
+    projectId: string,
+    zendeskImportStartApi: ZendeskImportStartApi,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(zendeskImportStartApi),
+    })
+}
+
+export const getConversationsZendeskImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/zendesk_imports/status/`
+}
+
+export const conversationsZendeskImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ZendeskImportJobApi> => {
+    return apiMutator<ZendeskImportJobApi>(getConversationsZendeskImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

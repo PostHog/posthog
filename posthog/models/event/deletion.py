@@ -4,7 +4,7 @@ While the legacy String-properties events table and the native-JSON events table
 (dual-write via ``events_json_table_mv``), every delete or mutation applied to
 ``sharded_events`` must also be applied to ``sharded_events_json`` — otherwise the two tables
 diverge and deleted data survives in whichever table serves queries. The JSON tables are only
-targeted where they exist, so environments that have not run the ``0286_events_json_schema``
+targeted where they exist, so environments that have not run the ``0287_events_json_schema``
 migration (and legacy-schema test databases) keep working unchanged.
 """
 

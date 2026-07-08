@@ -21,21 +21,19 @@ from products.data_warehouse.backend.direct_snowflake import (
     hide_direct_snowflake_table,
     upsert_direct_snowflake_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
     snowflake_column_to_dwh_column,
     snowflake_columns_to_dwh_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import sql_schema_metadata
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
     extract_available_column_names,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
     prune_enabled_columns,
+    sql_schema_metadata,
 )
 
 if TYPE_CHECKING:
@@ -184,7 +182,7 @@ def reconcile_snowflake_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every Snowflake row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]

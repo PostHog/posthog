@@ -11,11 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
+    LEASE_TTL_SECONDS,
     PARTITION_PRUNING_INTERVAL,
     STATUS_TABLE,
     PendingBatch,
     pending_batch_select_columns,
-    unlock_advisory_locks,
 )
 
 DUCKGRES_STATUS_TABLE = "sourcebatchduckgresstatus"
@@ -23,6 +23,9 @@ DUCKGRES_STATUS_TABLE = "sourcebatchduckgresstatus"
 # command. The eligibility queries here use per-batch LATERAL lookups instead.
 DUCKGRES_STATUS_VIEW = "v_latest_source_batch_duckgres_status"
 DUCKGRES_APPLY_TABLE = "sourcebatchduckgresapply"
+# Twin of the delta queue's sourcegrouplease — separate table because both
+# consumers process the same (team_id, schema_id) groups and must never contend.
+DUCKGRES_LEASE_TABLE = "sourceduckgresgrouplease"
 
 
 def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
@@ -36,8 +39,6 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
         f"ORDER BY _ls.created_at DESC, _ls.id DESC LIMIT 1)"
     )
 
-
-DUCKGRES_ADVISORY_LOCK_NAMESPACE = 0x44475300  # "DGS\0" in hex
 
 # Structured classification key written into duckgres status error_response by
 # every terminal-retire writer. Consumers (the backfill reconciler) dispatch on
@@ -148,16 +149,33 @@ class DuckgresBatchQueue:
     async def get_delta_succeeded_and_lock(
         conn: psycopg.AsyncConnection[Any],
         *,
+        owner_token: str,
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         team_ids: list[int] | None = None,
         blocked_schema_ids: list[str] | None = None,
         eligible_schema_ids: list[str] | None = None,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+        max_groups: int | None = None,
+        exclude_groups: list[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
         Duckgres has its own sink state. A source batch is eligible only after the
         Delta consumer marks that exact batch row as succeeded.
+
+        Group ownership is a ``sourceduckgresgrouplease`` row per
+        (team_id, schema_id), claimed-or-renewed in the writable CTE like the
+        delta queue's lease claim: free, own, or expired leases are claimable;
+        another pod's live lease drops the group via ``JOIN claimed``. Unlike
+        the old session advisory lock, an abandoned group simply expires.
+
+        Mixed-version rollout is a single cutover (as with the delta queue's
+        migration): the claim is pacing, not correctness — concurrent
+        processors are arbitrated per batch by the duckgres-side apply marker
+        (``DuckgresBatchAlreadyAppliedError``, a handled no-op). We deliberately
+        do NOT probe the old advisory lock: a zombie session holding it would
+        wedge the group indefinitely, the failure mode leases remove.
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on the age
         of the latest Duckgres status row, mirroring the Delta queue's backoff.
@@ -177,6 +195,14 @@ class DuckgresBatchQueue:
         flag-independent CDC writer), and without this gate the team-scoped claim
         would apply them — including replace-head batches that bypass the unprimed
         block. Computed by ``sink_eligible_schema_ids``.
+
+        Intra-run head-of-line: LIVE batches stay strictly ordered (any
+        unapplied lower batch_index blocks). Backfill CHUNKS relax this so a
+        whole run drains in one claim: a pending predecessor blocks a chunk
+        only when it cannot be returned AHEAD of it in this same fetch (see the
+        gate's inline comments). Co-claimable predecessors sort earlier, land
+        in the same group, and the group is processed strictly in order with a
+        halt on first non-success — so chunk 0's CREATE still applies first.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -201,6 +227,24 @@ class DuckgresBatchQueue:
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
+                        -- In-flight groups: re-claiming them burns the LIMIT and
+                        -- max_groups budget on work this pod can't start.
+                        AND NOT (
+                            %(exclude_team_ids)s::bigint[] IS NOT NULL
+                            AND (b.team_id, b.schema_id) IN (
+                                SELECT * FROM unnest(%(exclude_team_ids)s::bigint[], %(exclude_schema_ids)s::varchar[])
+                            )
+                        )
+                        -- Other pods' live-leased groups are unclaimable; filter
+                        -- BEFORE the LIMIT or one leased backfill can fill the
+                        -- window and starve other schemas.
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {DUCKGRES_LEASE_TABLE} bl
+                            WHERE bl.team_id = b.team_id
+                                AND bl.schema_id = b.schema_id
+                                AND bl.expires_at > now()
+                                AND bl.owner_token <> %(owner)s
+                        )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
@@ -239,6 +283,8 @@ class DuckgresBatchQueue:
                                 AND a.schema_id = prev.schema_id
                                 AND a.run_uuid = prev.run_uuid
                                 AND a.batch_index = prev.batch_index
+                            LEFT JOIN {_latest_status_lateral(STATUS_TABLE, "prev")} ds_prev ON true
+                            LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "prev")} dgs_prev ON true
                             WHERE prev.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                                 AND prev.team_id = b.team_id
                                 AND prev.schema_id = b.schema_id
@@ -249,6 +295,27 @@ class DuckgresBatchQueue:
                                     OR (b.is_final_batch = true AND prev.batch_index <= b.batch_index)
                                 )
                                 AND a.id IS NULL
+                                AND (
+                                    -- LIVE batches: any unapplied predecessor blocks.
+                                    {LIVE_BATCH_SQL_PREDICATE}
+                                    -- Backfill chunks: block only on predecessors that
+                                    -- cannot be co-claimed AHEAD of this chunk —
+                                    -- not delta-succeeded (fail closed; enqueue_chunks
+                                    -- writes chunks pre-succeeded atomically):
+                                    OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
+                                    -- sorting later in the fetch order (a reconcile
+                                    -- replay re-inserts dropped chunks with a fresh
+                                    -- created_at):
+                                    OR (prev.created_at, prev.batch_index) > (b.created_at, b.batch_index)
+                                    OR dgs_prev.job_state = 'executing'
+                                    OR dgs_prev.job_state = 'succeeded'
+                                    OR (
+                                        dgs_prev.job_state = 'waiting_retry'
+                                        AND dgs_prev.created_at > now() - make_interval(
+                                            secs => %(backoff)s * GREATEST(COALESCE(dgs_prev.attempt, 1), 1)
+                                        )
+                                    )
+                                )
                         )
                         AND (
                             -- Cross-run head-of-line: an older non-failed run of this
@@ -275,13 +342,36 @@ class DuckgresBatchQueue:
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC, b.is_final_batch ASC
                     LIMIT %(limit)s
+                ),
+                candidate_groups AS (
+                    -- Cap leased groups to the consumer's free slots, oldest work
+                    -- first (NULL = no cap): a leased-but-unstarted group would be
+                    -- renewed by every poll and stay dark to other pods.
+                    SELECT c.team_id, c.schema_id
+                    FROM candidates c
+                    GROUP BY c.team_id, c.schema_id
+                    ORDER BY min(c.created_at) ASC, c.team_id ASC, c.schema_id ASC
+                    LIMIT COALESCE(%(max_groups)s, 2147483647)
+                ),
+                claimed AS (
+                    INSERT INTO {DUCKGRES_LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+                    SELECT team_id, schema_id, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now()
+                    FROM candidate_groups
+                    ON CONFLICT (team_id, schema_id) DO UPDATE
+                        SET owner_token = excluded.owner_token,
+                            expires_at = excluded.expires_at,
+                            acquired_at = CASE
+                                WHEN {DUCKGRES_LEASE_TABLE}.owner_token = excluded.owner_token THEN {DUCKGRES_LEASE_TABLE}.acquired_at
+                                ELSE now()
+                            END,
+                            updated_at = now()
+                        WHERE {DUCKGRES_LEASE_TABLE}.expires_at < now()
+                           OR {DUCKGRES_LEASE_TABLE}.owner_token = excluded.owner_token
+                    RETURNING team_id, schema_id
                 )
                 SELECT c.*
                 FROM candidates c
-                WHERE pg_try_advisory_lock(
-                    {DUCKGRES_ADVISORY_LOCK_NAMESPACE},
-                    hashtext(c.team_id::text || ':' || c.schema_id)
-                )
+                JOIN claimed USING (team_id, schema_id)
                 ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
                 """,
                 {
@@ -290,6 +380,11 @@ class DuckgresBatchQueue:
                     "team_ids": team_ids,
                     "blocked_schema_ids": blocked_schema_ids,
                     "eligible_schema_ids": eligible_schema_ids,
+                    "owner": owner_token,
+                    "ttl": lease_ttl_seconds,
+                    "max_groups": max_groups,
+                    "exclude_team_ids": [team_id for team_id, _ in exclude_groups] if exclude_groups else None,
+                    "exclude_schema_ids": [schema_id for _, schema_id in exclude_groups] if exclude_groups else None,
                 },
             )
             rows = await cur.fetchall()
@@ -483,6 +578,181 @@ class DuckgresBatchQueue:
         )
 
     @staticmethod
+    async def update_status_unless_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        job_state: str,
+        attempt: int = 0,
+        error_response: dict[str, Any] | None = None,
+    ) -> bool:
+        """Append a status row only if the batch's latest status is not terminal 'failed'.
+
+        The consumer routes every status write through this so a terminal
+        'failed' (supersede/replan/fail_run can land at any point in a claimed
+        batch's lifecycle) is never masked by a later row in the latest-status
+        views. Guard and insert share one statement snapshot; returns False
+        (writing nothing) when the batch is retired.
+
+        Accepted residual: a failure writer whose statement overlaps this one
+        can be mutually invisible. One statement wide, same class the supersede
+        design accepts by skipping 'executing' victims, converges via the
+        periodic sweeps — closing it needs a shared per-batch lock, not worth it.
+        """
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT %(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
+            WHERE (
+                SELECT cur.job_state
+                FROM {DUCKGRES_STATUS_TABLE} cur
+                WHERE cur.batch_id = %(batch_id)s
+                ORDER BY cur.created_at DESC, cur.id DESC
+                LIMIT 1
+            ) IS DISTINCT FROM 'failed'
+            """,
+            {
+                "batch_id": batch_id,
+                "job_state": job_state,
+                "attempt": attempt,
+                "error_response": json.dumps(error_response) if error_response else None,
+            },
+        )
+        return bool(cursor.rowcount)
+
+    @staticmethod
+    async def requeue_stale_executing(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        error_response: dict[str, Any],
+        grace_seconds: int,
+    ) -> bool:
+        """Flip a stale 'executing' batch to waiting_retry — fenced at write time.
+
+        Between the unlocked stale scan and this write, the group can be
+        reclaimed, a rival sweep can requeue first, or a leaseless live worker
+        (old advisory-lock pod in the mixed-version window) can heartbeat a
+        fresh 'executing'. The insert re-checks all of it in its own snapshot:
+        latest status still 'executing', older than ``grace_seconds``, and no
+        live lease. Returns False when skipped; a later sweep retries.
+        """
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT %(batch_id)s, 'waiting_retry', %(attempt)s, now(), %(error_response)s, now()
+            WHERE EXISTS (
+                SELECT 1
+                FROM (
+                    SELECT cur.job_state, cur.created_at
+                    FROM {DUCKGRES_STATUS_TABLE} cur
+                    WHERE cur.batch_id = %(batch_id)s
+                    ORDER BY cur.created_at DESC, cur.id DESC
+                    LIMIT 1
+                ) latest
+                WHERE latest.job_state = 'executing'
+                    AND latest.created_at <= now() - make_interval(secs => %(grace)s)
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
+                WHERE l.team_id = %(team_id)s
+                    AND l.schema_id = %(schema_id)s
+                    AND l.expires_at > now()
+            )
+            """,
+            {
+                "batch_id": batch.id,
+                "attempt": batch.latest_attempt,
+                "error_response": json.dumps(error_response),
+                "team_id": batch.team_id,
+                "schema_id": batch.schema_id,
+                "grace": grace_seconds,
+            },
+        )
+        return bool(cursor.rowcount)
+
+    @staticmethod
+    async def fail_run_if_stale(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        reason: str,
+        grace_seconds: int,
+    ) -> bool:
+        """Terminally fail a run from recovery — fenced inside the insert itself.
+
+        Same fence as ``requeue_stale_executing``, keyed on the anchor batch:
+        the failure rows land only while its latest status is still 'executing',
+        older than ``grace_seconds``, and the group has no live lease — all in
+        this statement's snapshot. Returns False when the fence refuses. The
+        group error path uses ``fail_run`` instead, since it legitimately fails
+        runs while holding its own live lease.
+        """
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+            FROM {BATCH_TABLE} b
+            JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
+            LEFT JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+            WHERE
+                b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.run_uuid = %(run_uuid)s
+                AND ds.job_state = 'succeeded'
+                AND (dgs.batch_id IS NULL OR dgs.job_state IN ('waiting_retry', 'executing'))
+                AND EXISTS (
+                    SELECT 1
+                    FROM (
+                        SELECT anchor.job_state, anchor.created_at
+                        FROM {DUCKGRES_STATUS_TABLE} anchor
+                        WHERE anchor.batch_id = %(anchor_batch_id)s
+                        ORDER BY anchor.created_at DESC, anchor.id DESC
+                        LIMIT 1
+                    ) latest
+                    WHERE latest.job_state = 'executing'
+                        AND latest.created_at <= now() - make_interval(secs => %(grace)s)
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
+                    WHERE l.team_id = %(team_id)s
+                        AND l.schema_id = %(schema_id)s
+                        AND l.expires_at > now()
+                )
+            """,
+            {
+                "run_uuid": batch.run_uuid,
+                "anchor_batch_id": batch.id,
+                "team_id": batch.team_id,
+                "schema_id": batch.schema_id,
+                "error_response": json.dumps({"error": reason}),
+                "grace": grace_seconds,
+            },
+        )
+        return bool(cursor.rowcount)
+
+    @staticmethod
+    async def is_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+    ) -> bool:
+        """Whether the batch's LATEST duckgres status is terminal 'failed' — the
+        consumer's per-batch re-check for co-claimed batches retired mid-claim."""
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT job_state
+                FROM {DUCKGRES_STATUS_TABLE}
+                WHERE batch_id = %(batch_id)s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                {"batch_id": batch_id},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0] == "failed")
+
+    @staticmethod
     async def has_applied(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -535,79 +805,122 @@ class DuckgresBatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
-    async def verify_advisory_lock(
+    async def verify_lease(
         conn: psycopg.AsyncConnection[Any],
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
-        """Check if this session still holds the advisory lock for (team_id, schema_id)."""
+        """Check whether ``owner_token`` still holds a live group lease for (team_id, schema_id)."""
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 SELECT EXISTS (
-                    SELECT 1 FROM pg_locks
-                    WHERE locktype = 'advisory'
-                      AND classid = {DUCKGRES_ADVISORY_LOCK_NAMESPACE}
-                      AND objid = hashtext(%(key)s)
-                      AND pid = pg_backend_pid()
-                      AND granted = true
+                    SELECT 1 FROM {DUCKGRES_LEASE_TABLE}
+                    WHERE team_id = %(team_id)s
+                      AND schema_id = %(schema_id)s
+                      AND owner_token = %(owner)s
+                      AND expires_at > now()
                 )
                 """,
-                {"key": f"{team_id}:{schema_id}"},
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
             )
             row = await cur.fetchone()
             return bool(row and row[0])
+
+    @staticmethod
+    async def renew_lease(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+    ) -> bool:
+        """Extend this owner's group lease. Returns False when lost (gone,
+        reclaimed, or expired) — an expired lease must never be resurrected here
+        (recovery may have re-queued the group); re-claiming goes through the
+        fetch's claim CTE only.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                UPDATE {DUCKGRES_LEASE_TABLE}
+                SET expires_at = now() + make_interval(secs => %(ttl)s), updated_at = now()
+                WHERE team_id = %(team_id)s
+                    AND schema_id = %(schema_id)s
+                    AND owner_token = %(owner)s
+                    AND expires_at > now()
+                RETURNING 1
+                """,
+                {"team_id": team_id, "schema_id": schema_id, "owner": owner_token, "ttl": lease_ttl_seconds},
+            )
+            return (await cur.fetchone()) is not None
 
     @staticmethod
     async def get_stale_executing(
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int = 0,
-        keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        """Find batches stuck in 'executing' whose advisory lock is not held (previous pod crashed).
-
-        When ``keep_locks`` is True the caller is responsible for releasing the
-        probe locks after it has finished acting on the returned batches.
-        """
+        """Find batches stuck in 'executing' whose group lease is absent or
+        expired — unlike the old advisory-lock probe, an abandoned lease always
+        expires, so orphaned groups are always reclaimable."""
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
-                WITH candidates AS MATERIALIZED (
-                    SELECT
-                        {pending_batch_select_columns("dgs")}
-                    FROM {BATCH_TABLE} b
-                    JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
-                    WHERE
-                        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND dgs.job_state = 'executing'
-                        AND dgs.created_at <= now() - make_interval(secs => %(grace)s)
-                    ORDER BY b.created_at ASC, b.batch_index ASC
-                )
-                SELECT c.*
-                FROM candidates c
-                WHERE pg_try_advisory_lock(
-                    {DUCKGRES_ADVISORY_LOCK_NAMESPACE},
-                    hashtext(c.team_id::text || ':' || c.schema_id)
-                )
-                ORDER BY c.created_at ASC, c.batch_index ASC
+                SELECT
+                    {pending_batch_select_columns("dgs")}
+                FROM {BATCH_TABLE} b
+                JOIN {_latest_status_lateral(DUCKGRES_STATUS_TABLE, "b")} dgs ON true
+                LEFT JOIN {DUCKGRES_LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+                WHERE
+                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND dgs.job_state = 'executing'
+                    AND dgs.created_at <= now() - make_interval(secs => %(grace)s)
+                    AND (l.team_id IS NULL OR l.expires_at <= now())
+                ORDER BY b.created_at ASC, b.batch_index ASC
                 """,
                 {"grace": grace_seconds},
             )
             rows = await cur.fetchall()
 
-        result = [PendingBatch(**row) for row in rows]
-
-        if not keep_locks:
-            await DuckgresBatchQueue.unlock_for_batches(conn, batches=result)
-
-        return result
+        return [PendingBatch(**row) for row in rows]
 
     @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
-        await unlock_advisory_locks(conn, batches=batches, namespace=DUCKGRES_ADVISORY_LOCK_NAMESPACE)
+        """Release the group leases for ``batches``' groups held by ``owner_token``
+        — the owner predicate keeps this a no-op if another pod reclaimed the group."""
+        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        if not pairs:
+            return
+        team_ids = [team_id for team_id, _ in pairs]
+        schema_ids = [schema_id for _, schema_id in pairs]
+        await conn.execute(
+            f"""
+            DELETE FROM {DUCKGRES_LEASE_TABLE}
+            WHERE owner_token = %(owner)s
+              AND (team_id, schema_id) IN (
+                  SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+              )
+            """,
+            {"owner": owner_token, "team_ids": team_ids, "schema_ids": schema_ids},
+        )
+
+    @staticmethod
+    async def release_all_owned_leases(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        """Delete every group lease held by ``owner_token``. Best-effort cleanup on shutdown."""
+        await conn.execute(
+            f"DELETE FROM {DUCKGRES_LEASE_TABLE} WHERE owner_token = %(owner)s",
+            {"owner": owner_token},
+        )
