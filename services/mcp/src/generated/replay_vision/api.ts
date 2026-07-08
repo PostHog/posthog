@@ -326,6 +326,12 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    labeled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod

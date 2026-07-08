@@ -437,13 +437,10 @@ export class PluginServer implements NodeServer {
      * deps. Only the cyclotron workers that run the hogflow email action call this, so
      * the pool is never opened on other CDP consumers or cdp-api — an idle Valkey sized
      * for the SES rate limiter shouldn't hold connections from pods that never validate.
-     * Null (the shared-deps default) when the kill switch is off, in which case
+     * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
      */
     private withEmailValidationValkey(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
-        if (!this.config.CDP_EMAIL_MX_VALIDATION_ENABLED) {
-            return deps
-        }
         return { ...deps, emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation') }
     }
 

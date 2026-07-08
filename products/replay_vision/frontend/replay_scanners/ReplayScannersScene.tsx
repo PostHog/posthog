@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { HedgehogXRay } from '@posthog/brand/hoggies'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -24,6 +25,8 @@ import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { VisionMetrics } from './components/VisionMetrics'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
 import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,

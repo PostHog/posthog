@@ -134,7 +134,9 @@ QuickFilter
 QuickFilterContext
 Reminder
 ReplayObservation
+ReplayObservationLabel
 ReplayScanner
+ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem

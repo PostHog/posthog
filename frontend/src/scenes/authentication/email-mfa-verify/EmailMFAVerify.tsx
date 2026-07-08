@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogShocked } from '@posthog/brand/hoggies'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog } from 'lib/components/hedgehogs'
 
 import { emailMFAVerifyLogic } from './emailMFAVerifyLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 export function EmailMFAVerify(): JSX.Element {
     const { view, verifyResponseLoading } = useValues(emailMFAVerifyLogic)
