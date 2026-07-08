@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -491,6 +492,22 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
     )
 
 
+def _resolve_template_tile_type(template_tile: dict[str, Any]) -> Optional[str]:
+    """Determine a template tile's type.
+
+    Tiles authored in the template repository carry an explicit ``type`` (``INSIGHT``/``TEXT``/
+    ``BUTTON``/``WIDGET``). Tiles serialized from an existing dashboard (save-as-template) can instead
+    mirror the model relationship and omit ``type`` — a button tile arrives as ``{"button_tile": {...}}``.
+    Infer the type from the populated relation so those tiles don't raise ``KeyError`` mid-creation.
+    """
+    explicit_type = template_tile.get("type")
+    if explicit_type:
+        return explicit_type
+    if template_tile.get("button_tile") is not None:
+        return "BUTTON"
+    return None
+
+
 def create_from_template(
     dashboard: Dashboard,
     template: DashboardTemplate,
@@ -502,59 +519,67 @@ def create_from_template(
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
-    for template_tag in template.tags or []:
-        tag, _ = Tag.objects.get_or_create(
-            name=template_tag,
-            team_id=dashboard.team_id,
-            defaults={"team_id": dashboard.team_id},
-        )
-        dashboard.tagged_items.create(tag_id=tag.id)
-    dashboard.save()
 
-    for template_tile in template.tiles or []:
-        if template_tile["type"] == "INSIGHT":
-            query = template_tile.get("query", None)
-            _create_tile_for_insight(
-                dashboard,
-                name=template_tile.get("name"),
-                query=query,
-                description=template_tile.get("description"),
-                color=template_tile.get("color"),
-                layouts=template_tile.get("layouts"),
-                user=user,
+    # Create the dashboard and all of its tiles atomically. A tile that fails partway through
+    # (e.g. an unexpected shape or a DB error) must not leave a saved-but-half-populated dashboard.
+    with transaction.atomic():
+        for template_tag in template.tags or []:
+            tag, _ = Tag.objects.get_or_create(
+                name=template_tag,
+                team_id=dashboard.team_id,
+                defaults={"team_id": dashboard.team_id},
             )
-        elif template_tile["type"] == "TEXT":
-            _create_tile_for_text(
-                dashboard,
-                color=template_tile.get("color"),
-                layouts=template_tile.get("layouts"),
-                body=template_tile.get("body"),
-                transparent_background=template_tile.get("transparent_background"),
-            )
-        elif template_tile["type"] == "BUTTON":
-            _create_tile_for_button(
-                dashboard,
-                color=template_tile.get("color"),
-                layouts=template_tile.get("layouts"),
-                url=template_tile.get("url", ""),
-                text=template_tile.get("text", ""),
-                placement=template_tile.get("placement", "left"),
-                style=template_tile.get("style", "primary"),
-                transparent_background=template_tile.get("transparent_background"),
-            )
-        elif template_tile["type"] == "WIDGET":
-            _create_tile_for_widget(
-                dashboard,
-                widget_type=template_tile.get("widget_type", ""),
-                config=template_tile.get("config", {}),
-                color=template_tile.get("color"),
-                layouts=template_tile.get("layouts"),
-                transparent_background=template_tile.get("transparent_background"),
-                user=user,
-                user_access_control=user_access_control,
-            )
-        else:
-            logger.error("dashboard_templates.creation.unknown_type", template=template)
+            dashboard.tagged_items.create(tag_id=tag.id)
+        dashboard.save()
+
+        for template_tile in template.tiles or []:
+            tile_type = _resolve_template_tile_type(template_tile)
+            if tile_type == "INSIGHT":
+                query = template_tile.get("query", None)
+                _create_tile_for_insight(
+                    dashboard,
+                    name=template_tile.get("name"),
+                    query=query,
+                    description=template_tile.get("description"),
+                    color=template_tile.get("color"),
+                    layouts=template_tile.get("layouts"),
+                    user=user,
+                )
+            elif tile_type == "TEXT":
+                _create_tile_for_text(
+                    dashboard,
+                    color=template_tile.get("color"),
+                    layouts=template_tile.get("layouts"),
+                    body=template_tile.get("body"),
+                    transparent_background=template_tile.get("transparent_background"),
+                )
+            elif tile_type == "BUTTON":
+                # Tiles saved from an existing dashboard nest the button fields under `button_tile`
+                # instead of inlining them, so fall back to that shape.
+                button = template_tile.get("button_tile") or {}
+                _create_tile_for_button(
+                    dashboard,
+                    color=template_tile.get("color"),
+                    layouts=template_tile.get("layouts"),
+                    url=template_tile.get("url", button.get("url", "")),
+                    text=template_tile.get("text", button.get("text", "")),
+                    placement=template_tile.get("placement", button.get("placement", "left")),
+                    style=template_tile.get("style", button.get("style", "primary")),
+                    transparent_background=template_tile.get("transparent_background"),
+                )
+            elif tile_type == "WIDGET":
+                _create_tile_for_widget(
+                    dashboard,
+                    widget_type=template_tile.get("widget_type", ""),
+                    config=template_tile.get("config", {}),
+                    color=template_tile.get("color"),
+                    layouts=template_tile.get("layouts"),
+                    transparent_background=template_tile.get("transparent_background"),
+                    user=user,
+                    user_access_control=user_access_control,
+                )
+            else:
+                logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
 def _create_tile_for_text(
