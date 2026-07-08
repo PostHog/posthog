@@ -2109,7 +2109,10 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
 
-    with patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00")):
+    with patch(
+        _GENERATE_REPORT,
+        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+    ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
         )
@@ -2226,7 +2229,12 @@ async def test_generate_ai_report_credit_check_fails_open(team, user):
 
     with (
         patch(_IS_OVER_BUDGET, side_effect=RuntimeError("quota cache unavailable")),
-        patch(_GENERATE_REPORT, return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00")) as mock_generate,
+        patch(
+            _GENERATE_REPORT,
+            return_value=AiReportResult(
+                markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"
+            ),
+        ) as mock_generate,
     ):
         result = await ActivityEnvironment().run(
             generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
