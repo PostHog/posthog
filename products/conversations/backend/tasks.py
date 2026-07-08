@@ -57,11 +57,11 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
-    DEFAULT_TICKET_EMOJI,
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     create_ticket_from_confirmation,
     get_bot_user_id,
+    get_safe_ticket_emoji,
     get_slack_client,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -206,8 +206,7 @@ def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts:
     """
     if not channel or not user:
         return
-    settings_dict = team.conversations_settings or {}
-    emoji = settings_dict.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+    emoji = get_safe_ticket_emoji(team.conversations_settings or {})
     try:
         client = get_slack_client(team)
         bot_id = get_bot_user_id(client)
@@ -292,7 +291,7 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
             if ticket:
                 text = ticket_created_text(ticket)
             else:
-                emoji = support_settings.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+                emoji = get_safe_ticket_emoji(support_settings)
                 text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
             _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
             return

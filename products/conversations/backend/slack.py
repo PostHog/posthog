@@ -85,6 +85,22 @@ NUDGE_TRIVIAL_MAX_WORDS = 3
 # Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
 _SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
 _SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9_]+$")
+# Slack emoji-name shape (e.g. "ticket", "+1", "o'clock") — no spaces, colons, or mrkdwn.
+_SLACK_EMOJI_NAME_RE = re.compile(r"^[a-z0-9_'+-]+$")
+
+
+def get_safe_ticket_emoji(settings_dict: dict) -> str:
+    """The configured ticket emoji, only when it's a plain emoji name.
+
+    The value is team-editable and gets interpolated into mrkdwn (`:{emoji}:`), so
+    anything that doesn't look like an emoji name — e.g. `ticket: <!channel> :ticket` —
+    falls back to the default instead of injecting mentions into the bot's messages.
+    """
+    emoji = settings_dict.get("slack_ticket_emoji") or DEFAULT_TICKET_EMOJI
+    if isinstance(emoji, str) and _SLACK_EMOJI_NAME_RE.match(emoji):
+        return emoji
+    return DEFAULT_TICKET_EMOJI
+
 
 # Action IDs for the "open a ticket?" nudge prompt (slack_nudge_enabled, on by default).
 # The buttons are posted by post_ticket_confirmation_prompt and routed by the interactivity endpoint.
@@ -766,8 +782,7 @@ def post_ticket_confirmation_prompt(
     client = get_slack_client(team)
     action_value = json.dumps({"channel": slack_channel_id, "message_ts": message_ts})
     prompt_text = f"👋 <@{slack_user_id}> - did you want to open a support ticket?"
-    settings_dict = team.conversations_settings or {}
-    emoji = settings_dict.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+    emoji = get_safe_ticket_emoji(team.conversations_settings or {})
     bot_id = get_bot_user_id_cached(team, client)
     mention = f"<@{bot_id}>" if bot_id else "the SupportHog bot"
     hint_text = f"You can also react to your original message with :{emoji}: or tag {mention} to open a ticket."

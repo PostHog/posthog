@@ -495,6 +495,34 @@ class TestSlackNudge(BaseTest):
 
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_malicious_ticket_emoji_falls_back_in_prompt(self, _mock_create_or_update, mock_get_client):
+        # The emoji setting is team-editable and interpolated into mrkdwn — a value
+        # carrying mentions must not reach Slack.
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "slack_ticket_emoji": "ticket: <!channel> :ticket",
+        }
+        self.team.save()
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_OTHER",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
+        rendered = json.dumps(kwargs["blocks"])
+        assert "<!channel>" not in rendered
+        assert ":ticket:" in rendered
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_no_prompt_when_nudge_disabled(self, mock_create_or_update, mock_get_client):
         self.team.conversations_settings = {**self.team.conversations_settings, "slack_nudge_enabled": False}
         self.team.save()
