@@ -47,7 +47,6 @@ from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
 from .organization_domain import OrganizationDomain
-from .organization_enrichment import OrganizationEnrichment
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
@@ -136,7 +135,6 @@ __all__ = [
     "ObjectMediaPreview",
     "Organization",
     "OrganizationDomain",
-    "OrganizationEnrichment",
     "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
