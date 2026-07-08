@@ -1,8 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
 
 import {
+    dashboardToSaveableTemplate,
     getDashboardTileDisplayName,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
@@ -33,6 +34,32 @@ describe('getDashboardTileDisplayName', () => {
         }
 
         expect(getDashboardTileDisplayName(tile)).toBe('Critical errors')
+    })
+})
+
+describe('dashboardToSaveableTemplate', () => {
+    it('serializes a button tile with a BUTTON type discriminator', () => {
+        // Without the discriminator the backend reader hits KeyError: 'type' when instantiating the template.
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            tiles: [
+                {
+                    id: 1,
+                    button_tile: { id: '1', url: '/replay/home', text: 'Watch replays', placement: 'left', style: 'primary' },
+                    layouts: {},
+                    color: null,
+                },
+            ],
+        } as unknown as DashboardType<InsightModel>
+
+        const tile = dashboardToSaveableTemplate(dashboard)?.tiles[0]
+        expect(tile).toMatchObject({
+            type: 'BUTTON',
+            button_tile: { url: '/replay/home', text: 'Watch replays' },
+        })
     })
 })
 
