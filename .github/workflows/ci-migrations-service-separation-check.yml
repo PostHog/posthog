@@ -37,7 +37,7 @@ jobs:
                   GITHUB_REF: ${{ github.ref }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: |
-                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                  if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "workflow_call" ]; then
                       labels="$PR_LABELS_JSON"
                   elif [ "$EVENT_NAME" = "merge_group" ]; then
                       # GITHUB_REF looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>
