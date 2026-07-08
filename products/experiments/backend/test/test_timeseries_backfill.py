@@ -8,18 +8,18 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated, ExperimentVariantResultFrequentist
 
 from posthog.models import Organization, Team, User
-from posthog.temporal.experiments.activities import _backfill_experiment_metric_sync
 
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentTimeseriesRecalculation,
 )
+from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 @pytest.mark.django_db
-class TestBackfillExperimentMetric(BaseTest):
+class TestBackfillExperimentTimeseries(BaseTest):
     def test_backfill_processes_all_days_and_creates_correct_records(self):
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team", timezone="America/New_York")
@@ -56,16 +56,12 @@ class TestBackfillExperimentMetric(BaseTest):
             ],
         )
 
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.HeartbeaterSync"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_query_runner_class,
-        ):
+        with patch("products.experiments.backend.timeseries_backfill.ExperimentQueryRunner") as mock_query_runner_class:
             mock_query_runner = MagicMock()
             mock_query_runner._calculate.return_value = mock_result
             mock_query_runner_class.return_value = mock_query_runner
 
-            result = _backfill_experiment_metric_sync(str(recalculation_request.id))
+            result = backfill_experiment_timeseries(str(recalculation_request.id))
 
         recalculation_request.refresh_from_db()
         assert recalculation_request.status == ExperimentTimeseriesRecalculation.Status.COMPLETED
