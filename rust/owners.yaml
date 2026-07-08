@@ -11,8 +11,6 @@ rules:
       owners: [team-error-tracking]
     - match: '/cymbal-proto/'
       owners: [team-error-tracking]
-    - match: '/cymbal-resolution/'
-      owners: [team-error-tracking]
     - match: '/cymbal/'
       owners: [team-error-tracking]
     - match: '/feature-flags/'

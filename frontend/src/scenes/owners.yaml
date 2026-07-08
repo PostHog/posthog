@@ -33,8 +33,6 @@ rules:
       owners: [team-warehouse-sources]
     - match: '/data-management/schema/'
       owners: [team-analytics-platform]
-    - match: '/data-model/'
-      owners: [team-data-modeling]
     - match: '/data-pipelines/'
       owners: [team-workflows]
     - match: '/data-warehouse/'
@@ -81,9 +79,9 @@ rules:
       owners: [team-growth]
     - match: '/onboarding/'
       owners: [team-growth]
-    - match: '/onboarding/sdks/ai-observability/'
+    - match: '/onboarding/legacy/sdks/ai-observability/'
       owners: [team-ai-observability]
-    - match: '/onboarding/sdks/surveys/'
+    - match: '/onboarding/legacy/sdks/surveys/'
       owners: [team-surveys]
     - match: '/organization/'
       owners: [team-growth]

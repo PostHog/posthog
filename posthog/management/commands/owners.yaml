@@ -1,7 +1,5 @@
 version: 1
 owners: []
 rules:
-    - match: '/generate_source_configs.py'
-      owners: [team-warehouse-sources]
     - match: '/find_enum_collisions.py'
       owners: [team-devex]
