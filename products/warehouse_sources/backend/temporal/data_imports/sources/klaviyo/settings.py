@@ -2,7 +2,6 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -23,9 +22,6 @@ class KlaviyoEndpointConfig:
     should_sync_default: bool = True  # Whether the table is selected for sync by default in the UI
     # Extra query params merged into every request, e.g. a fields[...] sparse fieldset.
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Passed to SourceResponse. "desc" defers persisting the incremental watermark to successful job
-    # end instead of after every batch.
-    sort_mode: SortMode = "asc"
     # Safety overlap subtracted from the incremental watermark on every run, re-pulling a window of
     # rows that merge dedupes on the primary key. Composes additively with the per-schema
     # incremental_field_lookback_seconds the framework applies before the value reaches the source.
@@ -167,18 +163,16 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
     #
     # Incremental sync filters on `joined_group_at` (updated on re-join, so re-joins are picked up),
     # but Klaviyo has no removal timestamp: profiles removed from a list only disappear on a full
-    # refresh. sort_mode="desc" so a crashed run whose resume state expires can't advance the
-    # watermark past lists it never fetched, and the 24h lookback re-pulls joins that landed in
-    # already-fetched lists mid-run; merge dedupes both on the primary key. No partition_key: the
-    # partitioned merge predicate includes partition equality, and a re-join moves the row's
-    # joined_group_at to a new partition, which would leave the old row behind as a duplicate.
+    # refresh. The 24h lookback re-pulls joins that landed in already-fetched lists mid-run; merge
+    # dedupes them on the primary key. No partition_key: the partitioned merge predicate includes
+    # partition equality, and a re-join moves the row's joined_group_at to a new partition, which
+    # would leave the old row behind as a duplicate.
     "list_profiles": KlaviyoEndpointConfig(
         name="list_profiles",
         path="/lists/{list_id}/profiles",
         default_incremental_field="joined_group_at",
         page_size=100,
         sort="-joined_group_at",
-        sort_mode="desc",
         extra_params={"fields[profile]": "joined_group_at"},
         incremental_lookback=timedelta(hours=24),
         incremental_fields=[

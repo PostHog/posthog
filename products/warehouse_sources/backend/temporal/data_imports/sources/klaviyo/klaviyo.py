@@ -245,10 +245,10 @@ def _get_list_profile_rows(
     picked up too — but there is no removal timestamp, so profiles removed from a list only disappear
     on a full refresh.
 
-    The endpoint declares sort_mode="desc" (see the config comment in settings.py), so the watermark
-    persists only after every list completes. A crash + resume can also finalize an under-advanced
-    watermark (the resumed attempt's running max only sees post-resume batches) — safe direction, the
-    next run just re-fetches a wider window that merge dedupes.
+    Fan-out runs report sort_mode="desc" (see klaviyo_source), so the watermark persists only after
+    every list completes. A crash + resume can also finalize an under-advanced watermark (the resumed
+    attempt's running max only sees post-resume batches) — safe direction, the next run just
+    re-fetches a wider window that merge dedupes.
     """
     list_ids = list(_iter_list_ids(session, headers, logger))
 
@@ -395,7 +395,10 @@ def klaviyo_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        sort_mode=endpoint_config.sort_mode,
+        # Fan-out runs persist the incremental watermark only at successful job end (desc mode): a
+        # partial run's max says nothing about lists it never reached, so per-batch persistence could
+        # advance the watermark past rows a crashed run still owes.
+        sort_mode="desc" if endpoint_config.fan_out_over_lists else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
