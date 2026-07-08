@@ -108,6 +108,32 @@ class TestSlackMessageRouting(BaseTest):
 
     @parameterized.expand(
         [
+            ("bare_mention", "<@U0BOT001>", None, False),
+            ("mention_with_whitespace", "<@U0BOT001>   ", None, False),
+            ("mention_with_only_other_mentions", "<@U0BOT001> <@U0USER99>", None, False),
+            ("mention_with_text", "<@U0BOT001> help me", None, True),
+            ("bare_mention_with_files", "<@U0BOT001>", [{"url_private": "https://x/y.png"}], True),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_empty_mention_does_not_create_ticket(self, _name, text, files, should_create, mock_create_or_update):
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": text,
+                "files": files,
+            },
+            self.team,
+            "T123",
+        )
+
+        assert mock_create_or_update.called is should_create
+
+    @parameterized.expand(
+        [
             # No ticket yet: seed from the thread's parent message and backfill replies.
             (
                 "seeds_from_parent",
