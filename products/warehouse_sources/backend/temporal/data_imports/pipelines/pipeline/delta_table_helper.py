@@ -48,6 +48,42 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
+# Substrings that mark a deltalake object-store failure as a transient, retryable S3 blip.
+# deltalake surfaces these from the underlying Rust object_store crate as a plain OSError —
+# most visibly a "Generic S3 error" on a DELETE request while vacuum physically removes
+# tombstoned files. These recover on retry and never affect the sync itself, so we must not
+# promote them into fresh error-tracking issues.
+_TRANSIENT_S3_ERROR_MARKERS = (
+    "generic s3 error",
+    "error performing delete request",
+    "error performing list request",
+    "connection reset",
+    "connection closed",
+    "connection refused",
+    "broken pipe",
+    "timed out",
+    "request timeout",
+    "dispatch task is gone",
+    "503",
+    "500 internal",
+    "service unavailable",
+    "slowdown",
+)
+
+
+def _is_transient_s3_error(e: BaseException) -> bool:
+    """Classify an exception as a transient/retryable object-store error safe to swallow.
+
+    deltalake maintenance ops (vacuum/compact) delete and list files on S3; a hiccup there
+    bubbles up as a plain OSError whose message carries the object_store crate's error text.
+    We match on that text rather than the type because deltalake does not expose a dedicated
+    transient-error class for these.
+    """
+    if not isinstance(e, OSError):
+        return False
+    message = str(e).lower()
+    return any(marker in message for marker in _TRANSIENT_S3_ERROR_MARKERS)
+
 
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
@@ -676,16 +712,47 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
+    async def _run_maintenance_op(self, fn: Callable[[], Any], *, op_name: str, max_attempts: int = 3) -> Any:
+        """Run a best-effort deltalake maintenance op, tolerating transient S3 errors.
+
+        Vacuum/compact physically delete and list files on S3, where a retryable blip
+        (e.g. a "Generic S3 error" on a DELETE) surfaces as a plain OSError. Since the
+        maintenance is best-effort cleanup that never affects the sync, we retry a few
+        times and, if the blip persists, log and continue rather than let it bubble up to
+        a `capture_exception` at the call site and flood error tracking with noise. Any
+        non-transient error re-raises unchanged so genuine failures are still surfaced.
+        Returns the op's result, or None when a transient error was swallowed.
+        """
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await asyncio.to_thread(fn)
+            except OSError as e:
+                if not _is_transient_s3_error(e):
+                    raise
+                if attempt >= max_attempts:
+                    await self._logger.awarning(
+                        f"{op_name}: transient S3 error persisted after {attempt} attempts, "
+                        f"skipping (sync unaffected): {e}"
+                    )
+                    return None
+                await self._logger.awarning(
+                    f"{op_name}: transient S3 error (attempt {attempt}/{max_attempts}), retrying: {e}"
+                )
+                await asyncio.sleep(min(2 ** (attempt - 1), 5))
+        return None
+
     async def vacuum_table(self) -> None:
         table = await self.get_delta_table()
         if table is None:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        vacuum_stats = await self._run_maintenance_op(
+            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            op_name="vacuum",
         )
-        await self._logger.adebug(json.dumps(vacuum_stats))
+        if vacuum_stats is not None:
+            await self._logger.adebug(json.dumps(vacuum_stats))
 
     async def compact_table(self) -> None:
         table = await self.get_delta_table()
@@ -693,8 +760,9 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
-        await self._logger.adebug(json.dumps(compact_stats))
+        compact_stats = await self._run_maintenance_op(table.optimize.compact, op_name="compact")
+        if compact_stats is not None:
+            await self._logger.adebug(json.dumps(compact_stats))
 
         await self.vacuum_table()
         await self._logger.adebug("Compacting and vacuuming complete")

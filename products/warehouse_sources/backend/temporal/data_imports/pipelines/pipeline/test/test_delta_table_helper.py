@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
     _first_per_pk_table,
+    _is_transient_s3_error,
     _realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
@@ -809,3 +810,61 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestTransientS3MaintenanceErrors:
+    """Vacuum/compact must swallow transient S3 blips instead of promoting them into error-tracking issues."""
+
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    @parameterized.expand(
+        [
+            # Transient object_store blips deltalake raises as a plain OSError — safe to retry/swallow.
+            ("generic_s3_error", OSError("Generic S3 error: error performing DELETE request"), True),
+            ("delete_request", OSError("Error performing delete request: connection reset"), True),
+            ("service_unavailable", OSError("503 Service Unavailable"), True),
+            # Genuine failures must NOT be swallowed, else real breakage vanishes silently.
+            ("permission_denied", OSError("Access Denied: not authorized"), False),
+            ("not_an_oserror", deltalake.exceptions.DeltaError("Generic S3 error"), False),
+            ("value_error", ValueError("Generic S3 error"), False),
+        ]
+    )
+    def test_is_transient_s3_error(self, _name: str, exc: BaseException, expected: bool):
+        assert _is_transient_s3_error(exc) is expected
+
+    @pytest.mark.asyncio
+    async def test_vacuum_swallows_persistent_transient_error(self, helper: DeltaTableHelper):
+        # A transient S3 error that never clears must be logged and swallowed (never re-raised),
+        # so the caller's `capture_exception` doesn't fire and flood error tracking — the bug being fixed.
+        table = MagicMock()
+        table.vacuum = MagicMock(side_effect=OSError("Generic S3 error: error performing DELETE request"))
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await helper.vacuum_table()
+
+        assert table.vacuum.call_count == 3  # retried to exhaustion before giving up
+        cast(AsyncMock, helper._logger.awarning).assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_vacuum_retries_then_succeeds(self, helper: DeltaTableHelper):
+        # A one-off blip must be retried, not aborted on first failure.
+        table = MagicMock()
+        table.vacuum = MagicMock(side_effect=[OSError("Generic S3 error"), {"numDeletedFiles": 3}])
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
+        ):
+            await helper.vacuum_table()
+
+        assert table.vacuum.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_vacuum_reraises_non_transient_error(self, helper: DeltaTableHelper):
+        # A genuine failure must propagate so it isn't silently hidden by the transient-error handling.
+        table = MagicMock()
+        table.vacuum = MagicMock(side_effect=OSError("Access Denied"))
+        with patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)):
+            with pytest.raises(OSError, match="Access Denied"):
+                await helper.vacuum_table()
