@@ -544,6 +544,12 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("User integration must belong to the authenticated user")
         return value
 
+    def validate_origin_product(self, value):
+        """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
+            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
+        return value
+
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
