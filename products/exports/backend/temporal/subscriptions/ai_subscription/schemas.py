@@ -5,12 +5,16 @@ from pydantic import BaseModel, Field
 # Hard cap on AI report query-plan steps — the contract the schema validator, planner prompt, and
 # synthesis result budget all key off. Named once here so they can't silently drift apart.
 MAX_QUERY_PLAN_STEPS = 25
+# Named so the prettifier can guarantee its output still validates when a frozen plan is re-loaded.
+MAX_STEP_HOGQL_LENGTH = 5000
 
 
 class QueryPlanStep(BaseModel):
     description: str = Field(..., max_length=500, description="One-sentence rationale for running this query.")
     query_type: Literal["hogql"] = Field("hogql", description="MVP: always 'hogql'.")
-    hogql: str = Field(..., max_length=5000, description="A HogQL SELECT statement scoped to the team's events.")
+    hogql: str = Field(
+        ..., max_length=MAX_STEP_HOGQL_LENGTH, description="A HogQL SELECT statement scoped to the team's events."
+    )
 
 
 class QueryPlan(BaseModel):

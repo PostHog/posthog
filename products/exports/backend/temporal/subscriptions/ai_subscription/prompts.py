@@ -121,6 +121,8 @@ Output rules:
   `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
+- Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
+  its own line, one selected column per line. Queries are shown to users verbatim.
 
 HogQL syntax constraints — write queries that PARSE first. Each step's `hogql` is a SELECT statement,
 ideally flat. A single level of subquery in the FROM clause is allowed (and is the right tool for

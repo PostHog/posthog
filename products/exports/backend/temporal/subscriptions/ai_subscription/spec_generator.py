@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_STEP_HOGQL_LENGTH,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
@@ -88,6 +89,78 @@ WINDOW_PLACEHOLDERS = (
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 1
+
+# Top-level clause keywords the prettifier starts a new line at. Order matters: multi-word keywords
+# first so "GROUP BY" wins over a hypothetical prefix match.
+_CLAUSE_KEYWORDS = ("UNION ALL", "GROUP BY", "ORDER BY", "FROM", "PREWHERE", "WHERE", "HAVING", "LIMIT", "OFFSET")
+_LONGEST_CLAUSE_KEYWORD = max(len(kw) for kw in _CLAUSE_KEYWORDS)
+
+
+def prettify_hogql(hogql: str) -> str:
+    """Canonical whitespace-only reformat of a planner HogQL statement: each top-level clause and each
+    top-level SELECT column on its own line.
+
+    Frozen plans are rendered verbatim in the UI and diffed between plan versions, so a stable pretty
+    form matters. The real HogQL printer can't be used here — it refuses the unresolved `{{date_range}}`
+    window tokens — so this is a string-level pass that only ever collapses/inserts whitespace outside
+    quoted literals, never touching tokens or semantics. Falls back to the input if the result would
+    break the plan-step length contract.
+    """
+    out: list[str] = []
+    i, depth = 0, 0
+    n = len(hogql)
+    pending_ws = False
+    while i < n:
+        ch = hogql[i]
+        if ch in ("'", '"', "`"):
+            if pending_ws and out:
+                out.append(" ")
+            pending_ws = False
+            quote = ch
+            out.append(ch)
+            i += 1
+            while i < n:
+                c = hogql[i]
+                out.append(c)
+                i += 1
+                if c == "\\" and i < n:
+                    out.append(hogql[i])
+                    i += 1
+                elif c == quote:
+                    break
+            continue
+        if ch.isspace():
+            pending_ws = True
+            i += 1
+            continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            # Top-level commas only occur in SELECT / GROUP BY / ORDER BY lists — one item per line.
+            out.append(",\n    ")
+            pending_ws = False
+            i += 1
+            while i < n and hogql[i].isspace():
+                i += 1
+            continue
+        if pending_ws:
+            starts_clause = False
+            if depth == 0 and out:
+                upper = hogql[i : i + _LONGEST_CLAUSE_KEYWORD + 1].upper()
+                for kw in _CLAUSE_KEYWORDS:
+                    after = upper[len(kw) : len(kw) + 1]
+                    if upper.startswith(kw) and not (after.isalnum() or after == "_"):
+                        starts_clause = True
+                        break
+            out.append("\n" if starts_clause else " ")
+            pending_ws = False
+        out.append(ch)
+        i += 1
+    pretty = "".join(out).strip()
+    return pretty if len(pretty) <= MAX_STEP_HOGQL_LENGTH else hogql
+
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
@@ -537,6 +610,10 @@ def generate_query_plan(
     result = llm.invoke([("system", rendered_prompt)])
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
+    # Canonicalize formatting once at generation so the executed SQL, diagnostics, and the frozen
+    # plan all carry the same pretty form.
+    for step in result.steps:
+        step.hogql = prettify_hogql(step.hogql)
     return result
 
 
