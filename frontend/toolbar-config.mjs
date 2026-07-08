@@ -25,6 +25,9 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
+    // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
+    'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -47,8 +50,6 @@ const deniedThirdPartyPackages = [
     // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
     // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
     /^mermaid(\/|$)/,
-    // @posthog/brand illustration components (e.g. hoggies), pulled in by AI product scenes.
-    /^@posthog\/brand(\/|$)/,
     // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,

@@ -12,12 +12,33 @@ import type { MockResolverInfo } from '~/mocks/utils'
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const RELATIONSHIP_DEFINITIONS_ENDPOINT = 'api/projects/:team_id/account_relationship_definitions/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
 const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
 type AccountNameCell = { name: string; external_id: string | null; id: string }
-type AccountRoleCell = [number, string] | null
-type AccountRow = [AccountNameCell, string[], number, AccountRoleCell, AccountRoleCell, AccountRoleCell]
+// Active assignee user ids from the relationships lazy join. Ids 178 and 202 match
+// the default org-members mock so the cells resolve to john.doe / jane.mcdoe.
+type AccountRelationshipCell = number[]
+type AccountRow = [
+    AccountNameCell,
+    string[],
+    number,
+    AccountRelationshipCell,
+    AccountRelationshipCell,
+    AccountRelationshipCell,
+]
+
+const RELATIONSHIP_DEFINITIONS = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
+        { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
+        { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+    ],
+}
 
 function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown> {
     return {
@@ -35,34 +56,13 @@ function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown>
 }
 
 const SAMPLE_ROWS: AccountRow[] = [
-    [
-        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
-        ['enterprise', 'priority'],
-        0,
-        [1, 'alice@posthog.com'],
-        [2, 'bob@posthog.com'],
-        null,
-    ],
-    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, null, null, null],
-    [
-        { name: 'Hooli', external_id: null, id: 'acc-3' },
-        ['scaleup'],
-        0,
-        [1, 'alice@posthog.com'],
-        null,
-        [3, 'carol@posthog.com'],
-    ],
+    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 0, [178], [202], []],
+    [{ name: 'Globex', external_id: 'cust_globex_002', id: 'acc-2' }, [], 0, [], [], []],
+    [{ name: 'Hooli', external_id: null, id: 'acc-3' }, ['scaleup'], 0, [178], [], [202]],
 ]
 
 const SINGLE_ROW: AccountRow[] = [
-    [
-        { name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' },
-        ['enterprise', 'priority'],
-        1,
-        [1, 'alice@posthog.com'],
-        [2, 'bob@posthog.com'],
-        null,
-    ],
+    [{ name: 'Acme Inc', external_id: 'cust_acme_001', id: 'acc-1' }, ['enterprise', 'priority'], 1, [178], [202], []],
 ]
 
 const ACCOUNT_WITH_LINKS = {
@@ -232,13 +232,15 @@ const meta: Meta = {
             waitForSelector: '[data-attr="accounts-refresh"]',
         },
     },
+    // NB: no QUERY_ENDPOINT mock here — every story registers exactly one query handler.
+    // Meta- and story-level decorators both worker.use() the same path, and their precedence
+    // can flip mid-story, so a meta-level query mock intermittently shadows the story's and
+    // answers billing/chart queries with an empty 200 (breaking the Usage tab canvas).
     decorators: [
         mswDecorator({
             get: {
                 [WAREHOUSE_VIEW_LINK_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+                [RELATIONSHIP_DEFINITIONS_ENDPOINT]: RELATIONSHIP_DEFINITIONS,
             },
         }),
     ],
@@ -249,6 +251,13 @@ type Story = StoryObj<{}>
 
 export const Default: Story = {
     render: () => <App />,
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const Empty: Story = {
@@ -272,6 +281,13 @@ export const FeatureGateOff: Story = {
             waitForSelector: '[data-attr="not-found-page"]',
         },
     },
+    decorators: [
+        mswDecorator({
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+            },
+        }),
+    ],
 }
 
 export const RowExpandedEmpty: Story = {

@@ -4,10 +4,13 @@ from numbers import Number
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.utils import get_instance_region
 
 PH_US_API_KEY = "sTMFPsFhdP1Ssg"
@@ -17,6 +20,36 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+_DEDICATED_AI_ENDPOINT_STAGES = (DedicatedAIEndpointRollout.RUNNER, DedicatedAIEndpointRollout.ALL)
+
+
+def _use_dedicated_ai_endpoint(caller_stage: DedicatedAIEndpointRollout) -> bool:
+    rollout = settings.POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT
+    if rollout is DedicatedAIEndpointRollout.OFF:
+        return False
+    return _DEDICATED_AI_ENDPOINT_STAGES.index(rollout) >= _DEDICATED_AI_ENDPOINT_STAGES.index(caller_stage)
+
+
+def enable_dedicated_ai_endpoint_for_default_client() -> None:
+    """Route the module-level default client's `$ai_*` events to the dedicated AI
+    endpoint at the `all` rollout stage.
+
+    Deliberate workaround: the SDK's lazy `setup()` doesn't accept
+    `_dedicated_ai_endpoint`, and we want to finish testing the endpoint on our own
+    traffic before rethinking the flag as a public option threaded through the
+    SDK's normal construction paths. Mutating the constructed client is safe: it
+    and its consumers read the flag per batch, and the SDK's post-fork consumer
+    rebuild copies it from the old consumers.
+    """
+    if not _use_dedicated_ai_endpoint(DedicatedAIEndpointRollout.ALL):
+        return
+    client = posthoganalytics.default_client
+    if client is None:
+        return
+    client._dedicated_ai_endpoint = True
+    for consumer in client.consumers or []:
+        consumer.dedicated_ai_endpoint = True
 
 
 def feature_enabled_or_false(
@@ -84,7 +117,12 @@ def ph_scoped_capture():
         ph_client.shutdown()
 
 
-def get_client(region: str = "US", **kwargs: Any):
+def get_client(
+    region: str = "US",
+    *,
+    dedicated_ai_endpoint_stage: DedicatedAIEndpointRollout = DedicatedAIEndpointRollout.ALL,
+    **kwargs: Any,
+):
     from posthoganalytics import Posthog
 
     api_key = None
@@ -98,4 +136,10 @@ def get_client(region: str = "US", **kwargs: Any):
     else:
         return
 
-    return Posthog(api_key, host=host, super_properties={"region": region}, **kwargs)
+    return Posthog(
+        api_key,
+        host=host,
+        super_properties={"region": region},
+        _dedicated_ai_endpoint=_use_dedicated_ai_endpoint(dedicated_ai_endpoint_stage),
+        **kwargs,
+    )

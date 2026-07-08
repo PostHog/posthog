@@ -921,6 +921,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
+    def test_cumulative_lone_sample_emits_no_point(self):
+        # A cumulative histogram's first (and only) sample has no predecessor
+        # to diff against — the window has no computable increase. That must
+        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
+        rows = self._run(0.95)
+        self.assertEqual(rows, [])
+
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
         self._seed_histogram(

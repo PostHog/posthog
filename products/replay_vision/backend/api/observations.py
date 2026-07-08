@@ -33,12 +33,13 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_quality_enabled
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -86,6 +87,24 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
+    )
+
+
+class ReplayObservationLabelSerializer(serializers.Serializer):
+    """The team's shared judgement on whether the scanner scored this session correctly."""
+
+    is_correct = serializers.BooleanField(
+        help_text="True if the scanner scored this session correctly, false if not.",
+    )
+    feedback = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=5000,
+        help_text=(
+            "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got "
+            "right or wrong, or what it should have concluded."
+        ),
     )
 
 
@@ -168,6 +187,19 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     def get_next_observation_id(self, _obj: ReplayObservation) -> uuid.UUID | None:
         return (self.context.get("neighbors") or {}).get("next")
 
+    # `label` shadows DRF's Field.label attribute; the field name is intentional.
+    label = serializers.SerializerMethodField(  # type: ignore[assignment]
+        help_text="The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled.",
+    )
+
+    @extend_schema_field(ReplayObservationLabelSerializer(allow_null=True))
+    def get_label(self, obj: ReplayObservation) -> dict | None:
+        # Reverse one-to-one from select_related("label"); getattr returns None when unlabeled.
+        label = getattr(obj, "label", None)
+        if label is None:
+            return None
+        return {"is_correct": label.is_correct, "feedback": label.feedback}
+
     class Meta:
         model = ReplayObservation
         fields = [
@@ -185,6 +217,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "recording_subject_email",
             "previous_observation_id",
             "next_observation_id",
+            "label",
             "started_at",
             "completed_at",
             "created_at",
@@ -263,9 +296,53 @@ class CoverageStatsSerializer(serializers.Serializer):
     recent_days = serializers.IntegerField(help_text="Window size in days used for `recent_sessions`.")
 
 
+class ObservationLabelDayCountSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="Day (UTC) the observed sessions were scanned.")
+    up = serializers.IntegerField(help_text="Observations scanned this day labeled correct (thumbs up).")
+    down = serializers.IntegerField(help_text="Observations scanned this day labeled incorrect (thumbs down).")
+
+
+class ObservationVersionMarkerSerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="First day (UTC) this prompt version produced observations.")
+    version = serializers.IntegerField(help_text="The scanner (prompt) version number.")
+    prompt = serializers.CharField(
+        allow_blank=True,
+        help_text="The prompt text this version ran with, taken from the observation run snapshots.",
+    )
+    up = serializers.IntegerField(help_text="Thumbs-up ratings on this version's observations.")
+    down = serializers.IntegerField(help_text="Thumbs-down ratings on this version's observations.")
+
+
+class ObservationLabelStatsSerializer(serializers.Serializer):
+    up_total = serializers.IntegerField(help_text="Observations in the filtered set labeled correct (thumbs up).")
+    down_total = serializers.IntegerField(help_text="Observations in the filtered set labeled incorrect (thumbs down).")
+    by_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned "
+            "so the series tracks scanner quality over time. Days without labels are omitted."
+        ),
+    )
+    by_rating_day = ObservationLabelDayCountSerializer(
+        many=True,
+        help_text=(
+            "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set "
+            "or changed: the team's rating activity. Days without rating changes are omitted."
+        ),
+    )
+    version_markers = ObservationVersionMarkerSerializer(
+        many=True,
+        help_text=(
+            "Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, "
+            "and rating counts, for chart markers and the prompt version history."
+        ),
+    )
+
+
 class ObservationStatsSerializer(serializers.Serializer):
     status_counts = ObservationStatusCountsSerializer(help_text="Counts of observations by terminal status.")
     coverage = CoverageStatsSerializer(help_text="Session-level scanner coverage.")
+    labels = ObservationLabelStatsSerializer(help_text="Team label (thumbs up/down) aggregates over the filtered set.")
     available_tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
@@ -300,7 +377,7 @@ OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status"
 
 # JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
 _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
-_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
+_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email", "label")
 
 
 # Derived from the scanner output schema so the filter can never drift from what monitors emit.
@@ -321,6 +398,10 @@ class _ObservationOrderByFilter(OrderByFilter):
         if key == "recording_subject_email":
             # Nullable column — keep unidentified subjects out of the way regardless of direction.
             return self._order_nulls_last(qs, "recording_subject_email", descending)
+        if key == "label":
+            # Sort by the shared label; unlabeled observations sort last regardless of direction so
+            # labeled sessions cluster together (asc: incorrect then correct; desc: correct then incorrect).
+            return self._order_nulls_last(qs, "label__is_correct", descending)
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
             score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
@@ -385,6 +466,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         help_text="Filter to observations whose recording subject email contains this value (case-insensitive).",
     )
+    labeled = django_filters.BooleanFilter(
+        method="_filter_labeled",
+        help_text=(
+            "When true, return only observations that have a shared label (thumbs up or down); "
+            "when false, only unlabeled observations."
+        ),
+    )
     order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
@@ -412,6 +500,11 @@ class ReplayObservationFilter(django_filters.FilterSet):
             for name, field in cls.declared_filters.items()
             if name != "order_by"
         ]
+
+    def _filter_labeled(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: bool
+    ) -> QuerySet[ReplayObservation]:
+        return queryset.filter(label__isnull=not value)
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -486,7 +579,7 @@ class ReplayObservationViewSet(
         scanner = self._scanner_for_url()
         return (
             queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
-            .select_related("triggered_by_user")
+            .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
 
@@ -556,6 +649,55 @@ class ReplayObservationViewSet(
             )
         return Response(RetryResponseSerializer({"workflow_id": workflow_id}).data, status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(
+        methods=["POST"],
+        request=ReplayObservationLabelSerializer,
+        responses={200: ReplayObservationLabelSerializer},
+        description=(
+            "Set or update the observation's shared label: whether the scanner scored the session correctly, "
+            "plus optional feedback on what it got wrong. One label per observation, shared across the team; "
+            "these labels feed prompt improvement. Requires session recording edit access."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        responses={204: None},
+        description="Remove the observation's shared label. Requires session recording edit access.",
+    )
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="label",
+        # Shared team data: writing requires the scanner write scope, mirroring the scanner-edit gate.
+        required_scopes=["replay_scanner:write", "session_recording:read"],
+    )
+    def label(self, request: Request, **kwargs: Any) -> Response:
+        # Viewset-level permissions cover all observation reads, so the quality sub-flag is checked
+        # here instead of in permission_classes; 404 (not 403) to match the flag permission classes.
+        if not is_replay_vision_quality_enabled(cast(User, request.user), self.team):
+            raise NotFound()
+        observation = self.get_object()
+        # Editing the shared label needs edit access, not just the viewer access reading needs.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
+            raise PermissionDenied("Editing observation labels requires session_recording edit access.")
+        user = cast(User, request.user)
+        if request.method == "DELETE":
+            ReplayObservationLabel.objects.filter(observation=observation, team_id=observation.team_id).delete()
+            return Response(status=204)
+        input_serializer = ReplayObservationLabelSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        # team_id in the lookup keeps the query team-scoped.
+        label, _ = ReplayObservationLabel.objects.update_or_create(
+            observation=observation,
+            team_id=observation.team_id,
+            defaults={
+                "is_correct": input_serializer.validated_data["is_correct"],
+                "feedback": input_serializer.validated_data.get("feedback", ""),
+                "created_by": user,
+            },
+        )
+        return Response(ReplayObservationLabelSerializer(label).data)
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -590,7 +732,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         )
         queryset = (
             queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
-            .select_related("triggered_by_user")
+            .select_related("triggered_by_user", "label")
             .order_by("-created_at", "id")
         )
         # A bare list would scan the whole team's observation history; the replay page always has a session.

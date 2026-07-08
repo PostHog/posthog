@@ -19,7 +19,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -61,6 +61,9 @@ from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
+    SandboxCustomImageBuildSerializer,
+    SandboxCustomImageSerializer,
+    SandboxCustomImageWriteSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
     SandboxEnvironmentWriteSerializer,
@@ -2019,14 +2022,22 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     def create(self, request, **kwargs):
         serializer = SandboxEnvironmentWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
+        try:
+            env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
+        except ValueError as e:
+            raise ValidationError(str(e))
         return Response(SandboxEnvironmentSerializer(env).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=SandboxEnvironmentWriteSerializer, responses={200: SandboxEnvironmentSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = SandboxEnvironmentWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        env = tasks_facade.update_sandbox_environment(pk, self.team_id, request.user.id, **serializer.validated_data)
+        try:
+            env = tasks_facade.update_sandbox_environment(
+                pk, self.team_id, request.user.id, **serializer.validated_data
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
         if env is None:
             raise NotFound()
         return Response(SandboxEnvironmentSerializer(env).data)
@@ -2034,5 +2045,102 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     @extend_schema(responses={204: None})
     def destroy(self, request, pk=None, **kwargs):
         if not tasks_facade.delete_sandbox_environment(pk, self.team_id, request.user.id):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=["sandbox-custom-images"])
+class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+
+    Custom images only run on the Modal VM runtime, so every action is gated on the
+    `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method == "OPTIONS":
+            return
+        if not tasks_facade.sandbox_custom_images_enabled(self.team_id, request.user.id):
+            raise PermissionDenied("Custom sandbox images require the Modal VM runtime, which is not enabled")
+
+    @extend_schema(responses={200: SandboxCustomImageSerializer(many=True)})
+    def list(self, request, **kwargs):
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        page = self.paginate_queryset(images)
+        if page is not None:
+            return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)
+        return Response(SandboxCustomImageSerializer(images, many=True).data)
+
+    @extend_schema(responses={200: SandboxCustomImageSerializer})
+    def retrieve(self, request, pk=None, **kwargs):
+        image = tasks_facade.get_sandbox_custom_image(pk, self.team_id, request.user.id)
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(
+        request=SandboxCustomImageWriteSerializer,
+        responses={201: SandboxCustomImageSerializer},
+        description="Create a draft custom image and start its interactive image-builder agent task. "
+        "The returned builder_task_id points at the conversation.",
+    )
+    def create(self, request, **kwargs):
+        serializer = SandboxCustomImageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.create_sandbox_custom_image(self.team_id, request.user.id, **serializer.validated_data)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(SandboxCustomImageSerializer(image).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={200: SandboxCustomImageSerializer},
+        description="Revive (or reuse) the image's builder agent session. When the previous session has "
+        "ended, a fresh one is started seeded with the stored spec — use this to update an existing image.",
+    )
+    @action(detail=True, methods=["post"], url_path="builder_task", required_scopes=["task:write"])
+    def builder_task(self, request, pk=None, **kwargs):
+        try:
+            image = tasks_facade.ensure_sandbox_custom_image_builder_task(pk, self.team_id, request.user.id)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(
+        request=SandboxCustomImageBuildSerializer,
+        responses={200: SandboxCustomImageSerializer},
+        description="Persist the image spec (from the request body or the builder agent's sandbox), "
+        "run the security scan, and on pass build and publish the image.",
+    )
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
+    def build(self, request, pk=None, **kwargs):
+        serializer = SandboxCustomImageBuildSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.build_sandbox_custom_image(
+                pk, self.team_id, request.user.id, spec_yaml=serializer.validated_data.get("spec_yaml")
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, pk=None, **kwargs):
+        if not tasks_facade.delete_sandbox_custom_image(pk, self.team_id, request.user.id):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)

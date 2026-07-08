@@ -180,7 +180,7 @@ describe('createPrepareEventStep', () => {
 
     it('should return timestamp parsing warnings as pipeline warnings', async () => {
         jest.mocked(parseEventTimestamp).mockImplementation((_event, callback) => {
-            callback?.('timestamp_in_the_future', { timestamp: '3000-01-01' })
+            callback?.('ignored_invalid_timestamp', { timestamp: '3000-01-01' })
             return DateTime.fromISO('2023-01-01T00:00:00.000Z')
         })
 
@@ -188,6 +188,6 @@ describe('createPrepareEventStep', () => {
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(result.warnings).toEqual([{ type: 'timestamp_in_the_future', details: { timestamp: '3000-01-01' } }])
+        expect(result.warnings).toEqual([{ type: 'ignored_invalid_timestamp', details: { timestamp: '3000-01-01' } }])
     })
 })

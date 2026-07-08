@@ -35,6 +35,21 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; VelenPublicWebCrawler/1.0; +https://velen.io)",
         "amazon-QBusiness",
         "amazon-kendra",
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
+        "Inkeep-Crawler/1.0 (+https://inkeep.com)",
+        "KhojifyBot/1.0",
+        "AzureAI-SearchBot/1.0",
+        "GrowthXBot/2.0",
+        "RegieBrainBot/0.1 (regie.ai)",
+        "IntelvaneBot/1.0",
+        "ModelContextProtocol/1.0",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Amazon-Bedrock-AgentCore-Browser/1.0",
+        "ResearchBot/1.0",
+        "ShapBot/0.1.0",
+        "ABEvalBot/0.1",
+        "OzDocsCrawler/1.0 docs-ingestor",
+        "polygazer/0.1.0",
+        "BIC-Probe/1.0 (pracharvedam.ai)",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -102,6 +117,16 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; ev-crawler/1.0; +https://headline.com/legal/crawler)",
         "Mozilla/5.0 (compatible; google-structured-data-testing-tool; +https://developers.google.com/search/docs/appearance/structured-data)",
         "Mozilla/5.0 (compatible; woorankreview/2.0; +https://www.woorank.com/)",
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
+        "ClueWeb-Crawler/1.0 (CMU)",
+        "mwmbl/0.2.0",
+        "Mozilla/5.0 (compatible; MojeekBot/0.11; +https://www.mojeek.com/bot.html)",
+        "meta-webindexer/1.1 (facebook)",
+        "Mozilla/5.0 (compatible; archive.org_bot Zeno/warc; +http://archive.org/details/archive.org_bot)",
+        "jobcrawler/0.1",
+        "FlamingoBot (hackernews.pink)",
+        "heritrix/3.14.2 (+image-meta.com)",
+        "crawlcrawl-actors/1.0",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -128,6 +153,14 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "meta-externalads/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 8_3 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12F70 Safari/600.1.4 (compatible; OnCrawl/1.0; +http://www.oncrawl.com)",
         "Mozilla/5.0 AppleWebKit (compatible; s4a/1.0; +https://www.seo4ajax.com/webscraper)",
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
+        "MBCrawler/1.0 (monitorbacklinks)",
+        "AffsignalCrawler/1.0",
+        "RankyDockyBot/1.0",
+        "pricingbrief-bot/0.1",
+        "SiteavailObservatory/1.0",
+        "appzbot/1.0",
+        "Optimize Pilot Research Bot/1.0",
     ],
     "social_crawler": [
         "Mozilla/5.0 (compatible; FacebookBot/1.0; +https://developers.facebook.com/docs/sharing/webmasters/crawler)",
@@ -150,6 +183,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Snap URL Preview Service; bot; snapchat; https://developers.snap.com/robots",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 OPR/131.0.0.0 (Edition Viber)",
         "vercel-screenshot/1.0",
+        # Server-side addition (prod $http_log Vercel log drain, 7d)
+        "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
     ],
     "monitoring": [
         "Mozilla/5.0 AppleWebKit/537.36 Chrome/149.0.7827.200 Safari/537.36 Google-Ads-Conversions",
@@ -189,6 +224,13 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "bitdiscovery",
         "kinsta-bot",
         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Superconductor/1.2.3; Hotwire Native iOS; Turbo Native iOS; bridge-components: [form menu modal overflow-menu multi-section-menu title-menu enable-notifications right-bar-button authentication-status external-link logout-button share toast]",
+        # Server-side additions (prod $http_log Vercel log drain, 7d)
+        "KalleWorks-Monitor/1.0",
+        "LosClouds-Monitor/2.0",
+        "Exit1-Website-Monitor/1.0",
+        "UptimeWizardBot/1.0",
+        "PreflightBot/1.0",
+        "MerchantSecurityScanner/1.0 (stripe)",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",

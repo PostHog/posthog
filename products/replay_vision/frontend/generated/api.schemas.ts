@@ -40,26 +40,33 @@ export interface TriggerConfigApi {
 }
 
 /**
- * Observation filter applied at synthesis time. All keys optional; this typed shape is the
- * allowlist, so unknown input keys are dropped rather than persisted.
+ * * `yes` - yes
+ * * `no` - no
+ * * `inconclusive` - inconclusive
+ */
+export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
+
+export const VerdictEnumApi = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
+ * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+ * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
  */
 export interface SelectionApi {
-    /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
-    scanner_type?: string
-    /** Restrict to observations produced by these scanner IDs. */
+    /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
     scanner_ids?: string[]
-    /** Filter to observations with this monitor verdict. */
-    verdict?: string
-    /** Filter to observations carrying any of these classifier tags. */
+    /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
+    verdict?: VerdictEnumApi[]
+    /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
     tags?: string[]
-    /** Lower bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or above this value (inclusive). */
     min_score?: number
-    /** Upper bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or below this value (inclusive). */
     max_score?: number
-    /** Filter to observations with this processing status. */
-    status?: string
-    /** Lookback window in days for the observations gathered at synthesis time. */
-    window_days?: number
 }
 
 /**
@@ -174,7 +181,7 @@ export interface VisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -233,7 +240,7 @@ export interface PatchedVisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -448,6 +455,19 @@ export const ObservationTriggerEnumApi = {
     OnDemand: 'on_demand',
 } as const
 
+/**
+ * The team's shared judgement on whether the scanner scored this session correctly.
+ */
+export interface ReplayObservationLabelApi {
+    /** True if the scanner scored this session correctly, false if not. */
+    is_correct: boolean
+    /**
+     * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+     * @maxLength 5000
+     */
+    feedback?: string
+}
+
 export interface ReplayObservationApi {
     readonly id: string
     /** The scanner that produced this observation. */
@@ -497,6 +517,8 @@ export interface ReplayObservationApi {
      * @nullable
      */
     readonly next_observation_id: string | null
+    /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+    readonly label: ReplayObservationLabelApi | null
     /** @nullable */
     started_at?: string | null
     /** @nullable */
@@ -537,6 +559,19 @@ export interface VisionQuotaApi {
     /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
     readonly projected_monthly_observations: number
 }
+
+/**
+ * * `focused` - Focused
+ * * `balanced` - Balanced
+ * * `comprehensive` - Comprehensive
+ */
+export type SamplingModeEnumApi = (typeof SamplingModeEnumApi)[keyof typeof SamplingModeEnumApi]
+
+export const SamplingModeEnumApi = {
+    Focused: 'focused',
+    Balanced: 'balanced',
+    Comprehensive: 'comprehensive',
+} as const
 
 /**
  * * `google` - Google
@@ -587,6 +622,12 @@ export interface ReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -653,6 +694,12 @@ export interface PatchedReplayScannerApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /** Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi
     /** LLM provider. v1 is Google-only.
      *
      * * `google` - Google */
@@ -727,6 +774,41 @@ export interface CoverageStatsApi {
     recent_days: number
 }
 
+export interface ObservationLabelDayCountApi {
+    /** Day (UTC) the observed sessions were scanned. */
+    date: string
+    /** Observations scanned this day labeled correct (thumbs up). */
+    up: number
+    /** Observations scanned this day labeled incorrect (thumbs down). */
+    down: number
+}
+
+export interface ObservationVersionMarkerApi {
+    /** First day (UTC) this prompt version produced observations. */
+    date: string
+    /** The scanner (prompt) version number. */
+    version: number
+    /** The prompt text this version ran with, taken from the observation run snapshots. */
+    prompt: string
+    /** Thumbs-up ratings on this version's observations. */
+    up: number
+    /** Thumbs-down ratings on this version's observations. */
+    down: number
+}
+
+export interface ObservationLabelStatsApi {
+    /** Observations in the filtered set labeled correct (thumbs up). */
+    up_total: number
+    /** Observations in the filtered set labeled incorrect (thumbs down). */
+    down_total: number
+    /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
+    by_day: ObservationLabelDayCountApi[]
+    /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
+    by_rating_day: ObservationLabelDayCountApi[]
+    /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+    version_markers: ObservationVersionMarkerApi[]
+}
+
 export interface MonitorStatsApi {
     /** Succeeded observations whose verdict was `yes`. */
     yes_total: number
@@ -788,6 +870,8 @@ export interface ObservationStatsApi {
     status_counts: ObservationStatusCountsApi
     /** Session-level scanner coverage. */
     coverage: CoverageStatsApi
+    /** Team label (thumbs up/down) aggregates over the filtered set. */
+    labels: ObservationLabelStatsApi
     /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
     available_tags: string[]
     /** Monitor-type aggregates; null when the scanner is not a monitor. */
@@ -796,6 +880,73 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `applied` - Applied
+ * * `dismissed` - Dismissed
+ * * `superseded` - Superseded
+ * * `no_change` - No change
+ */
+export type ReplayScannerPromptSuggestionStatusEnumApi =
+    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+
+export const ReplayScannerPromptSuggestionStatusEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Dismissed: 'dismissed',
+    Superseded: 'superseded',
+    NoChange: 'no_change',
+} as const
+
+export interface ReplayScannerPromptSuggestionApi {
+    readonly id: string
+    /** pending (current), applied, dismissed, or superseded by a newer suggestion.
+     *
+     * * `pending` - Pending
+     * * `applied` - Applied
+     * * `dismissed` - Dismissed
+     * * `superseded` - Superseded
+     * * `no_change` - No change */
+    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    /** The full rewritten prompt, ready to apply to the scanner. */
+    readonly suggested_prompt: string
+    /** The scanner prompt this suggestion was generated against, for diffing. */
+    readonly base_prompt: string
+    /** What the rewrite changed and why, grounded in the ratings. */
+    readonly rationale: string
+    /** Thumbs-up ratings the suggestion was based on. */
+    readonly based_on_up: number
+    /** Thumbs-down ratings the suggestion was based on. */
+    readonly based_on_down: number
+    /** The scanner version whose prompt this suggestion was generated against. */
+    readonly scanner_version: number
+    readonly created_at: string
+    /** User who requested this suggestion; null for automatic refreshes. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly applied_at: string | null
+    /** User who applied this suggestion to the scanner; null unless applied. */
+    readonly applied_by: UserBasicApi | null
+}
+
+export interface PaginatedReplayScannerPromptSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReplayScannerPromptSuggestionApi[]
+}
+
+export interface CurrentPromptSuggestionApi {
+    /** The newest suggestion for this scanner, or null when none has been generated yet. */
+    suggestion: ReplayScannerPromptSuggestionApi | null
+    /** True when the team's ratings changed since the newest suggestion was generated. */
+    stale: boolean
+    /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
+    rated_count: number
 }
 
 /**
@@ -818,6 +969,12 @@ export interface EstimateRequestApi {
      * @maximum 1
      */
     sampling_rate?: number
+    /** Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).
+     *
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive */
+    sampling_mode?: SamplingModeEnumApi
     /**
      * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
      * @nullable
@@ -829,11 +986,11 @@ export interface EstimateRequestApi {
  * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
  */
 export interface EstimateResponseApi {
-    /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
+    /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
     matched_sessions_in_window: number
     /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
     window_days: number
-    /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
+    /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
     estimated_observations_per_month: number
     /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
     other_enabled_scanners_monthly: number
@@ -1018,6 +1175,10 @@ export type VisionScannersListParams = {
 
 export type VisionScannersObservationsListParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1057,6 +1218,10 @@ export type VisionScannersObservationsListParams = {
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string
+    /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number
@@ -1084,4 +1249,15 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }

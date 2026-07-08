@@ -1,8 +1,8 @@
-import { AnthropicLogo } from 'scenes/onboarding/legacy/sdks/logos/AnthropicLogo'
-import geminiImage from 'scenes/onboarding/legacy/sdks/logos/gemini.svg'
-import { OpenAILogo } from 'scenes/onboarding/legacy/sdks/logos/OpenAILogo'
-import { OpenRouterLogo } from 'scenes/onboarding/legacy/sdks/logos/OpenRouterLogo'
-import zeaburImage from 'scenes/onboarding/legacy/sdks/logos/zeabur.svg'
+import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
+import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
+import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
+import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
+import zeaburImage from 'scenes/onboarding/shared/logos/zeabur.svg'
 
 import azureImage from 'public/services/azure.png'
 
