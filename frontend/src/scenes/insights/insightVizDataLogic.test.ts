@@ -7,7 +7,13 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataVisualizationNode,
+    FunnelsQuery,
+    LifecycleQuery,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -425,6 +431,35 @@ describe('insightVizDataLogic', () => {
             }).toFinishAllListeners()
 
             expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
+    })
+
+    describe('zoomDateRange', () => {
+        it('updates the date range of an insight query', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.zoomDateRange('2024-06-10', '2024-06-12')
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.dateRange).toMatchObject({
+                date_from: '2024-06-10',
+                date_to: '2024-06-12',
+            })
+        })
+
+        it('writes filters.dateRange on a SQL insight instead of a top-level date range', async () => {
+            const sqlQuery: DataVisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1 FROM events WHERE {filters}' },
+            }
+            builtInsightDataLogic.actions.setQuery({ ...sqlQuery })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.zoomDateRange('2024-06-10', '2024-06-12')
+            }).toFinishAllListeners()
+
+            const query = builtInsightDataLogic.values.query as DataVisualizationNode
+            expect(query.source.filters?.dateRange).toEqual({ date_from: '2024-06-10', date_to: '2024-06-12' })
+            expect('dateRange' in query.source && (query.source as Record<string, unknown>).dateRange).toBeFalsy()
         })
     })
 

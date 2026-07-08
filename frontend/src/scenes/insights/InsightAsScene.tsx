@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,8 +12,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
-import { DataVisualizationNode, Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { Node } from '~/queries/schema/schema-general'
+import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -22,7 +21,7 @@ import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
-import { hasTimeComponent, insightVizDataLogic } from './insightVizDataLogic'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -51,31 +50,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
-
-    const onDateRangeZoom = useCallback(
-        (dateFrom: string, dateTo: string): void => {
-            // SQL insights carry their date range in the HogQL source's filters (applied via {filters}).
-            if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
-                const zoomedQuery: DataVisualizationNode = {
-                    ...query,
-                    source: {
-                        ...query.source,
-                        filters: {
-                            ...query.source.filters,
-                            dateRange: { date_from: dateFrom, date_to: dateTo },
-                        },
-                    },
-                }
-                setInsightQuery(zoomedQuery)
-                return
-            }
-            // Sub-day buckets carry a time component; explicitDate stops the backend from
-            // rounding them back out to whole days.
-            updateDateRange({ date_from: dateFrom, date_to: dateTo, explicitDate: hasTimeComponent(dateFrom) }, true)
-        },
-        [query, setInsightQuery, updateDateRange]
-    )
+    const { zoomDateRange } = useActions(insightVizDataLogic(insightProps))
 
     useFileSystemLogView({
         type: 'insight',
@@ -135,7 +110,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                             showQueryEditor: actuallyShowQueryEditor,
                             showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                             insightProps,
-                            onDateRangeZoom: dragToZoomEnabled ? onDateRangeZoom : undefined,
+                            onDateRangeZoom: dragToZoomEnabled ? zoomDateRange : undefined,
                         }}
                         filtersOverride={filtersOverride}
                         variablesOverride={variablesOverride}
