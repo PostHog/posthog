@@ -57,6 +57,15 @@ class FlintEncodings(BaseModel):
     size: FlintEncoding | None = Field(default=None, description="Slice value column (pie charts only).")
 
 
+class FlintChartProperties(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stackMode: Literal["normalize"] | None = Field(
+        default=None,
+        description="'normalize' stacks to 100% (share of total). Stacked Bar and Area charts only.",
+    )
+
+
 class FlintChartSpec(BaseModel):
     """What the model emits: a Flint chart spec. The flint-chart compiler derives axes, scales,
     sort order, zero baselines, formatting, and layout from this plus the real rows."""
@@ -65,6 +74,9 @@ class FlintChartSpec(BaseModel):
 
     chartType: FlintChartType = Field(description="Flint chart template that best fits the columns.")
     encodings: FlintEncodings = Field(description="Column-to-channel bindings.")
+    chartProperties: FlintChartProperties | None = Field(
+        default=None, description="Template-specific display properties."
+    )
     semantic_types: dict[str, str] = Field(
         description=(
             "Per-column Flint semantic type, e.g. Date, Quantity, Price, Percentage, Duration, "
@@ -105,6 +117,8 @@ Guidelines:
   composition over time). A category column on x → "Bar Chart" ("Grouped"/"Stacked" with a color
   split). Part-of-whole → "Pie Chart" or "Doughnut Chart".
 - When rows are not pre-aggregated, set `aggregate` on y ("count" needs no field).
+- "Share of total" / "as a percentage" / "100% stacked" → a "Stacked Bar Chart" or "Area Chart"
+  with `chartProperties.stackMode` = "normalize".
 - `semantic_types` must cover every referenced column with its meaning, not its storage type:
   money → Price, ratios/rates → Percentage, timestamps/dates → Date, counts/amounts → Quantity,
   time spans → Duration, names/labels → Category, rankings → Rank, geography → Country.

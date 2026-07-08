@@ -90,6 +90,8 @@ function instantiateLine(area: boolean, spec: Record<string, unknown>, ctx: Inst
     const interpolate = ctx.chartProperties?.interpolate
     const config: LineChartConfig = {
         showGrid: true,
+        // Flint's canonical stack property: stackMode 'normalize' → share-of-total stacking
+        percentStackView: area && ctx.chartProperties?.stackMode === 'normalize' ? true : undefined,
         // Only pin the curve when the spec asked for an interpolation — an explicit
         // value here would override app-level styling defaults in the renderer
         curve: interpolate

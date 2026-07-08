@@ -118,6 +118,11 @@ class SQLFlintSpecViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "chart_spec": {
                     "chartType": spec.chartType,
                     "encodings": spec.encodings.model_dump(exclude_none=True),
+                    **(
+                        {"chartProperties": spec.chartProperties.model_dump(exclude_none=True)}
+                        if spec.chartProperties
+                        else {}
+                    ),
                 },
                 "semantic_types": spec.semantic_types,
                 "narrative": spec.narrative,

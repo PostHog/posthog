@@ -50,8 +50,10 @@ function instantiateBar(
     const horizontal = categoryAxis === 'y'
     const valueFormatter = makeTickFormatter(valCS.format)
     const valueAxisLabel = valCS.field === STATIC_SERIES_VALUE_COLUMN ? undefined : valCS.field
+    // Flint's canonical stack property: stackMode 'normalize' → share-of-total stacking
+    const normalized = barLayout === 'stacked' && ctx.chartProperties?.stackMode === 'normalize'
     const config: BarChartConfig = {
-        barLayout,
+        barLayout: normalized ? 'percent' : barLayout,
         axisOrientation: horizontal ? 'horizontal' : 'vertical',
         showGrid: true,
         // Left undefined unless the spec asks, so app-level styling defaults apply
