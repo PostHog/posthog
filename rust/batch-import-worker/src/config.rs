@@ -91,6 +91,13 @@ pub struct Config {
     #[envconfig(from = "CAPTURE_URL", default = "http://localhost:3307")]
     pub capture_url: String,
 
+    // Dedicated cross-account role for managed-migration S3 imports. Customer trust
+    // policies reference this role's ARN (not the worker's own identity), so the worker
+    // role-chains through it: ambient creds -> managed-migrations role -> customer role.
+    // When unset (local dev, self-hosted) customer roles are assumed directly.
+    #[envconfig(from = "MANAGED_MIGRATIONS_ROLE_ARN")]
+    pub managed_migrations_role_arn: Option<String>,
+
     // Dedicated root for temp files created during job processing. Swept on
     // every startup to reclaim space leaked by non-graceful pod terminations.
     #[envconfig(from = "STAGING_DIR", default = "/tmp/batch-import-worker")]
