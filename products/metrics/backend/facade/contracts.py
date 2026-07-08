@@ -22,7 +22,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from .enums import AttributeScope, FilterOp, MetricAggregation
+from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -60,6 +60,8 @@ class MetricQueryClause:
     group_by: tuple[MetricGroupBy, ...] = ()
     # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
     quantile: float | None = None
+    # Constrains rows to one metric type; None keeps all types (legacy).
+    metric_type: MetricType | None = None
 
     def __post_init__(self) -> None:
         if self.aggregation.needs_quantile:

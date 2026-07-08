@@ -1164,3 +1164,96 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestMetricTypeIsolation(ClickhouseTestMixin, APIBaseTest):
+    """One metric name existing as several types (e.g. a counter and a gauge)
+    must not blend into one aggregate — series identity includes the type."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+        # The same name recorded as a delta counter (5) and as a gauge (42).
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 5.0)],
+            metric_type="sum",
+            aggregation_temporality="delta",
+            is_monotonic=True,
+        )
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 42.0)],
+            metric_type="gauge",
+        )
+
+    def _run(self, aggregation: str, metric_type: str | None, **kwargs: Any) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_collide",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+            metric_type=metric_type,
+            **kwargs,
+        ).run()
+
+    @parameterized.expand(
+        [
+            # Without isolation these blended: avg was (5 + 42) / 2 = 23.5.
+            ("gauge_avg", "avg", "gauge", 42.0),
+            ("counter_sum", "sum", "sum", 5.0),
+            ("counter_increase", "increase", "sum", 5.0),
+        ]
+    )
+    def test_type_filter_isolates_series(self, _name: str, aggregation: str, metric_type: str, expected: float):
+        rows = self._run(aggregation, metric_type)
+        assert [row["value"] for row in rows] == [expected]
+
+    def test_without_type_filter_all_rows_still_match(self):
+        # Back-compat: no metric_type keeps the pre-filter behavior.
+        rows = self._run("count", None)
+        assert [row["value"] for row in rows] == [2]
+
+    def test_rejects_unknown_metric_type(self):
+        with self.assertRaises(ValueError):
+            self._run("avg", "flurble")
+
+    def test_histogram_quantile_ignores_same_named_non_histogram_rows(self):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_collide",
+            points=[(self.anchor, 30.0)],
+            metric_type="histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[10.0, 50.0, 100.0],
+            histogram_counts=[0, 10, 0, 0],
+        )
+        # No explicit type needed: the histogram path must constrain itself.
+        rows = self._run("histogram_quantile", None, quantile=0.5)
+        assert len(rows) == 1
+        # All 10 observations sit in the (10, 50] bucket; p50 interpolates to 30.
+        assert abs(rows[0]["value"] - 30.0) < 1e-9
+
+    def test_api_accepts_metric_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_collide",
+                    "aggregation": "avg",
+                    "metricType": "gauge",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        series = response.json()["results"][0]
+        self.assertEqual([p["value"] for p in series["points"]], [42.0])

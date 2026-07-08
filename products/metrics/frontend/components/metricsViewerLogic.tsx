@@ -8,6 +8,7 @@ import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import { OtelMetricTypeEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 import type {
     _MetricAnomalyReportApi,
     _MetricFilterApi,
@@ -170,6 +171,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             query: {
                                 metricName: trimmedName,
                                 aggregation: values.aggregation,
+                                ...(values.selectedMetricType ? { metricType: values.selectedMetricType } : {}),
                                 dateFrom: dateFromISO,
                                 ...(dateToISO ? { dateTo: dateToISO } : {}),
                                 ...(values.groupByKeys.length
@@ -222,6 +224,17 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
+        // The picked metric's type (from the names list). Sent with the query so
+        // a name that exists as several types (e.g. a counter and a gauge)
+        // charts only the picked one instead of blending them.
+        selectedMetricType: [
+            (s) => [s.metricName, s.items],
+            (metricName, items): OtelMetricTypeEnumApi | null => {
+                const metricType = items.find((item) => item.name === metricName.trim())?.metric_type
+                const known = Object.values(OtelMetricTypeEnumApi) as string[]
+                return metricType && known.includes(metricType) ? (metricType as OtelMetricTypeEnumApi) : null
+            },
+        ],
         queryFilters: [
             (s) => [s.filterStrings],
             (filterStrings: string[]): _MetricFilterApi[] =>
