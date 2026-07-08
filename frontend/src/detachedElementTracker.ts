@@ -125,6 +125,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             window.addEventListener('beforeunload', () => {
                 scan.stop()
                 scan.dispose()
+                delete (window as unknown as { __leakHunter?: unknown }).__leakHunter
                 document.removeEventListener('visibilitychange', onVisibilityChange)
             })
         } catch {
