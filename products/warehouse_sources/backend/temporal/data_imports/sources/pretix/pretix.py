@@ -152,13 +152,27 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return wait_exponential_jitter(initial=1, max=30)(retry_state)
 
 
-@retry(
-    retry=retry_if_exception_type((PretixRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=_retry_wait,
-    reraise=True,
-)
-def _fetch_page(
+def _origin_of(url: str) -> tuple[str, str, int]:
+    # Same backslash normalization as `_host_of`, so the origin we compare is the one requests
+    # actually connects to.
+    normalized = url.replace("\\", "/").replace("%5c", "/").replace("%5C", "/")
+    parsed = urlparse(normalized)
+    scheme = parsed.scheme.lower()
+    port = parsed.port or (443 if scheme == "https" else 80)
+    return scheme, (parsed.hostname or "").lower(), port
+
+
+def _ensure_same_origin(url: str, base_url: str) -> None:
+    """Refuse pagination/resume URLs that leave the validated pretix origin.
+
+    ``next`` links come from the (possibly self-hosted, customer-controlled) server and resume URLs
+    from persisted state, while the session attaches the API token to every request — following an
+    off-origin URL would hand the token to an arbitrary host (or reach internal addresses)."""
+    if _origin_of(url) != _origin_of(base_url):
+        raise PretixHostNotAllowedError(f"pretix pagination URL is not on the configured pretix host: {url}")
+
+
+def _fetch_page_impl(
     session: requests.Session,
     url: str,
     logger: FilteringBoundLogger,
@@ -194,15 +208,30 @@ def _fetch_page(
     return data["results"], next_url if isinstance(next_url, str) and next_url else None
 
 
+_fetch_page = retry(
+    retry=retry_if_exception_type((PretixRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=_retry_wait,
+    reraise=True,
+)(_fetch_page_impl)
+
+
 def _iter_pages(
     session: requests.Session,
     first_url: str,
+    base_url: str,
     logger: FilteringBoundLogger,
 ) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
-    """Yield ``(page_items, next_url)`` across every page starting at ``first_url``."""
+    """Yield ``(page_items, next_url)`` across every page starting at ``first_url``.
+
+    Every fetched URL — including a resumed ``first_url`` — and every ``next`` link is pinned to the
+    validated base origin before it is fetched or yielded (and thus before it can be persisted)."""
     url: Optional[str] = first_url
     while url:
+        _ensure_same_origin(url, base_url)
         items, next_url = _fetch_page(session, url, logger)
+        if next_url:
+            _ensure_same_origin(next_url, base_url)
         yield items, next_url
         url = next_url
 
@@ -215,7 +244,7 @@ def _iter_event_slugs(
     session: requests.Session, base_url: str, organizer: str, logger: FilteringBoundLogger
 ) -> Iterator[str]:
     url = _build_url(base_url, EVENTS_PATH.format(organizer=organizer), {})
-    for page, _ in _iter_pages(session, url, logger):
+    for page, _ in _iter_pages(session, url, base_url, logger):
         for event in page:
             # Fail fast on a malformed response rather than silently dropping an event's children.
             yield str(event["slug"])
@@ -269,7 +298,7 @@ def get_rows(
         else:
             first_url = _build_url(resolved_base_url, config.path.format(organizer=quoted_organizer), params)
 
-        for page, next_url in _iter_pages(session, first_url, logger):
+        for page, next_url in _iter_pages(session, first_url, resolved_base_url, logger):
             if page:
                 yield page
             # Save AFTER yielding so a crash re-fetches from the last unpersisted page (merge
@@ -282,7 +311,7 @@ def get_rows(
     # slug so composite primary keys stay unique table-wide. No resume state is persisted here.
     for event_slug in _iter_event_slugs(session, resolved_base_url, quoted_organizer, logger):
         path = config.path.format(organizer=quoted_organizer, event=quote(event_slug, safe=""))
-        for page, _ in _iter_pages(session, _build_url(resolved_base_url, path, params), logger):
+        for page, _ in _iter_pages(session, _build_url(resolved_base_url, path, params), resolved_base_url, logger):
             if page:
                 yield [{**row, EVENT_SLUG_KEY: event_slug} for row in page]
 

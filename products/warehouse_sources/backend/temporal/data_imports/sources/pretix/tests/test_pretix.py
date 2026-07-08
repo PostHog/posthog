@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
     PretixHostNotAllowedError,
     PretixResumeConfig,
     PretixRetryableError,
-    _fetch_page,
+    _fetch_page_impl,
     _format_modified_since,
     _parse_retry_after,
     _quote_organizer,
@@ -103,13 +103,13 @@ class TestQuoteOrganizer:
 
 
 class TestFetchPage:
-    # `_fetch_page.__wrapped__` bypasses the tenacity retry loop so failures don't sleep.
+    # `_fetch_page_impl` is the undecorated fetch, so failures don't sleep through tenacity retries.
 
     def test_returns_items_and_next_url(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(json_data=_page([{"id": 1}], "https://pretix.eu/api/v1/x/?page=2"))
 
-        items, next_url = _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+        items, next_url = _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
         assert items == [{"id": 1}]
         assert next_url == "https://pretix.eu/api/v1/x/?page=2"
@@ -118,7 +118,7 @@ class TestFetchPage:
         session = mock.MagicMock()
         session.get.return_value = _response(json_data=_page([{"id": 1}], None))
 
-        _, next_url = _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+        _, next_url = _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
         assert next_url is None
 
@@ -127,7 +127,7 @@ class TestFetchPage:
         session.get.return_value = _response(status_code=429, headers={"Retry-After": "7"})
 
         with pytest.raises(PretixRetryableError) as exc_info:
-            _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
         assert exc_info.value.retry_after == 7.0
 
@@ -136,21 +136,21 @@ class TestFetchPage:
         session.get.return_value = _response(status_code=503)
 
         with pytest.raises(PretixRetryableError):
-            _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
     def test_redirect_is_rejected(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(status_code=302, is_redirect=True)
 
         with pytest.raises(PretixHostNotAllowedError):
-            _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
     def test_unexpected_payload_raises_retryable(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(json_data=[{"id": 1}])
 
         with pytest.raises(PretixRetryableError):
-            _fetch_page.__wrapped__(session, "https://pretix.eu/api/v1/x/", LOGGER)
+            _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
     @pytest.mark.parametrize(
         "headers, expected",
@@ -261,6 +261,54 @@ class TestGetRowsOrganizerScope:
 
         assert next(rows) == [{"code": "A2"}]
         manager.save_state.assert_called_once_with(PretixResumeConfig(next_url=next_url))
+
+    @mock.patch.object(px, "_fetch_page")
+    def test_off_origin_next_url_is_rejected_before_yield(
+        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
+    ) -> None:
+        # The session sends the API token on every request, so a malicious server handing out an
+        # off-origin `next` link must not be followed — or persisted for a later resume.
+        mock_fetch.return_value = ([{"code": "A1"}], "https://evil.example.com/steal?page=2")
+        manager = _no_resume_manager()
+
+        with pytest.raises(PretixHostNotAllowedError):
+            list(
+                get_rows(
+                    api_token="tok",
+                    organizer="acme",
+                    base_url=None,
+                    endpoint="orders",
+                    team_id=1,
+                    logger=LOGGER,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        assert mock_fetch.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch.object(px, "_fetch_page")
+    def test_off_origin_resume_url_is_rejected_before_fetch(
+        self, mock_fetch: mock.MagicMock, _session: mock.MagicMock, _host: mock.MagicMock
+    ) -> None:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = PretixResumeConfig(next_url="https://evil.example.com/steal?page=5")
+
+        with pytest.raises(PretixHostNotAllowedError):
+            list(
+                get_rows(
+                    api_token="tok",
+                    organizer="acme",
+                    base_url=None,
+                    endpoint="orders",
+                    team_id=1,
+                    logger=LOGGER,
+                    resumable_source_manager=manager,
+                )
+            )
+
+        mock_fetch.assert_not_called()
 
     @mock.patch.object(px, "_fetch_page")
     def test_resumes_from_saved_next_url(

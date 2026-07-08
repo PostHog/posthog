@@ -39,8 +39,13 @@ class TestPretixSource:
         assert token_field.required is True
         assert token_field.secret is True
 
-        assert fields["organizer"].required is True
-        assert fields["base_url"].required is False
+        organizer_field = fields["organizer"]
+        assert isinstance(organizer_field, SourceFieldInputConfig)
+        assert organizer_field.required is True
+
+        base_url_field = fields["base_url"]
+        assert isinstance(base_url_field, SourceFieldInputConfig)
+        assert base_url_field.required is False
 
     def test_connection_host_fields_covers_base_url(self):
         # Retargeting the API URL must force re-entry of the token, otherwise an editor could point
