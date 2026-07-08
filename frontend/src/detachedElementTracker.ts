@@ -1,3 +1,5 @@
+import { getAppContext } from 'lib/utils/getAppContext'
+
 const SCAN_INTERVAL_MS = 30_000
 const TOP_N = 10
 const IDLE_TIMEOUT_MS = 5_000
@@ -15,11 +17,18 @@ interface MemLensScanResult {
     end: number
 }
 
+interface MemLensDOMElementInfo {
+    element: WeakRef<Element>
+    componentStack: string[] | null | undefined
+}
+
 interface MemLensScanner {
     subscribe: (callback: (result: MemLensScanResult) => void) => () => void
     start: () => void
     stop: () => void
     dispose: () => void
+    scan: () => Omit<MemLensScanResult, 'start' | 'end'>
+    getDetachedDOMInfo: () => MemLensDOMElementInfo[]
 }
 
 export function shouldCaptureDetachedElements(currentCount: number, previousCount: number | null): boolean {
@@ -105,6 +114,10 @@ export function startDetachedElementTracking(posthog: Capturable): void {
 
             document.addEventListener('visibilitychange', onVisibilityChange)
 
+            if (getAppContext()?.preflight?.is_debug) {
+                exposeLeakHunterDevHelpers(scan)
+            }
+
             if (!document.hidden) {
                 scan.start()
             }
@@ -119,4 +132,43 @@ export function startDetachedElementTracking(posthog: Capturable): void {
             console.warn('[detachedElementTracker] Failed to load MemLens, detached element tracking disabled')
         }
     }, IDLE_TIMEOUT_MS)
+}
+
+// Dev-only console helpers for hunting detached-DOM retainers. Holds no strong
+// element refs itself — `el(i)` derefs on demand so the hook can't become a leak.
+function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
+    const leakHunter = {
+        scanner: scan,
+        scan: (): {
+            totalElements: number
+            totalDetachedElements: number
+            detachedComponents: Record<string, number>
+        } => {
+            const result = scan.scan()
+            return {
+                totalElements: result.totalElements,
+                totalDetachedElements: result.totalDetachedElements,
+                detachedComponents: mapToTopN(result.detachedComponentToFiberNodeCount, 50),
+            }
+        },
+        detached: (
+            limit: number = 50
+        ): { i: number; tag?: string; id?: string; classes?: string | null; components?: string[] }[] =>
+            scan
+                .getDetachedDOMInfo()
+                .slice(0, limit)
+                .map((info, i) => {
+                    const el = info.element.deref()
+                    return {
+                        i,
+                        tag: el?.tagName,
+                        id: el?.id,
+                        classes: el?.getAttribute('class'),
+                        components: info.componentStack?.slice(0, 10) ?? undefined,
+                    }
+                }),
+        el: (i: number): Element | undefined => scan.getDetachedDOMInfo()[i]?.element.deref(),
+    }
+    ;(window as unknown as { __leakHunter?: typeof leakHunter }).__leakHunter = leakHunter
+    console.info('[leak-hunter] window.__leakHunter ready')
 }
