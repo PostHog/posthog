@@ -523,7 +523,9 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                 <div
                                                                     className={clsx(
                                                                         'flex items-center',
-                                                                        truncateHeader && 'min-w-0',
+                                                                        // Clip at maxWidth: sticky headers keep `overflow: visible` on the th, so
+                                                                        // without this an over-wide title spills across the neighbouring headers
+                                                                        truncateHeader && 'overflow-hidden',
                                                                         column?.fullWidth && 'w-full',
                                                                         column.sorter && 'cursor-pointer'
                                                                     )}
@@ -541,15 +543,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                                 <IconInfo className="ml-1 text-base" />
                                                                             </div>
                                                                         </Tooltip>
-                                                                    ) : truncateHeader ? (
-                                                                        // Block wrapper, so an element title's flex layout can shrink instead of min-content overflowing
+                                                                    ) : truncateHeader &&
+                                                                      typeof column.title === 'string' ? (
                                                                         <div
                                                                             className="min-w-0 truncate"
-                                                                            title={
-                                                                                typeof column.title === 'string'
-                                                                                    ? column.title
-                                                                                    : undefined
-                                                                            }
+                                                                            title={column.title}
                                                                         >
                                                                             {column.title}
                                                                         </div>
