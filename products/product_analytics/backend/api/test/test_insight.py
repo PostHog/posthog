@@ -60,7 +60,6 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
-from products.product_analytics.backend.api.insight import _last_refresh_for_shared_gate
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -539,10 +538,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             calculate_for_query_based_insight.assert_called_once_with(
                 mock.ANY,
                 dashboard=mock.ANY,
-                # The shared force_blocking gate downgrades to IF_STALE because the insight was
-                # just created — the InsightCachingState row's `created_at` is younger than
-                # `SHARED_FORCE_BLOCKING_MIN_AGE` and the throttle clock falls back to it.
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                # The first forced refresh in the window acquires the Redis throttle slot,
+                # so force_blocking passes through.
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 team=self.team,
                 user=mock.ANY,
                 user_access_control=mock.ANY,
@@ -552,25 +550,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
             )
 
-    @parameterized.expand(
-        [
-            # When no caching state row exists, the gate falls back to insight.created_at so
-            # legitimate stale-refresh isn't silently blocked on insights without rows.
-            ("missing_row_falls_back_to_insight_created_at", True),
-            ("existing_row_used_when_present", False),
-        ]
-    )
-    def test_last_refresh_for_shared_gate_fallback(self, _name: str, delete_caching_state: bool) -> None:
-        insight = Insight.objects.create(team=self.team, filters={"events": [{"id": "$pageview"}]})
-        if delete_caching_state:
-            InsightCachingState.objects.filter(insight=insight).delete()
-            self.assertIsNone(InsightCachingState.objects.filter(insight=insight).first())
-            expected = insight.created_at
-        else:
-            cs = InsightCachingState.objects.filter(insight=insight, dashboard_tile=None).first()
-            assert cs is not None  # narrows type for mypy
-            expected = cs.created_at  # last_refresh is null on a freshly created row
-        self.assertEqual(_last_refresh_for_shared_gate(insight, None), expected)
+        with patch(
+            "posthog.caching.calculate_results.calculate_for_query_based_insight"
+        ) as calculate_for_query_based_insight:
+            self.client.get(valid_url, data={"refresh": True})
+            calculate_for_query_based_insight.assert_called_once_with(
+                mock.ANY,
+                dashboard=mock.ANY,
+                # A second forced refresh within `SHARED_FORCE_BLOCKING_MIN_AGE` finds the
+                # slot taken and downgrades to IF_STALE.
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                team=self.team,
+                user=mock.ANY,
+                user_access_control=mock.ANY,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
+                analytics_props=ANY,
+            )
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}

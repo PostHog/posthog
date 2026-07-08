@@ -908,8 +908,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expected_results: list[dict],
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -986,8 +984,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
 
         from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -1038,8 +1034,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
         from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
@@ -1105,8 +1099,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
         from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
@@ -1180,8 +1172,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -1203,47 +1193,29 @@ class TestApplySeriesCustomNames(BaseTest):
 class TestSharedInsightsExecutionMode(BaseTest):
     @parameterized.expand(
         [
-            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            # name, execution_mode, force_blocking_allowed, expected_mode
             (
-                "force_blocking_no_last_refresh_downgrades",
+                "force_blocking_throttled_downgrades",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                None,
+                False,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ),
             (
-                "force_blocking_just_refreshed_downgrades",
+                "force_blocking_slot_acquired_passes_through",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(seconds=10),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_under_threshold_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=29, seconds=59),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_at_threshold_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=30),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ),
-            (
-                "force_blocking_long_stale_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(hours=24),
+                True,
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "cache_only_remaps_to_extended_async",
                 ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                timedelta(seconds=10),
+                False,
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
             (
                 "recent_cache_async_passes_through",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                None,
+                False,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
             ),
             (
@@ -1253,7 +1225,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
                 # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                None,
+                False,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             ),
         ]
@@ -1262,11 +1234,10 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self,
         _name: str,
         execution_mode: ExecutionMode,
-        last_refresh_offset: timedelta | None,
+        force_blocking_allowed: bool,
         expected_mode: ExecutionMode,
     ) -> None:
-        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
-        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
+        result = shared_insights_execution_mode(execution_mode, force_blocking_allowed=force_blocking_allowed)
         self.assertEqual(result, expected_mode)
 
 

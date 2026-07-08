@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -80,6 +80,7 @@ from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_me
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
     BLOCKING_EXECUTION_MODES,
+    SHARED_FORCE_BLOCKING_MIN_AGE,
     ExecutionMode,
     execution_mode_from_refresh,
     shared_insights_execution_mode,
@@ -115,6 +116,7 @@ from posthog.rbac.user_access_control import (
     UserAccessControlSerializerMixin,
     access_level_satisfied_for_resource,
 )
+from posthog.redis import get_client
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -137,7 +139,6 @@ from products.product_analytics.backend.api.insight_metadata import generate_ins
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.utils import HogVMException
@@ -448,23 +449,16 @@ class QueryFieldSerializer(serializers.Serializer):
         return data
 
 
-def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
-    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
-    ``now()`` so the gate fails closed."""
+def _acquire_shared_force_refresh_slot(team_id: int, insight_id: int, dashboard_tile_id: int | None) -> bool:
+    """Throttle slot for `?refresh=force_blocking` on shared insights: at most one forced
+    recompute per insight/tile per `SHARED_FORCE_BLOCKING_MIN_AGE` window. The slot is burned
+    on acquisition even if the calculation later fails (best-effort throttle). On Redis error,
+    returns False so the gate fails closed."""
+    key = f"shared_force_refresh:{team_id}:{insight_id}:{dashboard_tile_id or 0}"
     try:
-        if dashboard_tile is not None:
-            cs = next(iter(dashboard_tile.caching_states.all()), None)
-        else:
-            cs = (
-                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
-                .only("last_refresh", "created_at")
-                .first()
-            )
+        return bool(get_client().set(key, "1", nx=True, ex=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds())))
     except Exception:
-        return datetime.now(UTC)
-    if cs is None:
-        return insight.created_at
-    return cs.last_refresh or cs.created_at
+        return False
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -1111,9 +1105,14 @@ class InsightSerializer(InsightBasicSerializer):
 
                 is_shared = self.context.get("is_shared", False)
                 if is_shared:
+                    force_blocking_allowed = (
+                        execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                        and _acquire_shared_force_refresh_slot(
+                            insight.team_id, insight.pk, dashboard_tile.pk if dashboard_tile else None
+                        )
+                    )
                     execution_mode = shared_insights_execution_mode(
-                        execution_mode,
-                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
+                        execution_mode, force_blocking_allowed=force_blocking_allowed
                     )
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature

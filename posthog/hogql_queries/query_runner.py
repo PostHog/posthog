@@ -221,16 +221,17 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`.
-# Sourced from the same generated schema as the frontend's auto-refresh interval so the
-# two cannot drift. Best-effort throttle, not a hard rate limit.
+# Throttle window for `?refresh=force_blocking` on shared insights: at most one forced
+# recompute per insight/tile per window. Sourced from the same generated schema as the
+# frontend's auto-refresh interval so the two cannot drift. Best-effort throttle, not a
+# hard rate limit.
 SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
     # force_blocking is gated by `shared_insights_execution_mode`; downgrades to IF_STALE
-    # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
+    # unless the caller acquired the per-insight throttle slot.
     ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
     # Used by the shared-notebook inline query payload builder. Without this entry the
@@ -238,12 +239,6 @@ _SHARED_MODE_WHITELIST = {
     # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
-
-
-def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
-    if last_refresh is None:
-        return False
-    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
 
 
 def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
@@ -275,14 +270,11 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
 def shared_insights_execution_mode(
     execution_mode: ExecutionMode,
     *,
-    last_refresh: datetime | None = None,
+    force_blocking_allowed: bool = False,
 ) -> ExecutionMode:
-    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
-        last_refresh
-    ):
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not force_blocking_allowed:
         logger.info(
             "shared_force_blocking_throttled",
-            last_refresh=last_refresh.isoformat() if last_refresh else None,
             min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
         )
         return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
