@@ -349,7 +349,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
 
-        mock_facade.assert_called_once_with(self.TEAM_ID, self.USER_ID)
+        mock_facade.assert_called_once_with(self.TEAM_ID, self.USER_ID, installation_ids=None)
         assert configs == [
             McpServerConfig(
                 type="http",
@@ -380,6 +380,16 @@ class TestFetchUserMcpServerConfigs(TestCase):
         )
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
+
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_forwards_installation_ids_to_facade(self, mock_facade, mock_api_url) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = []
+
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, installation_ids=["abc-123"])
+
+        mock_facade.assert_called_once_with(self.TEAM_ID, self.USER_ID, installation_ids=["abc-123"])
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)

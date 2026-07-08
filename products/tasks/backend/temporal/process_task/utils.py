@@ -394,6 +394,7 @@ def get_user_mcp_server_configs(
     user_id: int,
     *,
     interaction_origin: str | None = None,
+    installation_ids: list[str] | None = None,
 ) -> list[McpServerConfig]:
     """Fetch the user's MCP Store installations and return sandbox configs.
 
@@ -408,7 +409,7 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
-    installations = get_active_installations(team_id, user_id)
+    installations = get_active_installations(team_id, user_id, installation_ids=installation_ids)
     api_base = get_sandbox_api_url().rstrip("/")
     consumer = _resolve_mcp_consumer(interaction_origin)
 

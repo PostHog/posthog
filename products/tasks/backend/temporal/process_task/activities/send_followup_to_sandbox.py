@@ -241,11 +241,18 @@ def _refresh_sandbox_mcp(
         task_id=str(task_run.task_id),
     )
     if task.created_by_id:
+        task_run_state = task_run.state or {}
+        installation_ids = task_run_state.get("mcp_installation_ids")
+        if installation_ids is not None and (
+            not isinstance(installation_ids, list) or not all(isinstance(item, str) for item in installation_ids)
+        ):
+            installation_ids = None
         user_mcp_configs = get_user_mcp_server_configs(
             token=access_token,
             team_id=task_run.team_id,
             user_id=task.created_by_id,
-            interaction_origin=(task_run.state or {}).get("interaction_origin"),
+            interaction_origin=task_run_state.get("interaction_origin"),
+            installation_ids=installation_ids,
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs

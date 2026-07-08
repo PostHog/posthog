@@ -432,6 +432,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        mcp_installation_ids: list[str] | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -587,6 +588,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if pending_user_message:
             extra_state["pending_user_message"] = pending_user_message
 
+        if mcp_installation_ids is not None:
+            extra_state["mcp_installation_ids"] = mcp_installation_ids
+
         return task, extra_state
 
     @staticmethod
@@ -666,6 +670,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        mcp_installation_ids: list[str] | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -694,6 +699,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             pending_user_message=pending_user_message,
+            mcp_installation_ids=mcp_installation_ids,
         )
 
         run_extra_state = dict(extra_state or {})

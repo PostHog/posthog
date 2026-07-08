@@ -31,16 +31,26 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     return True
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallationInfo]:
+def get_active_installations(
+    team_id: int,
+    user_id: int,
+    *,
+    installation_ids: list[str] | None = None,
+) -> list[ActiveInstallationInfo]:
     """Return active, ready-to-use MCP installations for a user.
 
     Filters out disabled installations and OAuth installations that
     need reauthorization or are still pending token exchange.
     """
+    if installation_ids is not None and not installation_ids:
+        return []
+
     try:
         installations = MCPServerInstallation.objects.filter(
             team_id=team_id, user_id=user_id, is_enabled=True
         ).select_related("template")
+        if installation_ids is not None:
+            installations = installations.filter(id__in=installation_ids)
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []

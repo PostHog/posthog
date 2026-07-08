@@ -115,6 +115,25 @@ class TestGetActiveInstallations(BaseTest):
 
         assert len(results) == 1
 
+    def test_filters_by_installation_ids(self) -> None:
+        first = self._create_installation(display_name="First")
+        self._create_installation(display_name="Second", url="https://mcp.second.com/mcp")
+
+        results = get_active_installations(self.team.id, self.user.id, installation_ids=[str(first.id)])
+
+        assert len(results) == 1
+        assert results[0].id == str(first.id)
+
+    def test_empty_installation_ids_returns_none(self) -> None:
+        self._create_installation()
+
+        assert get_active_installations(self.team.id, self.user.id, installation_ids=[]) == []
+
+    def test_none_installation_ids_unchanged(self) -> None:
+        self._create_installation()
+
+        assert len(get_active_installations(self.team.id, self.user.id, installation_ids=None)) == 1
+
     @parameterized.expand(
         [
             ("enabled_api_key", True, "api_key", {}, True),

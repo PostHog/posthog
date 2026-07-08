@@ -108,6 +108,15 @@ class TaskProcessingContext:
         return (self.state or {}).get("sandbox_environment_id")
 
     @property
+    def mcp_installation_ids(self) -> list[str] | None:
+        value = (self.state or {}).get("mcp_installation_ids")
+        if value is None:
+            return None
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return value
+        return None
+
+    @property
     def runtime_adapter(self) -> str | None:
         value = (self.state or {}).get("runtime_adapter")
         return value if isinstance(value, str) else None

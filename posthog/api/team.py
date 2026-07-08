@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import uuid
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -294,6 +295,14 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
             "The feature flags secure API key is deprecated. Create a project secret API key with the "
             "feature_flag:read scope instead."
         )
+
+
+def _is_uuid_string(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -1358,6 +1367,44 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        if "ai_mcp_installation_ids" in value:
+            installation_ids = value.get("ai_mcp_installation_ids")
+            if installation_ids is None:
+                pass
+            elif isinstance(installation_ids, list):
+                invalid_ids = [
+                    item for item in installation_ids if not isinstance(item, str) or not _is_uuid_string(item)
+                ]
+                if invalid_ids:
+                    raise serializers.ValidationError(
+                        {
+                            "ai_mcp_installation_ids": "Must be a list of UUID strings or null.",
+                        }
+                    )
+                value["ai_mcp_installation_ids"] = installation_ids
+            else:
+                raise serializers.ValidationError(
+                    {"ai_mcp_installation_ids": "Must be a list of UUID strings or null."}
+                )
+        if "ai_mcp_run_as_user_id" in value:
+            run_as_user_id = value.get("ai_mcp_run_as_user_id")
+            if run_as_user_id is None:
+                pass
+            elif isinstance(run_as_user_id, int) and not isinstance(run_as_user_id, bool):
+                organization = self.instance.organization if self.instance else None
+                if organization is None:
+                    raise serializers.ValidationError({"ai_mcp_run_as_user_id": "Team organization is required."})
+                if not OrganizationMembership.objects.filter(
+                    organization=organization,
+                    user_id=run_as_user_id,
+                    user__is_active=True,
+                ).exists():
+                    raise serializers.ValidationError(
+                        {"ai_mcp_run_as_user_id": "Must be an active member of this organization."}
+                    )
+                value["ai_mcp_run_as_user_id"] = run_as_user_id
+            else:
+                raise serializers.ValidationError({"ai_mcp_run_as_user_id": "Must be null or an integer user id."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

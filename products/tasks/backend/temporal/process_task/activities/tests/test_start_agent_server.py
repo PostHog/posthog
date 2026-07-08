@@ -6,6 +6,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
     StartAgentServerInput,
     _ensure_repository_on_disk,
+    _prepare_launch,
     _resolve_protected_base_branch,
     start_agent_server,
 )
@@ -115,6 +116,48 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
     sandbox.execute.assert_not_called()
+
+
+def test_prepare_launch_forwards_mcp_installation_ids(mocker) -> None:
+    mock_get_user = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
+        return_value=[],
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
+        return_value=[],
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token",
+        return_value="token",
+    )
+    task = mocker.Mock()
+    task.created_by_id = 42
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related",
+    ).return_value.get.return_value = task
+
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        state={"mcp_installation_ids": ["id-1", "id-2"]},
+    )
+
+    _prepare_launch(context, "full")
+
+    mock_get_user.assert_called_once_with(
+        token="token",
+        team_id=1,
+        user_id=42,
+        interaction_origin=None,
+        installation_ids=["id-1", "id-2"],
+    )
 
 
 async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:

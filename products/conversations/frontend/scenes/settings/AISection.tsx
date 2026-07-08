@@ -39,9 +39,18 @@ export function AISection(): JSX.Element {
         aiEnabledChannels,
         aiResolutionChannels,
         aiReplyModes,
+        mcpInstallations,
+        mcpInstallationsLoading,
+        aiMcpInstallationIds,
+        aiMcpInstallationsLoading,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiResolutionChannels,
+        setAiReplyMode,
+        setAiMcpInstallations,
+    } = useActions(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const businessKnowledgeEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE]
 
@@ -111,6 +120,54 @@ export function AISection(): JSX.Element {
                             />
                         ))}
                     </div>
+                </LemonCard>
+            )}
+
+            {aiSuggestionsEnabled && (
+                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                    <h4 className="font-semibold text-sm mb-0">MCP tools</h4>
+                    <p className="text-xs text-muted-alt mb-0">
+                        Choose which MCP Store installations the support reply agent can use when drafting replies.
+                    </p>
+                    {mcpInstallationsLoading ? (
+                        <p className="text-xs text-muted-alt mb-0">Loading MCP installations…</p>
+                    ) : mcpInstallations.length === 0 ? (
+                        <p className="text-xs text-muted-alt mb-0">
+                            No MCP servers installed yet.{' '}
+                            <Link to={urls.settings('mcp-servers')}>Install MCP servers</Link> to make them available
+                            here.
+                        </p>
+                    ) : (
+                        <div className="flex flex-col gap-y-2">
+                            {mcpInstallations.map((installation) => (
+                                <LemonCheckbox
+                                    key={installation.id}
+                                    checked={aiMcpInstallationIds.includes(installation.id)}
+                                    onChange={(checked) => {
+                                        if (aiMcpInstallationsLoading) {
+                                            return
+                                        }
+                                        const next = checked
+                                            ? [...aiMcpInstallationIds, installation.id]
+                                            : aiMcpInstallationIds.filter((id) => id !== installation.id)
+                                        setAiMcpInstallations(next)
+                                    }}
+                                    label={installation.display_name || installation.name}
+                                    disabledReason={
+                                        aiMcpInstallationsLoading
+                                            ? 'Saving MCP tool selection…'
+                                            : installation.needs_reauth
+                                              ? 'This server needs reauthorization in MCP Store settings'
+                                              : installation.pending_oauth
+                                                ? 'OAuth setup is still pending for this server'
+                                                : installation.is_enabled === false
+                                                  ? 'This server is disabled in MCP Store settings'
+                                                  : undefined
+                                    }
+                                />
+                            ))}
+                        </div>
+                    )}
                 </LemonCard>
             )}
 

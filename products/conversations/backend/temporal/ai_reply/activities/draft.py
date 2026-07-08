@@ -5,6 +5,7 @@ from uuid import UUID
 
 from temporalio import activity
 
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -31,6 +32,19 @@ from products.conversations.backend.temporal.helpers import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import MultiTurnSession
+
+
+def _get_mcp_installation_ids(team_id: int) -> list[str]:
+    team = Team.objects.get(id=team_id)
+    conversations_settings = team.conversations_settings or {}
+    installation_ids = conversations_settings.get("ai_mcp_installation_ids")
+    if installation_ids is None:
+        # Unset means no store MCPs until an admin explicitly opts in — matches the UI
+        # (unchecked boxes) and avoids mounting every install into the untrusted-ticket sandbox.
+        return []
+    if isinstance(installation_ids, list):
+        return [str(item) for item in installation_ids]
+    return []
 
 
 def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
@@ -91,6 +105,7 @@ async def _draft_async(
     chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
+    mcp_installation_ids = await database_sync_to_async(_get_mcp_installation_ids, thread_sensitive=False)(team_id)
 
     # Customer-data read tools (execute-sql, session recordings, logs, persons, error tracking)
     # are granted only when the org opted in AND this reply won't be auto-sent to the author.
@@ -111,6 +126,7 @@ async def _draft_async(
         posthog_mcp_scopes=mcp_scopes,
         model=DRAFT_MODEL,
         runtime_adapter=DRAFT_RUNTIME_ADAPTER,
+        mcp_installation_ids=mcp_installation_ids,
     )
 
     chunks_text = "\n\n".join(

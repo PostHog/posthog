@@ -1,9 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { mcpServerInstallationsList } from '@posthog/products-mcp-store/frontend/generated/api'
+import type { MCPServerInstallationApi } from '@posthog/products-mcp-store/frontend/generated/api.schemas'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { SlackChannelType, UserBasicType } from '~/types'
 
@@ -22,7 +26,7 @@ export interface EmailConfigStatus {
 export const supportSettingsLogic = kea<supportSettingsLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'supportSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamLoading']],
+        values: [teamLogic, ['currentTeam', 'currentTeamLoading'], userLogic, ['user']],
         actions: [
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure', 'loadCurrentTeam'],
@@ -36,7 +40,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setIsAddingDomain: (isAdding: boolean) => ({ isAdding }),
         setEditingDomainIndex: (index: number | null) => ({ index }),
         setDomainInputValue: (value: string) => ({ value }),
-        saveDomain: (value: string, editingIndex: number | null) => ({ value, editingIndex }),
+        saveDomain: (value: string, editingIndex: number | null) => ({
+            value,
+            editingIndex,
+        }),
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
@@ -45,7 +52,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // Identification form settings
         setIdentificationFormTitleValue: (value: string | null) => ({ value }),
         saveIdentificationFormTitle: true,
-        setIdentificationFormDescriptionValue: (value: string | null) => ({ value }),
+        setIdentificationFormDescriptionValue: (value: string | null) => ({
+            value,
+        }),
         saveIdentificationFormDescription: true,
         setPlaceholderTextValue: (value: string | null) => ({ value }),
         savePlaceholderText: true,
@@ -76,12 +85,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             teamId: string | null = null
         ) => ({ status, teamId }),
         // Multi-channel Teams actions
-        addTeamsChannelPair: (teamId: string, channelId: string) => ({ teamId, channelId }),
+        addTeamsChannelPair: (teamId: string, channelId: string) => ({
+            teamId,
+            channelId,
+        }),
         removeTeamsChannelPair: (channelId: string) => ({ channelId }),
-        setTeamsChannelPairLoading: (channelId: string | null) => ({ channelId }),
+        setTeamsChannelPairLoading: (channelId: string | null) => ({
+            channelId,
+        }),
         cacheTeamsChannelsForTeam: (
             teamId: string,
-            channels: { id: string; name: string; membership_type?: string | null }[]
+            channels: {
+                id: string
+                name: string
+                membership_type?: string | null
+            }[]
         ) => ({ teamId, channels }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
@@ -117,6 +135,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             ticketType,
             mode,
         }),
+        setAiMcpInstallations: (ids: string[]) => ({ ids }),
+        setAiMcpInstallationsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -198,7 +218,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     }
                     return state.map((c) =>
                         c.domain === targetDomain
-                            ? { ...c, domain_verified: verified, dns_records: dnsRecords ?? c.dns_records }
+                            ? {
+                                  ...c,
+                                  domain_verified: verified,
+                                  dns_records: dnsRecords ?? c.dns_records,
+                              }
                             : c
                     )
                 },
@@ -265,7 +289,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         teamsChannelsCache: [
             {} as Record<string, { id: string; name: string; membership_type?: string | null }[]>,
             {
-                cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({ ...state, [teamId]: channels }),
+                cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({
+                    ...state,
+                    [teamId]: channels,
+                }),
                 disconnectTeams: () => ({}),
             },
         ],
@@ -289,6 +316,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiDiagnosticsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiMcpInstallationsLoading: [
+            false,
+            {
+                setAiMcpInstallationsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -377,7 +412,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         teamsChannels: [
-            [] as { id: string; name: string; membership_type?: string | null }[],
+            [] as {
+                id: string
+                name: string
+                membership_type?: string | null
+            }[],
             {
                 loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
@@ -392,6 +431,24 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     } catch {
                         lemonToast.error('Failed to load Teams channels')
                         return values.teamsChannels
+                    }
+                },
+            },
+        ],
+        mcpInstallations: [
+            [] as MCPServerInstallationApi[],
+            {
+                loadMcpInstallations: async () => {
+                    const projectId = values.currentTeam?.id
+                    if (!projectId) {
+                        return []
+                    }
+                    try {
+                        const response = await mcpServerInstallationsList(String(projectId))
+                        return response.results ?? []
+                    } catch {
+                        lemonToast.error('Failed to load MCP installations')
+                        return values.mcpInstallations
                     }
                 },
             },
@@ -557,6 +614,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam): Record<string, Record<string, 'private_note' | 'bot_reply'>> => {
                 return currentTeam?.conversations_settings?.ai_reply_modes ?? {}
             },
+        ],
+        aiMcpInstallationIds: [
+            (s) => [s.currentTeam],
+            (currentTeam): string[] => currentTeam?.conversations_settings?.ai_mcp_installation_ids ?? [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -779,7 +840,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         disconnectEmail: async ({ configId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
-                await api.create('api/conversations/v1/email/disconnect', { config_id: configId })
+                await api.create('api/conversations/v1/email/disconnect', {
+                    config_id: configId,
+                })
             } catch {
                 lemonToast.error('Failed to disconnect email')
                 return
@@ -946,6 +1009,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     ai_suggestions_enabled: enabled,
                 },
             })
+            if (enabled) {
+                actions.loadMcpInstallations()
+            }
         },
         setAiDiagnosticsEnabled: ({ enabled }) => {
             actions.setAiDiagnosticsLoading(true)
@@ -974,10 +1040,26 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
+        setAiMcpInstallations: ({ ids }) => {
+            const userId = values.user?.id
+            if (!userId || values.aiMcpInstallationsLoading) {
+                return
+            }
+            actions.setAiMcpInstallationsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_mcp_installation_ids: ids,
+                    ai_mcp_run_as_user_id: userId,
+                },
+            })
+        },
         connectGithub: async ({ integrationId }) => {
             try {
                 // nosemgrep: prefer-codegen-api
-                await api.create('api/conversations/v1/github/connect', { integration_id: integrationId })
+                await api.create('api/conversations/v1/github/connect', {
+                    integration_id: integrationId,
+                })
                 actions.loadCurrentTeam()
                 actions.loadGithubRepos()
                 lemonToast.success('GitHub connected')
@@ -998,7 +1080,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         setGithubRepos: async ({ repos }) => {
             try {
                 // nosemgrep: prefer-codegen-api
-                await api.create('api/conversations/v1/github/select-repos', { repos })
+                await api.create('api/conversations/v1/github/select-repos', {
+                    repos,
+                })
                 actions.loadCurrentTeam()
             } catch {
                 lemonToast.error('Failed to save repository selection')
@@ -1035,6 +1119,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         actions.loadGithubIntegrations()
         if (values.githubConnected) {
             actions.loadGithubRepos()
+        }
+        if (values.aiSuggestionsEnabled) {
+            actions.loadMcpInstallations()
         }
     }),
 ])

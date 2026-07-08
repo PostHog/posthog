@@ -43,8 +43,22 @@ def resolve_user_id_for_support(team_id: int) -> int:
 
     Unlike the Signals resolver, this does NOT require a GitHub integration. The support
     reply pipeline is autonomous with no human trigger and no repo context.
+
+    When ``conversations_settings.ai_mcp_run_as_user_id`` is set and that user is still an
+    active org member, they are used so MCP Store proxy auth matches the admin's installs.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
+    conversations_settings = team.conversations_settings or {}
+    run_as_user_id = conversations_settings.get("ai_mcp_run_as_user_id")
+    if isinstance(run_as_user_id, int):
+        configured_membership = OrganizationMembership.objects.filter(
+            organization=team.organization,
+            user_id=run_as_user_id,
+            user__is_active=True,
+        ).first()
+        if configured_membership:
+            return configured_membership.user_id
+
     membership = (
         OrganizationMembership.objects.select_related("user")
         .filter(organization=team.organization, user__is_active=True)
