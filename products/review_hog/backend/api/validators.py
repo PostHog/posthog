@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -80,14 +81,17 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
-        register_missing_validation_config(self.team_id, request.user.id)
+        # Resolve a raw environment URL id to its root team once — the skills and config rows all
+        # live on the canonical team, so an unresolved id would render an empty menu.
+        team_id = resolve_effective_team_id(self.team_id)
+        register_missing_validation_config(team_id, request.user.id)
         active_by_name = dict(
-            ReviewSkillConfig.objects.for_team(self.team_id)
+            ReviewSkillConfig.objects.for_team(team_id, canonical=True)
             .filter(user_id=request.user.id, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX)
             .values_list("skill_name", "enabled")
         )
         skills = LLMSkill.objects.filter(
-            team_id=self.team_id, name__startswith=REVIEW_HOG_VALIDATION_PREFIX, is_latest=True, deleted=False
+            team_id=team_id, name__startswith=REVIEW_HOG_VALIDATION_PREFIX, is_latest=True, deleted=False
         ).order_by("name")
         items = [
             {
@@ -119,7 +123,11 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
         if not skill_name.startswith(REVIEW_HOG_VALIDATION_PREFIX):
             raise ValidationError(f"'{skill_name}' is not a review validator skill")
-        skill = LLMSkill.objects.filter(team_id=self.team_id, name=skill_name, is_latest=True, deleted=False).first()
+        # Resolve a raw environment URL id to its root team once: `for_team` canonicalizes its
+        # filter but not the create kwargs, and mismatched ids mean a never-matching get plus
+        # 500s on the unique constraint from the second call on.
+        team_id = resolve_effective_team_id(self.team_id)
+        skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
         if skill is None:
             raise NotFound(f"No validator skill '{skill_name}' on this project")
 
@@ -128,8 +136,8 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if not select.validated_data["active"]:
             raise ValidationError("Validators are single-active — select a different validator instead of deactivating")
 
-        register_missing_validation_config(self.team_id, request.user.id)
-        configs = ReviewSkillConfig.objects.for_team(self.team_id)
+        register_missing_validation_config(team_id, request.user.id)
+        configs = ReviewSkillConfig.objects.for_team(team_id, canonical=True)
         # Single-active: deactivate-others + activate-this must land together, or a crash between them
         # leaves the user with no active validator (the loader's canonical fallback would heal it).
         with transaction.atomic():
@@ -138,7 +146,7 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             ).exclude(skill_name=skill_name).update(enabled=False, updated_at=timezone.now())
             # `team_id` / `user_id` stay in the create kwargs — the fail-closed filter doesn't propagate.
             config, _created = configs.get_or_create(
-                team_id=self.team_id, user_id=request.user.id, skill_name=skill_name, defaults={"enabled": True}
+                team_id=team_id, user_id=request.user.id, skill_name=skill_name, defaults={"enabled": True}
             )
             if not config.enabled:
                 config.enabled = True

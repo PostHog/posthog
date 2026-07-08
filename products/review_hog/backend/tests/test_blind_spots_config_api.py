@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from posthog.models import Team
+
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_blind_spots
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -86,3 +88,21 @@ class TestReviewBlindSpotsConfigAPI(APIBaseTest):
             f"{self.base}/{REVIEW_HOG_BLIND_SPOTS_PREFIX}does-not-exist/", {"active": True}, format="json"
         )
         assert res.status_code == 404
+
+    def test_environment_url_resolves_to_the_canonical_team(self) -> None:
+        # Same failure mode as the settings/perspectives viewsets: an environment (child team) id in
+        # the URL made the canonicalized `for_team` filter and the raw-id create kwarg contradict,
+        # so the second select 500ed on the unique constraint.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        url = f"/api/projects/{env.id}/review_hog/blind_spots/{REVIEW_HOG_BLIND_SPOTS_SKILL_NAME}/"
+
+        first = self.client.patch(url, {"active": True}, format="json")
+        second = self.client.patch(url, {"active": True}, format="json")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(
+            user_id=self.user.id, skill_name=REVIEW_HOG_BLIND_SPOTS_SKILL_NAME
+        )
+        assert config.team_id == self.team.id
+        assert config.enabled is True

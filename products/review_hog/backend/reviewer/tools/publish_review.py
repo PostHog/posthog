@@ -88,6 +88,11 @@ def _review_marker(report_id: str, head_sha: str) -> str:
     return f"<!-- reviewhog:published:{report_id}:{head_sha} -->"
 
 
+def _promo_marker(report_id: str) -> str:
+    """A hidden marker (HTML comment) embedded in the promo comment — posted once per report."""
+    return f"<!-- reviewhog:promo:{report_id} -->"
+
+
 def publish_review(
     *,
     owner: str,
@@ -141,7 +146,16 @@ def publish_review(
 
     logger.info(f"Review: {len(body)} chars body, {len(comments)} inline comments")
     review_url = _post_github_review(
-        owner, repo, pr_number, body, comments, token=token, head_sha=head_sha, post_promo=post_promo, marker=marker
+        owner,
+        repo,
+        pr_number,
+        body,
+        comments,
+        token=token,
+        head_sha=head_sha,
+        post_promo=post_promo,
+        marker=marker,
+        promo_marker=_promo_marker(report_id),
     )
     return PublishOutcome(posted=True, review_url=review_url)
 
@@ -272,6 +286,21 @@ def _review_already_posted(pr: PullRequest, marker: str) -> bool:
         return False
 
 
+def _promo_already_posted(pr: PullRequest, promo_marker: str) -> bool:
+    """True if the promo comment is already on the PR (posted on an attempt that later failed).
+
+    The promo posts before the review, so a transient `create_review` failure retries the whole
+    activity with `published_head_sha` still unset — without this check the retry would post the
+    promo a second time. Failure stakes invert versus the review readback: a duplicate promo is
+    spam while a missing one is harmless, so an unreadable comment list counts as already posted.
+    """
+    try:
+        return any(promo_marker in (comment.body or "") for comment in pr.get_issue_comments())
+    except GithubException as e:
+        logger.warning(f"Could not read issue comments to check promo idempotency: {e}. Skipping the promo.")
+        return True
+
+
 def _post_github_review(
     owner: str,
     repo: str,
@@ -283,6 +312,7 @@ def _post_github_review(
     head_sha: str,
     post_promo: bool,
     marker: str,
+    promo_marker: str,
 ) -> str | None:
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
@@ -298,12 +328,12 @@ def _post_github_review(
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
         return None
 
-    if post_promo:
+    if post_promo and not _promo_already_posted(pr, promo_marker):
         pr.create_issue_comment(
             "ReviewHog Alpha \U0001f994 "
             "If you find any issues helpful - "
             'please reply "valid", "invalid", etc., '
-            "for evaluation purposes \U0001f64f"
+            f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
         )
 
     # Pin the review to the exact commit we reviewed; without it GitHub posts against the PR's latest

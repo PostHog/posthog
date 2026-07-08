@@ -136,6 +136,22 @@ def test_blind_spot_prompt_says_the_wave_found_nothing_instead_of_dangling() -> 
     assert "already_covered_findings_for_chunk" not in prompt
 
 
+def test_blind_spot_prompt_with_only_cross_turn_covered_findings_does_not_deny_the_list() -> None:
+    # A clean wave this turn can coexist with covered findings from earlier reviews of the PR; the
+    # lens lead-in must point at that list, not claim none exists right after rendering it.
+    prompt = _render_prompt(
+        skill_name="review-hog-blind-spots-general",
+        skill_version=3,
+        blind_spot_check=True,
+        wave_perspectives={"review-hog-perspective-logic-correctness": "Checks the change's logic."},
+        prior_findings=[_finding("a.py", "old problem")],
+    )
+
+    assert "old problem" in prompt
+    assert "They raised no new findings on this chunk this turn" in prompt
+    assert "there is no covered list" not in prompt
+
+
 def test_blind_spot_prompt_on_a_zero_lens_chunk_says_it_is_the_only_reviewer() -> None:
     # Perspective selection can leave a chunk with no lenses at all; the sweep must be told it is
     # the chunk's only reviewer, not fed the specialist parallel-isolation framing.

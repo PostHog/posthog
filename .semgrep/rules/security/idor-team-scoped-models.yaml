@@ -218,6 +218,8 @@ rules:
                               |RepoRoutingRule
                               |ReviewReport
                               |ReviewReportArtefact
+                              |ReviewSkillConfig
+                              |ReviewUserSettings
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -499,6 +501,8 @@ rules:
                         |RepoRoutingRule
                         |ReviewReport
                         |ReviewReportArtefact
+                        |ReviewSkillConfig
+                        |ReviewUserSettings
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap

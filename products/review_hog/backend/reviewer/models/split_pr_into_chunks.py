@@ -1,7 +1,8 @@
 import logging
+from collections import Counter
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -38,3 +39,14 @@ class Chunk(BaseModel):
 
 class ChunksList(BaseModel):
     chunks: list[Chunk] = Field(description="List of chunks")
+
+    @model_validator(mode="after")
+    def _chunk_ids_must_be_unique(self) -> "ChunksList":
+        # Downstream fan-out and resume look chunks up by id, keeping only the first match — a
+        # duplicate id from the chunking LLM would silently drop a whole chunk from review, so a
+        # colliding response must fail validation (and be retried) instead.
+        counts = Counter(c.chunk_id for c in self.chunks)
+        duplicates = sorted(chunk_id for chunk_id, n in counts.items() if n > 1)
+        if duplicates:
+            raise ValueError(f"chunk_id values must be unique; duplicated: {duplicates}")
+        return self

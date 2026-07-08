@@ -274,6 +274,10 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadPerspectivesFailure: () => true,
                 loadBlindSpotsFailure: () => true,
                 loadValidatorsFailure: () => true,
+                // recentReviews/perspectiveStats stay null on failure and their sections render
+                // skeletons while null — without these the skeletons are permanent, with no retry.
+                loadRecentReviewsFailure: () => true,
+                loadPerspectiveStatsFailure: () => true,
             },
         ],
         creatingSkillKind: [

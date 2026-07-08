@@ -3481,14 +3481,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_external_id": "im-real",
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
+                "workflow_id": "wf-real",
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
         # credential-propagation target at a sandbox they control, inflate the run's compute /
-        # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
+        # lifetime to provision an oversized, long-lived sandbox, turn the run into a wizard run
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
-        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
+        # decisions, change Modal resume snapshot metadata, or repoint the run at another
+        # team's Temporal workflow. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3505,6 +3507,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id": "im-attacker",
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
+                    "workflow_id": "wf-another-teams-workflow",
                     "scratch": "ok",
                 }
             },
@@ -3524,6 +3527,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
+        assert run.state["workflow_id"] == "wf-real"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -3538,6 +3542,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_external_id",
                     "snapshot_kind",
                     "snapshot_mount_path",
+                    "workflow_id",
                     "scratch",
                 ],
             },
@@ -3551,6 +3556,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
+        assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

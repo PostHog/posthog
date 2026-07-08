@@ -1,6 +1,7 @@
 import logging
 from typing import TypeVar, cast
 
+import pydantic
 from anthropic import APIError
 from anthropic.types import OutputConfigParam
 from pydantic import BaseModel
@@ -75,10 +76,23 @@ async def run_oneshot_review(
                 f"One-shot {step_name} LLM call failed: {type(e).__name__} (status={status})",
                 non_retryable=non_retryable,
             ) from None
+        except pydantic.ValidationError as e:
+            # The SDK validates the text block against `model_to_validate` while building the parsed
+            # response, so truncated/invalid JSON raises HERE — it never reaches `parsed_output`.
+            # Compact like the APIError path (a raw ValidationError wraps the whole oversized payload)
+            # and retryable: the exception carries no stop_reason to prove determinism.
+            logger.exception("One-shot %s returned output that failed schema validation", step_name)
+            raise ApplicationError(
+                f"One-shot {step_name} returned unparseable output ({e.error_count()} validation error(s), "
+                "likely a truncated response)"
+            ) from None
     parsed = response.parsed_output
     if parsed is None:
-        # No schema-valid output to parse (refusal or truncation) — retryable, like a sandbox flake.
+        # No schema-valid output to parse. A refusal is retryable like a sandbox flake, but a
+        # max_tokens truncation is deterministic — the retry would resubmit the same oversized
+        # prompt and hit the same wall, burning the budget on a failure it can never fix.
         raise ApplicationError(
-            f"One-shot {step_name} returned no parseable output (stop_reason={response.stop_reason})"
+            f"One-shot {step_name} returned no parseable output (stop_reason={response.stop_reason})",
+            non_retryable=response.stop_reason == "max_tokens",
         )
     return parsed

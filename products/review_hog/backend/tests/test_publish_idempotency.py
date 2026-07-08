@@ -11,6 +11,8 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
+    _promo_already_posted,
+    _promo_marker,
     _review_already_posted,
     _review_marker,
 )
@@ -29,8 +31,11 @@ class _FakeReview:
 
 
 class _FakePR:
-    def __init__(self, reviews: list[_FakeReview], *, boom: bool = False) -> None:
-        self._reviews = reviews
+    def __init__(
+        self, reviews: list[_FakeReview] | None = None, comments: list[_FakeReview] | None = None, *, boom: bool = False
+    ) -> None:
+        self._reviews = reviews or []
+        self._comments = comments or []
         self._boom = boom
 
     def get_reviews(self) -> list[_FakeReview]:
@@ -38,9 +43,16 @@ class _FakePR:
             raise GithubException(500, "boom", None)
         return self._reviews
 
+    def get_issue_comments(self) -> list[_FakeReview]:
+        if self._boom:
+            raise GithubException(500, "boom", None)
+        return self._comments
 
-def _pr(reviews: list[_FakeReview], *, boom: bool = False) -> PullRequest:
-    return cast(PullRequest, _FakePR(reviews, boom=boom))
+
+def _pr(
+    reviews: list[_FakeReview] | None = None, comments: list[_FakeReview] | None = None, *, boom: bool = False
+) -> PullRequest:
+    return cast(PullRequest, _FakePR(reviews, comments, boom=boom))
 
 
 def test_review_already_posted_detects_our_own_markered_review() -> None:
@@ -56,6 +68,20 @@ def test_review_already_posted_proceeds_when_readback_fails() -> None:
     # Best-effort: if listing reviews errors we post rather than silently drop the review (the
     # published_head_sha watermark still guards the common retry path).
     assert _review_already_posted(_pr([], boom=True), _review_marker("rep-1", "sha1")) is False
+
+
+def test_promo_already_posted_detects_the_markered_comment() -> None:
+    # The promo posts before create_review, so a retry after a transient review failure re-enters
+    # with published_head_sha still unset — the marker is what stops a second promo comment.
+    marker = _promo_marker("rep-1")
+    assert _promo_already_posted(_pr(comments=[_FakeReview(f"promo text\n\n{marker}")]), marker) is True
+    assert _promo_already_posted(_pr(comments=[_FakeReview("unrelated comment"), _FakeReview(None)]), marker) is False
+
+
+def test_promo_already_posted_skips_when_readback_fails() -> None:
+    # Inverted stakes vs the review readback: a duplicate promo is spam while a missing one is
+    # harmless, so an unreadable comment list counts as already posted.
+    assert _promo_already_posted(_pr(boom=True), _promo_marker("rep-1")) is True
 
 
 def _pr_metadata(head_sha: str) -> PRMetadata:

@@ -21,18 +21,20 @@ def _format_diff_section(filename: str, status: str, patch: str) -> str:
 class PRFilter:
     @staticmethod
     def is_test_file(filename: str) -> bool:
-        """Check if a filename matches common test file patterns."""
+        """Check if a filename matches common test file patterns.
+
+        Every pattern is anchored to a path/name boundary — a bare "test" substring match
+        would silently exclude production files like `latest-versions.ts` or
+        `0132_team_test_account_filters.py` from review. When in doubt, don't exclude:
+        reviewing a test file is cheap, silently skipping production code is not.
+        """
         test_patterns = [
-            r".*[_\-]test[_\-]?.*",  # files with _test_ or -test- in the name
-            r".*test[_\-].*",  # files starting with test_
-            r".*\.test\.",  # files with .test. in the name
-            r"^test_.*",  # files starting with test_
-            r"^Test.*",  # files starting with Test (capital T)
-            r".*_test\..*",  # files ending with _test
-            r"^tests?/.*",  # files in test/tests directories (at start)
-            r".*/tests?/.*",  # files in test/tests directories (anywhere)
-            r".*\.spec\.",  # spec files (common in JS)
-            r".*/__tests__/.*",  # __tests__ directories
+            r"(^|/)test[_\-]",  # test_-/test--prefixed filenames, in any directory
+            r"[_\-]tests?\.",  # _test./-test./_tests.-suffixed filenames
+            r"\.test\.",  # .test. files (common in JS)
+            r"\.spec\.",  # .spec. files (common in JS)
+            r"(^|/)tests?/",  # files under a test/ or tests/ directory
+            r"(^|/)__tests__/",  # files under a __tests__/ directory
         ]
 
         return any(re.search(pattern, filename, re.IGNORECASE) for pattern in test_patterns)

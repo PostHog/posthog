@@ -1,3 +1,5 @@
+import json
+
 from products.review_hog.backend.reviewer.constants import (
     CHUNK_SOFT_MAX_ADDITIONS,
     CHUNK_TARGET_ADDITIONS,
@@ -43,8 +45,10 @@ def generate_chunking_prompt(
     prompt_template, output_schema = load_template_and_schema("chunking")
     return prompt_template.render(
         PR_INTENT=format_pr_intent(pr_metadata),
-        PR_COMMENTS=[x.model_dump_json(exclude={"id", "created_at"}) for x in pr_comments],
-        PR_FILES=[x.model_dump_json() for x in pr_files],
+        PR_COMMENTS=json.dumps(
+            [x.model_dump(mode="json", exclude={"id", "created_at"}) for x in pr_comments], indent=2
+        ),
+        PR_FILES=json.dumps([x.model_dump(mode="json") for x in pr_files], indent=2),
         CHUNK_TARGET=CHUNK_TARGET_ADDITIONS,
         CHUNK_SOFT_MAX=CHUNK_SOFT_MAX_ADDITIONS,
         OUTPUT_SCHEMA=output_schema,

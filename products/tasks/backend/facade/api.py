@@ -1238,6 +1238,9 @@ def _sync_automation_schedule(automation: TaskAutomation) -> None:
 #     a caller could otherwise force directory snapshot creation while the feature flag is off.
 #   - snapshot_external_id / snapshot_kind / snapshot_mount_path control which Modal image is
 #     restored on resume and where directory snapshots are mounted.
+#   - workflow_id is the run's Temporal workflow address (``TaskRun.workflow_id`` prefers it over
+#     the derived id); a caller could otherwise repoint their run at another team's workflow and
+#     signal or terminate-and-restart it.
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
@@ -1253,6 +1256,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_external_id",
         "snapshot_kind",
         "snapshot_mount_path",
+        "workflow_id",
     }
 )
 

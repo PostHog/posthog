@@ -53,7 +53,10 @@ jobs:
                     exit 1
                   fi
                   payload="$(jq -n --arg repo "$REPO" --argjson pr "$PR_NUMBER" '{repo: $repo, pr_number: $pr}')"
+                  # Retries are safe: the trigger dedups via Temporal USE_EXISTING, so a
+                  # double-delivered trigger joins the in-flight review instead of starting another.
                   curl --fail-with-body --silent --show-error \
+                    --retry 3 --retry-delay 2 --max-time 30 --connect-timeout 10 \
                     -X POST "$ENDPOINT" \
                     -H "Authorization: Bearer $REVIEWHOG_TRIGGER_TOKEN" \
                     -H "Content-Type: application/json" \

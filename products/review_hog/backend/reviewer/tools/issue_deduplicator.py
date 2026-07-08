@@ -28,14 +28,23 @@ def _ranges_overlap(a: list[LineRange], b: list[LineRange]) -> bool:
     return False
 
 
-def _comment_line(comment: PRComment) -> tuple[str, int] | None:
-    """The (file, line) a prior review comment sits on, or None if it has no resolvable line."""
-    line = comment.line if comment.line is not None else comment.start_line
-    return (comment.path, line) if line is not None else None
+def _comment_range(comment: PRComment) -> tuple[str, LineRange] | None:
+    """The (file, line range) a prior review comment covers, or None if it has no resolvable line.
+
+    `line` is the comment's end line (GitHub sets it for single- and multi-line comments alike);
+    `start_line` is only set for multi-line comments. Both must feed the range — collapsing a
+    multi-line comment to its end line would let a new finding inside the commented range (but off
+    that one line) skip the LLM dedup entirely.
+    """
+    if comment.line is None and comment.start_line is None:
+        return None
+    end = comment.line if comment.line is not None else comment.start_line
+    start = comment.start_line if comment.start_line is not None else end
+    return (comment.path, LineRange(start=start, end=end))
 
 
 def _select_dedup_candidates(
-    issues: list[Issue], prior_comment_lines: list[tuple[str, int]]
+    issues: list[Issue], prior_comment_ranges: list[tuple[str, LineRange]]
 ) -> tuple[list[Issue], list[Issue]]:
     """Split issues into (dedup candidates, definitely-unique) by deterministic position.
 
@@ -53,8 +62,8 @@ def _select_dedup_candidates(
             for j, other in enumerate(issues)
         )
         collides_with_comment = any(
-            path == issue.file and any(r.start <= line <= (r.end or r.start) for r in issue.lines)
-            for path, line in prior_comment_lines
+            path == issue.file and _ranges_overlap(issue.lines, [comment_range])
+            for path, comment_range in prior_comment_ranges
         )
         (candidates if collides_with_issue or collides_with_comment else unique).append(issue)
     return candidates, unique
@@ -92,11 +101,11 @@ async def deduplicate_issues(
         logger.info("No issues found to deduplicate.")
         return []
 
-    prior_comment_lines = [pos for c in pr_comments if (pos := _comment_line(c)) is not None]
+    prior_comment_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
     if pr_comments:
         authors = sorted({c.user for c in pr_comments})
         logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
-    candidates, unique = _select_dedup_candidates(issues, prior_comment_lines)
+    candidates, unique = _select_dedup_candidates(issues, prior_comment_ranges)
     logger.info(
         f"Deduplication: {len(candidates)} positional candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
@@ -114,7 +123,9 @@ async def deduplicate_issues(
         DEDUPLICATION_SCHEMA=schema.strip(),
     )
 
-    if DEDUP_ONESHOT_MAX_FINDINGS and len(issues) <= DEDUP_ONESHOT_MAX_FINDINGS:
+    # Gate on the candidates actually sent to the LLM — `unique` issues are already excluded from
+    # the payload, so sizing by the pre-filter total would spin up a sandbox for a tiny dedup.
+    if DEDUP_ONESHOT_MAX_FINDINGS and len(candidates) <= DEDUP_ONESHOT_MAX_FINDINGS:
         deduplication_result = await run_oneshot_review(
             team_id=team_id,
             user_id=user_id,

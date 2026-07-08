@@ -31,7 +31,8 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
         IDLE = "idle"
         CLOSED = "closed"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False keeps the migration lock-free on hot posthog_team.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     repository = models.CharField(max_length=255)  # owner/repo
     # NULL = a branch target with no PR yet; backfilled by the fetch stage once a PR opens.
     pr_number = models.IntegerField(null=True, blank=True)
@@ -125,7 +126,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         }
     )
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False keeps the migration lock-free on hot posthog_team.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
@@ -133,8 +135,11 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     updated_at = models.DateTimeField(auto_now=True, null=True)
     # Attribution: exactly one of (created_by, task) is set on new rows, enforced at the write
     # helpers via `ArtefactAttribution`. SET_NULL so deleting a user/task degrades attribution to
-    # "system/unknown" rather than destroying the report's work log.
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # "system/unknown" rather than destroying the report's work log. db_constraint=False keeps the
+    # migration lock-free on hot posthog_user.
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     task = models.ForeignKey("tasks.Task", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     class Meta:
@@ -228,8 +233,9 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
     `skill_name` is the identity (mirrors scouts keying on it, never `created_by`).
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False keeps the migration lock-free on hot posthog_team / posthog_user.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     skill_name = models.CharField(max_length=200)
     enabled = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True)

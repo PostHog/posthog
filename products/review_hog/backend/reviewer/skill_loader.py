@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.models.issues_review import PerspectiveType
 from products.skills.backend.models.skills import LLMSkill
@@ -63,9 +65,12 @@ def _register_missing_configs(team_id: int, user_id: int, skill_names: tuple[str
     ("auto-added on the start"); customs are switched on explicitly via the config API. Idempotent
     (`get_or_create` on the `(team, user, skill_name)` unique key), and a row the user disabled is
     left untouched — seeding never re-enables. `team_id` / `user_id` stay in the create kwargs: the
-    fail-closed `for_team()` filter does not propagate into `create`.
+    fail-closed `for_team()` filter does not propagate into `create` — which is why the id must be
+    canonicalized first, or the create kwarg and the filter disagree on environment-scoped calls
+    (never-matching get, then IntegrityError on the unique key).
     """
-    configs = ReviewSkillConfig.objects.for_team(team_id)
+    team_id = resolve_effective_team_id(team_id)
+    configs = ReviewSkillConfig.objects.for_team(team_id, canonical=True)
     for skill_name in skill_names:
         configs.get_or_create(team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": True})
 

@@ -2,6 +2,8 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -87,3 +89,24 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
     def test_patch_rejects_bad_skill(self, _name: str, skill_name: str, expected_status: int) -> None:
         res = self.client.patch(f"{self.base}/{skill_name}/", {"enabled": True}, format="json")
         assert res.status_code == expected_status
+
+    def test_environment_url_resolves_to_the_canonical_team(self) -> None:
+        # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a
+        # raw-id create kwarg used to contradict each other: the config row landed on the parent, the
+        # get never matched, and every call after the first 500ed on the unique constraint (and the
+        # raw-id LLMSkill lookups 404ed / listed an empty menu).
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        name = CANONICAL_PERSPECTIVE_SKILL_NAMES[0]
+        url = f"/api/projects/{env.id}/review_hog/perspectives/{name}/"
+
+        listing = self.client.get(f"/api/projects/{env.id}/review_hog/perspectives/")
+        first = self.client.patch(url, {"enabled": False}, format="json")
+        second = self.client.patch(url, {"enabled": True}, format="json")
+
+        assert listing.status_code == 200
+        assert {i["skill_name"] for i in listing.json()} >= set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        assert first.status_code == 200
+        assert second.status_code == 200
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=name)
+        assert config.team_id == self.team.id
+        assert config.enabled is True

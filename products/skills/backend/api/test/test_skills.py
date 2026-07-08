@@ -116,6 +116,8 @@ class TestLLMSkillAPI(APIBaseTest):
             ("trailing_hyphen", "my-skill-"),
             ("consecutive_hyphens", "my--skill"),
             ("reserved_new", "new"),
+            ("reserved_scouts", "scouts"),
+            ("reserved_review_hog", "review-hog"),
         ]
     )
     def test_create_skill_validates_name_format(self, _label, skill_name):

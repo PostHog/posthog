@@ -550,18 +550,24 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                     {
                         key: 'description',
                         header: 'Description',
-                        content: <LemonMarkdown className="text-sm text-secondary">{finding.body}</LemonMarkdown>,
+                        content: <LemonMarkdown className="text-sm text-secondary" disableImages>
+                                {finding.body}
+                            </LemonMarkdown>,
                     },
                     {
                         key: 'suggestion',
                         header: 'Suggested fix',
-                        content: <LemonMarkdown className="text-sm text-secondary">{finding.suggestion}</LemonMarkdown>,
+                        content: <LemonMarkdown className="text-sm text-secondary" disableImages>
+                                {finding.suggestion}
+                            </LemonMarkdown>,
                     },
                     {
                         key: 'validator',
                         header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
                         content: (
-                            <LemonMarkdown className="text-sm text-secondary">{finding.validator_note}</LemonMarkdown>
+                            <LemonMarkdown className="text-sm text-secondary" disableImages>
+                                {finding.validator_note}
+                            </LemonMarkdown>
                         ),
                     },
                 ]}
@@ -824,7 +830,9 @@ function ReviewDetailDrawer(): JSX.Element {
                             label: 'Review body',
                             content: reviewDetail ? (
                                 reviewDetail.report_markdown ? (
-                                    <LemonMarkdown className="text-sm">{reviewDetail.report_markdown}</LemonMarkdown>
+                                    <LemonMarkdown className="text-sm" disableImages>
+                                        {reviewDetail.report_markdown}
+                                    </LemonMarkdown>
                                 ) : (
                                     <div className="text-sm text-secondary">
                                         No review body was rendered for this pull request.
