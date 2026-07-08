@@ -1414,6 +1414,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
                 "incremental_field_last_value": 1000,
+                "incremental_field_earliest_value": 500,
             },
             table=table,
         )
@@ -1437,9 +1438,12 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=mock_hog_fn_result,
             ),
         ):
+            # The frontend sends null incremental fields alongside the switch — they must not
+            # wipe the cursor config, or the webhook initial sync degrades to an unbounded
+            # full-history scan with no durable watermark progress.
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "webhook"},
+                data={"sync_type": "webhook", "incremental_field": None, "incremental_field_type": None},
             )
 
             assert response.status_code == 200
@@ -1452,6 +1456,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field") == "created"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1000
+            assert schema.sync_type_config.get("incremental_field_earliest_value") == 500
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(

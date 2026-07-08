@@ -29,6 +29,25 @@ export function evaluationTypeUsesProviderKey(evaluationType: EvaluationType | n
     return evaluationTypeUsesModelConfiguration(evaluationType)
 }
 
+export function evaluationCanResolveModel(
+    evaluation: Pick<EvaluationConfig, 'evaluation_type' | 'model_configuration'>,
+    requiresProviderKey: boolean,
+    isTrialGrandfathered: boolean
+): boolean {
+    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
+        return true
+    }
+    if (evaluation.model_configuration?.provider_key_id) {
+        return true
+    }
+    // An explicit keyless config never falls back to the team's active key at runtime —
+    // it only resolves via PostHog-funded inference while the team is still grandfathered.
+    if (evaluation.model_configuration) {
+        return isTrialGrandfathered
+    }
+    return !requiresProviderKey
+}
+
 export function evaluationTypeDefaultsToBooleanOutput(evaluationType: EvaluationType | null | undefined): boolean {
     return evaluationType === 'llm_judge' || evaluationType === 'hog'
 }

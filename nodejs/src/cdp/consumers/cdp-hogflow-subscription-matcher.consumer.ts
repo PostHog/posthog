@@ -3,22 +3,35 @@ import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { KAFKA_CDP_INTERNAL_EVENTS, KAFKA_EVENTS_JSON, KAFKA_PERSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
 import { InternalCaptureEvent } from '~/common/services/internal-capture'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { UUIDT } from '~/common/utils/utils'
 
-import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
+import { CdpInternalEventSchema } from '../schema'
 import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
-import { HogFlowInvocationContext, HogFunctionInvocationGlobals, MinimalAppMetric } from '../types'
-import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, MinimalAppMetric } from '../types'
+import {
+    convertInternalEventToHogFunctionInvocationGlobals,
+    convertToHogFunctionInvocationGlobals,
+    getPersonDisplayName,
+} from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
+
+// A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
+// makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
+// volume) topic backlog. Once the group has committed offsets, both consumer impls resume from them
+// regardless of this value — so steady-state recovery is committed-offset resume; latest only governs
+// the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
+const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
 
 const counterHogflowMatcherBytecodeError = new Counter({
     name: 'cdp_hogflow_matcher_bytecode_error',
@@ -45,8 +58,13 @@ const counterHogflowMatcherConversionsCounted = new Counter({
 const histogramHogflowMatcherFindParkedJobs = new Histogram({
     name: 'cdp_hogflow_matcher_find_parked_jobs_seconds',
     help: 'Duration of the findParkedJobs cyclotron query.',
+    labelNames: ['stream'],
     buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
 })
+
+// Which Kafka stream a batch came from. Labels the find_parked_jobs metric so the person and
+// internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
+type WakeSource = 'events' | 'person' | 'internal_events'
 
 const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
@@ -98,19 +116,38 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpHogflowSubscriptionMatcherConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
+    // clickhouse_person carries non-event person-property changes (the precalculated topic only
+    // emits a per-condition match boolean, not the full property set the wait bytecode needs).
+    private personKafkaConsumer: KafkaConsumerInterface
+    // cdp_internal_events carries CDP-generated signals (e.g. $insight_alert_firing,
+    // $activity_log_entry_created) that bypass the public capture pipeline and never reach the
+    // analytics events topic. (Email engagement events, by contrast, flow through capture to
+    // clickhouse_events_json and are already covered by the events stream.)
+    private internalEventsKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        // A waker only needs events that arrive after a job parks, never history, so start at the
-        // head: auto.offset.reset=latest makes a fresh consumer group begin at the tip instead of
-        // replaying the clickhouse_events_json backlog (unconsumable at prod volume).
         this.kafkaConsumer = createKafkaConsumer(
             {
                 groupId: 'cdp-hogflow-subscription-matcher-consumer',
                 topic: KAFKA_EVENTS_JSON,
             },
-            { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+            startAtLatest
+        )
+        this.personKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-person-consumer',
+                topic: KAFKA_PERSON,
+            },
+            startAtLatest
+        )
+        this.internalEventsKafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-internal-events-consumer',
+                topic: KAFKA_CDP_INTERNAL_EVENTS,
+            },
+            startAtLatest
         )
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
@@ -125,12 +162,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
         try {
-            await this.wakeMatchingWorkflows(invocationGlobals)
+            await this.wakeMatchingWorkflows(invocationGlobals, source)
         } finally {
             // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
             // Best-effort: a flush failure must not crash the batch (which would replay the event
@@ -150,7 +190,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
-    private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    private async wakeMatchingWorkflows(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
         const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
             indexBatch(invocationGlobals)
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
@@ -180,7 +223,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             distinctIds,
             personTeamIds,
             personIds,
-            Object.keys(hogflows)
+            Object.keys(hogflows),
+            source
         )
         if (candidates.length === 0) {
             return
@@ -328,7 +372,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         distinctIds: string[],
         personTeamIds: number[],
         personIds: string[],
-        functionIds: string[]
+        functionIds: string[],
+        source: WakeSource
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
@@ -345,7 +390,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
         // filter would silently miss it. function_id already scopes to hogflow jobs, and
         // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
-        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
+        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
         let result
         try {
             result = await this.cyclotronPool.query(
@@ -540,29 +585,165 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         return events
     }
 
+    @instrumented('cdpHogflowSubscriptionMatcher.parsePersonMessages')
+    public async _parsePersonBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
+                    // A deleted person can never satisfy a wait — skip tombstones.
+                    if (data.is_deleted) {
+                        return
+                    }
+                    // Parked waits are matched by person_id (the job's person.id), so a person
+                    // mutation needs an id to wake anything.
+                    if (!data.id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return
+                    }
+                    // clickhouse_person is a firehose; bail before getTeam + JSON parse for teams
+                    // with no flow the matcher can act on.
+                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(data.team_id)
+                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                        return
+                    }
+                    const team = await this.deps.teamManager.getTeam(data.team_id)
+                    if (!team) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                        return
+                    }
+                    events.push(convertClickhousePersonToWakeGlobals(data, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing person message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
+    }
+
+    @instrumented('cdpHogflowSubscriptionMatcher.parseInternalEventMessages')
+    public async _parseInternalEventsBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const events: HogFunctionInvocationGlobals[] = []
+
+        await Promise.all(
+            messages.map(async (message) => {
+                try {
+                    const parsed = CdpInternalEventSchema.parse(parseJSON(message.value!.toString()))
+                    if (!parsed.event.distinct_id && !parsed.person?.id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return
+                    }
+                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(parsed.team_id)
+                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                        return
+                    }
+                    const team = await this.deps.teamManager.getTeam(parsed.team_id)
+                    if (!team) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
+                        return
+                    }
+                    events.push(convertInternalEventToHogFunctionInvocationGlobals(parsed, team, this.config.SITE_URL))
+                } catch (e) {
+                    logger.error('Error parsing internal event message', e)
+                    counterParseError.labels({ error: e.message }).inc()
+                }
+            })
+        )
+
+        return events
+    }
+
     public override async start(): Promise<void> {
         await super.start()
-        await this.kafkaConsumer.connect(async (messages) => {
-            return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                // Surface failures to the kafka consumer so the offset doesn't advance past a
-                // batch we couldn't match. The pod will crash and replay; the SELECT is read-only
-                // and the UPDATE (with `status = 'available'` guards) is idempotent, so replay is safe.
-                return { backgroundTask: this.processBatch(invocationGlobals) }
-            })
-        })
+        // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
+        // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
+        // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams
+        // funnel into the same input-agnostic wakeMatchingWorkflows via processBatch.
+        await Promise.all([
+            this.kafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
+                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
+                })
+            }),
+            this.personKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
+                    return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
+                })
+            }),
+            this.internalEventsKafkaConsumer.connect(async (messages) => {
+                return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
+                    return {
+                        backgroundTask: this.processBatch(
+                            await this._parseInternalEventsBatch(messages),
+                            'internal_events'
+                        ),
+                    }
+                })
+            }),
+        ])
     }
 
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
-        await this.kafkaConsumer.disconnect()
+        await Promise.all([
+            this.kafkaConsumer.disconnect(),
+            this.personKafkaConsumer.disconnect(),
+            this.internalEventsKafkaConsumer.disconnect(),
+        ])
         await this.cyclotronPool.end()
         await super.stop()
         logger.info('💤', `${this.name} stopped!`)
     }
 
     public isHealthy(): HealthCheckResult {
-        return this.kafkaConsumer.isHealthy()
+        // Unhealthy if any stream is unhealthy: with polling gone, a stalled stream means dropped wakes.
+        const results = [
+            this.kafkaConsumer.isHealthy(),
+            this.personKafkaConsumer.isHealthy(),
+            this.internalEventsKafkaConsumer.isHealthy(),
+        ]
+        return results.find((r) => r.status !== 'ok') ?? results[0]
+    }
+}
+
+// Person mutations arrive on clickhouse_person with the full current property set but no triggering
+// analytics event. We synthesize a `$person_updated` event so wakeMatchingWorkflows can run a wait's
+// property condition against the new person.properties. Event-name `events` entries never match this
+// synthetic event name, which is correct: a person change should only satisfy property-based waits.
+function convertClickhousePersonToWakeGlobals(
+    data: ClickHousePerson,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+    const properties = parseJSON(data.properties) as Record<string, any>
+    const person: CyclotronPerson = {
+        id: data.id,
+        properties,
+        name: getPersonDisplayName(team, data.id, properties),
+        url: `${projectUrl}/person/${encodeURIComponent(data.id)}`,
+    }
+    return {
+        project: { id: team.id, name: team.name, url: projectUrl },
+        event: {
+            uuid: new UUIDT().toString(),
+            event: '$person_updated',
+            // Empty so indexBatch only keys this on person_id. A person mutation has no triggering
+            // distinct_id, and using the person UUID here would add a spurious (team_id, distinct_id)
+            // lookup that matches a job only if its distinct_id happened to equal the UUID.
+            distinct_id: '',
+            properties: {},
+            timestamp: data.timestamp,
+            url: person.url,
+            elements_chain: '',
+        },
+        person,
     }
 }
 

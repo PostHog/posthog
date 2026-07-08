@@ -9,6 +9,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { emptyPaginated } from '~/test/mocks/taxonomicFilterApiMock'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
@@ -20,12 +21,9 @@ jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
 }))
 
-jest.mock('lib/api', () => ({
-    __esModule: true,
-    default: {
-        get: jest.fn(),
-    },
-}))
+jest.mock('lib/api', () =>
+    require('~/test/mocks/taxonomicFilterApiMock').buildTaxonomicFilterApiMock({ get: jest.fn() })
+)
 
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
 
@@ -36,6 +34,7 @@ describe('TaxonomicFilterHeadless integration', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        apiGet.mockImplementation(emptyPaginated)
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({
             get: { '/api/projects/:team/event_definitions': { results: [], count: 0 } },

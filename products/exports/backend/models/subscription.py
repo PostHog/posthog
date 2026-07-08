@@ -126,6 +126,11 @@ class Subscription(ModelActivityMixin, models.Model):
         DASHBOARD = "dashboard"
         AI_PROMPT = "ai_prompt", "AI prompt"
 
+    class AIWindowMode(models.TextChoices):
+        SINCE_LAST_SENT = "since_last_sent", "Since last report"
+        LAST_N_DAYS = "last_n_days", "Last N days"
+        DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
@@ -163,6 +168,10 @@ class Subscription(ModelActivityMixin, models.Model):
     )
 
     prompt = models.TextField(null=True, blank=True)
+
+    # Source of truth for the shape: ee.api.subscription.AIPromptConfigSerializer (writes) and
+    # normalize_ai_window below (reads).
+    ai_prompt_config = models.JSONField(default=dict, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -319,6 +328,56 @@ class Subscription(ModelActivityMixin, models.Model):
         """Days of history an AI report for this subscription should analyse, derived from its cadence."""
         return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
 
+    AI_WINDOW_MAX_DAYS = 365
+
+    @classmethod
+    def normalize_ai_window(cls, window: Any) -> dict:
+        """Coerce an arbitrary ai_prompt_config["window"] shape to the serializer's contract —
+        the JSONField is untyped at runtime, so a row edited out-of-band can carry anything and
+        must degrade to the default window instead of crashing reads or delivery runs. Shared by
+        the model readers and the API read path."""
+
+        def day_bound(value: Any, minimum: int) -> Optional[int]:
+            if isinstance(value, bool) or not isinstance(value, int):
+                return None
+            return value if minimum <= value <= cls.AI_WINDOW_MAX_DAYS else None
+
+        raw = window if isinstance(window, dict) else {}
+        raw_mode = raw.get("mode")
+        mode = raw_mode if raw_mode in cls.AIWindowMode.values else cls.AIWindowMode.SINCE_LAST_SENT
+        start = day_bound(raw.get("start_days_ago"), 1)
+        end = day_bound(raw.get("end_days_ago"), 0)
+        # Mirror AIWindowConfigSerializer's per-mode normalisation, so a garbage value in a field
+        # the mode ignores can't affect the fields it uses.
+        if mode == cls.AIWindowMode.SINCE_LAST_SENT:
+            start, end = None, None
+        elif mode == cls.AIWindowMode.LAST_N_DAYS:
+            end = None
+        elif start is not None and end is not None and end >= start:
+            start, end = None, None
+        return {
+            "mode": mode,
+            "start_days_ago": start,
+            "end_days_ago": end,
+        }
+
+    @property
+    def _ai_window_config(self) -> dict:
+        config = self.ai_prompt_config if isinstance(self.ai_prompt_config, dict) else {}
+        return self.normalize_ai_window(config.get("window"))
+
+    @property
+    def ai_window_mode(self) -> str:
+        return self._ai_window_config["mode"]
+
+    @property
+    def ai_window_start_days_ago(self) -> Optional[int]:
+        return self._ai_window_config["start_days_ago"]
+
+    @property
+    def ai_window_end_days_ago(self) -> Optional[int]:
+        return self._ai_window_config["end_days_ago"]
+
     @property
     def url(self) -> str | None:
         if not self._has_resource:
@@ -405,6 +464,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
+            "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
         }
 
 
@@ -518,6 +578,8 @@ class SubscriptionDelivery(UUIDModel):
         indexes = [
             models.Index(fields=["subscription", "-created_at"], name="posthog_subdel_sub_crtd"),
             models.Index(fields=["team", "-created_at"], name="posthog_subdel_team_crtd"),
+            # Serves the per-run "last successful delivery" anchor lookup.
+            models.Index(fields=["subscription", "status", "-finished_at"], name="posthog_subdel_sub_fin"),
         ]
         ordering = ["-created_at"]
 

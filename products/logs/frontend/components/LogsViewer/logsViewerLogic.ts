@@ -12,6 +12,7 @@ import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewe
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
+import { columnsToCustomColumns, DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from './config/columns'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
@@ -126,6 +127,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
         setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
         moveAttributeColumn: (attributeKey: string, direction: 'left' | 'right') => ({ attributeKey, direction }),
+
+        // Typed columns (unified column model — dormant until the rendering cutover)
+        setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
+        addColumn: (column: LogsColumnConfig) => ({ column }),
+        removeColumn: (id: string) => ({ id }),
+        setColumnWidth: (id: string, width: number) => ({ id, width }),
+        moveColumn: (id: string, direction: 'left' | 'right') => ({ id, direction }),
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
@@ -263,6 +271,31 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         [attributeKey]: { ...state[attributeKey], order: state[targetKey].order },
                         [targetKey]: { ...state[targetKey], order: state[attributeKey].order },
                     }
+                },
+            },
+        ],
+
+        // Unified typed-column model. Read by nothing yet — the table still renders from
+        // attributeColumnsConfig until the rendering cutover, which will also migrate the
+        // legacy persisted state into this shape (see config/columns.ts).
+        columns: [
+            DEFAULT_LOGS_COLUMNS,
+            { persist: true },
+            {
+                setColumns: (_, { columns }) => columns,
+                addColumn: (state, { column }) => [...state, column],
+                removeColumn: (state, { id }) => state.filter((column) => column.id !== id),
+                setColumnWidth: (state, { id, width }) =>
+                    state.map((column) => (column.id === id ? { ...column, width } : column)),
+                moveColumn: (state, { id, direction }) => {
+                    const index = state.findIndex((column) => column.id === id)
+                    const targetIndex = direction === 'left' ? index - 1 : index + 1
+                    if (index === -1 || targetIndex < 0 || targetIndex >= state.length) {
+                        return state
+                    }
+                    const next = [...state]
+                    ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
+                    return next
                 },
             },
         ],
@@ -424,6 +457,12 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             (config: Record<string, AttributeColumnConfig>) =>
                 (attributeKey: string): boolean =>
                     attributeKey in config,
+        ],
+
+        // Lowered wire value for LogsQuery.customColumns — undefined until a custom column exists
+        customColumns: [
+            (s) => [s.columns],
+            (columns: LogsColumnConfig[]): string[] | undefined => columnsToCustomColumns(columns),
         ],
 
         // Selection selectors

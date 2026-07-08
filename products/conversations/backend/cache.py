@@ -261,6 +261,38 @@ def set_cached_bot_user_id(team_id: int, bot_user_id: str) -> None:
         logger.warning("conversations_cache_set_error", key=key)
 
 
+# Slack Nudge Suppression
+# Suppresses the opt-in "open a ticket?" nudge so we don't pester a user on every
+# message in a channel. Set after sending a nudge (short cooldown) or after the user
+# clicks "No thanks" (longer). Keyed by team:channel:user — presence means suppressed.
+
+NUDGE_COOLDOWN_TTL = 5 * 60  # after nudging the same user in a channel
+NUDGE_DISMISS_TTL = 3 * 60 * 60  # after the user clicks "No thanks"
+
+
+def _nudge_suppress_key(team_id: int, channel: str, slack_user_id: str) -> str:
+    return _make_cache_key("slack_nudge_suppressed", str(team_id), channel, slack_user_id)
+
+
+def is_nudge_suppressed(team_id: int, channel: str, slack_user_id: str) -> bool:
+    """Whether the confirm-ticket nudge is currently suppressed for this user in this channel."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        return cache.get(key) is not None
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return False
+
+
+def suppress_nudge(team_id: int, channel: str, slack_user_id: str, ttl_seconds: int) -> None:
+    """Suppress the nudge for this user in this channel for ttl_seconds."""
+    key = _nudge_suppress_key(team_id, channel, slack_user_id)
+    try:
+        cache.set(key, True, timeout=ttl_seconds)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
 # Teams User Cache
 # Caches Teams user profile lookups (displayName, email) resolved via Graph API.
 # Keyed by tenant_id:teams_user_id. Short TTL keeps profiles fresh.

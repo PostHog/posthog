@@ -30,7 +30,6 @@ import {
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
-import { AnimatedLogomark } from 'lib/brand/Logomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
@@ -38,6 +37,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { AnimatedLogomark } from '~/toolbar/bar/AnimatedLogomark'
 import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
