@@ -9,6 +9,7 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
         setIsExpanded: (expanded: boolean) => ({ expanded }),
         setIsMarkdownExpanded: (expanded: boolean) => ({ expanded }),
         setShowKernelInfo: (showKernelInfo: boolean) => ({ showKernelInfo }),
+        setShowSchemaBrowser: (showSchemaBrowser: boolean) => ({ showSchemaBrowser }),
         setShowTableOfContents: (showTOC: boolean) => ({ showTOC }),
     }),
     reducers(() => ({
@@ -30,6 +31,12 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
             false,
             {
                 setShowKernelInfo: (_, { showKernelInfo }) => showKernelInfo,
+            },
+        ],
+        showSchemaBrowser: [
+            false,
+            {
+                setShowSchemaBrowser: (_, { showSchemaBrowser }) => showSchemaBrowser,
             },
         ],
         showTableOfContents: [

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconSparkles, IconTerminal, IconWarning } from '@posthog/icons'
+import { IconBook, IconDatabase, IconSparkles, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -250,6 +250,27 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
             onClick={() => setShowTableOfContents(!showTableOfContents)}
             icon={<IconBook />}
             tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
+            tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookSchemaBrowserButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showSchemaBrowser } = useValues(notebookSettingsLogic)
+    const { setShowSchemaBrowser } = useActions(notebookSettingsLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowSchemaBrowser(!showSchemaBrowser)}
+            active={showSchemaBrowser}
+            icon={<IconDatabase />}
+            tooltip={showSchemaBrowser ? 'Hide schema' : 'Show schema'}
             tooltipPlacement="left"
         />
     )

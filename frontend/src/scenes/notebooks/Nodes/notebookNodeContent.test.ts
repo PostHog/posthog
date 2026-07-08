@@ -1,6 +1,6 @@
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { NotebookNodeType } from '../types'
-import { buildNotebookDependencyGraph } from './notebookNodeContent'
+import { buildNotebookDependencyGraph, collectLocalFrames } from './notebookNodeContent'
 
 describe('buildNotebookDependencyGraph', () => {
     const sqlV2Node = (nodeId: string, returnVariable: string, code: string): Record<string, unknown> => ({
@@ -54,5 +54,78 @@ describe('buildNotebookDependencyGraph', () => {
         const graph = buildNotebookDependencyGraph(buildMarkdownNotebookContent(markdown))
         expect(graph.downstreamUsageByNode['a'].df1.map((usage) => usage.nodeId)).toEqual(['b'])
         expect(graph.upstreamSourcesByNode['b'].df1.nodeId).toEqual('a')
+    })
+})
+
+describe('collectLocalFrames', () => {
+    it('collects SQL and Python cells from a markdown notebook in document order and parses run envelopes', () => {
+        // The schema browser is empty (or shows frames out of order) if the markdown
+        // expansion stops seeing both cell types in a single document-ordered pass.
+        const markdown = [
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'a',
+                returnVariable: 'df1',
+                code: 'select id from events',
+                runId: 'run-1',
+                result: { columns: ['id'], types: [['id', 'Int64']], row_count: 3, first_page: [[1], [2], [3]] },
+            }),
+            serializeMarkdownNotebookComponent('Python', {
+                nodeId: 'b',
+                returnVariable: 'pdf',
+                code: 'pdf = df1.head()',
+            }),
+            serializeMarkdownNotebookComponent('SQLV2', {
+                nodeId: 'c',
+                returnVariable: 'joined',
+                code: 'select * from df1',
+            }),
+        ].join('\n\n')
+
+        const frames = collectLocalFrames(buildMarkdownNotebookContent(markdown))
+
+        expect(frames.map((frame) => frame.nodeId)).toEqual(['a', 'b', 'c'])
+        expect(frames[0]).toMatchObject({
+            name: 'df1',
+            nodeType: NotebookNodeType.SQLV2,
+            runId: 'run-1',
+            result: { columns: ['id'], types: [['id', 'Int64']], rowCount: 3, firstPage: [[1], [2], [3]] },
+        })
+        expect(frames[1]).toMatchObject({ name: 'pdf', nodeType: NotebookNodeType.Python, runId: null, result: null })
+    })
+
+    it('treats a run that produced no dataframe as a definition, not a frame', () => {
+        // A Python cell that only printed to stdout persists an envelope with empty
+        // columns; showing it as a frame with shape 0×0 would be wrong.
+        const content = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Python,
+                    attrs: {
+                        nodeId: 'a',
+                        returnVariable: 'df',
+                        code: 'print("hi")',
+                        runId: 'run-1',
+                        result: { columns: [], row_count: 0, first_page: [], stdout: 'hi\n' },
+                    },
+                },
+            ],
+        }
+        expect(collectLocalFrames(content)[0].result).toBeNull()
+    })
+
+    it('disambiguates duplicate SQLV2 names like the dependency graph, but leaves Python names raw', () => {
+        // SQLV2 names must match the cross-reference names the graph resolves;
+        // Python names are the literal kernel variables (last-run-wins).
+        const content = {
+            type: 'doc',
+            content: [
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'a', returnVariable: 'sql_df', code: '' } },
+                { type: NotebookNodeType.SQLV2, attrs: { nodeId: 'b', returnVariable: 'sql_df', code: '' } },
+                { type: NotebookNodeType.Python, attrs: { nodeId: 'c', returnVariable: 'df', code: '' } },
+                { type: NotebookNodeType.Python, attrs: { nodeId: 'd', returnVariable: 'df', code: '' } },
+            ],
+        }
+        expect(collectLocalFrames(content).map((frame) => frame.name)).toEqual(['sql_df', 'sql_df_2', 'df', 'df'])
     })
 })

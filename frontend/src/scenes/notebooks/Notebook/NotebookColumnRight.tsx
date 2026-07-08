@@ -8,11 +8,17 @@ import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'
+import { NotebookSchemaBrowser } from './NotebookSchemaBrowser'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo } = useValues(notebookLogic)
-    const shouldShowMarkdownKernelInfo = isMarkdownNotebookContent(content) && showKernelInfo
-    const isShowing = (nodeLogicsWithChildren.length > 0 || shouldShowMarkdownKernelInfo) && !isShowingLeftColumn
+    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo, showSchemaBrowser } =
+        useValues(notebookLogic)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const shouldShowMarkdownKernelInfo = isMarkdownNotebook && showKernelInfo
+    const shouldShowSchemaBrowser = isMarkdownNotebook && showSchemaBrowser
+    const isShowing =
+        (nodeLogicsWithChildren.length > 0 || shouldShowMarkdownKernelInfo || shouldShowSchemaBrowser) &&
+        !isShowingLeftColumn
 
     return (
         <div
@@ -25,6 +31,7 @@ export const NotebookColumnRight = (): JSX.Element | null => {
                 {isShowing ? (
                     <>
                         {shouldShowMarkdownKernelInfo ? <NotebookKernelInfo /> : null}
+                        {shouldShowSchemaBrowser ? <NotebookSchemaBrowser /> : null}
                         {nodeLogicsWithChildren.map((x, i) => (
                             <Widgets key={i} nodeLogic={x} />
                         ))}

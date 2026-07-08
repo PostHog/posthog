@@ -26,6 +26,7 @@ import {
     NotebookExpandButton,
     NotebookKernelInfoButton,
     NotebookPresence,
+    NotebookSchemaBrowserButton,
     NotebookSyncInfo,
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
@@ -180,6 +181,9 @@ export function NotebookScene(): JSX.Element {
                                 isMarkdownNotebook ? () => setIsMarkdownSourceOpen(false) : undefined
                             }
                         />
+                    )}
+                    {!sceneMenuBarEnabled && isMarkdownNotebook && (
+                        <NotebookSchemaBrowserButton type="secondary" size="small" />
                     )}
                     {!sceneMenuBarEnabled && (
                         <NotebookExpandButton

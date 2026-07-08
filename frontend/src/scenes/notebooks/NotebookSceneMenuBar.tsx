@@ -38,13 +38,15 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
     const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
         useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showTableOfContents, isExpanded, isMarkdownExpanded, showKernelInfo } = useValues(notebookSettingsLogic)
-    const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo } =
+    const { showTableOfContents, isExpanded, isMarkdownExpanded, showKernelInfo, showSchemaBrowser } =
+        useValues(notebookSettingsLogic)
+    const { setShowTableOfContents, setIsExpanded, setIsMarkdownExpanded, setShowKernelInfo, setShowSchemaBrowser } =
         useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canDelete = !isLocalOnly && !notebook?.is_template
     const showKernelToggle = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]
+    const showSchemaBrowserToggle = isMarkdownNotebook && !!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]
     const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
     const setContentWidthExpanded = isMarkdownNotebook ? setIsMarkdownExpanded : setIsExpanded
 
@@ -143,6 +145,15 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         data-attr={`${RESOURCE_TYPE}-menubar-kernel-info`}
                     >
                         Kernel info
+                    </SceneMenuBarCheckboxItem>
+                )}
+                {showSchemaBrowserToggle && (
+                    <SceneMenuBarCheckboxItem
+                        checked={showSchemaBrowser}
+                        onCheckedChange={(checked) => setShowSchemaBrowser(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-schema-browser`}
+                    >
+                        Schema
                     </SceneMenuBarCheckboxItem>
                 )}
                 <SceneMenuBarSeparator />

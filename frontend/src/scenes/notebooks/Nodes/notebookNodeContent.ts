@@ -288,12 +288,17 @@ export const getUniqueSqlV2ReturnVariable = (
 // tiptap-shaped nodes so the collectors and the dependency graph see the same cells in both
 // notebook formats. Scoped to the revamped-notebook cell types (SQLV2 + kernel Python):
 // expanding the other node types would change their (markdown-blind) summaries and naming.
-const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] => {
+const expandMarkdownNotebookNodesOfTypes = (node: any, nodeTypes: NotebookNodeType[]): JSONContent[] => {
     if (typeof node?.attrs?.markdown !== 'string') {
         return []
     }
-    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) =>
-        block.type === 'component' && block.tagName === NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType]
+    const tagToNodeType = new Map(nodeTypes.map((nodeType) => [NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[nodeType], nodeType]))
+    return parseMarkdownNotebook(node.attrs.markdown).nodes.flatMap((block) => {
+        if (block.type !== 'component') {
+            return []
+        }
+        const nodeType = tagToNodeType.get(block.tagName)
+        return nodeType
             ? [
                   {
                       type: nodeType,
@@ -310,8 +315,11 @@ const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType
                   },
               ]
             : []
-    )
+    })
 }
+
+const expandMarkdownNotebookNodesOfType = (node: any, nodeType: NotebookNodeType): JSONContent[] =>
+    expandMarkdownNotebookNodesOfTypes(node, [nodeType])
 
 const expandMarkdownNotebookSqlV2Nodes = (node: any): JSONContent[] =>
     expandMarkdownNotebookNodesOfType(node, NotebookNodeType.SQLV2)
@@ -426,6 +434,106 @@ export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKe
 
     walk(content)
     return nodes
+}
+
+export type LocalFrameResultSummary = {
+    columns: string[]
+    types: [string, string][]
+    rowCount: number
+    firstPage: (string | number | null)[][]
+}
+
+export type LocalFrameSummary = {
+    nodeId: string
+    nodeType: NotebookNodeType.SQLV2 | NotebookNodeType.Python
+    name: string
+    title: string
+    code: string
+    runId: string | null
+    // Shape/preview of the node's last successful run, from the persisted envelope.
+    // Null for definitions that never ran (or runs that produced no dataframe).
+    result: LocalFrameResultSummary | null
+}
+
+const parseLocalFrameResult = (rawResult: any): LocalFrameResultSummary | null => {
+    if (!rawResult || typeof rawResult !== 'object' || !Array.isArray(rawResult.columns)) {
+        return null
+    }
+    const columns = rawResult.columns.filter((column: unknown): column is string => typeof column === 'string')
+    if (columns.length === 0) {
+        // e.g. a Python cell that only produced stdout/media — nothing frame-shaped to browse.
+        return null
+    }
+    return {
+        columns,
+        types: Array.isArray(rawResult.types) ? rawResult.types : [],
+        rowCount: typeof rawResult.row_count === 'number' ? rawResult.row_count : 0,
+        firstPage: Array.isArray(rawResult.first_page) ? rawResult.first_page : [],
+    }
+}
+
+// The notebook-local dataframes a schema browser can show without touching the kernel:
+// SQLV2 and kernel Python cells, in document order, with the last-run envelope (if any).
+// This is the notebook's belief, not the kernel's truth — consistent with the rest of the UI.
+export const collectLocalFrames = (content?: JSONContent | null): LocalFrameSummary[] => {
+    if (!content || typeof content !== 'object') {
+        return []
+    }
+
+    const frames: LocalFrameSummary[] = []
+    const usedSqlV2ReturnVariables = new Set<string>()
+
+    const walk = (node: any): void => {
+        if (!node || typeof node !== 'object') {
+            return
+        }
+        if (node.type === NotebookNodeType.SQLV2) {
+            const attrs = node.attrs ?? {}
+            const baseReturnVariable = resolveSqlV2ReturnVariable(
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : 'sql_df'
+            )
+            // Disambiguated the same way the dependency graph does, so names match cross-references.
+            const name = buildUniqueSqlV2ReturnVariable(baseReturnVariable, usedSqlV2ReturnVariables)
+            usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(name))
+            frames.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.SQLV2,
+                name,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                code: typeof attrs.code === 'string' ? attrs.code : '',
+                runId: typeof attrs.runId === 'string' && attrs.runId ? attrs.runId : null,
+                result: parseLocalFrameResult(attrs.result),
+            })
+        }
+        if (node.type === NotebookNodeType.Python) {
+            const attrs = node.attrs ?? {}
+            // Python names are NOT disambiguated — they are the kernel variables, so a
+            // duplicated returnVariable means last-run-wins, matching kernel semantics.
+            const name =
+                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
+                    ? attrs.returnVariable.trim()
+                    : 'df'
+            frames.push({
+                nodeId: attrs.nodeId ?? '',
+                nodeType: NotebookNodeType.Python,
+                name,
+                title: typeof attrs.title === 'string' ? attrs.title : '',
+                code: typeof attrs.code === 'string' ? attrs.code : '',
+                runId: typeof attrs.runId === 'string' && attrs.runId ? attrs.runId : null,
+                result: parseLocalFrameResult(attrs.result),
+            })
+        }
+        if (node.type === NotebookNodeType.MarkdownNotebook) {
+            // Single pass so SQL and Python cells keep their document order.
+            expandMarkdownNotebookNodesOfTypes(node, [NotebookNodeType.SQLV2, NotebookNodeType.Python]).forEach(walk)
+        }
+        if (Array.isArray(node.content)) {
+            node.content.forEach(walk)
+        }
+    }
+
+    walk(content)
+    return frames
 }
 
 export const collectHogqlSqlNodes = (content?: JSONContent | null): HogqlSqlNodeSummary[] => {

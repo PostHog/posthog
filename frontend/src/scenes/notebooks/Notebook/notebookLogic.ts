@@ -288,7 +288,7 @@ export const notebookLogic = kea<notebookLogicType>([
             notebookKernelInfoLogic({ shortId: props.shortId }),
             ['kernelInfo'],
             notebookSettingsLogic,
-            ['showKernelInfo', 'showTableOfContents'],
+            ['showKernelInfo', 'showSchemaBrowser', 'showTableOfContents'],
             notebookCollabLogic({ shortId: props.shortId }),
             ['ttEditor', 'remoteParticipants'],
             userLogic,
