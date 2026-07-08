@@ -5,9 +5,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
@@ -37,6 +38,8 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export interface PurePlayerProps {
     noMeta?: boolean

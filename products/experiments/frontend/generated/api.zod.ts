@@ -877,7 +877,7 @@ export const ExperimentsUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -985,7 +985,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
 })
 
@@ -1084,7 +1084,7 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod

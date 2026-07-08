@@ -200,7 +200,7 @@ class QueryDateRange:
 
     def interval_relativedelta(self) -> relativedelta:
         spec = interval_spec(self.interval_name)
-        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count})  # type: ignore[arg-type]
+        return relativedelta(**{spec.relativedelta_kwarg: self.interval_count * spec.relativedelta_multiplier})  # type: ignore[arg-type]
 
     def all_values(self, *, interval_name: Optional[IntervalLiteral] = None) -> list[datetime]:
         start = self.align_with_interval(self.date_from(), interval_name=interval_name)

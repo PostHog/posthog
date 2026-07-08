@@ -2719,7 +2719,7 @@ CREATE TABLE posthog.distributed_events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.distributed_posthog_document_embeddings (
   team_id Int64,
@@ -2854,7 +2854,7 @@ CREATE TABLE posthog.events_recent (
   historical_migration Bool,
   _timestamp DateTime,
   _offset UInt64,
-  inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT now64()
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64()
 ) ENGINE = Distributed('posthog_primary_replica', 'posthog', 'sharded_events_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,

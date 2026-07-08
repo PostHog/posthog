@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
-import { HedgehogDirector } from '@posthog/brand/hoggies'
+import * as directorPng from '@posthog/brand/hoggies/png/director'
 
 import api from 'lib/api'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { toParams } from 'lib/utils/url'
@@ -31,6 +32,8 @@ import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]

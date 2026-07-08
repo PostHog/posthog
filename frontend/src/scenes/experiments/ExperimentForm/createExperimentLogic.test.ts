@@ -34,6 +34,11 @@ describe('createExperimentLogic', () => {
         sessionStorage.clear()
 
         useMocks({
+            get: {
+                // saveExperiment verifies flag-key availability before building the payload
+                '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
+            },
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
                     const body = (await request.json()) as Experiment

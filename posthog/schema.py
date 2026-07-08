@@ -21628,6 +21628,7 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
+    searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -25025,6 +25026,17 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    customColumns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Custom column expressions evaluated per log row. Each entry is either a"
+            " source-prefixed shorthand (`attributes.<key>`,"
+            " `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL"
+            " expression (`upper(level)`, `coalesce(attributes['a'],"
+            " attributes['b'])`). Values come back on each result row keyed by the"
+            " aliases in `LogsQueryResponse.columns`."
+        ),
+    )
     dateRange: DateRange
     excludeAttributes: bool | None = Field(
         default=None,
