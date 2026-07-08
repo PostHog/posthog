@@ -173,9 +173,7 @@ class PreviewAISubscriptionWorkflowInputs:
     (so it can return the id for polling) and passes it here."""
 
     subscription_id: int
-    team_id: int
     delivery_id: uuid.UUID
-    distinct_id: str = ""
 
 
 @dataclasses.dataclass

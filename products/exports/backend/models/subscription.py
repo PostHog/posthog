@@ -223,9 +223,10 @@ class Subscription(ModelActivityMixin, models.Model):
         # The rrule property accesses multiple fields (frequency, count, interval, etc).
         # If ANY field is deferred, accessing it triggers refresh_from_db which creates
         # a new instance with OTHER fields deferred, causing infinite recursion.
-        if not (self.get_deferred_fields() & self.RRULE_FIELDS):
+        deferred_fields = self.get_deferred_fields()
+        if not (deferred_fields & self.RRULE_FIELDS):
             self._rrule = self.rrule
-        if "prompt" not in self.get_deferred_fields():
+        if "prompt" not in deferred_fields:
             self._initial_prompt = self.prompt
 
     def save(self, *args, **kwargs) -> None:

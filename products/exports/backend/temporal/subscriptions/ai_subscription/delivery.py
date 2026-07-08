@@ -172,13 +172,13 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
     Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
-async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
+async def build_ai_subscription_report(subscription: Subscription, *, persist_plan: bool = True) -> AiReportResult:
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
-        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
+        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot generate a report.")
 
     result = await generate_ai_report(
         team=team,
@@ -189,7 +189,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         trace_correlation_id=subscription.id,
     )
 
-    if result.plan_to_persist is not None:
+    if persist_plan and result.plan_to_persist is not None:
         try:
             await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
                 subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
@@ -217,20 +217,7 @@ async def preview_ai_subscription_report(subscription: Subscription) -> AiReport
     markdown + per-step diagnostics let an owner see what the subscription would produce — including
     the generated HogQL — without emailing/Slacking anyone.
     """
-    team, user, window, ai_query_plan = await database_sync_to_async(
-        _resolve_subscription_context, thread_sensitive=False
-    )(subscription)
-    if user is None:
-        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot preview.")
-
-    return await generate_ai_report(
-        team=team,
-        user=user,
-        prompt=subscription.prompt,
-        window=window,
-        ai_query_plan=ai_query_plan,
-        trace_correlation_id=subscription.id,
-    )
+    return await build_ai_subscription_report(subscription, persist_plan=False)
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:

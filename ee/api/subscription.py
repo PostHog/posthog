@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from jsonref import replace_refs
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -136,21 +137,8 @@ def _query_plan_openapi_schema() -> dict:
     # OpenAPI shape for the frozen plan, derived from the authoritative pydantic QueryPlan so the
     # generated frontend types can never drift from what to_internal_value actually validates.
     # extend_schema_field can't resolve pydantic's $defs/$ref indirection, so inline the refs.
-    schema = QueryPlan.model_json_schema()
-    defs = schema.pop("$defs", {})
-
-    def inline(node: Any) -> Any:
-        if isinstance(node, dict):
-            ref = node.get("$ref", "")
-            if ref.startswith("#/$defs/"):
-                return inline(defs[ref.removeprefix("#/$defs/")])
-            return {key: inline(value) for key, value in node.items()}
-        if isinstance(node, list):
-            return [inline(item) for item in node]
-        return node
-
-    inlined = inline(schema)
-    assert "$ref" not in str(inlined), "QueryPlan schema still contains unresolved $refs"
+    inlined: dict = replace_refs(QueryPlan.model_json_schema(), proxies=False, lazy_load=False)
+    inlined.pop("$defs", None)
     # No explicit nullable here — drf-spectacular derives it from the field's allow_null.
     return inlined
 
@@ -1355,16 +1343,14 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             content_snapshot=build_initial_content_snapshot(subscription),
             status=SubscriptionDelivery.Status.STARTING,
         )
-        temporal = sync_connect()
         try:
+            temporal = sync_connect()
             asyncio.run(
                 temporal.start_workflow(
                     "preview-ai-subscription",
                     PreviewAISubscriptionWorkflowInputs(
                         subscription_id=subscription.id,
-                        team_id=subscription.team_id,
                         delivery_id=delivery.id,
-                        distinct_id=str(request.user.distinct_id),
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,

@@ -307,19 +307,19 @@ async def generate_ai_subscription_preview(inputs: GenerateAIReportInputs) -> Ge
     # side-effect-free on the subscription — no auto-disable, no credit-based reschedule, no plan
     # persistence. Terminal conditions raise non-retryable so the workflow records FAILED with the
     # reason instead of mutating the subscription the owner is actively debugging.
-    subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "team", "team__organization").get,
-        thread_sensitive=False,
-    )(pk=inputs.subscription_id)
-
     # Idempotency on Temporal redispatch: a prior attempt's report means the LLM already ran — don't re-bill.
     snapshot = await _load_snapshot(inputs.delivery_id)
     if _snapshot_report(snapshot) is not None:
-        await LOGGER.ainfo("generate_ai_subscription_preview.already_generated", subscription_id=subscription.id)
+        await LOGGER.ainfo("generate_ai_subscription_preview.already_generated", subscription_id=inputs.subscription_id)
         failed_count, total_count, error_types = _snapshot_diagnostic_counts(snapshot)
         return GenerateAIReportResult(
             failed_step_count=failed_count, total_step_count=total_count, query_error_types=error_types
         )
+
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by", "team", "team__organization").get,
+        thread_sensitive=False,
+    )(pk=inputs.subscription_id)
 
     if not subscription.team.organization.is_ai_data_processing_approved:
         raise ApplicationError("AI data processing consent has been revoked for this organization.", non_retryable=True)

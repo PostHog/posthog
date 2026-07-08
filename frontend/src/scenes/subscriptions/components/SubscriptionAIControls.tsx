@@ -58,7 +58,7 @@ function FrozenQueryPlanEditor({ steps }: { steps: QueryPlanStep[] }): JSX.Eleme
                         <LemonTextArea
                             className="font-mono text-xs"
                             aria-label={`HogQL for step ${index + 1}: ${step.description || 'query'}`}
-                            value={queryPlanEdits[index] !== undefined ? queryPlanEdits[index] : step.hogql}
+                            value={queryPlanEdits[index] ?? step.hogql}
                             onChange={(value) => setQueryPlanStepHogql(index, value)}
                             minRows={3}
                             maxRows={16}
@@ -101,7 +101,7 @@ function FrozenQueryPlanEditor({ steps }: { steps: QueryPlanStep[] }): JSX.Eleme
  * frozen queries.
  */
 export function SubscriptionAIControls(): JSX.Element {
-    const { subscription, preview, previewLoading, subscriptionLoading } = useValues(subscriptionSceneLogic)
+    const { subscription, previewLoading, subscriptionLoading } = useValues(subscriptionSceneLogic)
     const { previewSubscription, regeneratePlan } = useActions(subscriptionSceneLogic)
 
     const steps = subscription?.ai_query_plan?.steps ?? []
@@ -154,7 +154,7 @@ export function SubscriptionAIControls(): JSX.Element {
                     (this can take a couple of minutes). Regenerate plan discards the frozen plan so the next report is
                     planned fresh from your prompt.
                 </p>
-                {preview ? <PreviewResult /> : null}
+                <PreviewResult />
                 {steps.length > 0 ? (
                     <div className="flex flex-col gap-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
