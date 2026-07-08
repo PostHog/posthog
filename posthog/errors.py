@@ -313,9 +313,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     20: ErrorCodeMeta("NUMBER_OF_COLUMNS_DOESNT_MATCH"),
     23: ErrorCodeMeta("CANNOT_READ_FROM_ISTREAM"),
     24: ErrorCodeMeta("CANNOT_WRITE_TO_OSTREAM"),
-    25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE"),
-    26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING"),
-    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED"),
+    25: ErrorCodeMeta("CANNOT_PARSE_ESCAPE_SEQUENCE", user_safe=True),  # e.g. a LIKE pattern with a trailing backslash
+    26: ErrorCodeMeta("CANNOT_PARSE_QUOTED_STRING", user_safe=True),
+    27: ErrorCodeMeta("CANNOT_PARSE_INPUT_ASSERTION_FAILED", user_safe=True),
     28: ErrorCodeMeta("CANNOT_PRINT_FLOAT_OR_DOUBLE_NUMBER"),
     32: ErrorCodeMeta("ATTEMPT_TO_READ_AFTER_EOF"),
     33: ErrorCodeMeta("CANNOT_READ_ALL_DATA"),

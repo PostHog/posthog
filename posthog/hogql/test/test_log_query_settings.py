@@ -117,3 +117,21 @@ class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
         )
         wrapped = wrap_clickhouse_query_error(server_error)
         assert getattr(wrapped, "code_name", None) == "too_many_bytes"
+
+
+# Malformed input (e.g. a LIKE pattern with a trailing backslash) is bad user/LLM SQL, not an
+# internal failure: these must wrap as ExposedCHQueryError so they surface as validation errors
+# rather than being captured to error tracking as InternalCHQueryError.
+@pytest.mark.parametrize(
+    "code,code_name",
+    [
+        (25, "cannot_parse_escape_sequence"),
+        (26, "cannot_parse_quoted_string"),
+        (27, "cannot_parse_input_assertion_failed"),
+    ],
+)
+def test_wrap_clickhouse_query_error_malformed_input_is_exposed(code: int, code_name: str) -> None:
+    server_error = ServerException("DB::Exception: Cannot parse escape sequence. Stack trace: ...", code=code)
+    wrapped = wrap_clickhouse_query_error(server_error)
+    assert isinstance(wrapped, ExposedCHQueryError)
+    assert getattr(wrapped, "code_name", None) == code_name
