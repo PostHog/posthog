@@ -25,6 +25,7 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 from .serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
     MCP_SESSION_LIST_MAX_LIMIT,
+    MCPActivityOverviewSerializer,
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
@@ -158,10 +159,10 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
     scope_object = "mcp_analytics"
-    # tool_calls is a detail GET (read); generate_intent is a POST that computes + persists the
-    # intent summary, so it maps to the write scope. The default read/write action lists don't
-    # cover custom @action names, so APIScopePermission would otherwise reject token access.
-    scope_object_read_actions = ["list", "retrieve", "tool_calls"]
+    # tool_calls and activity_overview are GETs (read); generate_intent is a POST that computes +
+    # persists the intent summary, so it maps to the write scope. The default read/write action
+    # lists don't cover custom @action names, so APIScopePermission would otherwise reject token access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls", "activity_overview"]
     scope_object_write_actions = ["generate_intent", "intent_digest"]
     posthog_feature_flag = "mcp-analytics"
     permission_classes = [PostHogFeatureFlagPermission]
@@ -275,6 +276,20 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(MCPIntentDigestSerializer(digest).data)
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_activity_overview",
+        description=(
+            "Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, "
+            "computed in one request. Powers the dashboard's activity view; always computed fresh so polling "
+            "callers watch data arrive."
+        ),
+        responses={200: MCPActivityOverviewSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="activity_overview", pagination_class=None)
+    def activity_overview(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        overview = api.get_activity_overview(self.team)
+        return Response(MCPActivityOverviewSerializer(overview).data)
 
 
 class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

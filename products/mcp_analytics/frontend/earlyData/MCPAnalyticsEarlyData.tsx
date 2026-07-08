@@ -113,7 +113,7 @@ function SummaryCard(): JSX.Element {
 }
 
 function LiveActivityCard(): JSX.Element {
-    const { recentCalls, recentCallsLoading } = useValues(mcpEarlyDataLogic)
+    const { recentCalls, overviewLoading } = useValues(mcpEarlyDataLogic)
 
     return (
         <Card title="Live activity" className="h-full" flush>
@@ -122,7 +122,7 @@ function LiveActivityCard(): JSX.Element {
                 <LemonTable<EarlyRecentCall>
                     embedded
                     dataSource={recentCalls}
-                    loading={recentCallsLoading && recentCalls.length === 0}
+                    loading={overviewLoading && recentCalls.length === 0}
                     rowKey={(row, index) => `${row.timestamp}-${row.tool}-${index}`}
                     emptyState="Waiting for the next tool call…"
                     columns={[

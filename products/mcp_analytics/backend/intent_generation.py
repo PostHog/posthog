@@ -86,14 +86,23 @@ def _build_user_prompt(intents: list[str]) -> str:
     return f"Per-tool-call intents (chronological):\n{numbered}\n\nSummarise the agent's overall goal in at most two short, concrete sentences."
 
 
+def _ensure_llm_available(team: Team) -> None:
+    """Intents are user-authored text, so sending them to the LLM requires the
+    organization's AI data processing consent, same as every other AI-backed flow."""
+    if not settings.OPENAI_API_KEY:
+        raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
+    if not team.organization.is_ai_data_processing_approved:
+        raise IntentGenerationUnavailable("AI data processing is not approved for this organization")
+
+
 def summarize_intents(intents: list[str], team: Team) -> str:
     """Condense the intents via the LLM. Blocking — the endpoint runs it inline.
 
-    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured or the request fails,
-    so the endpoint can answer with a clean 503 rather than a 500.
+    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured, the organization
+    has not approved AI data processing, or the request fails, so the endpoint can answer
+    with a clean 503 rather than a 500.
     """
-    if not settings.OPENAI_API_KEY:
-        raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
+    _ensure_llm_available(team)
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     try:
@@ -172,11 +181,11 @@ def _build_digest_prompt(intents: list[str]) -> str:
 def summarize_project_intents(intents: list[str], team: Team) -> str:
     """Condense the project's intents into an activity digest. Blocking — the endpoint runs it inline.
 
-    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured or the request fails,
-    so the endpoint can answer with a clean 503 rather than a 500.
+    Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured, the organization
+    has not approved AI data processing, or the request fails, so the endpoint can answer
+    with a clean 503 rather than a 500.
     """
-    if not settings.OPENAI_API_KEY:
-        raise IntentGenerationUnavailable("OPENAI_API_KEY is not configured")
+    _ensure_llm_available(team)
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     try:

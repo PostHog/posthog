@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MCPActivityOverviewApi,
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
     MCPIntentClusterSnapshotApi,
@@ -260,6 +261,23 @@ export const mcpAnalyticsSessionsToolCalls = async (
     options?: RequestInit
 ): Promise<PaginatedMCPToolCallListApi> => {
     return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
+}
+
+/**
+ * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view; always computed fresh so polling callers watch data arrive.
+ */
+export const mcpAnalyticsSessionsActivityOverview = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPActivityOverviewApi> => {
+    return apiMutator<MCPActivityOverviewApi>(getMcpAnalyticsSessionsActivityOverviewUrl(projectId), {
         ...options,
         method: 'GET',
     })

@@ -96,6 +96,15 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     return logic.generate_intent_digest(team)
 
 
+def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+    """Compute the activity view's aggregates and recent-call feed in one pass.
+
+    Bounded to the last 30 days; always computed fresh (the view polls to watch
+    data arrive).
+    """
+    return logic.get_activity_overview(team)
+
+
 def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     return logic.get_intent_cluster_snapshot(team)
 

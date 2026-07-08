@@ -475,6 +475,95 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         mock_summarize.assert_called_once()
 
 
+class TestLLMConsentGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("session_summary", intent_generation.summarize_intents),
+            ("project_digest", intent_generation.summarize_project_intents),
+        ]
+    )
+    def test_refuses_without_ai_data_processing_consent(self, _name, summarize) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        with (
+            self.settings(OPENAI_API_KEY="sk-test"),
+            patch.object(intent_generation, "OpenAI") as mock_client,
+            self.assertRaises(contracts.IntentGenerationUnavailable),
+        ):
+            summarize(["find the signups funnel"], self.team)
+        mock_client.assert_not_called()
+
+
+class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def test_aggregates_window_and_extracts_error_messages(self) -> None:
+        session_id = str(uuid7())
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=datetime.now(tz=UTC) - timedelta(hours=2),
+            properties={
+                "$session_id": session_id,
+                "$mcp_tool_name": "query_run",
+                "$mcp_intent": "check signups",
+                "$mcp_client_name": "Claude Code",
+                "$mcp_duration_ms": 120,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
+            properties={
+                "$session_id": session_id,
+                "$mcp_tool_name": "docs_search",
+                "$mcp_is_error": "true",
+                "$mcp_response": '{"content": [{"type": "text", "text": "index unavailable"}]}',
+                "$mcp_client_name": "Claude Code",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$mcp_missing_capability",
+            distinct_id="agent-1",
+            timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
+            properties={},
+        )
+        # Outside the 30-day window: must not count anywhere.
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="agent-1",
+            timestamp=datetime.now(tz=UTC) - timedelta(days=40),
+            properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run"},
+        )
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.stats == contracts.ActivityStats(
+            total_calls=2,
+            distinct_tools=2,
+            distinct_sessions=1,
+            distinct_clients=1,
+            calls_with_intent=1,
+            error_calls=1,
+            missing_capability_reports=1,
+        )
+        assert {(row.tool, row.calls, row.errors) for row in overview.top_tools} == {
+            ("query_run", 1, 0),
+            ("docs_search", 1, 1),
+        }
+        assert overview.clients == [contracts.ActivityClientRow(client="Claude Code", calls=2)]
+        assert [call.tool for call in overview.recent_calls] == ["docs_search", "query_run"]
+        error_call = overview.recent_calls[0]
+        assert error_call.is_error is True
+        assert error_call.error_message == "index unavailable"
+        assert overview.recent_calls[1].duration_ms == 120.0
+        assert overview.recent_calls[1].intent == "check signups"
+
+
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
