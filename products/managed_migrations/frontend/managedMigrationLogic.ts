@@ -67,7 +67,9 @@ const NEW_MANAGED_MIGRATION: ManagedMigrationForm = {
     source_type: 's3',
     access_key: '',
     secret_key: '',
-    s3_auth_method: 'iam_role',
+    // Promoted to 'iam_role' once aws_iam_setup confirms role auth is available, so the
+    // validator (which only sees form values) can never demand a role_arn the UI is hiding
+    s3_auth_method: 'access_keys',
     role_arn: '',
     s3_region: '',
     s3_bucket: '',
@@ -469,9 +471,10 @@ export const managedMigrationLogic = kea<managedMigrationLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         loadAwsIamSetupSuccess: ({ awsIamSetup }) => {
-            // Role auth needs the deployment's import role - fall back to keys when unavailable
-            if (!awsIamSetup?.available) {
-                actions.setManagedMigrationValue('s3_auth_method', 'access_keys')
+            // Default to the recommended role auth once we know it's available, unless the
+            // user already started entering access keys while the setup call was in flight
+            if (awsIamSetup?.available && !values.managedMigration.access_key && !values.managedMigration.secret_key) {
+                actions.setManagedMigrationValue('s3_auth_method', 'iam_role')
             }
         },
         submitManagedMigrationSuccess: async ({ managedMigration }) => {
