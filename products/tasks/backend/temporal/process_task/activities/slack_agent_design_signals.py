@@ -164,10 +164,23 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
     base_url = _agent_proxy_base_url()
     if base_url:
         task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
-        if _stream_via_proxy_enabled(task_run):
+        # feature_enabled can block on a cold flag cache — off the event loop, this is an async activity.
+        if await asyncio.to_thread(_stream_via_proxy_enabled, task_run):
             await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
             return
     await _relay_from_redis(input, emitter, workflow_handle)
+
+
+async def _heartbeat_periodically(stop: asyncio.Event) -> None:
+    """Emit an activity heartbeat on a fixed interval. A quiet turn keeps the SSE connection alive
+    with keepalive comments (which httpx_sse drops, yielding no events), so relying on event-driven
+    heartbeats alone would let the activity's heartbeat timeout fire mid-run."""
+    while not stop.is_set():
+        activity.heartbeat()
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
+        except TimeoutError:
+            pass
 
 
 async def _relay_from_agent_proxy(
@@ -184,66 +197,71 @@ async def _relay_from_agent_proxy(
     """
     events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
 
-    last_event_id: str | None = None
-    reconnect_count = 0
-    while True:
-        # Re-mint per connection: the read token is short-lived and a run can outlast it.
-        headers = {
-            "Authorization": f"Bearer {create_stream_read_token(task_run)}",
-            "Accept": "text/event-stream",
-        }
-        if last_event_id:
-            headers["Last-Event-ID"] = last_event_id
+    stop_heartbeat = asyncio.Event()
+    heartbeat_task = asyncio.create_task(_heartbeat_periodically(stop_heartbeat))
+    try:
+        last_event_id: str | None = None
+        reconnect_count = 0
+        while True:
+            # Re-mint per connection: the read token is short-lived and a run can outlast it.
+            headers = {
+                "Authorization": f"Bearer {create_stream_read_token(task_run)}",
+                "Accept": "text/event-stream",
+            }
+            if last_event_id:
+                headers["Last-Event-ID"] = last_event_id
 
-        made_progress = False
-        error: Exception | None = None
-        try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=SSE_CONNECT_TIMEOUT_SECONDS,
-                    read=SSE_READ_TIMEOUT_SECONDS,
-                    write=30.0,
-                    pool=30.0,
+            made_progress = False
+            error: Exception | None = None
+            try:
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=SSE_CONNECT_TIMEOUT_SECONDS,
+                        read=SSE_READ_TIMEOUT_SECONDS,
+                        write=30.0,
+                        pool=30.0,
+                    )
+                ) as client:
+                    async with httpx_sse.aconnect_sse(client, "GET", events_url, headers=headers) as event_source:
+                        event_source.response.raise_for_status()
+                        async for sse_event in event_source.aiter_sse():
+                            made_progress = True
+                            if sse_event.id:
+                                last_event_id = sse_event.id
+                            if sse_event.event == STREAM_END_EVENT_NAME:
+                                logger.info(
+                                    "relay_agent_design_signals_stream_ended", run_id=input.run_id, reason="stream-end"
+                                )
+                                return
+                            if not sse_event.data:
+                                continue
+                            try:
+                                event_data = json.loads(sse_event.data)
+                            except json.JSONDecodeError:
+                                continue
+                            for signal_name, arg in emitter.process(event_data):
+                                await _signal_safely(workflow_handle, signal_name, arg)
+            except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
+                error = e
+
+            # A clean close without a stream-end frame is a proxy stream rotation — resume immediately.
+            # Only consecutive no-progress attempts back off and eventually give up, so a healthy
+            # long-lived stream reconnects without delay while a genuinely broken one stops.
+            if made_progress:
+                reconnect_count = 0
+                continue
+            reconnect_count += 1
+            if reconnect_count > MAX_RECONNECT_ATTEMPTS:
+                logger.warning(
+                    "relay_agent_design_signals_proxy_gave_up",
+                    run_id=input.run_id,
+                    error=str(error) if error else "clean close with no events",
                 )
-            ) as client:
-                async with httpx_sse.aconnect_sse(client, "GET", events_url, headers=headers) as event_source:
-                    event_source.response.raise_for_status()
-                    async for sse_event in event_source.aiter_sse():
-                        activity.heartbeat()
-                        made_progress = True
-                        if sse_event.id:
-                            last_event_id = sse_event.id
-                        if sse_event.event == STREAM_END_EVENT_NAME:
-                            logger.info(
-                                "relay_agent_design_signals_stream_ended", run_id=input.run_id, reason="stream-end"
-                            )
-                            return
-                        if not sse_event.data:
-                            continue
-                        try:
-                            event_data = json.loads(sse_event.data)
-                        except json.JSONDecodeError:
-                            continue
-                        for signal_name, arg in emitter.process(event_data):
-                            await _signal_safely(workflow_handle, signal_name, arg)
-        except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
-            error = e
-
-        # A clean close without a stream-end frame is a proxy stream rotation — resume immediately.
-        # Only consecutive no-progress attempts back off and eventually give up, so a healthy
-        # long-lived stream reconnects without delay while a genuinely broken one stops.
-        if made_progress:
-            reconnect_count = 0
-            continue
-        reconnect_count += 1
-        if reconnect_count > MAX_RECONNECT_ATTEMPTS:
-            logger.warning(
-                "relay_agent_design_signals_proxy_gave_up",
-                run_id=input.run_id,
-                error=str(error) if error else "clean close with no events",
-            )
-            return
-        await asyncio.sleep(min(2**reconnect_count, 30))
+                return
+            await asyncio.sleep(min(2**reconnect_count, 30))
+    finally:
+        stop_heartbeat.set()
+        await heartbeat_task
 
 
 async def _relay_from_redis(
