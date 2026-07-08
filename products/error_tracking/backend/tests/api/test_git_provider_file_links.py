@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,18 +10,20 @@ import requests
 from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 
 from products.error_tracking.backend.presentation.views.git_provider_file_link_resolver import (
     _PUBLIC_TOKEN_CIRCUIT_OPEN_KEY,
     _PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY,
+    search_github_file,
 )
 
 
-def _response(status: int, body: dict | None = None) -> requests.Response:
+def _response(status: int, body: dict | None = None, raw: bytes | None = None) -> requests.Response:
     response = requests.models.Response()
     response.status_code = status
     response.headers = CaseInsensitiveDict({})
-    response._content = requests.compat.json.dumps(body or {}).encode()
+    response._content = raw if raw is not None else json.dumps(body or {}).encode()
     return response
 
 
@@ -67,11 +71,32 @@ class TestGitProviderFileLinksResolveGithub(APIBaseTest):
         assert cache.get(_PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY) is None
         assert cache.get(_PUBLIC_TOKEN_CIRCUIT_OPEN_KEY) is None
 
-    def test_budget_exhausted_on_public_path_degrades_to_not_found(self) -> None:
-        # A shed (sheddable) call must degrade to found:false, never surface as a 500.
+    def test_budget_exhausted_on_integration_path_degrades_to_not_found(self) -> None:
+        # The integration path (installation set, sheddable NORMAL lane) is the one place the
+        # limiter can shed a search — removing the except clause would 500 the endpoint instead
+        # of degrading to not-found.
         with patch(
             "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.github_request",
             side_effect=GitHubEgressBudgetExhausted("shed"),
+        ):
+            outcome = search_github_file(
+                code_sample="print(1)",
+                token="tok",
+                owner="o",
+                repository="r",
+                file_name="main.py",
+                installation_id="123",
+                priority=Priority.NORMAL,
+            )
+
+        assert outcome.url is None
+        assert outcome.status_code is None
+
+    def test_malformed_success_body_degrades_to_not_found(self) -> None:
+        # A 200 with a non-JSON body must not escape as a 500 — parsing lives inside the guard.
+        with patch(
+            "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.github_request",
+            return_value=_response(200, raw=b"not json"),
         ):
             response = self.client.get(self._url(), self._query())
 

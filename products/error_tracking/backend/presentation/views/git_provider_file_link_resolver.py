@@ -161,20 +161,22 @@ def search_github_file(
             priority=priority,
             timeout=10,
         )
+        if response.status_code == 200:
+            # Body parsing stays inside the guard: a 200 with a malformed body must degrade to
+            # not-found like any other failure, not escape as a 500.
+            items = response.json().get("items", [])
+            return GitHubSearchOutcome(url=items[0].get("html_url") if items else None, status_code=200)
+        if response.status_code != 401 or installation_id is not None:
+            # The public-token path (no installation) logs its own distinct error for 401s — a
+            # second generic warning per request would double the noise without adding signal.
+            logger.warning("github_code_search_failed", status_code=response.status_code)
+        return GitHubSearchOutcome(url=None, status_code=response.status_code)
     except GitHubEgressBudgetExhausted:
         # Our own limiter shed the (sheddable) call before sending it — treat as not found.
         return GitHubSearchOutcome(url=None, status_code=None)
     except Exception as error:
         logger.exception("github_code_search_request_failed", error=str(error))
         return GitHubSearchOutcome(url=None, status_code=None)
-
-    if response.status_code == 200:
-        data = response.json()
-        items = data.get("items", [])
-        return GitHubSearchOutcome(url=items[0].get("html_url") if items else None, status_code=200)
-
-    logger.warning("github_code_search_failed", status_code=response.status_code)
-    return GitHubSearchOutcome(url=None, status_code=response.status_code)
 
 
 def get_github_file_url(
