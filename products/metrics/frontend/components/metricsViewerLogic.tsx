@@ -1,10 +1,16 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+
+import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { type SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { Params } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
@@ -56,6 +62,29 @@ const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
+// Viewer state persisted in the URL so a reloaded or shared /metrics link restores the same view.
+// These defaults are the single source of truth for both the reducers below and the URL round-trip:
+// updateSearchParams omits a param when it equals its default, keeping default URLs clean.
+const DEFAULT_METRIC_NAME = ''
+const DEFAULT_VIEW_MODE: MetricsViewMode = 'chart'
+const DEFAULT_DATE_TO: string | null = null
+const DEFAULT_GROUP_BY_KEYS: string[] = []
+const DEFAULT_FILTER_STRINGS: string[] = []
+const VALID_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+
+// kea-router coerces numeric- and boolean-looking values on decode, so normalize scalar params back
+// to the string we stored and ignore anything that isn't a plain scalar (e.g. a hand-crafted array).
+const asParamString = (value: unknown): string | undefined =>
+    typeof value === 'string'
+        ? value
+        : typeof value === 'number' || typeof value === 'boolean'
+          ? String(value)
+          : undefined
+
+// Array params round-trip as real arrays (kea-router JSON-encodes them); accept only string arrays.
+const asParamStringArray = (value: unknown): string[] | undefined =>
+    Array.isArray(value) && value.every((item) => typeof item === 'string') ? value : undefined
+
 // Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
 const parseFilter = (raw: string): _MetricFilterApi | null => {
     const eq = raw.indexOf('=')
@@ -94,21 +123,24 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         cancelInProgressQuery: (controller: AbortController | null) => ({ controller }),
     }),
     reducers({
-        metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
+        metricName: [DEFAULT_METRIC_NAME as string, { setMetricName: (_, { metricName }) => metricName }],
         aggregation: [
             DEFAULT_AGGREGATION as MetricAggregation,
             { setAggregation: (_, { aggregation }) => aggregation },
         ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
-        dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
-        viewMode: ['chart' as MetricsViewMode, { setViewMode: (_, { viewMode }) => viewMode }],
+        dateTo: [DEFAULT_DATE_TO as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
+        viewMode: [DEFAULT_VIEW_MODE as MetricsViewMode, { setViewMode: (_, { viewMode }) => viewMode }],
         // 'latest' (current value) is the natural default for a live single-metric stat.
         statSummary: ['latest' as MetricSummary, { setStatSummary: (_, { statSummary }) => statSummary }],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
-        groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
+        groupByKeys: [DEFAULT_GROUP_BY_KEYS as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
         // Raw "key=value" filter chips; parsed into query filters by the `queryFilters` selector.
-        filterStrings: [[] as string[], { setFilterStrings: (_, { filterStrings }) => filterStrings }],
+        filterStrings: [
+            DEFAULT_FILTER_STRINGS as string[],
+            { setFilterStrings: (_, { filterStrings }) => filterStrings },
+        ],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
@@ -267,5 +299,78 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                       }
                     : null,
         ],
+    }),
+    // Round-trip the viewer state through the URL so a reload or shared link restores it. The scene
+    // logic owns `activeTab`; these keys are disjoint and syncSearchParams merges into existing params,
+    // so the two coexist. `cache.isSyncingUrl` breaks the write -> read feedback loop (same guard as
+    // metricsSceneLogic).
+    urlToAction(({ actions, values, cache }) => {
+        const syncFromUrl = (_: any, params: Params): void => {
+            if (cache.isSyncingUrl) {
+                return
+            }
+            const metricName = asParamString(params.metric)
+            if (metricName !== undefined && metricName !== values.metricName) {
+                actions.setMetricName(metricName)
+            }
+            // After metricName so a restored aggregation wins over the type-based default its listener applies.
+            const aggregation = asParamString(params.agg)
+            if (
+                aggregation !== undefined &&
+                VALID_AGGREGATIONS.includes(aggregation as MetricAggregation) &&
+                aggregation !== values.aggregation
+            ) {
+                actions.setAggregation(aggregation as MetricAggregation)
+            }
+            const dateFrom = asParamString(params.dateFrom)
+            if (dateFrom !== undefined && dateFrom !== values.dateFrom) {
+                actions.setDateFrom(dateFrom)
+            }
+            const dateTo = asParamString(params.dateTo)
+            if (dateTo !== undefined && dateTo !== values.dateTo) {
+                actions.setDateTo(dateTo)
+            }
+            const viewMode = asParamString(params.view)
+            if ((viewMode === 'chart' || viewMode === 'stat') && viewMode !== values.viewMode) {
+                actions.setViewMode(viewMode)
+            }
+            const groupByKeys = asParamStringArray(params.groupBy)
+            if (groupByKeys && !equal(groupByKeys, values.groupByKeys)) {
+                actions.setGroupByKeys(groupByKeys)
+            }
+            const filterStrings = asParamStringArray(params.filters)
+            if (filterStrings && !equal(filterStrings, values.filterStrings)) {
+                actions.setFilterStrings(filterStrings)
+            }
+        }
+        return { '*': syncFromUrl }
+    }),
+    trackedActionToUrl(({ values, cache }) => {
+        const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            cache.isSyncingUrl = true
+            const result = syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'metric', values.metricName, DEFAULT_METRIC_NAME)
+                updateSearchParams(params, 'agg', values.aggregation, DEFAULT_AGGREGATION)
+                updateSearchParams(params, 'dateFrom', values.dateFrom, DEFAULT_DATE_FROM)
+                updateSearchParams(params, 'dateTo', values.dateTo, DEFAULT_DATE_TO)
+                updateSearchParams(params, 'view', values.viewMode, DEFAULT_VIEW_MODE)
+                updateSearchParams(params, 'groupBy', values.groupByKeys, DEFAULT_GROUP_BY_KEYS)
+                updateSearchParams(params, 'filters', values.filterStrings, DEFAULT_FILTER_STRINGS)
+                return params
+            })
+            queueMicrotask(() => {
+                cache.isSyncingUrl = false
+            })
+            return result
+        }
+        return {
+            setMetricName: () => syncUrl(),
+            setAggregation: () => syncUrl(),
+            setDateFrom: () => syncUrl(),
+            setDateTo: () => syncUrl(),
+            setViewMode: () => syncUrl(),
+            setGroupByKeys: () => syncUrl(),
+            setFilterStrings: () => syncUrl(),
+        }
     }),
 ])
