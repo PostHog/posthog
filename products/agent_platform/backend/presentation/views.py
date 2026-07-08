@@ -72,6 +72,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
+from ..logic.ingress_client import IngressClient, IngressClientError
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.kernel_skills import all_kernel_skill_ids, kernel_skills_for
@@ -91,7 +92,9 @@ from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
     MAX_SKILL_REFS,
     AgentApplicationSerializer,
+    AgentInvokeRequestSerializer,
     AgentRevisionSerializer,
+    AgentSendRequestSerializer,
     CloneFromRequestSerializer,
     DecideApprovalRequestSerializer,
     DryRunToolRequestSerializer,
@@ -133,6 +136,12 @@ def _resolve_application(queryset: QuerySet, lookup_value: str | None) -> AgentA
 def _janitor() -> JanitorClient:
     """Indirection so tests can monkey-patch."""
     return default_client()
+
+
+def _ingress() -> IngressClient:
+    """Indirection so tests can monkey-patch. The client is stateless, so (unlike
+    `_janitor()`'s singleton) this news up a fresh instance per call."""
+    return IngressClient()
 
 
 # Mirrors `RESOURCE_ID_REGEX` in
@@ -242,6 +251,108 @@ class JanitorUpstreamError(APIException):
         else:
             detail_str = e.message
         super().__init__(detail=detail_str)
+
+
+class IngressUpstreamError(APIException):
+    """DRF-friendly wrapper for non-2xx ingress responses. Preserves 4xx (so a
+    caller sees a clean 401/403/404/422), clamps 5xx to a single 502. Mirrors
+    JanitorUpstreamError, minus the janitor's structured sub-error flattening —
+    ingress error bodies are the flat `{ "error": <code>, ... }` shape."""
+
+    status_code: int = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Upstream ingress service error"
+    default_code = "ingress_upstream"
+
+    def __init__(self, e: IngressClientError) -> None:
+        if 400 <= e.status_code < 500:
+            self.status_code = e.status_code
+            # A preserved upstream 4xx is a CLIENT error — label it as such (exceptions_hog
+            # keys `type` off the exception class, and a bare APIException defaults to
+            # `server_error`, which would page on-call and pollute error monitoring). A
+            # clamped 5xx (502) keeps the default `server_error` — that one really is ours.
+            self.exception_type = "invalid_request"
+        if isinstance(e.body, dict):
+            detail_str: str = e.body.get("error") or e.body.get("detail") or e.body.get("message") or json.dumps(e.body)
+        elif isinstance(e.body, str):
+            detail_str = e.body
+        else:
+            detail_str = e.message
+        super().__init__(detail=detail_str)
+
+
+class ElevationRequiredError(APIException):
+    """A non-owner tried to act on someone else's session and must run the elevation
+    flow first. This is an EXPECTED client condition, so it renders a clean
+    `authentication_error`/`elevation_required` (like DRF's own PermissionDenied) rather
+    than the bare-APIException `server_error`/`error` that pages on-call. The actionable
+    fields (which approval request, which session) are carried in the detail message."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    default_detail = "You are not the owner of this session; elevation is required to act on it."
+    default_code = "elevation_required"
+    default_type = "authentication_error"
+
+
+class SessionGoneError(APIException):
+    """The target session is terminal (failed / cancelled / closed-without-restart) and
+    can't accept more messages. A 410 is an EXPECTED client condition, so it renders a
+    clean `invalid_request`/`session_gone` instead of the bare-APIException
+    `server_error`/`error`. Preserves the terminal state in the detail message."""
+
+    status_code = status.HTTP_410_GONE
+    default_detail = "This session is terminal and can't accept more messages."
+    default_code = "session_gone"
+    default_type = "invalid_request"
+
+
+def _map_ingress_error(
+    e: IngressClientError, *, not_found_detail: str = "Session not found in this application"
+) -> APIException:
+    """Map an ingress failure to a clean DRF exception — never a bare 500.
+
+    The slack/cron-only "no chat trigger" 404 is reframed as a 400 (it isn't a
+    missing agent), and the 403 `elevation_required` keeps its actionable fields.
+    The terminal-session 410 passes THROUGH as 410 (preserve 4xx doctrine), and
+    everything else preserves the upstream 4xx or clamps 5xx to 502.
+    `not_found_detail` lets each action phrase a plain 404 for its own context
+    (invoke has no session).
+    """
+    body = e.body if isinstance(e.body, dict) else {}
+    code = body.get("error")
+    # slack/cron-only agent → chat routes 404 `no_chat_trigger` (ingress mount.ts).
+    # Reframe so it doesn't read as "agent not found".
+    if e.status_code == 404 and code == "no_chat_trigger":
+        return ValidationError(
+            "This agent has no chat trigger, so it can't be invoked over run/send/listen. "
+            "It only runs via its configured slack / cron / webhook surfaces."
+        )
+    if e.status_code == 404:
+        return NotFound(not_found_detail)
+    if e.status_code == 410:
+        # Pass the terminal-session 410 THROUGH as 410 (doctrine: preserve 4xx —
+        # 404 stays 404, 409 stays 409). Only truly-terminal states reach here:
+        # ingress re-queues `completed`/`queued`/`running` sessions and 410s only
+        # on failed / cancelled / closed-without-restart, so a 410 means "really
+        # done", not "idle between turns" — surfacing it as 400 would mislabel it.
+        # SessionGoneError carries the client-error type/code (not a bare APIException,
+        # which renders `server_error`/`error` and pages on-call for a normal 410).
+        return SessionGoneError(
+            f"Session is terminal (state={body.get('state', 'unknown')}) and can't accept more messages."
+        )
+    if e.status_code == 403 and code == "elevation_required":
+        # Preserve the actionable elevation fields (which approval request to act
+        # on, which session) instead of collapsing to the opaque code — the
+        # approval flow the agentic caller must follow needs them. Shapes:
+        # buildElevationResponse / runHandler in agent-ingress (chat.ts).
+        # ElevationRequiredError carries the client-error type/code so a normal
+        # non-owner 403 doesn't render as `server_error`/`error`.
+        parts = ["You are not the owner of this session; elevation is required to act on it."]
+        if body.get("elevation_request_id"):
+            parts.append(f"Elevation request: {body['elevation_request_id']}.")
+        if body.get("session_id"):
+            parts.append(f"Session: {body['session_id']}.")
+        return ElevationRequiredError(" ".join(parts))
+    return IngressUpstreamError(e)
 
 
 def _is_sealed_bundle_conflict(e: JanitorClientError) -> bool:
@@ -625,6 +736,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # never hand it back, so the GET `preview_proxy_get` stays read-scoped.)
         "preview_token_mint",
         "preview_token",
+        # `agent_invoke` starts a new LIVE session and `agent_send` appends a
+        # turn — both drive the agent's tools and incur inference cost, so they
+        # are write-class (the read-only `agent_listen` poll is below).
+        "agent_invoke",
+        "agent_send",
     ]
     scope_object_read_actions = [
         "list",
@@ -643,6 +759,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # this read-scoped GET can't leak a usable credential (unlike
         # `preview_token`, which is write-scoped above).
         "preview_proxy_get",
+        # `agent_listen` is a read-only digest poll of a live session — it never
+        # mutates, so it is read-scoped (its `agent_invoke`/`agent_send` siblings
+        # are write actions above).
+        "agent_listen",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -853,6 +973,253 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """GET passthrough for the preview-proxy — used for `/listen` SSE."""
         # `@action`-decorated method confuses mypy about the bound-method signature.
         return self.preview_proxy(request, rest=rest, **kwargs)  # type: ignore[arg-type]
+
+    # ── Live-agent invocation (invoke / send / listen) ────────────────
+    # Runtime counterparts to the authoring surface: talk to a LIVE (promoted)
+    # agent over the ingress runtime endpoints, so an authoring AI can iterate
+    # end-to-end without leaving MCP. invoke/send bridge to the public ingress
+    # run/send routes forwarding the caller's PAT (so the session principal is
+    # the real caller); listen bridges to an internal digest RPC. Draft/non-live
+    # invokes stay on `preview_proxy`.
+    # Tool names use the `agent-applications-` prefix (agent-applications-invoke /
+    # -send / -listen) for consistency with the rest of the surface — the ~60 sibling
+    # tools on this viewset all share it (cf. `agent_applications_preview_proxy`). An
+    # earlier gap doc advertised the short `agent-invoke/send/listen` form, but we chose
+    # namespace consistency over that shorthand — hence the explicit `operation_id=`
+    # overrides pinning the `agent_applications_*` operation ids the codegen derives from.
+
+    def _assert_session_in_application(self, session_id: str, application: AgentApplication) -> None:
+        """Tenant/ownership check run BEFORE any ingress bridge. Django gates
+        tenancy first so the internal read endpoint stays internal-only and a
+        buggy/compromised ingress can't leak cross-tenant; the ingress read
+        re-scopes by `application_id` as an authoritative backstop. `last_n=1`
+        keeps this cheap — we only compare `application_id`, not the transcript."""
+        try:
+            session = _janitor().get_session(session_id, last_n=1)
+        except JanitorClientError as e:
+            # A plain not-found from the janitor IS a not-found for the caller —
+            # surface it as a clean 404 (`invalid_request`/`not_found`), not the
+            # internal `janitor_upstream` label, matching the sibling clean paths.
+            # Everything else (incl. 5xx → 502) still flows through JanitorUpstreamError.
+            if e.status_code == 404:
+                raise NotFound("Session not found in this application") from e
+            raise JanitorUpstreamError(e) from e
+        if session.get("application_id") != str(application.id):
+            raise NotFound("Session not found in this application")
+
+    @extend_schema(
+        operation_id="agent_applications_invoke",
+        request=AgentInvokeRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentInvokeResponse",
+                fields={
+                    "session_id": drf_serializers.UUIDField(
+                        help_text="The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen.",
+                    ),
+                    "state": drf_serializers.ChoiceField(
+                        choices=_AGENT_SESSION_STATE_VALUES,
+                        help_text="Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.",
+                    ),
+                    "resumed": drf_serializers.BooleanField(
+                        help_text="True if an existing session matched `external_key` and was resumed, rather than a new one being created.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="invoke")
+    def agent_invoke(self, request: Request, **kwargs) -> Response:
+        """Start a new session on this agent's LIVE (promoted) revision.
+
+        Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+        so the session principal is the real caller. Returns the new `session_id`;
+        drive the conversation with `agent-applications-send` and read progress with
+        `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        if not application.live_revision_id:
+            raise ValidationError("This agent has no live revision. Freeze + promote a revision before invoking it.")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+            raise ValidationError("Application slug contains unsafe characters")
+
+        payload = AgentInvokeRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            result = _ingress().run(
+                application.slug,
+                message=payload.validated_data["message"],
+                external_key=payload.validated_data.get("external_key"),
+                authorization=request.headers.get("Authorization"),
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(
+                e,
+                not_found_detail="This agent isn't reachable yet — its live revision may still be propagating. Try again shortly.",
+            ) from e
+        return Response(
+            {"session_id": result.get("session_id"), "state": "queued", "resumed": bool(result.get("resumed", False))}
+        )
+
+    @extend_schema(
+        operation_id="agent_applications_send",
+        request=AgentSendRequestSerializer,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentSendResponse",
+                fields={
+                    "state": drf_serializers.ChoiceField(
+                        choices=_AGENT_SESSION_STATE_VALUES,
+                        help_text="Session state after the message was appended — `queued` (a new turn will run).",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="send")
+    def agent_send(self, request: Request, **kwargs) -> Response:
+        """Append a message to an existing LIVE session and re-queue it.
+
+        Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+        so the ACL principal-match passes. A `completed` session is NOT terminal —
+        it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+        another turn; only truly-terminal states (failed / cancelled / closed) 410,
+        which passes through as a 410. A janitor ownership pre-check runs first, but
+        it's redundant defense-in-depth (ingress `/send` already app-scopes the
+        load), kept for a clean early 404.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?", application.slug):
+            raise ValidationError("Application slug contains unsafe characters")
+
+        payload = AgentSendRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        session_id = str(payload.validated_data["session_id"])
+        self._assert_session_in_application(session_id, application)
+        try:
+            _ingress().send(
+                application.slug,
+                session_id=session_id,
+                message=payload.validated_data["message"],
+                authorization=request.headers.get("Authorization"),
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(e) from e
+        return Response({"state": "queued"})
+
+    @extend_schema(
+        operation_id="agent_applications_listen",
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Session to read (must belong to this agent).",
+            ),
+            OpenApiParameter(
+                "cursor",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="`next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.",
+            ),
+            OpenApiParameter(
+                "max_chars",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.",
+            ),
+        ],
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentListenResponse",
+                fields={
+                    "session_id": drf_serializers.UUIDField(),
+                    "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                    "turns": drf_serializers.IntegerField(help_text="Total messages in the conversation so far."),
+                    "next_cursor": drf_serializers.IntegerField(
+                        help_text="Pass back as `cursor` on the next call to page forward — high-water mark of messages seen.",
+                    ),
+                    "digest": drf_serializers.CharField(
+                        help_text="Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage.",
+                    ),
+                    "truncated": drf_serializers.BooleanField(
+                        help_text="True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`.",
+                    ),
+                    "done": drf_serializers.BooleanField(
+                        help_text="True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it.",
+                    ),
+                },
+            )
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="listen")
+    def agent_listen(self, request: Request, **kwargs) -> Response:
+        """Poll a LIVE session's progress as a single JSON digest (non-streaming,
+        MCP-friendly). Bridges to the internal ingress digest RPC — the digest is
+        built node-side (never in Python). Tenancy is enforced by the team-scoped
+        `get_object()` here plus the ingress digest's `application_id` re-scope;
+        there is no janitor pre-check on this polled path (see the comment below).
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+
+        session_id = request.query_params.get("session_id")
+        if not session_id:
+            raise ValidationError("session_id query parameter is required")
+        try:
+            UUID(str(session_id))
+        except (ValueError, TypeError):
+            raise ValidationError("session_id must be a valid UUID")
+        cursor_param = request.query_params.get("cursor")
+        try:
+            cursor = int(cursor_param) if cursor_param is not None else None
+        except ValueError:
+            raise ValidationError("cursor must be an integer")
+        if cursor is not None and cursor < 0:
+            raise ValidationError("cursor must be non-negative")
+        max_chars_param = request.query_params.get("max_chars")
+        try:
+            max_chars = int(max_chars_param) if max_chars_param is not None else None
+        except ValueError:
+            raise ValidationError("max_chars must be an integer")
+        # Range-check here (symmetric with the cursor >= 0 check above and the
+        # ingress zod `.positive().max(20_000)`) so a 0 / negative / oversized value
+        # returns a clean field-level 400 instead of the opaque ingress `invalid_body`.
+        if max_chars is not None and not (1 <= max_chars <= 20000):
+            raise ValidationError("max_chars must be between 1 and 20000")
+
+        # No janitor pre-check here (unlike agent_send): tenancy is still decided
+        # in Django — `get_object()` resolves `application` through the team-scoped
+        # queryset (a cross-team caller 404s above, before any bridge) — and the
+        # ingress digest RPC re-scopes the read by this team-checked `application_id`
+        # (`getForApplication ... WHERE application_id = $2`), returning
+        # `session_not_found` for a foreign session, which `_map_ingress_error`
+        # maps to 404. A janitor `get_session` here would just re-evaluate that same
+        # predicate one hop earlier — an extra round-trip on the polled hot path, not
+        # an independent gate. (agent_send keeps its own janitor pre-check, but that
+        # is redundant defense-in-depth, NOT load-bearing: `/send` already app-scopes
+        # in SQL — sendHandler loads via getOwnedSession → getForApplication (WHERE
+        # application_id) and then ACL-matches the principal (agent-ingress chat.ts).
+        # The Django pre-check is kept there for symmetry / a clean early 404.)
+        try:
+            digest = _ingress().session_digest(
+                application_id=str(application.id),
+                session_id=session_id,
+                cursor=cursor,
+                max_chars=max_chars,
+            )
+        except IngressClientError as e:
+            raise _map_ingress_error(e) from e
+        return Response(digest)
 
     # ── Preview token (direct-to-ingress flow) ───────────────────────
     # Alternative to `preview_proxy`: returns a short-lived JWT the

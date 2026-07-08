@@ -21,14 +21,20 @@ import {
     applyApprovalDecision,
     buildIdentityRegistry,
     createLogger,
+    DIGEST_MAX_CHARS_DEFAULT,
     effectiveApprovalType,
     handleMetricsRequest,
+    INTERNAL_JWT_AUDIENCE,
+    InternalJwtVerifyError,
     isDev,
+    renderSessionDigest,
     RevisionStore,
     serializeApprovalRequest,
     type SessionPrincipal,
     SessionQueue,
+    TERMINAL_SESSION_STATES,
     triggerAuthConfig,
+    verifyInternalJwt,
 } from '@posthog/agent-shared'
 
 const log = createLogger('ingress')
@@ -219,6 +225,17 @@ function linkResultPage(message: string): string {
     const safe = message.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' })[c] ?? c)
     return `<!doctype html><meta charset="utf-8"><title>PostHog agent linking</title><body style="font-family:system-ui;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#111"><h2>PostHog agent</h2><p style="font-size:1.05rem">${safe}</p></body>`
 }
+
+// Request body for the internal /internal/session-digest route (below). The pure
+// digest builders (renderSessionDigest et al.) live in @posthog/agent-shared
+// (spec/session-digest.ts) so the janitor / MCP read paths can share them.
+const SessionDigestBodySchema = z.object({
+    application_id: z.string().min(1),
+    session_id: z.string().min(1),
+    /** Exclusive index into conversation[]; the poll returns conversation[cursor:]. */
+    cursor: z.number().int().nonnegative().optional(),
+    max_chars: z.number().int().positive().max(20_000).optional(),
+})
 
 export function buildApp(opts: BuildAppOpts): Express {
     const app = express()
@@ -526,6 +543,79 @@ export function buildApp(opts: BuildAppOpts): Express {
         res.json({ ...session, conversation_trimmed: false })
     }
     app.get(`${mount}/sessions/:id`, asyncHandler(respondWithSession))
+
+    // Internal-only session digest — backs the `agent-applications-listen` MCP tool via the
+    // Django bridge. NOT a per-agent public surface: it is a root-level route
+    // (never rendered on `/schemas`) gated by an audience-bound internal JWT
+    // (aud=agent-ingress.rpc, `x-internal-secret`), exactly like the Django↔janitor
+    // RPCs. Django is the sole caller — it enforces the team/app gate on its side,
+    // and `getForApplication` re-scopes at the store layer as a backstop.
+    app.post(
+        '/internal/session-digest',
+        asyncHandler(async (req: Request, res: Response): Promise<void> => {
+            if (!opts.internalSigningKey) {
+                // Fail closed: this route shares the public listener, so a missing
+                // key is a misconfig, never an open door. `requiredInProd` guarantees
+                // the key in prod (config.ts).
+                res.status(500).json({ error: 'internal_auth_not_configured' })
+                return
+            }
+            const rawSecret = req.headers['x-internal-secret']
+            const token = Array.isArray(rawSecret) ? rawSecret[0] : rawSecret
+            if (!token) {
+                res.status(401).json({ error: 'unauthorized', reason: 'missing_token' })
+                return
+            }
+            try {
+                await verifyInternalJwt({
+                    token,
+                    audience: INTERNAL_JWT_AUDIENCE.INGRESS_RPC,
+                    signingKey: opts.internalSigningKey,
+                })
+            } catch (e) {
+                res.status(401).json({ error: 'unauthorized', reason: (e as InternalJwtVerifyError).reason })
+                return
+            }
+
+            const parsed = SessionDigestBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
+                return
+            }
+            const { application_id, session_id, cursor, max_chars } = parsed.data
+
+            // One atomic read: state, conversation and usage_total are columns of
+            // the same `agent_session` row, so `next_cursor` (= conversation.length)
+            // and the slice always come from one consistent snapshot — a turn landing
+            // mid-poll is either fully visible or not yet, never half-served.
+            const session = await opts.queue.getForApplication(session_id, application_id)
+            if (!session) {
+                // Collapses "no such session" and "belongs to another app" — no
+                // cross-tenant existence leak (mirrors getOwnedSession).
+                res.status(404).json({ error: 'session_not_found' })
+                return
+            }
+
+            const total = session.conversation.length
+            const from = Math.min(Math.max(cursor ?? 0, 0), total)
+            const slice = session.conversation.slice(from)
+            const { digest, truncated } = renderSessionDigest(
+                session,
+                slice,
+                total,
+                max_chars ?? DIGEST_MAX_CHARS_DEFAULT
+            )
+            res.json({
+                session_id: session.id,
+                state: session.state,
+                turns: total,
+                next_cursor: total,
+                digest,
+                truncated,
+                done: TERMINAL_SESSION_STATES.has(session.state),
+            })
+        })
+    )
 
     // Self-describing schemas. The response cascades from `spec.triggers` ∩
     // `TRIGGER_MODULES`: only modules whose type is configured on this agent

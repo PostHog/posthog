@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "`next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.",
+            "type": "number"
+        },
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "max_chars": {
+            "description": "Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.",
+            "type": "number"
+        },
+        "session_id": {
+            "description": "Session to read (must belong to this agent).",
+            "type": "string"
+        }
+    },
+    "required": ["id", "session_id"],
+    "type": "object"
+}

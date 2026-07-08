@@ -229,5 +229,5 @@ flowchart LR
   a single `ask` tool, so an MCP client can talk to a deployed agent.
   Separately, the **Django authoring REST API** is generated into MCP tools
   (`agent-applications-*`) so an authoring client can create/edit/promote
-  agents — that surface is authoring-only (see the gap note in
-  [local-dev.md](local-dev.md)).
+  agents, plus `agent-applications-invoke` / `agent-applications-send` /
+  `agent-applications-listen` to talk to a live agent (see [local-dev.md](local-dev.md)).
