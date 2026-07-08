@@ -198,7 +198,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
             # report is already generated; failing here would burn the LLM run and retry from scratch).
             logger.warning(
-                "ai_report.query_plan_persist_failed",
+                "ai_report.ai_query_plan_persist_failed",
                 subscription_id=subscription.id,
                 team_id=subscription.team_id,
                 exc_info=True,

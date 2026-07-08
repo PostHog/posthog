@@ -14,7 +14,7 @@ import {
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
-    SubscriptionApiQueryPlan,
+    SubscriptionApiAiQueryPlan,
     SubscriptionDeliveryApi,
     SubscriptionsDeliveriesListStatus,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
@@ -40,7 +40,7 @@ export type DeliveryFeedbackSource = 'email' | 'slack' | 'in_app'
 
 export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
-export type QueryPlan = NonNullable<SubscriptionApiQueryPlan>
+export type QueryPlan = NonNullable<SubscriptionApiAiQueryPlan>
 export type QueryPlanStep = QueryPlan['steps'][number]
 
 export const PREVIEW_POLL_INTERVAL_MS = 2000
@@ -168,18 +168,18 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                         return values.subscription
                     }
                     return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, {
-                        query_plan: plan,
+                        ai_query_plan: plan,
                     })
                 },
                 // Clear the frozen plan; the next report re-plans from the prompt. PATCH returns the
-                // updated subscription (query_plan: null), so the editor resets in the same pass.
+                // updated subscription (ai_query_plan: null), so the editor resets in the same pass.
                 regeneratePlan: async () => {
                     const numericId = parseInt(props.id, 10)
                     if (!Number.isFinite(numericId)) {
                         return values.subscription
                     }
                     return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, {
-                        query_plan: null,
+                        ai_query_plan: null,
                     })
                 },
             },
@@ -266,7 +266,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         editedQueryPlan: [
             (s) => [s.subscription, s.queryPlanEdits],
             (subscription, queryPlanEdits): QueryPlan | null => {
-                const plan = subscription?.query_plan
+                const plan = subscription?.ai_query_plan
                 if (!plan || Object.keys(queryPlanEdits).length === 0) {
                     return null
                 }

@@ -171,7 +171,7 @@ export interface UserBasicApi {
  * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
  * @nullable
  */
-export type SubscriptionApiQueryPlan = {
+export type SubscriptionApiAiQueryPlan = {
     /**
      * Plain-English summary of what the report will tell the user.
      * @maxLength 500
@@ -314,7 +314,7 @@ export interface SubscriptionApi {
      * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
      * @nullable
      */
-    query_plan?: SubscriptionApiQueryPlan
+    ai_query_plan?: SubscriptionApiAiQueryPlan
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -352,7 +352,7 @@ export const PatchedSubscriptionApiByweekdayItem = {
  * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
  * @nullable
  */
-export type PatchedSubscriptionApiQueryPlan = {
+export type PatchedSubscriptionApiAiQueryPlan = {
     /**
      * Plain-English summary of what the report will tell the user.
      * @maxLength 500
@@ -495,7 +495,7 @@ export interface PatchedSubscriptionApi {
      * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
      * @nullable
      */
-    query_plan?: PatchedSubscriptionApiQueryPlan
+    ai_query_plan?: PatchedSubscriptionApiAiQueryPlan
 }
 
 export interface SubscriptionPreviewDispatchApi {

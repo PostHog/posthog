@@ -35002,7 +35002,7 @@ export namespace Schemas {
      * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
      * @nullable
      */
-    export type SubscriptionQueryPlan = {
+    export type SubscriptionAiQueryPlan = {
       /**
          * Plain-English summary of what the report will tell the user.
          * @maxLength 500
@@ -35145,7 +35145,7 @@ export namespace Schemas {
          * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
          * @nullable
          */
-      query_plan?: SubscriptionQueryPlan;
+      ai_query_plan?: SubscriptionAiQueryPlan;
     }
 
     export interface PaginatedSubscriptionList {
@@ -42202,7 +42202,7 @@ export namespace Schemas {
      * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
      * @nullable
      */
-    export type PatchedSubscriptionQueryPlan = {
+    export type PatchedSubscriptionAiQueryPlan = {
       /**
          * Plain-English summary of what the report will tell the user.
          * @maxLength 500
@@ -42345,7 +42345,7 @@ export namespace Schemas {
          * Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.
          * @nullable
          */
-      query_plan?: PatchedSubscriptionQueryPlan;
+      ai_query_plan?: PatchedSubscriptionAiQueryPlan;
     }
 
     /**
@@ -61166,10 +61166,13 @@ export namespace Schemas {
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };
@@ -68372,10 +68375,13 @@ export namespace Schemas {
     export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };

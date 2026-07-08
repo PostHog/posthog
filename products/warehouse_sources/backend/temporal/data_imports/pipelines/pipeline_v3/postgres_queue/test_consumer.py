@@ -107,7 +107,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock()
@@ -125,7 +125,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
@@ -379,6 +379,7 @@ class TestRecoverySweep:
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
+            batch_created_at=stale_batch.created_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token

@@ -104,7 +104,7 @@ export function SubscriptionAIControls(): JSX.Element {
     const { subscription, preview, previewLoading, subscriptionLoading } = useValues(subscriptionSceneLogic)
     const { previewSubscription, regeneratePlan } = useActions(subscriptionSceneLogic)
 
-    const steps = subscription?.query_plan?.steps ?? []
+    const steps = subscription?.ai_query_plan?.steps ?? []
 
     const confirmRegenerate = (): void => {
         LemonDialog.open({

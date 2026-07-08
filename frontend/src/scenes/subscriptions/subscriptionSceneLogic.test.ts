@@ -72,7 +72,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
 const MOCK_AI_SUBSCRIPTION_WITH_PLAN: SubscriptionApi = {
     ...MOCK_AI_SUBSCRIPTION,
     id: 3,
-    query_plan: {
+    ai_query_plan: {
         overall_intent: 'Weekly signups',
         steps: [
             { description: 'Daily signups', query_type: 'hogql', hogql: 'SELECT 1' },
@@ -457,7 +457,7 @@ describe('subscriptionSceneLogic', () => {
             patch: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: async (req) => {
                     savedBody = await req.request.json()
-                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: savedBody.query_plan }]
+                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, ai_query_plan: savedBody.ai_query_plan }]
                 },
             },
         })
@@ -482,7 +482,7 @@ describe('subscriptionSceneLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveQueryPlan()
         }).toFinishAllListeners()
-        expect(savedBody.query_plan.steps[1].hogql).toEqual('SELECT 99')
+        expect(savedBody.ai_query_plan.steps[1].hogql).toEqual('SELECT 99')
         // Save success replaces the subscription and clears the pending edits.
         expect(logic.values.queryPlanEdits).toEqual({})
         expect(logic.values.hasQueryPlanEdits).toBe(false)
@@ -493,7 +493,7 @@ describe('subscriptionSceneLogic', () => {
         captureSpy.mockRestore()
     })
 
-    it('regenerate plan PATCHes query_plan null and clears pending edits', async () => {
+    it('regenerate plan PATCHes ai_query_plan null and clears pending edits', async () => {
         let patchBody: any = null
         useMocks({
             get: {
@@ -506,7 +506,7 @@ describe('subscriptionSceneLogic', () => {
             patch: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: async (req) => {
                     patchBody = await req.request.json()
-                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: null }]
+                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, ai_query_plan: null }]
                 },
             },
         })
@@ -515,14 +515,14 @@ describe('subscriptionSceneLogic', () => {
         const logic = subscriptionSceneLogic({ id: '3' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.subscription?.query_plan).toBeTruthy()
+        expect(logic.values.subscription?.ai_query_plan).toBeTruthy()
 
         await expectLogic(logic, () => {
             logic.actions.setQueryPlanStepHogql(0, 'SELECT edited')
             logic.actions.regeneratePlan()
         }).toFinishAllListeners()
-        expect(patchBody).toEqual({ query_plan: null })
-        expect(logic.values.subscription?.query_plan).toBeNull()
+        expect(patchBody).toEqual({ ai_query_plan: null })
+        expect(logic.values.subscription?.ai_query_plan).toBeNull()
         // A regenerated plan invalidates pending edits and any rendered preview.
         expect(logic.values.queryPlanEdits).toEqual({})
         expect(logic.values.preview).toBeNull()

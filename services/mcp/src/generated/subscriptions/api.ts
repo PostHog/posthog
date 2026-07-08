@@ -57,14 +57,14 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsCreateBodyQueryPlanOverallIntentMax = 500
+export const subscriptionsCreateBodyAiQueryPlanOverallIntentMax = 500
 
-export const subscriptionsCreateBodyQueryPlanStepsItemDescriptionMax = 500
+export const subscriptionsCreateBodyAiQueryPlanStepsItemDescriptionMax = 500
 
-export const subscriptionsCreateBodyQueryPlanStepsItemQueryTypeDefault = `hogql`
-export const subscriptionsCreateBodyQueryPlanStepsItemHogqlMax = 5000
+export const subscriptionsCreateBodyAiQueryPlanStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsCreateBodyAiQueryPlanStepsItemHogqlMax = 5000
 
-export const subscriptionsCreateBodyQueryPlanStepsMax = 25
+export const subscriptionsCreateBodyAiQueryPlanStepsMax = 25
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -204,31 +204,31 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
-        query_plan: zod
+        ai_query_plan: zod
             .object({
                 overall_intent: zod
                     .string()
-                    .max(subscriptionsCreateBodyQueryPlanOverallIntentMax)
+                    .max(subscriptionsCreateBodyAiQueryPlanOverallIntentMax)
                     .describe('Plain-English summary of what the report will tell the user.'),
                 steps: zod
                     .array(
                         zod.object({
                             description: zod
                                 .string()
-                                .max(subscriptionsCreateBodyQueryPlanStepsItemDescriptionMax)
+                                .max(subscriptionsCreateBodyAiQueryPlanStepsItemDescriptionMax)
                                 .describe('One-sentence rationale for running this query.'),
                             query_type: zod
                                 .literal('hogql')
-                                .default(subscriptionsCreateBodyQueryPlanStepsItemQueryTypeDefault)
+                                .default(subscriptionsCreateBodyAiQueryPlanStepsItemQueryTypeDefault)
                                 .describe("MVP: always 'hogql'."),
                             hogql: zod
                                 .string()
-                                .max(subscriptionsCreateBodyQueryPlanStepsItemHogqlMax)
+                                .max(subscriptionsCreateBodyAiQueryPlanStepsItemHogqlMax)
                                 .describe("A HogQL SELECT statement scoped to the team's events."),
                         })
                     )
                     .min(1)
-                    .max(subscriptionsCreateBodyQueryPlanStepsMax),
+                    .max(subscriptionsCreateBodyAiQueryPlanStepsMax),
             })
             .nullish()
             .describe(
@@ -273,14 +273,14 @@ export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsPartialUpdateBodyQueryPlanOverallIntentMax = 500
+export const subscriptionsPartialUpdateBodyAiQueryPlanOverallIntentMax = 500
 
-export const subscriptionsPartialUpdateBodyQueryPlanStepsItemDescriptionMax = 500
+export const subscriptionsPartialUpdateBodyAiQueryPlanStepsItemDescriptionMax = 500
 
-export const subscriptionsPartialUpdateBodyQueryPlanStepsItemQueryTypeDefault = `hogql`
-export const subscriptionsPartialUpdateBodyQueryPlanStepsItemHogqlMax = 5000
+export const subscriptionsPartialUpdateBodyAiQueryPlanStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsPartialUpdateBodyAiQueryPlanStepsItemHogqlMax = 5000
 
-export const subscriptionsPartialUpdateBodyQueryPlanStepsMax = 25
+export const subscriptionsPartialUpdateBodyAiQueryPlanStepsMax = 25
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -427,31 +427,31 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
-        query_plan: zod
+        ai_query_plan: zod
             .object({
                 overall_intent: zod
                     .string()
-                    .max(subscriptionsPartialUpdateBodyQueryPlanOverallIntentMax)
+                    .max(subscriptionsPartialUpdateBodyAiQueryPlanOverallIntentMax)
                     .describe('Plain-English summary of what the report will tell the user.'),
                 steps: zod
                     .array(
                         zod.object({
                             description: zod
                                 .string()
-                                .max(subscriptionsPartialUpdateBodyQueryPlanStepsItemDescriptionMax)
+                                .max(subscriptionsPartialUpdateBodyAiQueryPlanStepsItemDescriptionMax)
                                 .describe('One-sentence rationale for running this query.'),
                             query_type: zod
                                 .literal('hogql')
-                                .default(subscriptionsPartialUpdateBodyQueryPlanStepsItemQueryTypeDefault)
+                                .default(subscriptionsPartialUpdateBodyAiQueryPlanStepsItemQueryTypeDefault)
                                 .describe("MVP: always 'hogql'."),
                             hogql: zod
                                 .string()
-                                .max(subscriptionsPartialUpdateBodyQueryPlanStepsItemHogqlMax)
+                                .max(subscriptionsPartialUpdateBodyAiQueryPlanStepsItemHogqlMax)
                                 .describe("A HogQL SELECT statement scoped to the team's events."),
                         })
                     )
                     .min(1)
-                    .max(subscriptionsPartialUpdateBodyQueryPlanStepsMax),
+                    .max(subscriptionsPartialUpdateBodyAiQueryPlanStepsMax),
             })
             .nullish()
             .describe(

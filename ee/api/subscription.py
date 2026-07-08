@@ -291,8 +291,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard → dashboard, prompt → ai_prompt)."
         ),
     )
-    query_plan = QueryPlanField(
-        source="ai_query_plan",
+    ai_query_plan = QueryPlanField(
         required=False,
         allow_null=True,
         help_text=(
@@ -335,7 +334,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "invite_message",
             "summary_enabled",
             "summary_prompt_guide",
-            "query_plan",
+            "ai_query_plan",
         ]
         read_only_fields = [
             "id",
@@ -423,10 +422,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Subscription) -> dict:
         data = super().to_representation(instance)
-        # query_plan carries generated HogQL (query-derived, like the delivered report), so scrub it to
+        # ai_query_plan carries generated HogQL (query-derived, like the delivered report), so scrub it to
         # null for callers without query access — mirroring the delivery serializer's report scrubbing.
-        if data.get("query_plan") is not None and not self._caller_query_access("viewer"):
-            data["query_plan"] = None
+        if data.get("ai_query_plan") is not None and not self._caller_query_access("viewer"):
+            data["ai_query_plan"] = None
         return data
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
@@ -523,7 +522,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # to_representation otherwise); editing query content requires the stronger editor level.
         if "ai_query_plan" in attrs:
             if resource_type != Subscription.ResourceType.AI_PROMPT:
-                raise ValidationError({"query_plan": ["Only AI prompt subscriptions can set a query plan."]})
+                raise ValidationError({"ai_query_plan": ["Only AI prompt subscriptions can set a query plan."]})
             if not self._caller_query_access("editor"):
                 raise exceptions.PermissionDenied("You need query editor access to edit the query plan.")
 

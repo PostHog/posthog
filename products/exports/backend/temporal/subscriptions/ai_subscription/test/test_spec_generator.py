@@ -11,7 +11,6 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
-    MAX_STEP_HOGQL_LENGTH,
     QueryPlan,
     QueryPlanStep,
     RelevantEvents,
@@ -36,7 +35,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
-    prettify_hogql,
     sanitize_prompt,
 )
 
@@ -711,55 +709,6 @@ class TestContextBlob(APIBaseTest):
         assert "Events matching your request" not in blob
 
 
-class TestPrettifyHogql:
-    """The prettifier reformats LLM SQL that gets frozen and replayed — a corruption here (splitting
-    inside a string literal, mangling a window token, dropping a character) silently changes every
-    future report's queries, so the dangerous shapes are pinned."""
-
-    @parameterized.expand(
-        [
-            (
-                "single_line_query_splits_clauses_and_columns",
-                "SELECT event, count() AS c FROM events WHERE {{date_range}} AND event = 'purchase' "
-                "GROUP BY event HAVING c > 0 ORDER BY c DESC LIMIT 50",
-                "SELECT event,\n    count() AS c\nFROM events\nWHERE {{date_range}} AND event = 'purchase'\n"
-                "GROUP BY event\nHAVING c > 0\nORDER BY c DESC\nLIMIT 50",
-            ),
-            (
-                "keywords_inside_string_literals_untouched",
-                "SELECT count() FROM events WHERE properties.msg = 'copy FROM here WHERE possible' AND {{date_range}}",
-                "SELECT count()\nFROM events\nWHERE properties.msg = 'copy FROM here WHERE possible' AND {{date_range}}",
-            ),
-            (
-                "subquery_clauses_stay_inline",
-                "SELECT c FROM (SELECT count() AS c FROM events WHERE {{date_range}} GROUP BY event) ORDER BY c",
-                "SELECT c\nFROM (SELECT count() AS c FROM events WHERE {{date_range}} GROUP BY event)\nORDER BY c",
-            ),
-            (
-                "already_multiline_input_canonicalizes_identically",
-                "SELECT event,\n       count() AS c\n  FROM events\n WHERE {{compare_date_range}}",
-                "SELECT event,\n    count() AS c\nFROM events\nWHERE {{compare_date_range}}",
-            ),
-            (
-                "commas_inside_function_calls_stay_inline",
-                "SELECT concat(event, '-', distinct_id) FROM events WHERE {{window_start}} <= timestamp",
-                "SELECT concat(event, '-', distinct_id)\nFROM events\nWHERE {{window_start}} <= timestamp",
-            ),
-        ]
-    )
-    def test_reformats_without_corruption(self, _name: str, raw: str, expected: str) -> None:
-        assert prettify_hogql(raw) == expected
-
-    def test_falls_back_to_input_when_pretty_form_would_exceed_length_cap(self) -> None:
-        # Enough top-level commas that the inserted indentation pushes past the schema's max_length,
-        # which would make the frozen plan fail revalidation on reuse. Self-checking: if the pretty
-        # form fit the cap, prettify would return it (multi-line) and the equality would fail.
-        columns = ", ".join(f"col_{i}" for i in range(490))
-        raw = f"SELECT {columns} FROM events WHERE {{{{date_range}}}}"
-        assert len(raw) <= MAX_STEP_HOGQL_LENGTH
-        assert prettify_hogql(raw) == raw
-
-
 class TestGenerateQueryPlanSubstitution(APIBaseTest):
     """Test the substitution *behaviour* — that the planner actually receives the prompt and context
     interpolated into the template — rather than asserting prose fragments exist in the prompt string.
@@ -770,18 +719,15 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
         structured = mock_chat.return_value.with_structured_output.return_value
         structured.invoke.return_value = QueryPlan(
             overall_intent="intent",
-            steps=[QueryPlanStep(description="d", hogql="SELECT event FROM events WHERE {{date_range}}")],
+            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
         )
 
-        plan = generate_query_plan(
+        generate_query_plan(
             cleaned_prompt="CLEANED_PROMPT_MARKER",
             context_blob="CONTEXT_BLOB_MARKER",
             team=self.team,
             user=self.user,
         )
-
-        # Steps leave the planner in canonical pretty form — this is what gets frozen and executed.
-        assert plan.steps[0].hogql == "SELECT event\nFROM events\nWHERE {{date_range}}"
 
         (messages,) = structured.invoke.call_args[0]
         (_role, system_content) = messages[0]

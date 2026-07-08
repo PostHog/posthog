@@ -2876,10 +2876,10 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert Subscription.objects.get(pk=sub_id).ai_query_plan is not None
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"query_plan": None}, format="json"
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"ai_query_plan": None}, format="json"
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["query_plan"] is None
+        assert response.json()["ai_query_plan"] is None
         assert Subscription.objects.get(pk=sub_id).ai_query_plan is None
 
     def test_patch_null_query_plan_rejected_for_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
@@ -2887,7 +2887,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("insight")
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"query_plan": None}, format="json"
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"ai_query_plan": None}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
@@ -2959,7 +2959,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         Subscription.objects.filter(pk=sub_id).update(ai_query_plan=plan)
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["query_plan"]["overall_intent"] == plan["overall_intent"]
+        assert response.json()["ai_query_plan"]["overall_intent"] == plan["overall_intent"]
 
     def test_query_plan_scrubbed_for_caller_without_query_access(self, mock_is_cloud, mock_flag, mock_sync):
         # The plan carries generated HogQL (query-derived), so it must be scrubbed to null for a member
@@ -2970,7 +2970,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._restrict_query_access()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["query_plan"] is None
+        assert response.json()["ai_query_plan"] is None
 
     def test_query_plan_write_persists_for_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
         # The owner (bypasses access controls → query editor) can edit the frozen plan.
@@ -2979,7 +2979,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         plan = self._valid_query_plan()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"query_plan": plan},
+            {"ai_query_plan": plan},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2996,7 +2996,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         new_plan = self._valid_query_plan()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"prompt": "A different prompt about retention entirely?", "query_plan": new_plan},
+            {"prompt": "A different prompt about retention entirely?", "ai_query_plan": new_plan},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -3012,7 +3012,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._restrict_query_access()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"query_plan": self._valid_query_plan()},
+            {"ai_query_plan": self._valid_query_plan()},
             format="json",
         )
         # The viewset's query-viewer gate fires first for an AI-subscription write, so this is 403.
@@ -3049,7 +3049,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         self._grant_query_viewer_only()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"query_plan": self._valid_query_plan() if plan_value == "valid_plan" else None},
+            {"ai_query_plan": self._valid_query_plan() if plan_value == "valid_plan" else None},
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
@@ -3070,7 +3070,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         sub_id = self._create_subscription_for("ai_prompt")
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"query_plan": invalid_plan},
+            {"ai_query_plan": invalid_plan},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
