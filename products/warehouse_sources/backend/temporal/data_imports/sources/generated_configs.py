@@ -3242,7 +3242,7 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamtailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
