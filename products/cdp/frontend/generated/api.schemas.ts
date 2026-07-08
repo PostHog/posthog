@@ -262,6 +262,7 @@ export const HogFunctionTypeEnumApi = {
  * * `choice` - choice
  * * `json` - json
  * * `integration` - integration
+ * * `integration_multi` - integration_multi
  * * `integration_field` - integration_field
  * * `email` - email
  * * `native_email` - native_email
@@ -281,6 +282,7 @@ export const InputsSchemaItemTypeEnumApi = {
     Choice: 'choice',
     Json: 'json',
     Integration: 'integration',
+    IntegrationMulti: 'integration_multi',
     IntegrationField: 'integration_field',
     Email: 'email',
     NativeEmail: 'native_email',
