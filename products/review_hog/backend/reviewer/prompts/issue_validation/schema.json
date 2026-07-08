@@ -1,68 +1,61 @@
 {
-  "$defs": {
-    "IssuePriority": {
-      "description": "Priority levels for code review issues.",
-      "enum": [
-        "must_fix",
-        "should_fix",
-        "consider"
-      ],
-      "title": "IssuePriority",
-      "type": "string"
-    }
-  },
-  "properties": {
-    "is_valid": {
-      "description": "Whether the suggested change should be implemented (true) or dismissed (false)",
-      "title": "Is Valid",
-      "type": "boolean"
-    },
-    "argumentation": {
-      "description": "Focused, concise explanation covering why the change should be implemented or dismissed. Should include technical reasoning and potential impact.",
-      "title": "Argumentation",
-      "type": "string"
-    },
-    "category": {
-      "anyOf": [
-        {
-          "enum": [
-            "bug",
-            "security",
-            "performance",
-            "code_quality",
-            "best_practice",
-            "documentation",
-            "testing",
-            "accessibility",
-            "compatibility"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
+    "$defs": {
+        "IssuePriority": {
+            "description": "Priority levels for code review issues.",
+            "enum": ["must_fix", "should_fix", "consider"],
+            "title": "IssuePriority",
+            "type": "string"
         }
-      ],
-      "default": null,
-      "description": "Category of the issue",
-      "title": "Category"
     },
-    "adjusted_priority": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/IssuePriority"
+    "properties": {
+        "is_valid": {
+            "description": "Whether the suggested change should be implemented (true) or dismissed (false)",
+            "title": "Is Valid",
+            "type": "boolean"
         },
-        {
-          "type": "null"
+        "argumentation": {
+            "description": "Focused, concise explanation covering why the change should be implemented or dismissed. Should include technical reasoning and potential impact.",
+            "title": "Argumentation",
+            "type": "string"
+        },
+        "category": {
+            "anyOf": [
+                {
+                    "enum": [
+                        "bug",
+                        "security",
+                        "performance",
+                        "code_quality",
+                        "best_practice",
+                        "documentation",
+                        "testing",
+                        "accessibility",
+                        "compatibility"
+                    ],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "Category of the issue",
+            "title": "Category"
+        },
+        "adjusted_priority": {
+            "anyOf": [
+                {
+                    "$ref": "#/$defs/IssuePriority"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "Set this only if your investigation shows the reviewer's priority is wrong \u2014 raise or lower it to the correct severity. Leave null to keep the reviewer's priority. Lowering to `consider` keeps the finding on record but stops it being surfaced."
         }
-      ],
-      "default": null,
-      "description": "Set this only if your investigation shows the reviewer's priority is wrong \u2014 raise or lower it to the correct severity. Leave null to keep the reviewer's priority. Lowering to `consider` keeps the finding on record but stops it being surfaced."
-    }
-  },
-  "required": [
-    "is_valid",
-    "argumentation"
-  ],
-  "title": "IssueValidation",
-  "type": "object"
+    },
+    "required": ["is_valid", "argumentation"],
+    "title": "IssueValidation",
+    "type": "object"
 }

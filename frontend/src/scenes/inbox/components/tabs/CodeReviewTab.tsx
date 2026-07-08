@@ -550,16 +550,20 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                     {
                         key: 'description',
                         header: 'Description',
-                        content: <LemonMarkdown className="text-sm text-secondary" disableImages>
+                        content: (
+                            <LemonMarkdown className="text-sm text-secondary" disableImages>
                                 {finding.body}
-                            </LemonMarkdown>,
+                            </LemonMarkdown>
+                        ),
                     },
                     {
                         key: 'suggestion',
                         header: 'Suggested fix',
-                        content: <LemonMarkdown className="text-sm text-secondary" disableImages>
+                        content: (
+                            <LemonMarkdown className="text-sm text-secondary" disableImages>
                                 {finding.suggestion}
-                            </LemonMarkdown>,
+                            </LemonMarkdown>
+                        ),
                     },
                     {
                         key: 'validator',

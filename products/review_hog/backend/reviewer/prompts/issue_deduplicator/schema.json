@@ -1,35 +1,31 @@
 {
-  "$defs": {
-    "DuplicateIssue": {
-      "description": "A finding flagged as a duplicate, to be removed.",
-      "properties": {
-        "id": {
-          "description": "Id of the finding to remove",
-          "title": "Id",
-          "type": "string"
+    "$defs": {
+        "DuplicateIssue": {
+            "description": "A finding flagged as a duplicate, to be removed.",
+            "properties": {
+                "id": {
+                    "description": "Id of the finding to remove",
+                    "title": "Id",
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "title": "DuplicateIssue",
+            "type": "object"
         }
-      },
-      "required": [
-        "id"
-      ],
-      "title": "DuplicateIssue",
-      "type": "object"
-    }
-  },
-  "description": "Result of deduplication analysis for findings.",
-  "properties": {
-    "duplicates": {
-      "description": "Ids of the findings to remove as duplicates",
-      "items": {
-        "$ref": "#/$defs/DuplicateIssue"
-      },
-      "title": "Duplicates",
-      "type": "array"
-    }
-  },
-  "required": [
-    "duplicates"
-  ],
-  "title": "IssueDeduplication",
-  "type": "object"
+    },
+    "description": "Result of deduplication analysis for findings.",
+    "properties": {
+        "duplicates": {
+            "description": "Ids of the findings to remove as duplicates",
+            "items": {
+                "$ref": "#/$defs/DuplicateIssue"
+            },
+            "title": "Duplicates",
+            "type": "array"
+        }
+    },
+    "required": ["duplicates"],
+    "title": "IssueDeduplication",
+    "type": "object"
 }

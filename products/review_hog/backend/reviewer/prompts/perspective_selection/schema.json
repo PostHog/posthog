@@ -1,48 +1,42 @@
 {
-  "$defs": {
-    "ChunkPerspectiveSelection": {
-      "properties": {
-        "chunk_id": {
-          "description": "The chunk this selection applies to",
-          "title": "Chunk Id",
-          "type": "integer"
-        },
-        "perspectives": {
-          "description": "Exact skill names of the perspectives worth running on this chunk; may be empty",
-          "items": {
-            "type": "string"
-          },
-          "title": "Perspectives",
-          "type": "array"
-        },
-        "reason": {
-          "description": "One line: why the skipped perspectives don't apply to this chunk, or why all are needed",
-          "title": "Reason",
-          "type": "string"
+    "$defs": {
+        "ChunkPerspectiveSelection": {
+            "properties": {
+                "chunk_id": {
+                    "description": "The chunk this selection applies to",
+                    "title": "Chunk Id",
+                    "type": "integer"
+                },
+                "perspectives": {
+                    "description": "Exact skill names of the perspectives worth running on this chunk; may be empty",
+                    "items": {
+                        "type": "string"
+                    },
+                    "title": "Perspectives",
+                    "type": "array"
+                },
+                "reason": {
+                    "description": "One line: why the skipped perspectives don't apply to this chunk, or why all are needed",
+                    "title": "Reason",
+                    "type": "string"
+                }
+            },
+            "required": ["chunk_id", "perspectives", "reason"],
+            "title": "ChunkPerspectiveSelection",
+            "type": "object"
         }
-      },
-      "required": [
-        "chunk_id",
-        "perspectives",
-        "reason"
-      ],
-      "title": "ChunkPerspectiveSelection",
-      "type": "object"
-    }
-  },
-  "properties": {
-    "chunks": {
-      "description": "One selection per chunk, covering every chunk",
-      "items": {
-        "$ref": "#/$defs/ChunkPerspectiveSelection"
-      },
-      "title": "Chunks",
-      "type": "array"
-    }
-  },
-  "required": [
-    "chunks"
-  ],
-  "title": "PerspectiveSelection",
-  "type": "object"
+    },
+    "properties": {
+        "chunks": {
+            "description": "One selection per chunk, covering every chunk",
+            "items": {
+                "$ref": "#/$defs/ChunkPerspectiveSelection"
+            },
+            "title": "Chunks",
+            "type": "array"
+        }
+    },
+    "required": ["chunks"],
+    "title": "PerspectiveSelection",
+    "type": "object"
 }
