@@ -579,14 +579,20 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             ),
         )
 
-        for expr in self._search_candidate_filters():
+        candidate_filters = self._search_candidate_filters()
+        if candidate_filters:
+            base_having = search_subquery.having
+            assert base_having is not None, "parsed search subquery always has a HAVING clause"
             search_subquery.having = ast.And(
                 exprs=[
-                    search_subquery.having,
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Gt,
-                        left=ast.Call(name="countIf", args=[expr]),
-                        right=ast.Constant(value=0),
+                    base_having,
+                    *(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(name="countIf", args=[expr]),
+                            right=ast.Constant(value=0),
+                        )
+                        for expr in candidate_filters
                     ),
                 ]
             )
