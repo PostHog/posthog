@@ -1611,7 +1611,8 @@ class IncidentIoSourceConfig(config.Config):
 
 @config.config
 class InflowinventorySourceConfig(config.Config):
-    pass
+    company_id: str
+    api_key: str
 
 
 @config.config

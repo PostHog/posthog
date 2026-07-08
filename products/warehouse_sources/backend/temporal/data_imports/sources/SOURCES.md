@@ -188,6 +188,7 @@ the row lists both.
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
+| inflowinventory         | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
 | instatus                | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -492,7 +493,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
-- inflowinventory
 - infor_nexus
 - insightful
 - instagram
