@@ -2161,6 +2161,54 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("flag_on_uses_workflows_query", True),
+            ("flag_off_uses_legacy_query", False),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_query_selection(self, _name, flag_enabled):
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+            ) as mock_workflows_query,
+            patch(
+                "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons", return_value=["id-1"]
+            ) as mock_legacy_query,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+                {"filters": {"properties": []}, "dedupe_key": "email"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["users_affected"] == ["id-1"]
+        if flag_enabled:
+            mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
+            mock_legacy_query.assert_not_called()
+        else:
+            mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
+            mock_workflows_query.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": []}, "dedupe_key": "phone"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "Unsupported dedupe_key" in response.json().get("error", "")
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

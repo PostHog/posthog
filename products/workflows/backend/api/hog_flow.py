@@ -86,6 +86,12 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.services.batch_audience import (
+    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
+    SUPPORTED_DEDUPE_KEYS,
+    get_batch_audience_person_ids,
+    use_workflows_batch_audience_query,
+)
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -1912,15 +1918,26 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         filters = request.data.get("filters", {}) or {}
         group_type_index = request.data.get("group_type_index", None)
         cursor = request.data.get("cursor", None)
+        dedupe_key = request.data.get("dedupe_key", None)
+
+        if dedupe_key is not None and dedupe_key not in SUPPORTED_DEDUPE_KEYS:
+            return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
             reject_flag_conditions_in_audience(team, filters)
-            users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+            if use_workflows_batch_audience_query(team):
+                users_affected = get_batch_audience_person_ids(
+                    team, filters, group_type_index, cursor, dedupe_key=dedupe_key
+                )
+                batch_size = WORKFLOWS_PERSON_BATCH_SIZE
+            else:
+                users_affected = get_user_blast_radius_persons(team, filters, group_type_index, cursor)
+                batch_size = PERSON_BATCH_SIZE
             return Response(
                 {
                     "users_affected": users_affected,
                     "cursor": users_affected[-1] if users_affected else None,
-                    "has_more": len(users_affected) == PERSON_BATCH_SIZE,
+                    "has_more": len(users_affected) == batch_size,
                 }
             )
         except exceptions.ValidationError as e:

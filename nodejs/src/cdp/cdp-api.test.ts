@@ -955,6 +955,52 @@ describe('CDP API', () => {
                     totalEnqueued: 0,
                     pagesProcessed: 0,
                 })
+                // No email action in the flow, so the audience must not be deduped by email
+                expect(state.dedupeKey).toBeUndefined()
+            } finally {
+                api['batchResolverProducer'] = null
+            }
+        })
+
+        it('sets email dedupe on the resolver state when the flow sends email', async () => {
+            const emailHogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test batch email hog flow',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_on_conversion',
+                edges: [],
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        name: 'Send email',
+                        config: { template_id: 'template-email', inputs: {} },
+                    },
+                ] as any,
+                trigger: {
+                    type: 'batch',
+                    filters: { properties: [] },
+                },
+            })
+
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
+
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${emailHogFlow.team_id}/hog_flows/${emailHogFlow.id}/batch_invocations/job-790`
+                    )
+                    .send({})
+
+                expect(res.status).toEqual(200)
+                const arg = createJobMock.mock.calls[0][0]
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state.dedupeKey).toEqual('email')
             } finally {
                 api['batchResolverProducer'] = null
             }
