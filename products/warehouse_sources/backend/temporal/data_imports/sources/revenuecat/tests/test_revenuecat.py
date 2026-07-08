@@ -26,6 +26,12 @@ def _http_error_response(status_code: int) -> MagicMock:
     return response
 
 
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = MagicMock()
+    response.status_code = status_code
+    return requests.HTTPError(response=response)
+
+
 class TestValidateCredentials:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_true_when_projects_list_succeeds(self, mock_session):
@@ -476,6 +482,63 @@ class TestGetExternalWebhookInfo:
         )
 
         assert info.exists is False
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._list_webhook_integrations"
+    )
+    def test_404_with_reachable_project_does_not_blame_project_id(self, mock_list, mock_session):
+        # A connected source has already passed validate_credentials, so a 404
+        # from the webhook-list endpoint is not a bad project id. The status
+        # must not tell the user to re-check a valid id, and must reassure that
+        # ingestion is unaffected.
+        mock_list.side_effect = _http_error(404)
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_test"}]})
+
+        info = api_client.get_external_webhook_info(
+            "sk_test", project_id="proj_test", webhook_url="https://example.com/h"
+        )
+
+        assert info.exists is False
+        assert info.error is not None
+        assert "double-check the project id" not in info.error.lower()
+        assert "valid" in info.error.lower()
+        assert "ingestion" in info.error.lower()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._list_webhook_integrations"
+    )
+    def test_404_with_unreachable_project_names_accessible_ids(self, mock_list, mock_session):
+        # If the id genuinely isn't reachable, name the ids the key can see —
+        # the same actionable message validate_credentials produces on a miss.
+        mock_list.side_effect = _http_error(404)
+        mock_session.return_value.get.return_value = _ok_json_response({"items": [{"id": "proj_real"}]})
+
+        info = api_client.get_external_webhook_info(
+            "sk_test", project_id="proj_typo", webhook_url="https://example.com/h"
+        )
+
+        assert info.exists is False
+        assert info.error is not None
+        assert "proj_typo" in info.error
+        assert "proj_real" in info.error
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._list_webhook_integrations"
+    )
+    def test_non_404_http_error_keeps_generic_message(self, mock_list):
+        # Only the 404 path is remapped — other statuses keep their existing
+        # credential/permission wording.
+        mock_list.side_effect = _http_error(401)
+
+        info = api_client.get_external_webhook_info(
+            "sk_test", project_id="proj_test", webhook_url="https://example.com/h"
+        )
+
+        assert info.exists is False
+        assert info.error is not None
+        assert "rejected the api key" in info.error.lower()
 
 
 class TestProjectPath:

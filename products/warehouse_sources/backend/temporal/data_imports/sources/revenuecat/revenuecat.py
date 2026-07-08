@@ -457,12 +457,50 @@ def delete_webhook(api_key: str, project_id: str, webhook_url: str) -> WebhookDe
     return WebhookDeletionResult(success=True)
 
 
+def _webhook_status_http_error(api_key: str, project_id: str, error: requests.HTTPError) -> str:
+    """Build the status-check message for an HTTP error listing webhook integrations.
+
+    The 404 case is the reason this exists. ``GET /projects/{id}/integrations/webhook``
+    returns 404 for a wrong project id, but a source only reaches the webhook
+    *status* check after ``validate_credentials`` already confirmed the id is
+    reachable — so the generic "double-check the project id" text (see
+    ``_format_http_error``) is a false alarm that sends users to re-check a
+    correct value. Re-run the membership test: only name the project id as the
+    problem when it genuinely isn't reachable; otherwise make clear the id is
+    fine and that an unreadable webhook status doesn't stop ingestion.
+    """
+    response = error.response
+    status_code = response.status_code if response is not None else None
+    if status_code != 404:
+        return _format_http_error(error)
+
+    try:
+        accessible_ids = _list_accessible_project_ids(_session(api_key))
+    except requests.RequestException:
+        accessible_ids = None
+
+    # A readable list that omits the project means the id really is wrong — name
+    # the ids the key can reach, same as validate_credentials does.
+    if accessible_ids is not None and project_id not in accessible_ids:
+        return _project_not_found_error(project_id, accessible_ids)
+
+    # Project is reachable (or we couldn't tell): the 404 is about the webhook
+    # integration, not the project. Don't impugn a valid id, and reassure that
+    # ingestion is unaffected — events still flow through the processing path.
+    return (
+        "RevenueCat returned a 404 for the webhook integration. Your project id is valid, so this "
+        "does not affect data ingestion — events still flow through the processing pipeline. The "
+        "webhook status just can't be read right now; if you registered the webhook manually, no "
+        "action is needed."
+    )
+
+
 def get_external_webhook_info(api_key: str, project_id: str, webhook_url: str) -> ExternalWebhookInfo:
     project_id = _normalize_project_id(project_id)
     try:
         integrations = _list_webhook_integrations(api_key, project_id)
     except requests.HTTPError as e:
-        return ExternalWebhookInfo(exists=False, error=_format_http_error(e))
+        return ExternalWebhookInfo(exists=False, error=_webhook_status_http_error(api_key, project_id, e))
     except requests.RequestException as e:
         return ExternalWebhookInfo(exists=False, error=f"Could not reach RevenueCat: {e}")
 
