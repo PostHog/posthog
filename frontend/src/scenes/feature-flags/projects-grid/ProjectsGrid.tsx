@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
-import { confirmFlagActiveToggleInProject } from '../updateFlagActiveInProject'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
@@ -139,7 +139,7 @@ export function ProjectsGrid(): JSX.Element {
                 return (
                     <ProjectsGridCell
                         state={state}
-                        toggling={flagId !== null ? togglingFlagIds[`${teamId}:${flagId}`] : false}
+                        toggling={flagId !== null ? togglingFlagIds[flagToggleKey(teamId, flagId)] : false}
                         onToggle={
                             flagId !== null
                                 ? (active) =>

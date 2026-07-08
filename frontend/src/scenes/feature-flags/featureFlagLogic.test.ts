@@ -1252,6 +1252,25 @@ describe('featureFlagLogic', () => {
             expect(logic.values.projectsWithCurrentFlag).toMatchObject([{ team_id: MOCK_TEAM_ID, active: false }])
             expect(logic.values.featureFlag.active).toBe(false)
         })
+
+        it('clears the in-flight marker and keeps state when the update fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': () => [403, { detail: 'No edit access' }],
+                },
+            })
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1), projectRow(555, 42)])
+
+            logic.actions.toggleProjectFlagActive(555, 42, false)
+            await expectLogic(logic).toDispatchActions(['projectFlagActiveUpdateFailed']).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                { team_id: MOCK_TEAM_ID, active: true },
+                { team_id: 555, active: true },
+            ])
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(logic.values.projectFlagsToggling).toEqual({})
+        })
     })
 })
 

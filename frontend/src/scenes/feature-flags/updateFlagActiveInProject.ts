@@ -6,6 +6,11 @@ import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { featureFlagsPartialUpdate } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
+/** Key for the per-row in-flight maps shared by the Projects tab toggles. */
+export function flagToggleKey(teamId: number, flagId: number): string {
+    return `${teamId}:${flagId}`
+}
+
 /** Confirmation dialog shared by the Projects tab toggles, naming the target project. */
 export function confirmFlagActiveToggleInProject({
     teamName,

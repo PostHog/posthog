@@ -4346,12 +4346,6 @@ export interface OrganizationFeatureFlagsCopyBody {
     disable_copied_flag?: boolean
 }
 
-export type OrganizationFeatureFlags = {
-    flag_id: FeatureFlagType['id']
-    team_id: TeamType['id']
-    active: FeatureFlagType['active']
-}[]
-
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',

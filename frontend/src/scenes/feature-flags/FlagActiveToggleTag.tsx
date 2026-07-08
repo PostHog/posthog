@@ -38,7 +38,9 @@ export function FlagActiveToggleTag({
                 }
             }}
             tabIndex={0}
-            aria-label={`${active ? 'Disable' : 'Enable'} feature flag in this project`}
+            role="switch"
+            aria-checked={active}
+            aria-label="Feature flag active in this project"
             disabledReason={toggling ? 'Updating…' : undefined}
             data-attr={dataAttr}
         >

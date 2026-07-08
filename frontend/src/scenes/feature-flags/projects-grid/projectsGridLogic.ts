@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow, OrganizationType } from '~/types'
 
-import { updateFlagActiveInProject } from '../updateFlagActiveInProject'
+import { flagToggleKey, updateFlagActiveInProject } from '../updateFlagActiveInProject'
 import type { projectsGridLogicType } from './projectsGridLogicType'
 
 export const PAGE_SIZE = 25
@@ -135,13 +135,13 @@ export const projectsGridLogic = kea<projectsGridLogicType>([
         togglingFlagIds: [
             {} as Record<string, boolean>,
             {
-                toggleFlagActive: (state, { teamId, flagId }) => ({ ...state, [`${teamId}:${flagId}`]: true }),
+                toggleFlagActive: (state, { teamId, flagId }) => ({ ...state, [flagToggleKey(teamId, flagId)]: true }),
                 flagActiveUpdated: (state, { teamId, flagId }) => {
-                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
                     return rest
                 },
                 flagActiveUpdateFailed: (state, { teamId, flagId }) => {
-                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
                     return rest
                 },
             },
@@ -261,12 +261,7 @@ async function drainQueue(
             actions.siblingsFailed(nextKey)
             return
         }
-        // The wrapper is typed as `OrganizationFeatureFlags` (a legacy name), but the
-        // endpoint actually returns a list of `OrganizationFeatureFlag`. Narrow once here.
-        const siblings = (await api.organizationFeatureFlags.get(
-            orgId,
-            nextKey
-        )) as unknown as OrganizationFeatureFlag[]
+        const siblings = await api.organizationFeatureFlags.get(orgId, nextKey)
         actions.siblingsLoaded(nextKey, siblings)
     } catch {
         actions.siblingsFailed(nextKey)

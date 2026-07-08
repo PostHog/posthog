@@ -55,7 +55,7 @@ export function ProjectsGridCell({
             <FlagActiveToggleTag
                 active={sibling.active}
                 toggling={toggling}
-                onToggle={sibling.flag_id !== null ? onToggle : undefined}
+                onToggle={onToggle}
                 data-attr="projects-grid-cell-toggle"
             />
             <Link

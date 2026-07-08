@@ -20,7 +20,7 @@ import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
 import { FlagActiveToggleTag } from './FlagActiveToggleTag'
-import { confirmFlagActiveToggleInProject } from './updateFlagActiveInProject'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from './updateFlagActiveInProject'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
@@ -97,7 +97,10 @@ const getColumns = ({
             dataIndex: 'active',
             render: (_, record) => {
                 const canToggle = record.team_id !== null && record.flag_id !== null
-                const toggling = canToggle && !!projectFlagsToggling[`${record.team_id}:${record.flag_id}`]
+                const toggling =
+                    record.team_id !== null &&
+                    record.flag_id !== null &&
+                    !!projectFlagsToggling[flagToggleKey(record.team_id, record.flag_id)]
                 return (
                     <FlagActiveToggleTag
                         active={record.active}

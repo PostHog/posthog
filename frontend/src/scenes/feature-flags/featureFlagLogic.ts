@@ -89,7 +89,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
-import { updateFlagActiveInProject } from './updateFlagActiveInProject'
+import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -986,13 +986,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         projectFlagsToggling: [
             {} as Record<string, boolean>,
             {
-                toggleProjectFlagActive: (state, { teamId, flagId }) => ({ ...state, [`${teamId}:${flagId}`]: true }),
+                toggleProjectFlagActive: (state, { teamId, flagId }) => ({
+                    ...state,
+                    [flagToggleKey(teamId, flagId)]: true,
+                }),
                 projectFlagActiveUpdated: (state, { teamId, flagId }) => {
-                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
                     return rest
                 },
                 projectFlagActiveUpdateFailed: (state, { teamId, flagId }) => {
-                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    const { [flagToggleKey(teamId, flagId)]: _, ...rest } = state
                     return rest
                 },
             },
@@ -1577,12 +1580,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganizationId
                 const flagKey = values.featureFlag.key
 
-                // The wrapper is typed as `OrganizationFeatureFlags` (a legacy name), but the
-                // endpoint actually returns a list of `OrganizationFeatureFlag`. Narrow once here.
-                const organizationFeatureFlags = (await api.organizationFeatureFlags.get(
-                    orgId,
-                    flagKey
-                )) as unknown as OrganizationFeatureFlag[]
+                const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
                 const teamIdsInCurrentProject =
                     values.currentOrganization?.teams
                         .filter((t) => t.project_id === values.currentProjectId)
@@ -1983,11 +1981,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             const newActive = updatedFlag.active ?? active
             actions.projectFlagActiveUpdated(teamId, flagId, newActive)
-            // Keep the flag page and the flags list in sync when the toggled row is the current project's flag.
-            if (flagId === values.featureFlag.id && teamId === values.currentTeamId) {
-                const syncedFlag = { ...values.featureFlag, active: newActive }
+            // Keep the flag page and the flags list in sync when the toggled row is this page's flag.
+            // Flag ids are globally unique, so the id match alone identifies the page's flag even
+            // when it lives in a sibling environment of the current project.
+            if (flagId === values.featureFlag.id) {
+                const syncedFlag = {
+                    ...values.featureFlag,
+                    active: newActive,
+                    version: updatedFlag.version ?? values.featureFlag.version,
+                }
                 actions.setFeatureFlag(syncedFlag)
                 actions.updateFlag(syncedFlag)
+                refreshTreeItem('feature_flag', String(flagId))
             }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
