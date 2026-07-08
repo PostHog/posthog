@@ -405,8 +405,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                        isReportableEvaluation && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
@@ -622,21 +621,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation &&
-                                        isReportableEvaluation &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                            <EvaluationReportConfig evaluationId="new" />
-                                        )}
+                                    {isNewEvaluation && isReportableEvaluation && (
+                                        <EvaluationReportConfig evaluationId="new" />
+                                    )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation &&
-                                    isReportableEvaluation &&
-                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                        <div className="mt-6">
-                                            <EvaluationReportConfig evaluationId={evaluation.id} />
-                                        </div>
-                                    )}
+                                {!isNewEvaluation && isReportableEvaluation && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },
