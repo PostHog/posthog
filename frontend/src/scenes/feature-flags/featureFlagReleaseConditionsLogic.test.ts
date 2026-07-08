@@ -1648,5 +1648,18 @@ describe('the feature flag release conditions logic', () => {
         it('handles undefined properties', () => {
             expect(withResolvedFlagLabels(undefined, getFlagKey)).toEqual([])
         })
+
+        it('resolves only flag filters in a mixed array, preserving order', () => {
+            const personFilter = {
+                type: PropertyFilterType.Person,
+                key: 'email',
+                operator: PropertyOperator.Exact,
+                value: 'a@b.com',
+            } as AnyPropertyFilter
+            const result = withResolvedFlagLabels([personFilter, flagFilter('10'), flagFilter('20')], getFlagKey)
+            expect(result[0]).toBe(personFilter)
+            expect((result[1] as FlagPropertyFilter).label).toBe('beta-banner')
+            expect((result[2] as FlagPropertyFilter).label).toBe('new-checkout')
+        })
     })
 })
