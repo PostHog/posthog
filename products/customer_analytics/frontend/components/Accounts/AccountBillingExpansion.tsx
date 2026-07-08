@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
     const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
