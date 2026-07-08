@@ -1,12 +1,14 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
@@ -58,6 +60,30 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         with self.assertRaises(api.IssueNotFoundError):
             api.get_issue(issue_id=issue.id, team_id=other_team.id)
+
+    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    def test_create_external_reference_rejects_invalid_linear_team_id(self, mock_list_teams):
+        mock_list_teams.return_value = [{"id": "linear-team-id", "name": "Engineering"}]
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as context:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config={"team_id": "other-team-id", "title": "Checkout TypeError", "description": ""},
+            )
+
+        assert str(context.exception) == (
+            "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
+        )
+        mock_list_teams.assert_called_once_with()
 
     def test_issue_exists(self):
         assert api.issue_exists(team_id=self.team.id) is False

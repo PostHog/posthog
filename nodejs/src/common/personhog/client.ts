@@ -3,9 +3,9 @@ import { Interceptor, Transport, createClient } from '@connectrpc/connect'
 import { Http2SessionManager, createGrpcTransport } from '@connectrpc/connect-node'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { ConsistencyLevel, ReadOptionsSchema } from '~/generated/personhog/personhog/types/v1/common_pb'
-import { parseJSON } from '~/utils/json-parse'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { ConsistencyLevel, ReadOptionsSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { PersonHogGroupOperations } from './groups'
 import { PersonHogPersonOperations } from './persons'

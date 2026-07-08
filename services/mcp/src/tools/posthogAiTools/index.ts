@@ -1,6 +1,7 @@
-export { default as executeSql } from './executeSql'
+export { default as executeSql, EXECUTE_SQL_TOOL_NAME } from './executeSql'
 export { default as externalDataSourcesDbSchema } from './externalDataSourcesDbSchema'
 export { default as externalDataSourcesJobs } from './externalDataSourcesJobs'
+export { default as externalDataSourcesPreview } from './externalDataSourcesPreview'
 export { default as externalDataSyncLogs } from './externalDataSyncLogs'
 export { default as readDataSchema } from './readDataSchema'
 export { default as readDataWarehouseSchema } from './readDataWarehouseSchema'

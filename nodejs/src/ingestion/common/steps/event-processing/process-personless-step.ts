@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
+import { normalizeProcessPerson } from '~/common/utils/event'
 import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
-} from '~/ingestion/common/flag-called-personless'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+} from '~/ingestion/common/persons/flag-called-personless'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import {
     hasInsertedPersonlessDistinctId,
     markPersonlessDistinctIdInserted,
@@ -16,7 +17,6 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
-import { normalizeProcessPerson } from '~/utils/event'
 
 export type ProcessPersonlessInput = {
     normalizedEvent: PluginEvent

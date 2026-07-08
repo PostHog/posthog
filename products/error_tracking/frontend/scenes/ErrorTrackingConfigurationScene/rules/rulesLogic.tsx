@@ -35,6 +35,13 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
                 order_key,
                 sampling_rate: 1.0,
             }
+        case 'bypass_rules':
+            return {
+                id: 'new',
+                disabled_data: null,
+                filters: { type: FilterLogicalOperator.Or, values: [] },
+                order_key,
+            }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)
     }
@@ -57,6 +64,10 @@ export const rulesLogic = kea<rulesLogicType>([
         addRule: true,
         startReorderingRules: true,
         cancelReorderingRules: true,
+        startSelectingRules: true,
+        cancelSelectingRules: true,
+        toggleSelectedRule: (id: ErrorTrackingRule['id']) => ({ id }),
+        setSelectedRuleIds: (ids: ErrorTrackingRule['id'][]) => ({ ids }),
         setRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         unsetRuleEditable: (id: ErrorTrackingRule['id']) => ({ id }),
         updateLocalRule: (rule: ErrorTrackingRule) => ({ rule }),
@@ -72,6 +83,24 @@ export const rulesLogic = kea<rulesLogicType>([
                 startReorderingRules: () => true,
                 cancelReorderingRules: () => false,
                 finishReorderingRulesSuccess: () => false,
+            },
+        ],
+        isSelectingRules: [
+            false,
+            {
+                startSelectingRules: () => true,
+                cancelSelectingRules: () => false,
+                deleteSelectedRulesSuccess: () => false,
+            },
+        ],
+        selectedRuleIds: [
+            [] as ErrorTrackingRule['id'][],
+            {
+                setSelectedRuleIds: (_, { ids }) => ids,
+                toggleSelectedRule: (state, { id }) =>
+                    state.includes(id) ? state.filter((selectedId) => selectedId !== id) : [...state, id],
+                cancelSelectingRules: () => [],
+                deleteSelectedRulesSuccess: () => [],
             },
         ],
         initialLoadComplete: [
@@ -111,6 +140,14 @@ export const rulesLogic = kea<rulesLogicType>([
                     }
                     const newValues = [...values.rules]
                     return newValues.filter((v) => v.id !== id)
+                },
+                deleteSelectedRules: async () => {
+                    await Promise.all(
+                        values.selectedRuleIds.map((id) =>
+                            id === 'new' ? Promise.resolve() : api.errorTracking.deleteRule(props.ruleType, id)
+                        )
+                    )
+                    return values.rules.filter((rule) => !values.selectedRuleIds.includes(rule.id))
                 },
                 finishReorderingRules: async () => {
                     const rules = values.localRules

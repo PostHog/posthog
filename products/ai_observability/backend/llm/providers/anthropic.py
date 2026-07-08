@@ -31,6 +31,11 @@ from products.ai_observability.backend.llm.types import (
 logger = logging.getLogger(__name__)
 
 
+def _is_quota_or_billing_error(error: Exception) -> bool:
+    error_message = str(error).lower()
+    return any(token in error_message for token in ("quota", "credit", "billing"))
+
+
 class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
@@ -175,11 +180,14 @@ class AnthropicAdapter:
             )
         except anthropic.AuthenticationError as e:
             raise AuthenticationError(str(e))
+        except anthropic.BadRequestError as e:
+            if _is_quota_or_billing_error(e):
+                raise QuotaExceededError(str(e)) from e
+            raise
         except anthropic.RateLimitError as e:
-            error_message = str(e).lower()
-            if "quota" in error_message or "credit" in error_message or "billing" in error_message:
-                raise QuotaExceededError(str(e))
-            raise RateLimitError(str(e))
+            if _is_quota_or_billing_error(e):
+                raise QuotaExceededError(str(e)) from e
+            raise RateLimitError(str(e)) from e
 
     def stream(
         self,

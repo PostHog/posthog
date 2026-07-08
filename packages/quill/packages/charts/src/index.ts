@@ -25,6 +25,13 @@ export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
 export { MetricCard } from './components/MetricCard/MetricCard'
 export type { MetricCardProps, ChangeColor, MetricChange } from './components/MetricCard/MetricCard'
+// Headless metric helpers — the "metric engine" shared by `MetricCard` and reused by higher layers
+// (quill-components' composable `Metric`) to build metric tiles on top of `Sparkline`.
+export { resolveDelta } from './components/MetricCard/resolveDelta'
+export type { ResolvedDelta } from './components/MetricCard/resolveDelta'
+export { computeFallbackChangePercent } from './components/MetricCard/internals'
+export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
+export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
@@ -82,6 +89,7 @@ export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {
+    AxisLinesConfig,
     BarChartConfig,
     BarsConfig,
     ChartConfig,
@@ -107,7 +115,7 @@ export type {
     YAxis,
     YAxisScale,
 } from './core/types'
-export { DEFAULT_Y_AXIS_ID } from './core/types'
+export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
 export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
@@ -139,7 +147,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
-export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
+export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback } from './utils/dates'

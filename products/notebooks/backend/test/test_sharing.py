@@ -1,6 +1,8 @@
+import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -38,7 +40,19 @@ def _doc(*nodes: dict[str, Any]) -> dict[str, Any]:
     return {"type": "doc", "content": list(nodes)}
 
 
-class TestExtractReferencedInsightShortIds(APIBaseTest):
+def _markdown_doc(markdown: str) -> dict[str, Any]:
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {"nodeId": "markdown-notebook-v2", "markdown": markdown},
+            }
+        ],
+    }
+
+
+class TestExtractReferencedInsightShortIds(TestCase):
     @parameterized.expand(
         [
             ("none", None, set()),
@@ -110,6 +124,26 @@ class TestExtractReferencedInsightShortIds(APIBaseTest):
                 ),
                 set(),
             ),
+            (
+                "markdown_saved_insight",
+                _markdown_doc('<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'),
+                {"abc123"},
+            ),
+            (
+                "markdown_saved_insight_with_string_query",
+                _markdown_doc('<Query query="{\\"kind\\":\\"SavedInsightNode\\",\\"shortId\\":\\"abc123\\"}" />'),
+                {"abc123"},
+            ),
+            (
+                "markdown_saved_insight_with_even_backslashes_before_quote",
+                _markdown_doc(r'<Query query={{"kind":"SavedInsightNode","shortId":"abc123","path":"C:\\\\"}} />'),
+                {"abc123"},
+            ),
+            (
+                "markdown_query_inside_code_block_ignored",
+                _markdown_doc('```md\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />\n```'),
+                set(),
+            ),
         ]
     )
     def test_extract(self, _name: str, content: Any, expected: set[str]) -> None:
@@ -120,10 +154,6 @@ class TestExtractReferencedInsightShortIds(APIBaseTest):
         self.assertEqual(list(iter_prosemirror_nodes(doc)), [doc])
 
     def test_extract_handles_stringified_query_attr(self) -> None:
-        """Tiptap's jsonAttr wrapper can serialize complex attrs as JSON strings; the extractor
-        accepts either form so legacy / serialized notebooks still surface their saved insight."""
-        import json
-
         doc = _doc(
             {
                 "type": "ph-query",
@@ -133,7 +163,7 @@ class TestExtractReferencedInsightShortIds(APIBaseTest):
         self.assertEqual(extract_referenced_insight_short_ids(doc), {"abc123"})
 
 
-class TestExtractInlineQueryNodes(APIBaseTest):
+class TestExtractInlineQueryNodes(TestCase):
     @parameterized.expand(
         [
             ("none", None, []),
@@ -186,14 +216,49 @@ class TestExtractInlineQueryNodes(APIBaseTest):
                 ),
                 [("deep-node", {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}})],
             ),
+            (
+                "markdown_inline_query_with_explicit_node_id",
+                _markdown_doc(
+                    '<Query nodeId="inline-node-1" query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"]}}} />'
+                ),
+                [("inline-node-1", {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["event"]}})],
+            ),
+            (
+                "markdown_inline_query_with_derived_node_id",
+                _markdown_doc(
+                    '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"after":"-24h","limit":1}}} />'
+                ),
+                [
+                    (
+                        "mdn-197jp5a-0",
+                        {
+                            "kind": "DataTableNode",
+                            "source": {"kind": "EventsQuery", "select": ["event"], "after": "-24h", "limit": 1},
+                        },
+                    )
+                ],
+            ),
+            (
+                "markdown_inline_query_with_even_backslashes_before_quote",
+                _markdown_doc(
+                    r'<Query nodeId="inline-node-1" query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"path":"C:\\\\"}}} />'
+                ),
+                [
+                    (
+                        "inline-node-1",
+                        {
+                            "kind": "DataTableNode",
+                            "source": {"kind": "EventsQuery", "select": ["event"], "path": "C:\\\\"},
+                        },
+                    )
+                ],
+            ),
         ]
     )
-    def test_extract(self, _name: str, content: Any, expected: list[tuple[str, dict]]) -> None:
+    def test_extract(self, _name: str, content: Any, expected: list[tuple[str, dict[str, Any]]]) -> None:
         self.assertEqual(extract_inline_query_nodes(content), expected)
 
     def test_extract_handles_stringified_query_attr(self) -> None:
-        import json
-
         doc = _doc(
             {
                 "type": "ph-query",
@@ -209,7 +274,7 @@ class TestExtractInlineQueryNodes(APIBaseTest):
         )
 
 
-class TestFilterNotebookContentForSharing(APIBaseTest):
+class TestFilterNotebookContentForSharing(TestCase):
     @parameterized.expand(
         [
             ("none", None, None),
@@ -287,6 +352,29 @@ class TestFilterNotebookContentForSharing(APIBaseTest):
                             {"type": "ph-python"},
                         ],
                     }
+                ),
+            ),
+            (
+                "markdown_notebook_keeps_safe_components_and_strips_unsupported_props",
+                _markdown_doc(
+                    "\n\n".join(
+                        [
+                            '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                            '<Embed src="https://posthog.com" />',
+                            '<Python code="SECRET = true" />',
+                            '<Chat messages={{["secret"]}} />',
+                        ]
+                    )
+                ),
+                _markdown_doc(
+                    "\n\n".join(
+                        [
+                            '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                            '<Embed src="https://posthog.com" />',
+                            "<Python />",
+                            "<Chat />",
+                        ]
+                    )
                 ),
             ),
         ]
@@ -389,6 +477,112 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         self.assertNotIn("stripe.customers", raw)
         self.assertNotIn("alice@acme.com", raw)
         self.assertNotIn("01893f8c-some-recording", raw)
+        self.assertIsNone(body["notebook"]["text_content"])
+
+    def test_shared_notebook_strips_unsupported_markdown_component_props(self) -> None:
+        markdown = "\n\n".join(
+            [
+                "hello",
+                '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                '<Python code="SECRET = true" />',
+                '<Chat messages={{["SECRET_CHAT"]}} />',
+            ]
+        )
+        self.notebook.content = _doc(
+            {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "type": "blockquote",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "markdown-notebook-v2",
+                            "markdown": markdown,
+                            "runtimeState": {"secret": "SECRET_RUNTIME"},
+                        },
+                    }
+                ],
+            },
+        )
+        self.notebook.text_content = "hi SECRET = true SECRET_CHAT SECRET_RUNTIME"
+        self.notebook.save()
+        self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
+        config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+
+        markdown_node = body["notebook"]["content"]["content"][1]["content"][0]
+        self.assertEqual(
+            markdown_node,
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {
+                    "nodeId": "markdown-notebook-v2",
+                    "markdown": "\n\n".join(
+                        [
+                            "hello",
+                            '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                            "<Python />",
+                            "<Chat />",
+                        ]
+                    ),
+                },
+            },
+        )
+
+        raw = response.content.decode()
+        self.assertNotIn("SECRET", raw)
+        self.assertNotIn("SECRET_CHAT", raw)
+        self.assertNotIn("SECRET_RUNTIME", raw)
+        self.assertIsNone(body["notebook"]["text_content"])
+
+    def test_shared_notebook_reserializes_allowlisted_markdown_component_props(self) -> None:
+        markdown = "\n\n".join(
+            [
+                "hello",
+                (
+                    '<Embed src="https://posthog.com" title="Public docs" height={320} '
+                    'unsafe="&lt;Python code=&quot;SECRET_EMBED&quot; /&gt;" '
+                    'cachedResults={{"rows":["SECRET_CACHE"]}} />'
+                ),
+            ]
+        )
+        self.notebook.content = _markdown_doc(markdown)
+        self.notebook.text_content = "hello SECRET_EMBED SECRET_CACHE"
+        self.notebook.save()
+        self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
+        config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+
+        markdown_node = body["notebook"]["content"]["content"][0]
+        self.assertEqual(
+            markdown_node,
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {
+                    "nodeId": "markdown-notebook-v2",
+                    "markdown": "\n\n".join(
+                        [
+                            "hello",
+                            '<Embed height={320} src="https://posthog.com" title="Public docs" />',
+                        ]
+                    ),
+                },
+            },
+        )
+
+        raw = response.content.decode()
+        self.assertNotIn("SECRET_EMBED", raw)
+        self.assertNotIn("SECRET_CACHE", raw)
+        self.assertNotIn("unsafe", raw)
+        self.assertNotIn("cachedResults", raw)
         self.assertIsNone(body["notebook"]["text_content"])
 
     def test_deleted_notebook_404s_on_shared_endpoint(self) -> None:
@@ -545,6 +739,39 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
         # The serialized payload must include `result` so the frontend can seed `cachedResults`
         # — if it's missing, dataNodeLogic would try to POST /query/ at render time.
         self.assertIn("result", body["insights"]["ref0001"])
+
+    def test_shared_markdown_notebook_payload_inlines_referenced_insights(self) -> None:
+        self.notebook.content = _markdown_doc(
+            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ref0001"}} />'
+        )
+        self.notebook.save()
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{self.config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertIn("insights", body)
+        self.assertIn("ref0001", body["insights"])
+        self.assertNotIn("unr0001", body["insights"])
+        self.assertIn("result", body["insights"]["ref0001"])
+        self.assertIn("ph-markdown-notebook", response.content.decode())
+
+    def test_shared_markdown_notebook_payload_inlines_inline_query_results(self) -> None:
+        self.notebook.content = _markdown_doc(
+            '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"after":"-24h","limit":1}}} />'
+        )
+        self.notebook.save()
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{self.config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+        self.assertIn("inline_query_results", body)
+        self.assertIn("mdn-197jp5a-0", body["inline_query_results"])
+        inline_result = body["inline_query_results"]["mdn-197jp5a-0"]
+        self.assertIsInstance(inline_result, dict)
+        self.assertIn("results", inline_result)
+        self.assertFalse(inline_result.get("error"))
 
     def test_anonymous_request_with_share_token_cannot_load_unreferenced_insight(self) -> None:
         self.client.logout()

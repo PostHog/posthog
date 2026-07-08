@@ -33,6 +33,22 @@ export const PRIORITY_TAG_TYPE: Record<SignalReportPriority, LemonTagType> = {
     P4: 'muted', // gray
 }
 
+/**
+ * Human meaning of each priority code, mirroring the criteria the research agent judges against
+ * (see products/signals/backend/report_generation/research.py). Surfaced in the priority badge
+ * tooltip and the priority filter so users don't have to guess what P0–P4 mean.
+ */
+export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; description: string }> = {
+    P0: {
+        label: 'Critical',
+        description: 'Production errors, a broken core flow, data loss, or a security vulnerability.',
+    },
+    P1: { label: 'High', description: 'Significant user-facing impact or a clear regression.' },
+    P2: { label: 'Medium', description: 'A clear improvement opportunity, or a contained issue with workarounds.' },
+    P3: { label: 'Low', description: 'A minor improvement or low-impact issue.' },
+    P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
+}
+
 /** Matching CSS accent per priority, for non-LemonTag surfaces (filter dots, monograms). */
 export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
     P0: 'var(--red-9, #e5484d)',
@@ -43,8 +59,8 @@ export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
 }
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
-// Sort / Priority filter popovers. Source-product values match the backend
-// `source_product` values; priority values are P0–P4.
+// Sort filter popovers. Source-product values match the backend
+// `source_product` values.
 
 export interface InboxSortOption {
     label: string
@@ -60,10 +76,6 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
 
-export const INBOX_PRIORITY_OPTIONS: { value: SignalReportPriority; accent: string }[] = (
-    ['P0', 'P1', 'P2', 'P3', 'P4'] as SignalReportPriority[]
-).map((value) => ({ value, accent: PRIORITY_ACCENT[value] }))
-
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
     { value: 'error_tracking', label: 'Error tracking', icon: <IconBug /> },
@@ -76,8 +88,19 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
 ]
 
+/** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */
+export const INBOX_PRIORITY_OPTIONS: SignalReportPriority[] = ['P0', 'P1', 'P2', 'P3', 'P4']
+
 export function inboxSortOptionKey(field: InboxSortField, direction: InboxSortDirection): string {
     return `${field}:${direction}`
+}
+
+export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): string {
+    if (selected.length === 0) {
+        return 'All priorities'
+    }
+    // Codes are short (P0–P4), so list them in rank order rather than collapsing to a count.
+    return [...selected].sort().join(', ')
 }
 
 export function inboxSourceFilterLabel(selected: string[]): string {
@@ -88,14 +111,4 @@ export function inboxSourceFilterLabel(selected: string[]): string {
         return INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0]
     }
     return `${selected.length} sources`
-}
-
-export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): string {
-    if (selected.length === 0) {
-        return 'All priorities'
-    }
-    if (selected.length <= 2) {
-        return selected.join(', ')
-    }
-    return `${selected.length} priorities`
 }

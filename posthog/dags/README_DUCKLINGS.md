@@ -5,8 +5,8 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 ## Architecture
 
 ```text
-DuckLakeCatalog (Django model)
-    │ lookup by team_id
+DuckgresServer + DuckgresServerTeam (Django models)
+    │ team_id → org's DuckgresServer (connection + bucket); DuckgresServerTeam gates enablement
     ▼
 ClickHouse (events/person tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -108,16 +108,19 @@ class DucklingBackfillConfig:
 
 ## Adding a New Duckling
 
-1. Create a `DuckLakeCatalog` entry in Django admin:
-   - `team_id`: The team to backfill
-   - `bucket`: S3 bucket name
-   - `bucket_region`: AWS region
-   - `db_host`: RDS endpoint
-   - `db_name`: Database name
+1. Provision (or create) the org's `DuckgresServer` (typically via the Django admin
+   "Provision managed warehouse" action, which also records the team's
+   `DuckgresServerTeam`). The relevant fields are:
+   - `organization`: the org that owns the warehouse
+   - `bucket` / `bucket_region`: S3 bucket name and AWS region
+   - `catalog_host` / `catalog_database` / `catalog_username` / `catalog_password`: the
+     DuckLake catalog RDS connection
 
    Ensure the runtime IAM role can read from and write to the configured S3 bucket.
 
-2. The discovery sensor will automatically pick up the new team on its next run
+2. Enable the team's backfill by creating its `DuckgresServerTeam` row with
+   `backfill_enabled=True` (the provision / enable-backfill admin actions do this). The
+   discovery sensor will then pick up the team on its next run.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 
@@ -148,7 +151,7 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Job definition**: `posthog/dags/events_backfill_to_duckling.py`
 - **Tests**: `posthog/dags/test_events_backfill_to_duckling.py`
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
-- **DuckLakeCatalog model**: `posthog/ducklake/models.py`
+- **DuckgresServer / DuckgresServerTeam models**: `posthog/ducklake/models.py`
 
 ## S3 Path Structure
 

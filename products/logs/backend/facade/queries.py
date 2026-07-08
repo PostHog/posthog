@@ -9,5 +9,6 @@ them onto the ``django.setup()`` path.
 """
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.saved_view_query import build_logs_query_for_saved_view
 
-__all__ = ["LogsQueryRunner"]
+__all__ = ["LogsQueryRunner", "build_logs_query_for_saved_view"]

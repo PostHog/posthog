@@ -128,6 +128,11 @@ class JanitorClient:
     def delete_tool(self, revision_id: str, tool_id: str) -> dict:
         return self._call("DELETE", f"/revisions/{revision_id}/tools/{tool_id}")
 
+    def dry_run_tool(self, revision_id: str, tool_id: str, body: dict) -> dict:
+        """Single-shot sandbox execution of the persisted compiled.js with
+        synthetic args + mock secrets. `body` carries { args, mock_secrets? }."""
+        return self._call("POST", f"/revisions/{revision_id}/tools/{tool_id}/dry_run", json=body)
+
     def freeze(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/freeze")
 
@@ -202,6 +207,20 @@ class JanitorClient:
     # ── fleet stats ────────────────────────────────────────────────────────
     # Roll-up endpoints powering the fleet overview tiles. The
     # janitor side owns the JSONB read so Django doesn't reach across DBs.
+
+    def get_models(self) -> dict:
+        """The served-model catalog + curated auto-level map. Project-agnostic
+        (the gateway catalog is global), so no params."""
+        return self._call("GET", "/models")
+
+    def get_spec_schema(self, *, section: str | None = None) -> dict:
+        """The agent-spec JSON Schema, emitted from the canonical zod
+        `AgentSpecSchema` (no Python mirror). Optional `section` returns one
+        top-level slice (e.g. `models`, `triggers`, `limits`)."""
+        params: dict[str, Any] = {}
+        if section:
+            params["section"] = section
+        return self._call("GET", "/spec-schema", params=params)
 
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
         params: dict[str, Any] = {"application_id": application_id}

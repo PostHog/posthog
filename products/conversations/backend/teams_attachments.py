@@ -14,12 +14,11 @@ import structlog
 
 from posthog.models.team.team import Team
 
-from .services.attachments import is_valid_image, save_file_to_uploaded_media
+from .services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES, is_valid_image, save_file_to_uploaded_media
 from .support_teams import is_trusted_teams_service_url
 
 logger = structlog.get_logger(__name__)
 
-TEAMS_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MiB
 TEAMS_DOWNLOAD_TIMEOUT_SECONDS = 15
 
 GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
@@ -73,7 +72,7 @@ def _download_image(url: str, token: str) -> bytes | None:
     content_length = resp.headers.get("Content-Length")
     if content_length:
         try:
-            if int(content_length) > TEAMS_MAX_IMAGE_BYTES:
+            if int(content_length) > CONVERSATIONS_MAX_IMAGE_BYTES:
                 logger.warning("teams_image_too_large_header", url=url[:200], content_length=content_length)
                 return None
         except ValueError:
@@ -83,7 +82,7 @@ def _download_image(url: str, token: str) -> bytes | None:
     total = 0
     for chunk in resp.iter_content(chunk_size=64 * 1024):
         total += len(chunk)
-        if total > TEAMS_MAX_IMAGE_BYTES:
+        if total > CONVERSATIONS_MAX_IMAGE_BYTES:
             logger.warning("teams_image_too_large_body", url=url[:200], bytes_read=total)
             return None
         chunks.append(chunk)

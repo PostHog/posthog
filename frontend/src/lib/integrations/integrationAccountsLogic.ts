@@ -1,4 +1,5 @@
-import { actions, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
+import { kea, key, path, props, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 
@@ -12,59 +13,36 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
     key((props) => `${props.sourceType}/${props.id}`),
     path((key) => ['lib', 'integrations', 'integrationAccountsLogic', key]),
 
-    actions({
-        loadAccounts: true,
-        loadAccountsSuccess: (accounts: IntegrationAccountApi[]) => ({ accounts }),
-        loadAccountsFailure: (error: string | null) => ({ error }),
-    }),
-
-    reducers({
+    loaders(({ props }) => ({
         accounts: [
             [] as IntegrationAccountApi[],
             {
-                loadAccounts: () => [],
-                loadAccountsSuccess: (_, { accounts }) => accounts,
+                loadAccounts: async (_, breakpoint) => {
+                    const response = await externalDataSourcesOauthAccountsRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        {
+                            source_type: props.sourceType,
+                            integration_id: props.id,
+                        }
+                    )
+                    breakpoint()
+                    return response.accounts
+                },
             },
         ],
+    })),
+
+    reducers({
+        // Surface the backend's actionable 400 message (e.g. "reconnect the integration") instead of
+        // falling back to a generic "no accounts" empty state. Cleared when a fresh load starts or succeeds.
         accountsError: [
             null as string | null,
             {
                 loadAccounts: () => null,
                 loadAccountsSuccess: () => null,
-                loadAccountsFailure: (_, { error }) => error,
-            },
-        ],
-        accountsLoading: [
-            false,
-            {
-                loadAccounts: () => true,
-                loadAccountsSuccess: () => false,
-                loadAccountsFailure: () => false,
+                loadAccountsFailure: (_, { error, errorObject }) =>
+                    errorObject?.data?.detail ?? errorObject?.detail ?? error ?? null,
             },
         ],
     }),
-
-    listeners(({ actions, props }) => ({
-        loadAccounts: async (_, breakpoint) => {
-            try {
-                const response = await externalDataSourcesOauthAccountsRetrieve(
-                    String(ApiConfig.getCurrentProjectId()),
-                    {
-                        source_type: props.sourceType,
-                        integration_id: props.id,
-                    }
-                )
-                await breakpoint()
-                actions.loadAccountsSuccess(response.accounts)
-            } catch (e: any) {
-                if (isBreakpoint(e)) {
-                    throw e
-                }
-                // Surface the backend's actionable 400 message (e.g. "reconnect the integration")
-                // instead of falling back to a generic "no accounts" empty state.
-                const message = e?.data?.detail ?? e?.detail ?? null
-                actions.loadAccountsFailure(message)
-            }
-        },
-    })),
 ])

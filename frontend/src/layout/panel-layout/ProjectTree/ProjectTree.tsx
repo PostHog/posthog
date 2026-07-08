@@ -66,6 +66,8 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
+    isActiveInPanel?: boolean
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -126,6 +128,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
@@ -167,7 +170,7 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
@@ -242,7 +245,7 @@ export function ProjectTree({
         }
 
         if (root === 'custom-products://') {
-            const hasRecommendedProducts = customProducts.some(
+            const hasRecommendedTools = customProducts.some(
                 (item) =>
                     item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
                     item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
@@ -259,10 +262,10 @@ export function ProjectTree({
                     type: 'category',
                     displayName: (
                         <div className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1')}>
-                            You can display your preferred apps here. You can configure what items show up in here by
+                            You can display your preferred tools here. You can configure what items show up in here by
                             clicking on the{' '}
                             <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                            above. We'll automatically suggest new apps to this list as you use them.{' '}
+                            above. We'll automatically suggest new tools to this list as you use them.{' '}
                             {fullFileSystemFiltered.length > 0 && (
                                 <span
                                     className="cursor-pointer underline"
@@ -271,12 +274,12 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
-                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
+                            {!hasRecommendedTools && fullFileSystemFiltered.length <= 3 && (
                                 <>
                                     <br />
                                     <br />
                                     <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                        {customProductsLoading ? 'Adding...' : 'Add recommended tools?'}
                                     </span>
                                 </>
                             )}
@@ -290,7 +293,7 @@ export function ProjectTree({
                     type: 'category',
                     displayName: (
                         <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1">
-                            Want to browse all apps or jump back into something recent? Press{' '}
+                            Want to browse all tools or jump back into something recent? Press{' '}
                             <span
                                 className="cursor-pointer inline-flex items-center gap-1"
                                 onClick={() => toggleCommand()}
@@ -307,10 +310,6 @@ export function ProjectTree({
             }
         }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -577,7 +576,8 @@ export function ProjectTree({
                         <>
                             {suggestedProductBaseTooltipText}
                             <br />
-                            Right-click to remove from sidebar.
+                            <br />
+                            Open the three-dot menu to remove from the sidebar.
                             <br />
                             <br />
                         </>
@@ -750,7 +750,12 @@ export function ProjectTree({
         <PanelLayoutPanel
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        treeRef={treeRef}
+                        isActive={isActiveInPanel}
+                    />
                 </BindLogic>
             }
             filterDropdown={

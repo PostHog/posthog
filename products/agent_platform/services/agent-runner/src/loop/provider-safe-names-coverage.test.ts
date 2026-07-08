@@ -43,7 +43,7 @@ const fixtureContext = {
                 { type: 'toolCall', id: 'call_1', name: ORIGINAL, arguments: { q: 'select 1' } },
             ],
             api: 'openai-completions',
-            model: 'gpt-4o',
+            model: 'openai/gpt-4o',
             provider: 'openai',
             stopReason: 'toolUse',
             timestamp: 2,
@@ -99,7 +99,7 @@ describe('sanitizeOutboundContext (worst-case fixture)', () => {
             content: Array<{ type: string; id?: string }>
         }
         expect(assistant.role).toBe('assistant')
-        expect(assistant.model).toBe('gpt-4o')
+        expect(assistant.model).toBe('openai/gpt-4o')
         expect(assistant.content.find((b) => b.type === 'toolCall')?.id).toBe('call_1')
     })
 
@@ -124,7 +124,7 @@ describe('sanitizeOutboundContext (worst-case fixture)', () => {
                     role: 'assistant',
                     content: [{ type: 'toolCall', id: 'call_m', name: MCP_ORIGINAL, arguments: {} }],
                     api: 'openai-completions',
-                    model: 'gpt-4o',
+                    model: 'openai/gpt-4o',
                     provider: 'openai',
                     stopReason: 'toolUse',
                     timestamp: 1,
@@ -172,7 +172,7 @@ describe('translateAssistantNamesBack', () => {
                     { type: 'toolCall', id: 'call_1', name: 'posthog_query', arguments: {} } as unknown,
                 ],
                 api: 'openai-completions',
-                model: 'gpt-4o',
+                model: 'openai/gpt-4o',
                 provider: 'openai',
                 stopReason: 'toolUse',
                 timestamp: Date.now(),
@@ -196,7 +196,7 @@ describe('translateAssistantNamesBack', () => {
                 role: 'assistant',
                 content: [{ type: 'toolCall', id: 'c', name: MCP_ID, arguments: {} } as unknown],
                 api: 'openai-completions',
-                model: 'gpt-4o',
+                model: 'openai/gpt-4o',
                 provider: 'openai',
                 stopReason: 'toolUse',
                 timestamp: 0,

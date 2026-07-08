@@ -39,7 +39,7 @@ class Command(BaseCommand):
             ),
             (
                 "persons",
-                lambda: call_command("apply_persons_migrations", "--database=persons_db_writer", "--ensure-database"),
+                lambda: call_command("apply_persons_migrations", "--ensure-database"),
             ),
             ("ClickHouse", lambda: call_command("migrate_clickhouse")),
         ]

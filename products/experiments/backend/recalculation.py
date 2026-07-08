@@ -19,8 +19,13 @@ from django.utils import timezone
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.scoping import team_scope
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import get_current_team_id, team_scope
 from posthog.models.user import User
+from posthog.settings import CLICKHOUSE_CLUSTER
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -79,17 +84,112 @@ def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict]
     return completed, failed_in_rows + discovery_only_failures
 
 
+def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | None:
+    """Cumulative ClickHouse progress for an in-flight run: in-flight queries from system.processes plus
+    queries already finished during the run from system.query_log, matched by query_id prefix.
+
+    Returns None unless the run is IN_PROGRESS. No storage needed: each metric query is tagged with the
+    deterministic client_query_id `experiment_metric_recalc_{recalc_id}_{metric_uuid}`, which ClickHouse
+    stamps into query_id as `{team_id}_{client_query_id}_{random}`. system.processes only holds a query
+    while it executes, and the metric queries are usually shorter than the poll interval, so processes
+    alone reads zero for most of the run; the query_log branch keeps finished queries counted, making
+    rows_read cumulative and roughly monotonic across the run (modulo query_log flush lag).
+
+    `running_metrics` counts only the currently in-flight queries (bounded by the workflow's worker-pool
+    concurrency). `estimated_rows_total` is ClickHouse's own total_rows_approx for in-flight queries (revised
+    upward mid-scan) plus the final read_rows of finished ones, so it can trail rows_read; treat rows_read as
+    the primary signal. Temporal retries of a metric produce one query_log row per attempt and each attempt's
+    rows are summed; that overcount is accepted for a decorative counter.
+    """
+    if recalc.status != ExperimentMetricsRecalculation.Status.IN_PROGRESS:
+        return None
+
+    # system.processes and system.query_log are cluster-global tables with no ClickHouse-side tenant scoping:
+    # the team boundary is enforced only by the leading `{team_id}_` in the query_id prefix. Callers must pass
+    # a request-scoped row (see get_recalculation_by_id); this is the defense-in-depth check that keeps a
+    # future unscoped caller from summing another team's queries.
+    if recalc.team_id != get_current_team_id():
+        return None
+
+    prefix = f"{recalc.team_id}_experiment_metric_recalc_{recalc.id}_%"
+    # The prefix alone scopes rows to this run; the time bound exists so the query_log scan prunes to the
+    # run's window instead of walking the whole table on every poll. The 60s pad absorbs clock skew between
+    # the Django clock that stamped started_at and the ClickHouse clock behind event_time.
+    since = (recalc.started_at or recalc.created_at) - timedelta(seconds=60)
+    try:
+        with tags_context(product=Product.EXPERIMENTS, feature=Feature.CACHE_WARMUP, team_id=recalc.team_id):
+            rows = sync_execute(
+                """
+                SELECT
+                    sum(rows_read) AS rows_read,
+                    sum(estimated_rows_total) AS estimated_rows_total,
+                    sum(bytes_read) AS bytes_read,
+                    sum(active_cpu_time) AS active_cpu_time,
+                    countIf(is_running = 1) AS running_metrics
+                FROM
+                (
+                    SELECT
+                        read_rows AS rows_read,
+                        total_rows_approx AS estimated_rows_total,
+                        read_bytes AS bytes_read,
+                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS active_cpu_time,
+                        1 AS is_running
+                    FROM clusterAllReplicas(%(cluster)s, system.processes)
+                    WHERE query_id LIKE %(prefix)s
+                    UNION ALL
+                    SELECT
+                        read_rows AS rows_read,
+                        read_rows AS estimated_rows_total,
+                        read_bytes AS bytes_read,
+                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS active_cpu_time,
+                        0 AS is_running
+                    FROM clusterAllReplicas(%(cluster)s, system.query_log)
+                    WHERE query_id LIKE %(prefix)s
+                        AND type = 'QueryFinish'
+                        AND event_date >= toDate(toDateTime(%(since)s))
+                        AND event_time >= toDateTime(%(since)s)
+                )
+                SETTINGS skip_unavailable_shards=1, max_execution_time=2
+                """,
+                {"cluster": CLICKHOUSE_CLUSTER, "prefix": prefix, "since": int(since.timestamp())},
+                workload=Workload.OFFLINE,
+                team_id=recalc.team_id,
+            )
+    except Exception:
+        # Best-effort, decorative read on the poll's hot path: a cluster hiccup here must never sink the core
+        # recalculation payload (status + derived counters). Swallow, and let the run's live progress read null.
+        capture_exception()
+        return None
+
+    rows_read, estimated_rows_total, bytes_read, active_cpu_time, running_metrics = rows[0]
+    # All-zeros is a real, non-terminal state (queries not started yet, or finished but not flushed to
+    # query_log), distinct from "run finished". Return the zeros so the poll can tell "in-flight, nothing
+    # visible yet" from terminal null.
+    return {
+        "rows_read": int(rows_read or 0),
+        "estimated_rows_total": int(estimated_rows_total or 0),
+        "bytes_read": int(bytes_read or 0),
+        "active_cpu_time": int(active_cpu_time or 0),
+        "running_metrics": int(running_metrics or 0),
+    }
+
+
 def build_job_payload(
     recalc: ExperimentMetricsRecalculation,
     *,
     is_existing: bool | None = None,
     results: list[dict] | None = None,
+    include_live_progress: bool = False,
 ) -> dict:
     """Shape a recalc row + derived counters as a dict the serializer can re-serialize.
 
     Returns model-native values (datetimes, ints, dicts) — DRF handles the wire format. The POST path passes
     `is_existing` to signal whether the workflow needs starting; the GET paths pass `results` so the same row
     list backs both the derived counters and the response's `results` field (no duplicate fingerprint work).
+
+    `include_live_progress` opts the caller into one system.processes read per call (see get_live_query_progress);
+    the poll (GET) path sets it so an in-flight run carries live ClickHouse progress, while the POST path does not
+    (nothing is running yet).
     """
     completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
     payload: dict = {
@@ -108,6 +208,10 @@ def build_job_payload(
     }
     if is_existing is not None:
         payload["is_existing"] = is_existing
+    if include_live_progress:
+        live_progress = get_live_query_progress(recalc)
+        if live_progress is not None:
+            payload.update(live_progress)
     return payload
 
 
@@ -234,7 +338,7 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
         )
-        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
     return fingerprints
 
 
@@ -249,11 +353,14 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     run. Symptom: "results disappeared after editing exposure_criteria / start_date / stats config."
     """
     fingerprints = _recalc_fingerprints_for_run(recalc.experiment, recalc)
-    if not fingerprints:
+    if not fingerprints or recalc.query_to is None:
         return []
 
+    # Scope to this run's window. The recalc fingerprint is now deterministic per config (not per run), so a
+    # running experiment accumulates one row per query_to under the same fingerprint; without this filter a
+    # later run would return every prior window's row and overcount. recalc.query_to pins the run's window.
     rows = ExperimentMetricResult.objects.filter(
-        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values())
+        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values()), query_to=recalc.query_to
     )
     return [
         {

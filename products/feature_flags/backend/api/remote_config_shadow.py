@@ -17,7 +17,7 @@ from requests.adapters import HTTPAdapter
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.auth import PersonalAPIKeyAuthentication, TeamSecretTokenAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.security.outbound_proxy import internal_requests_session
 
 logger = structlog.get_logger(__name__)
@@ -39,9 +39,13 @@ REMOTE_CONFIG_SHADOW_COMPARISONS = Counter(
     ["result"],  # match | mismatch | error | skipped
 )
 
-# Rust only implements these two SDK credential types. Session-cookie and OAuth requests (Django's
+# Rust implements these SDK credential types. Session-cookie and OAuth requests (Django's
 # own preview/decrypt UI) 401 on Rust by design, so shadowing them would log false mismatches.
-_RUST_SUPPORTED_AUTH = (TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication)
+_RUST_SUPPORTED_AUTH = (
+    TeamSecretTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
 
 
 def shadow_compare_remote_config(request: Request, django_response: Response, *, project_id: int, key: str) -> None:
@@ -66,7 +70,7 @@ def shadow_compare_remote_config(request: Request, django_response: Response, *,
         # Rebuild the canonical /api/projects path Rust serves (not request.get_full_path(), which can
         # be an /api/environments or legacy alias). Rust resolves the project from ?token= when present,
         # else from this segment — both give the same flag.
-        url = f"{settings.FEATURE_FLAGS_SERVICE_URL}/api/projects/{project_id}/feature_flags/{key}/remote_config"
+        url = f"{settings.FEATURE_FLAGS_DEFINITIONS_SERVICE_URL}/api/projects/{project_id}/feature_flags/{key}/remote_config"
         rust = _SHADOW_SESSION.get(
             url,
             params=request.query_params.dict(),

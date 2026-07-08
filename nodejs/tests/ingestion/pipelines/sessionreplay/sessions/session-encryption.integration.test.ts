@@ -2,6 +2,7 @@ import sodium from 'libsodium-wrappers'
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
@@ -10,8 +11,7 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
-import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
@@ -19,7 +19,6 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { SessionKeyDeletedError } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { parseJSON } from '~/utils/json-parse'
 
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder', () => ({
     SessionFeatureRecorder: jest.fn().mockImplementation(() => ({
@@ -85,10 +84,27 @@ describe('session recording encryption integration', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
     let batchBuffer: Uint8Array
     let currentOffset: number
+    // Sessions whose key has already been generated, so repeats resolve via getKey — mirroring what
+    // the pre-record resolve-key step does in production.
+    let seenSessions: Set<string>
+
+    // Resolves the session's key the way the pre-record step would (generate once, then get) and
+    // records it, since the recorder no longer resolves keys itself.
+    const recordMessage = async (
+        message: MessageWithTeam,
+        retentionPeriod: RetentionPeriod = '30d'
+    ): Promise<number> => {
+        const { session_id: sessionId } = message.message
+        const { teamId } = message.team
+        const cacheKey = `${teamId}:${sessionId}`
+        const sessionKey = seenSessions.has(cacheKey)
+            ? await keyStore.getKey(sessionId, teamId)
+            : await keyStore.generateKey(sessionId, teamId, RetentionPeriodToDaysMap[retentionPeriod])
+        seenSessions.add(cacheKey)
+        return recorder.record(message, retentionPeriod, sessionKey)
+    }
 
     beforeAll(async () => {
         await sodium.ready
@@ -97,6 +113,7 @@ describe('session recording encryption integration', () => {
     beforeEach(async () => {
         currentOffset = 0
         batchBuffer = new Uint8Array()
+        seenSessions = new Set()
 
         keyStore = new MemoryKeyStore()
         await keyStore.start()
@@ -149,24 +166,12 @@ describe('session recording encryption integration', () => {
             storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFeatureStore>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(true),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
         recorder = new SessionBatchRecorder(
             mockOffsetManager,
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            keyStore,
             encryptor
         )
     })
@@ -179,6 +184,8 @@ describe('session recording encryption integration', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: 'distinct_id',
@@ -230,7 +237,7 @@ describe('session recording encryption integration', () => {
         ]
 
         const message = createMessage(sessionId, teamId, originalEvents)
-        await recorder.record(message)
+        await recordMessage(message)
         const metadata = await recorder.flush()
 
         expect(metadata).toHaveLength(1)
@@ -264,11 +271,10 @@ describe('session recording encryption integration', () => {
         const sessionId = 'multi-block-session'
         const teamId = 42
 
-        mockSessionTracker.trackSession.mockResolvedValueOnce(true)
         const message1 = createMessage(sessionId, teamId, [
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Block 1</div>' } } },
         ])
-        await recorder.record(message1)
+        await recordMessage(message1)
         const metadata1 = await recorder.flush()
 
         const encryptedBlock1 = readEncryptedBlockFromBatch(metadata1[0])
@@ -283,17 +289,13 @@ describe('session recording encryption integration', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            keyStore,
             encryptor
         )
 
-        mockSessionTracker.trackSession.mockResolvedValueOnce(false)
         const message2 = createMessage(sessionId, teamId, [
             { type: EventType.IncrementalSnapshot, data: { source: 2, mutations: [{ id: 2 }] } },
         ])
-        await recorder.record(message2)
+        await recordMessage(message2)
         const metadata2 = await recorder.flush()
 
         const encryptedBlock2 = readEncryptedBlockFromBatch(metadata2[0])
@@ -318,7 +320,7 @@ describe('session recording encryption integration', () => {
         const message = createMessage(sessionId, teamId, [
             { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: '<div>Secret</div>' } } },
         ])
-        await recorder.record(message)
+        await recordMessage(message)
         const metadata = await recorder.flush()
 
         const encryptedBlock = readEncryptedBlockFromBatch(metadata[0])
@@ -343,7 +345,7 @@ describe('session recording encryption integration', () => {
             const message = createMessage(sessionId, teamId, [
                 { type: EventType.FullSnapshot, data: { source: 1, snapshot: { html: `<div>${sessionId}</div>` } } },
             ])
-            await recorder.record(message)
+            await recordMessage(message)
         }
 
         const metadata = await recorder.flush()

@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { GROUPS_OUTPUT, GroupsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, TeamId, TimestampFormat } from '~/types'
-import { castTimestampOrNow } from '~/utils/utils'
 
 export class ClickhouseGroupRepository {
     constructor(private outputs: IngestionOutputs<GroupsOutput>) {}

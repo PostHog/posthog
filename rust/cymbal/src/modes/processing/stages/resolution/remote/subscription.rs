@@ -33,6 +33,8 @@ use super::client::with_internal_api_secret;
 #[derive(Clone, Debug)]
 pub struct LoadSnapshot {
     pub draining: bool,
+    pub in_flight: u32,
+    pub max_in_flight: u32,
     /// Local wall-clock at which this snapshot was received. Used by the pool
     /// to ignore stale snapshots when routing.
     pub observed_at: Instant,
@@ -221,6 +223,8 @@ fn jitter_for(backoff: Duration) -> Duration {
 fn snapshot_from_event(event: LoadEvent) -> LoadSnapshot {
     LoadSnapshot {
         draining: event.draining,
+        in_flight: event.in_flight,
+        max_in_flight: event.max_in_flight.max(1),
         observed_at: Instant::now(),
         sequence: event.sequence,
     }
@@ -235,10 +239,27 @@ mod tests {
         let now = Instant::now();
         let snap = LoadSnapshot {
             draining: false,
+            in_flight: 0,
+            max_in_flight: 64,
             observed_at: now - Duration::from_secs(10),
             sequence: 1,
         };
         assert!(!snap.is_fresh(now, Duration::from_secs(1)));
         assert!(snap.is_fresh(now, Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn snapshot_from_legacy_event_defaults_capacity_to_one() {
+        let snapshot = snapshot_from_event(LoadEvent {
+            service_instance_id: "legacy".to_string(),
+            draining: false,
+            sequence: 1,
+            message: String::new(),
+            in_flight: 0,
+            max_in_flight: 0,
+        });
+
+        assert_eq!(snapshot.in_flight, 0);
+        assert_eq!(snapshot.max_in_flight, 1);
     }
 }

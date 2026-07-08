@@ -42,6 +42,7 @@ class SensitiveConfig(TypedDict, total=False):
     # the install form instead of a DCR handshake.
     dcr_client_id: str
     dcr_client_secret: str
+    dcr_token_endpoint_auth_method: str
     dcr_is_user_provided: bool
 
 

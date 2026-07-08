@@ -36,6 +36,12 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
+    hog-flows-asset-content-retrieve:
+        operation: hog_flows_asset_content_retrieve
+        enabled: false
+    hog-flows-assets-retrieve:
+        operation: hog_flows_assets_retrieve
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
@@ -57,6 +63,9 @@ tools:
     hog-flows-partial-update:
         operation: hog_flows_partial_update
         enabled: false
+    hog-flows-rerun-create:
+        operation: hog_flows_rerun_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false
@@ -71,6 +80,9 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-batch-jobs-status-update:
+        operation: internal_hog_flows_batch_jobs_status_update
         enabled: false
     internal-hog-flows-process-due-schedules-create:
         operation: internal_hog_flows_process_due_schedules_create

@@ -1,21 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    IconBrackets,
-    IconChevronLeft,
-    IconChevronRight,
-    IconCopy,
-    IconExpand45,
-    IconPin,
-    IconPinFilled,
-} from '@posthog/icons'
+import { IconBrackets, IconChevronLeft, IconChevronRight, IconExpand45, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
+import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -97,19 +89,7 @@ export function LogRowFAB({
                     aria-label={pinned ? 'Unpin log' : 'Pin log'}
                     className={cn(pinned ? 'text-warning' : 'text-muted')}
                 />
-                <LemonButton
-                    size="xsmall"
-                    noPadding
-                    icon={<IconCopy />}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        void copyToClipboard(log.body, 'log message')
-                    }}
-                    tooltip="Copy log message"
-                    aria-label="Copy log message"
-                    className="text-muted"
-                    data-attr="logs-viewer-copy-message"
-                />
+                <CopyLogButton log={log} noPadding className="text-muted" />
                 <LemonButton
                     size="xsmall"
                     noPadding

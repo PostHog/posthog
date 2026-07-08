@@ -45,10 +45,10 @@ tools:
             about. `topic` is the free-text description of the question or product area. Targets are specified as a
             combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of
             PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members
-            to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them
-            explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give
-            the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of
-            questions the agent should work through.
+            to emails/distinct_ids in the calling agent first (see the planning-voice-agent-user-interviews skill) and
+            pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free
+            text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the
+            ordered set of questions the agent should work through.
         include_params:
             - interviewee_emails
             - interviewee_distinct_ids

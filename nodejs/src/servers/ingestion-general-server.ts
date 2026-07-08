@@ -1,23 +1,44 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import {
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+} from '~/common/config/kafka-topics'
+import {
+    createCookielessRedisConnectionConfig,
+    createFeatureFlagCalledDedupRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '~/common/config/redis-pools'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
+import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { ServerCommands } from '~/common/utils/commands'
+import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
+import { RedisPoolComponent } from '~/common/utils/db/redis'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
-import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+} from '~/ingestion/common/outputs/producers'
+import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
 
-import { initializePrometheusLabels } from '../api/router'
 import {
     HogTransformerServiceConfig,
     HogTransformerServiceDeps,
@@ -25,17 +46,6 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig, PluginServerMode } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import {
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
-    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-} from '../config/kafka-topics'
-import {
-    createCookielessRedisConnectionConfig,
-    createFeatureFlagCalledDedupRedisConnectionConfig,
-    createIngestionRedisConnectionConfig,
-} from '../config/redis-pools'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {
@@ -45,17 +55,11 @@ import {
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { IngestionConsumer, IngestionConsumerDeps } from '../ingestion/ingestion-consumer'
 import { PluginServerService, RedisPool } from '../types'
-import { ServerCommands } from '../utils/commands'
-import { PostgresRouter, PostgresRouterComponent } from '../utils/db/postgres'
-import { RedisPoolComponent } from '../utils/db/redis'
-import { GeoIPService } from '../utils/geoip'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
-import { TeamManagerComponent } from '../utils/team-manager'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 
 /**
@@ -109,6 +113,7 @@ export class IngestionGeneralServer implements NodeServer {
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
@@ -301,6 +306,39 @@ export class IngestionGeneralServer implements NodeServer {
             })
         }
 
+        const startAi = (override?: { topic: string; groupId: string }) => {
+            serviceLoaders.push(async () => {
+                const consumerConfig = override
+                    ? {
+                          ...this.config,
+                          INGESTION_CONSUMER_CONSUME_TOPIC: override.topic,
+                          INGESTION_CONSUMER_GROUP_ID: override.groupId,
+                      }
+                    : this.config
+                // The AI lane can't construct the cdp-owned hog transformer itself (boundary),
+                // so the server injects it (and the lane's outputs, which also back the
+                // transformer's monitoring) through an AI-specific scope. The consumer owns
+                // everything else (incl. its personhog client), taking only config + parent scope.
+                const aiOutputs = createAiOutputsRegistry().build(ingestionProducerRegistry, this.config)
+                const aiSharedScope = extend(sharedServicesScope, 'ai-shared', (_container, builder) =>
+                    builder
+                        .add(
+                            'hogTransformer',
+                            new HogTransformerComponent(() =>
+                                createHogTransformerService(this.config, {
+                                    ...hogTransformerDeps,
+                                    monitoringOutputs: aiOutputs,
+                                })
+                            )
+                        )
+                        .add('outputs', new IngestionOutputsComponent(() => aiOutputs))
+                )
+                const consumerScope = createAiConsumer(consumerConfig, aiSharedScope)
+                const { consumer, stop } = await consumerScope.start()
+                return ingestionConsumerService(consumer, stop)
+            })
+        }
+
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
             const consumersOptions = [
@@ -333,6 +371,12 @@ export class IngestionGeneralServer implements NodeServer {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
+        } else if (this.config.INGESTION_PIPELINE === 'ai') {
+            // Dedicated AI pipeline deployment. Not started in combined mode: the
+            // combined analytics consumers already process AI events on the shared
+            // topic, so running this in parallel there would double-process them.
+            // Switchover to this pipeline is driven by capture-side routing.
+            startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic
             serviceLoaders.push(async () => {

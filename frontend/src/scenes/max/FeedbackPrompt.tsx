@@ -8,7 +8,7 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { feedbackPromptLogic } from './feedbackPromptLogic'
 import { captureFeedback } from './utils'

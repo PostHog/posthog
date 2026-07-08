@@ -10,6 +10,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubLinkExistingRequestApi,
+    GitHubOAuthAuthorizeRequestApi,
+    GitHubOAuthAuthorizeResponseApi,
+    GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
@@ -21,6 +25,8 @@ import type {
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsListParams,
+    JiraProjectsResponseApi,
+    LinearTeamsResponseApi,
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
@@ -547,8 +553,8 @@ export const integrationsJiraProjectsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
+): Promise<JiraProjectsResponseApi> => {
+    return apiMutator<JiraProjectsResponseApi>(getIntegrationsJiraProjectsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -562,8 +568,8 @@ export const integrationsLinearTeamsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
+): Promise<LinearTeamsResponseApi> => {
+    return apiMutator<LinearTeamsResponseApi>(getIntegrationsLinearTeamsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -672,14 +678,14 @@ export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) =>
  */
 export const integrationsGithubLinkExistingCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubLinkExistingRequestApi?: GitHubLinkExistingRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubLinkExistingRequestApi),
     })
 }
 
@@ -692,14 +698,37 @@ export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) 
  */
 export const integrationsGithubOauthAuthorizeCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubOAuthAuthorizeRequestApi?: GitHubOAuthAuthorizeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+): Promise<GitHubOAuthAuthorizeResponseApi> => {
+    return apiMutator<GitHubOAuthAuthorizeResponseApi>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubOAuthAuthorizeRequestApi),
+    })
+}
+
+export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+ *
+ * Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+ * Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const integrationsGithubPrepareCallbackCreate = async (
+    projectId: string,
+    gitHubPrepareCallbackRequestApi?: GitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubPrepareCallbackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubPrepareCallbackRequestApi),
     })
 }
 

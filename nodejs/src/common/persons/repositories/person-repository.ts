@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 
 import type { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
+import { CreatePersonResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import {
     InternalPerson,
@@ -11,7 +12,6 @@ import {
     Team,
     TeamId,
 } from '~/types'
-import { CreatePersonResult } from '~/utils/db/db'
 
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 

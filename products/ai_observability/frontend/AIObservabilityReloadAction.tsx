@@ -18,6 +18,7 @@ import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/Evalu
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
+import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 
 export function AIObservabilityReloadAction(): JSX.Element {
     const { activeTab } = useValues(aiObservabilitySharedLogic)
@@ -56,8 +57,10 @@ export function AIObservabilityReloadAction(): JSX.Element {
     )
     const { refreshMetrics: refreshEvaluationMetrics } = useActions(evaluationMetricsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
+    const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
+    const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
 
-    const isLoading = shouldUseDashboardLogic ? dashboardLoading : false
+    const isLoading = shouldUseDashboardLogic ? dashboardLoading : activeTab === 'sessions' ? sessionsLoading : false
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
 
     const handleRefresh = (): void => {
@@ -68,6 +71,10 @@ export function AIObservabilityReloadAction(): JSX.Element {
             loadEvaluations()
             refreshEvaluationMetrics()
             reloadEvaluationMetrics()
+        } else if (activeTab === 'sessions') {
+            // The sessions list is a custom loader, not part of the data-node collection reloadAll() drives.
+            // Force a recompute so the button surfaces newly-ingested sessions instead of a cached result.
+            loadSessions({ refresh: 'force_blocking' })
         } else {
             reloadAll()
         }

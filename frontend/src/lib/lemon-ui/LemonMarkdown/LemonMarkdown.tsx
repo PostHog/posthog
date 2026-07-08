@@ -3,6 +3,7 @@ import './LemonMarkdown.scss'
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, getLanguage, Language } from 'lib/components/CodeSnippet'
@@ -202,9 +203,12 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
         [disableDocsRedirect, disableImages, lowKeyHeadings, wrapCode, generateHeadingIds, renderMermaid]
     )
 
+    // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
+    // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
+    // line breaks the author intended.
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkMentions]} skipHtml>
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkBreaks, remarkMentions]} skipHtml>
             {children}
         </ReactMarkdown>
     )

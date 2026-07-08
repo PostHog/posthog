@@ -33,13 +33,11 @@ PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
 PROJECT_ONLY_ACTIONS = {"change_organization"}
 
-# Routes (normalized suffix after `/api/<prefix>/<id>/`, path params -> `{id}`) that legitimately resolve
-# ONLY under /api/environments/ and must NOT be mirrored onto projects:
-#   - the customerio webhook is posted to a fixed env URL by a third party; redirecting it would break it,
-#   - the async-query progress endpoints are internal, keyed by the team that ran the query.
+# Routes (normalized suffix after `/api/<prefix>/<id>/`, path params -> `{id}`) that resolve ONLY
+# under /api/environments/. The async-query progress endpoints are defunct stubs (real progress
+# polling goes through the dual-routed query/{id}?show_progress=true) pending removal.
 # Anything else env-only is drift — mirror it onto /api/projects/ (dual-route the viewset) instead.
 KNOWN_ENVIRONMENT_ONLY_ROUTES: set[str] = {
-    "messaging/customerio/webhook",
     "progress",
     "query/{id}/progress",
 }

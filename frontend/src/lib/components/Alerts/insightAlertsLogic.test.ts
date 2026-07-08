@@ -9,7 +9,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -219,8 +219,24 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(API_QUERY)).toBe(true)
     })
 
-    it('returns false for funnel insight viz', () => {
+    it('returns false for funnel insight viz when the funnel flag is off', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY)).toBe(false)
+    })
+
+    it('returns true for funnel insight viz when funnelAlertsEnabled', () => {
+        expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
+    })
+
+    it('supports steps and trends funnels but not time-to-convert or flow', () => {
+        const withViz = (funnelVizType?: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const opts = { funnelAlertsEnabled: true }
+        expect(areAlertsSupportedForInsight(withViz('steps'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
     })
 
     it('returns false when trendsFilter is null', () => {
@@ -232,5 +248,36 @@ describe('areAlertsSupportedForInsight', () => {
             },
         }
         expect(areAlertsSupportedForInsight(query)).toBe(false)
+    })
+})
+
+describe('alertsUnsupportedReason', () => {
+    it.each([
+        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
+        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
+        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
+        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
+    ])('lists only enabled types: %s', (_name, options, included, excluded) => {
+        const reason = alertsUnsupportedReason(options)
+        included.forEach((type) => expect(reason).toContain(type))
+        excluded.forEach((type) => expect(reason).not.toContain(type))
+    })
+
+    // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
+    // copy reads as a contradiction; the reason should name the real cause instead.
+    it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
+        const funnelWithViz = (funnelVizType: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const options = { funnelAlertsEnabled: true }
+        for (const viz of ['time_to_convert', 'flow']) {
+            const reason = alertsUnsupportedReason(options, funnelWithViz(viz))
+            expect(reason).toContain('conversion rate')
+            expect(reason).toContain('steps or trends')
+            expect(reason).not.toContain('only available for')
+        }
+        // No query → backward-compatible generic copy.
+        expect(alertsUnsupportedReason(options)).toContain('only available for')
     })
 })

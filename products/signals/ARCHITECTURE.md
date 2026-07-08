@@ -484,18 +484,18 @@ The legacy report↔task link table. General task↔report association has moved
 
 Per-team configuration for which signal sources are enabled.
 
-| Field            | Type      | Description                                                                                                                                                       |
-| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                              |
-| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)               |
-| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
-| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                    |
-| `config`         | JSONField | Source-specific configuration                                                                                                                                     |
-| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                            |
+| Field            | Type      | Description                                                                                                                                                                            |
+| ---------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`           | FK → Team | Owning team (`related_name="signal_source_configs"`)                                                                                                                                   |
+| `source_product` | CharField | One of: `session_replay`, `llm_analytics`, `github`, `linear`, `zendesk`, `conversations`, `error_tracking`, `signals_scout` (`SourceProduct` enum)                                    |
+| `source_type`    | CharField | One of: `session_analysis_cluster`, `evaluation`, `evaluation_report`, `issue`, `ticket`, `issue_created`, `issue_reopened`, `issue_spiking`, `cross_source_issue` (`SourceType` enum) |
+| `enabled`        | Boolean   | Whether this source is active (default `True`)                                                                                                                                         |
+| `config`         | JSONField | Source-specific configuration                                                                                                                                                          |
+| `created_by`     | FK → User | User who created the config (nullable)                                                                                                                                                 |
 
 **Behavioral notes:**
 
-- `SignalSourceConfig.is_source_enabled()` special-cases `llm_analytics`: eval signals are always allowed at the model gate and are then further filtered by the eval workflow’s own config checks.
+- `llm_analytics` signals go through the standard enabled-row check like every other source. Per-result `evaluation` signals are additionally filtered by the per-evaluation `evaluation_ids` allowlist in the row's `config`, enforced upstream in the eval workflows; `evaluation_report` signals are gated by their own `(llm_analytics, evaluation_report)` row (the inbox "AI observability" toggle).
 - For session replay configs, serializer validation enforces that `config.recording_filters` is a JSON object when present.
 - The serializer exposes a computed `status` field:
   - `session_analysis_cluster` derives status from the Temporal clustering workflow
@@ -514,7 +514,7 @@ Per-scout binding for the headless **Signals agent**: one row per `(team, skill_
 | `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                                                                              |
 | `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                                                                              |
 | `emit`                 | Boolean              | Dry-run vs emit. Defaults `True`: a freshly authored scout is live from its first tick. Flip to `False` for dry-run — the scout runs and logs but `emit_finding` writes nothing — to validate it on a team before its findings reach the inbox. |
-| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `10 <= N <= 43200`.                                                                 |
+| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `30 <= N <= 43200`.                                                                 |
 | `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                                                                          |
 | `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                                                                                   |
 | `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                                                                           |
@@ -1047,7 +1047,7 @@ Cleared for the team:
 | Wizard report      | `<install-dir>/posthog-self-driving-report.md` (only if `--install-dir` is given)                                                                                                                                                                       |
 | Wizard log         | `/tmp/posthog-wizard.log` → backed up to `/tmp/posthog-wizard-previous-<timestamp>.log` then removed (override `--wizard-log`, skip `--keep-log`)                                                                                                       |
 
-Preserved: canonical scouts and the `authoring-signals-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard), and the `llm_analytics` source is always enabled in code regardless of its config row.
+Preserved: canonical scouts and the `authoring-scouts` companion, identified by `metadata.seeded_by == "signals_scout_harness"`. That tag is the practical marker this DEBUG reset uses; it is not a perfect canonical test on its own — `_scout_origin` also requires the name to ship on disk, since `duplicate_skill` copies the tag verbatim — but the wizard authors custom scouts via `llma-skill-create` with no tag, so tag-only suffices here. The command does **not** touch `SignalTeamConfig` or `SignalUserAutonomyConfig` (autostart / per-user opt-in are set by `enable_signals_autonomy`, not the wizard); `llm_analytics` sources are gated by their `SignalSourceConfig` rows like any other source.
 
 ---
 

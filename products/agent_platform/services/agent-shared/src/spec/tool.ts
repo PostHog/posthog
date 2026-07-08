@@ -20,7 +20,9 @@ import { Static, TSchema, Type } from 'typebox'
 import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
+import type { GatewayCatalog } from '../runtime/gateway-catalog'
 import type { HttpFetcher } from '../runtime/http-client'
+import type { WebSearchProvider } from '../runtime/web-search'
 
 export type { Static, TSchema }
 
@@ -147,16 +149,20 @@ export interface ToolContext {
      */
     posthogApiBaseUrl: string
     /**
-     * Mirrors `agent_session.is_preview` for the currently-executing session.
-     * Tools that publish externally (Slack post / update / react, webhook
-     * delivery, anything else with a real-world side effect) MUST short-
-     * circuit via `isPreviewSideEffect(...)` from this package when this is
-     * true. Read-only tools (slack read-channel / read-thread, query tools)
-     * are unaffected. The runner stamps the same flag from
-     * `session.is_preview`; tests can construct a context with `isPreview:
-     * true` to exercise the noop branch.
+     * Served-model catalog for the `@posthog/agent-applications-models` tool.
+     * Read it here, not via `ctx.http` — the catalog routes through a
+     * DirectHttpClient (the gateway is cluster-internal; smokescreen would deny
+     * a proxy-bound call). Absent when the gateway is off.
      */
-    isPreview: boolean
+    gatewayCatalog?: GatewayCatalog
+    /**
+     * Ordered web-search provider chain for `@posthog/web-search` (primary
+     * first, configured fallbacks next). Built from `AGENT_WEB_SEARCH_*`
+     * config at runner boot and injected here. Empty / absent → the tool is
+     * gated out of the session surface in `buildAgentTools`, so a session
+     * never sees a tool that just throws `web_search_not_configured`.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 /** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.
@@ -193,30 +199,6 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
         },
         run: def.run,
     }
-}
-
-/**
- * Author-iteration guard for write-side native tools. Tools that publish
- * externally (`@posthog/slack-post-message`, future webhook-publish tools,
- * etc.) call this at the top of `run` to log a structured skip event when
- * the session is in preview mode. The tool then returns a shape-valid
- * synthetic response so the model's next turn sees a "successful" call and
- * keeps reasoning naturally — the preview UX is "the agent acts like the
- * side effect happened" while the platform keeps a `tool_preview_skipped`
- * log entry for the author to inspect.
- *
- * Read-only tools (slack read-channel / read-thread, query tools, etc.) do
- * NOT use this — reads have no external side effect, and treating them as
- * such would defeat the author's ability to verify their agent's read paths.
- *
- * Returns true when the side effect should be suppressed.
- */
-export function isPreviewSideEffect(ctx: ToolContext, toolId: string, args: Record<string, unknown>): boolean {
-    if (!ctx.isPreview) {
-        return false
-    }
-    ctx.log('info', 'tool_preview_skipped', { tool: toolId, args })
-    return true
 }
 
 /** Re-export TypeBox `Type` so tool authors have one import. */

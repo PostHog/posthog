@@ -3,13 +3,13 @@ import { Counter } from 'prom-client'
 
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { promiseRetry } from '~/common/utils/retries'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
-import { promiseRetry } from '~/utils/retries'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
@@ -41,6 +41,11 @@ export const mergeTxnSuccessCounter = new Counter({
     name: 'person_merge_txn_success_total',
     help: 'Number of person merges that succeeded.',
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
+})
+
+export const personMergeEventProducedCounter = new Counter({
+    name: 'person_merge_event_produced_total',
+    help: 'Number of person_merge_events produce attempts after a committed merge (gate-on merges only).',
 })
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
@@ -168,31 +173,31 @@ export class PersonMergeService {
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
+            await emitIngestionWarning(this.context.outputs, teamId, {
+                type: 'cannot_merge_with_illegal_distinct_id',
+                details: {
                     illegalDistinctId: mergeIntoDistinctId,
                     otherDistinctId: otherPersonDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
+            await emitIngestionWarning(this.context.outputs, teamId, {
+                type: 'cannot_merge_with_illegal_distinct_id',
+                details: {
                     illegalDistinctId: otherPersonDistinctId,
                     otherDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
 
@@ -354,17 +359,19 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                this.context.team.id,
-                'cannot_merge_already_identified',
-                {
+            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                type: 'cannot_merge_already_identified',
+                details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
+                    personId: mergeInto.uuid,
+                    otherPersonId: otherPerson.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
@@ -412,17 +419,19 @@ export class PersonMergeService {
 
         // Handle specific error types
         if (result.error instanceof PersonMergeRaceConditionError) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                this.context.team.id,
-                'merge_race_condition',
-                {
+            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                type: 'merge_race_condition',
+                details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
+                    personId: mergeInto.uuid,
+                    otherPersonId: otherPerson.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })
@@ -516,7 +525,16 @@ export class PersonMergeService {
                 })
                 .inc()
 
-            const kafkaAck = this.context.produceMessages(kafkaMessages)
+            // Produce-after-commit: the merge event is emitted only after the Postgres txn commits,
+            // alongside the clickhouse_person messages. A crash between commit and ack loses it; the
+            // downstream protocol is idempotent on replay but cannot recover a never-produced event.
+            if (this.context.mergeEventsConfig.enabled) {
+                personMergeEventProducedCounter.inc()
+            }
+            const kafkaAck = Promise.all([
+                this.context.produceMessages(kafkaMessages),
+                this.context.producePersonMergeEvent(currentSourcePerson, mergedPerson),
+            ]).then(() => undefined)
             return mergeSuccess(mergedPerson, kafkaAck, true)
         } catch (error) {
             // Map exceptions to result types - these will cause transaction rollback

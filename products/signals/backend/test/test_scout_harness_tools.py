@@ -211,6 +211,20 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == 2
 
+    @parameterized.expand([("emitted_true", True), ("emitted_false", False)])
+    def test_emitted_filter_counts_report_only_runs(self, _name: str, emitted: bool) -> None:
+        # A run that only authored a report (emitted_count stays 0) must still read as "emitted",
+        # so the report channel isn't invisible to the emitted-run history/dedupe view.
+        report_run = _create_run(self.team, emitted_report_ids=["r-1"])
+        quiet = _create_run(self.team)
+
+        hits = search_recent_runs(team_id=self.team.id, emitted=emitted)
+
+        expected = report_run if emitted else quiet
+        assert [h.run_id for h in hits] == [str(expected.id)]
+        if emitted:
+            assert hits[0].emitted_report_ids == ["r-1"]
+
     def test_skill_name_filter_scopes_to_one_scout(self) -> None:
         errors = _create_run(self.team, skill_name="signals-scout-errors")
         _create_run(self.team, skill_name="signals-scout-llm")
@@ -425,9 +439,48 @@ class TestSearchScratchpad(BaseTest):
 
         assert all(e.key == "mine" for e in results)
 
+    def test_filters_by_date_to_for_cursor_iteration(self) -> None:
+        """`date_to` is the upper bound the caller uses to walk past the result cap.
+
+        Entries sort by `updated_at`; set `date_to` to the oldest entry seen on the
+        prior page and the next call returns the next older slice. `.update()`
+        bypasses `auto_now` so we can pin `updated_at` deterministically.
+        """
+        for key in ("old", "middle", "recent"):
+            SignalScratchpad.objects.create(team=self.team, key=key, content=key)
+        middle_ts = timezone.now() - timedelta(days=7)
+        SignalScratchpad.objects.filter(team=self.team, key="old").update(
+            updated_at=timezone.now() - timedelta(days=14)
+        )
+        SignalScratchpad.objects.filter(team=self.team, key="middle").update(updated_at=middle_ts)
+        SignalScratchpad.objects.filter(team=self.team, key="recent").update(updated_at=timezone.now())
+
+        # Strict `<` bound: middle's own timestamp is excluded, only `old` is returned.
+        results = search_scratchpad(team_id=self.team.id, date_to=middle_ts)
+
+        assert [e.key for e in results] == ["old"]
+
+    def test_filters_by_date_from(self) -> None:
+        """`date_from` is an inclusive lower bound on `updated_at` — a separate ORM
+        branch from `date_to`, so it gets its own assertion (a `__gte`/`__gt` or
+        wrong-field typo would otherwise pass undetected)."""
+        for key in ("old", "recent"):
+            SignalScratchpad.objects.create(team=self.team, key=key, content=key)
+        SignalScratchpad.objects.filter(team=self.team, key="old").update(
+            updated_at=timezone.now() - timedelta(days=10)
+        )
+        SignalScratchpad.objects.filter(team=self.team, key="recent").update(updated_at=timezone.now())
+
+        results = search_scratchpad(team_id=self.team.id, date_from=timezone.now() - timedelta(days=1))
+
+        assert [e.key for e in results] == ["recent"]
+
     def test_limit_clamped_to_max(self) -> None:
-        for i in range(MAX_SCRATCHPAD_SEARCH_LIMIT + 5):
-            remember(team_id=self.team.id, key=f"k{i:03d}", content=f"c{i}")
+        # bulk_create over per-row remember() — one round-trip for the cap-sized fixture.
+        SignalScratchpad.objects.bulk_create(
+            SignalScratchpad(team=self.team, key=f"k{i:04d}", content=f"c{i}")
+            for i in range(MAX_SCRATCHPAD_SEARCH_LIMIT + 5)
+        )
 
         results = search_scratchpad(team_id=self.team.id, limit=MAX_SCRATCHPAD_SEARCH_LIMIT + 50)
 
@@ -620,8 +673,8 @@ class TestBuildEmitExtra:
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
-        — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsScoutSignalInput
+        — this is the contract `emit_signal` checks via `SIGNAL_VARIANT_LOOKUP`."""
+        from products.signals.backend.contracts import SignalsScoutSignalInput
 
         extra = self._minimal()
         extra["tags"] = ["cost-spike"]
@@ -799,6 +852,8 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
 
     assert result.emitted is False
     assert result.skipped_reason == "ai_processing_not_approved"
+    # The skip must carry an actionable next step so the scout isn't blocked with a dead end.
+    assert result.remediation and "AI data processing" in result.remediation
     mock_emit.assert_not_called()
 
 

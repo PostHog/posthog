@@ -2,8 +2,8 @@
 import { DateTime } from 'luxon'
 
 import { Group, ProjectId, TeamId } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { RaceConditionError } from '~/utils/utils'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { RaceConditionError } from '~/common/utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
@@ -311,9 +311,14 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
         // No transaction calls expected since optimistic update failed
-        expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, 'group_upsert_message_size_too_large', {
-            groupTypeIndex: 1,
-            groupKey: 'test',
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, {
+            type: 'group_upsert_message_size_too_large',
+            details: {
+                groupTypeIndex: 1,
+                groupKey: 'test',
+                distinctId: `${teamId}:test`,
+            },
+            pipelineStep: 'group-store',
         })
     })
 

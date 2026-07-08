@@ -9,7 +9,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

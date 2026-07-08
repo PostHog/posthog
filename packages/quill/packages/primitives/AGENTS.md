@@ -142,7 +142,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
 | Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
 | Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                        | default, sm, xs                                      | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| Avatar       | —                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
 | AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
@@ -248,6 +248,8 @@ Stack cards with merged borders:
   <CardContent>{/* Table / chart runs to the card edges */}</CardContent>
 </Card>
 ```
+
+For a stat tile (headline number + change pill + sparkline), don't hand-build one in a `Card` — wrap `Metric` (from `@posthog/quill-components/metric`) in `<Card flush>`. See its section in `../components/AGENTS.md`.
 
 ### Field (forms)
 
@@ -681,7 +683,7 @@ Item sizes: default, sm, xs
 
 ### Avatar
 
-Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), or default (2rem).
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), default (2rem), or `"lg"` (2.35rem). For a clickable profile avatar, pass `render={<a href="…" />}` (or `<button />`) — the avatar renders as that element and gains pointer + focus ring; the `AvatarImage` `alt` becomes the link's accessible name, so keep it meaningful.
 
 ```tsx
 <Avatar>
@@ -701,6 +703,63 @@ Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bar
     </Avatar>
   ))}
 </AvatarGroup>
+```
+
+### Thread item (chat feed row)
+
+A feed-style message row — Slack-like channel surfaces where every message aligns start. Use `ChatBubble`/`ChatMessage` for conversational back-and-forth instead. The row highlights on hover/focus-within and reveals `ThreadItemActions` (a `role="toolbar"`, hidden with opacity so its buttons stay tabbable). The toolbar is a Base UI Toolbar — one tab stop, arrow keys rove between actions. Fill it with `ThreadItemAction` — a Button wrapped in a Tooltip where `label` is both the `aria-label` and the tooltip content (one source of truth); it forwards all Button props including `render` (`render={<a href="…" />}` for a link action) and forwards its ref, so it also works as a render target (`DropdownMenuTrigger render={<ThreadItemAction …/>}`). `ThreadItemActions` carries its own `TooltipProvider`, so the tooltips work without app-root setup; a `ThreadItemAction` used outside the toolbar (e.g. an add-reaction button in `ThreadItemReactions`) needs a `TooltipProvider` ancestor. Don't hand-roll `Tooltip > Button` pairs inside the toolbar. `ThreadItemReaction` is a Base UI Toggle (`pressed`/`onPressedChange`); give it an `aria-label` with the emoji name + count and wrap the glyph in `ThreadItemReactionEmoji` (aria-hidden). `ThreadItemAuthor` and `ThreadItemReplies` accept `render` (author as profile link/button via `render={<a href="…" />}` — it keeps the foreground name color with underline on hover, never link-tinted; replies as link); `ThreadItemReplies` is a Button (variant `default`) stretched to the content column. On continuation rows (same author), drop the header and put a `ThreadItemTimestamp` in the gutter — it shows only while the row is hovered/focused — and start the body with an `sr-only` author span so screen readers still hear who is speaking.
+
+`ThreadItemHeader` is an open flex row — put author meta (a `Badge`, a bot tag) between the author and timestamp. Inside `ThreadItemBody`, use `ThreadItemMention` for @mentions (a tinted pill; `render={<button />}` to open a profile) and `ThreadItemLink` for inline links. For image/file previews, use `ThreadItemAttachment` (a Base UI Collapsible, open by default) > `ThreadItemAttachmentTrigger` (the filename + rotating chevron, `aria-expanded` built in) + `ThreadItemAttachmentContent` > `ThreadItemAttachmentImage` (framed `img` — `alt` is required by the type).
+
+```tsx
+<ThreadItemBody>
+  <ThreadItemMention render={<button type="button" />}>@Adam L</ThreadItemMention> why this checkbox? See{' '}
+  <ThreadItemLink href="/docs">the docs</ThreadItemLink>.
+</ThreadItemBody>
+<ThreadItemAttachment>
+  <ThreadItemAttachmentTrigger>image.png</ThreadItemAttachmentTrigger>
+  <ThreadItemAttachmentContent>
+    <ThreadItemAttachmentImage src={url} alt="Screenshot of the setting" />
+  </ThreadItemAttachmentContent>
+</ThreadItemAttachment>
+```
+
+```tsx
+<ThreadItemGroup>
+  <ThreadItem>
+    <ThreadItemGutter>
+      <Avatar>…</Avatar>
+    </ThreadItemGutter>
+    <ThreadItemContent>
+      <ThreadItemHeader>
+        <ThreadItemAuthor>Adam L</ThreadItemAuthor>
+        <ThreadItemTimestamp dateTime="2026-07-01T16:23:00">4:23 PM</ThreadItemTimestamp>
+      </ThreadItemHeader>
+      <ThreadItemBody>Message text…</ThreadItemBody>
+      <ThreadItemReactions>
+        <ThreadItemReaction pressed={pressed} onPressedChange={setPressed} aria-label="Victory hand, 1 reaction">
+          <ThreadItemReactionEmoji>✌️</ThreadItemReactionEmoji>1
+        </ThreadItemReaction>
+        <ThreadItemAction label="Add reaction" className="rounded-full">
+          <SmilePlusIcon />
+        </ThreadItemAction>
+      </ThreadItemReactions>
+      <ThreadItemReplies onClick={openThread}>
+        <AvatarGroup size="xs">…</AvatarGroup>
+        <ThreadItemRepliesLabel>1 reply</ThreadItemRepliesLabel>
+        <ThreadItemRepliesMeta>Today at 4:40 PM</ThreadItemRepliesMeta>
+      </ThreadItemReplies>
+    </ThreadItemContent>
+    <ThreadItemActions>
+      <ThreadItemAction label="Add reaction">
+        <SmilePlusIcon />
+      </ThreadItemAction>
+      <ThreadItemAction label="More actions">
+        <EllipsisVerticalIcon />
+      </ThreadItemAction>
+    </ThreadItemActions>
+  </ThreadItem>
+</ThreadItemGroup>
 ```
 
 ### Keyboard Shortcuts

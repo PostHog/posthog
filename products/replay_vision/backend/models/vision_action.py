@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -76,6 +77,13 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    # How many observations may feed one group summary. When the window holds more, they're sampled
+    # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
+    max_observations = models.PositiveIntegerField(
+        default=100,
+        validators=[MinValueValidator(1)],
+        help_text="Max observations included in one group summary; sampled across the window when exceeded.",
+    )
     delivery_config = models.JSONField(
         default=list,
         help_text="List of destination targets, e.g. [{type: 'slack', integration_id, channel}].",
@@ -180,6 +188,9 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     # generic so new channels don't each add a column. synthesized_markdown stays the canonical report.
     output = models.JSONField(default=dict)
     observation_count = models.PositiveIntegerField(default=0)
+    # UUIDs of the ReplayObservations this run's summary actually included, in summary order. Empty for
+    # runs created before this was tracked (and for skipped/failed runs that summarized nothing).
+    observation_ids = models.JSONField(default=list)
     error = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

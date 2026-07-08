@@ -449,6 +449,32 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_minimax_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "minimax", "name": "MiniMax Key", "api_key": "minimax-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "minimax")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        mock_validate.assert_called_once_with("minimax", "minimax-test-key-12345")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_minimax_key_accepts_any_format(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "minimax", "name": "MiniMax Key", "api_key": "any-format-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_azure_openai_provider_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -839,6 +865,18 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("together_ai", "together-test-key")
 
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_minimax_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "minimax-test-key", "provider": "minimax"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("minimax", "minimax-test-key")
+
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
@@ -1214,6 +1252,32 @@ class TestTrialEvaluationsEndpoint(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["name"], "Legacy")
 
+    def test_excludes_non_llm_judge_evals(self):
+        # Hog and Sentiment evals have no model_configuration, so the legacy OpenAI clause would
+        # otherwise sweep them in — but they never use a provider key.
+        Evaluation.objects.create(
+            team=self.team,
+            name="Hog eval",
+            evaluation_type="hog",
+            output_type="boolean",
+            model_configuration=None,
+            enabled=True,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment eval",
+            evaluation_type="sentiment",
+            output_type="sentiment",
+            model_configuration=None,
+            enabled=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 0)
+
     def test_rejects_invalid_provider(self):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=invalid"
@@ -1335,3 +1399,34 @@ class TestAssignKeyEndpoint(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_does_not_create_config_for_hog_eval(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        hog_eval = Evaluation.objects.create(
+            team=self.team,
+            name="Hog eval",
+            evaluation_type="hog",
+            output_type="boolean",
+            model_configuration=None,
+            enabled=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
+            {"evaluation_ids": [str(hog_eval.id)], "enable": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evals_enabled"], 0)
+
+        hog_eval.refresh_from_db()
+        self.assertIsNone(hog_eval.model_configuration)
+        self.assertFalse(hog_eval.enabled)
+        self.assertEqual(LLMModelConfiguration.objects.filter(team=self.team).count(), 0)

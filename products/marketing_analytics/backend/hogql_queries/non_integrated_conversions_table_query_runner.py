@@ -194,74 +194,30 @@ class NonIntegratedConversionsTableQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
+        # user= is required: a user-less previous runner loses warehouse access and runs RBAC user-less.
         previous_runner = NonIntegratedConversionsTableQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
+        # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
+        # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
-        join_expr = self._build_compare_join(current_period_query, previous_period_query)
         select_columns = self._get_filtered_select_columns(current_period_query)
 
-        tuple_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=col.alias if isinstance(col, ast.Alias) else str(col),
-                expr=ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                    ],
-                ),
-            )
-            for col in select_columns
+        # Keys are (Campaign, Source) — the same pair the old LEFT JOIN matched on.
+        key_columns = [
+            NonIntegratedConversionsColumnsSchemaNames.CAMPAIGN.value,
+            NonIntegratedConversionsColumnsSchemaNames.SOURCE.value,
         ]
-
-        return self._build_paginated_query(tuple_columns, join_expr)
-
-    def _build_compare_join(
-        self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
-    ) -> ast.JoinExpr:
-        """Build the join expression for comparing current and previous periods"""
-        return ast.JoinExpr(
-            table=current_period_query,
-            alias="current_period",
-            next_join=ast.JoinExpr(
-                table=previous_period_query,
-                alias="previous_period",
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=["current_period", NonIntegratedConversionsColumnsSchemaNames.CAMPAIGN.value]
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=["previous_period", NonIntegratedConversionsColumnsSchemaNames.CAMPAIGN.value]
-                                ),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=["current_period", NonIntegratedConversionsColumnsSchemaNames.SOURCE.value]
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=["previous_period", NonIntegratedConversionsColumnsSchemaNames.SOURCE.value]
-                                ),
-                            ),
-                        ]
-                    ),
-                    constraint_type="ON",
-                ),
-            ),
-        )
+        return self._build_compare_pivot(current_period_query, previous_period_query, select_columns, key_columns)
 
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """

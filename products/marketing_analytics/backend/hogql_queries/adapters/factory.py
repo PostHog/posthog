@@ -1,5 +1,6 @@
 # Marketing Source Adapter Factory
 
+from collections import defaultdict
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -19,8 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
     NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,
@@ -156,9 +156,22 @@ class MarketingSourceFactory:
         database = self.context.database or Database.create_for(
             team=self.context.team, bypass_warehouse_access_control=True
         )
-        self._warehouse_tables = DataWarehouseTable.objects.filter(
-            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
-        ).prefetch_related("externaldataschema_set")
+        # Evaluate the warehouse tables once, pulling the owning source (select_related) and schema set
+        # (prefetch_related) in the same round-trip. The per-source adapter loops below then read from
+        # memory: previously each `._warehouse_tables.filter(external_data_source=source)` re-ran the
+        # `name__in=<all table names>` query once per source, which dominated adapter construction.
+        self._warehouse_tables = list(
+            DataWarehouseTable.objects.filter(
+                team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
+            )
+            .select_related("external_data_source")
+            .prefetch_related("externaldataschema_set")
+        )
+        self._tables_by_source_id: dict[str, list[DataWarehouseTable]] = defaultdict(list)
+        for table in self._warehouse_tables:
+            if table.external_data_source_id is not None:
+                self._tables_by_source_id[str(table.external_data_source_id)].append(table)
+        self._external_sources = list(ExternalDataSource.objects.filter(team_id=self.context.team.pk))
         self._sources_map = self.context.team.marketing_analytics_config.sources_map_typed
 
     @classmethod
@@ -184,13 +197,12 @@ class MarketingSourceFactory:
         """Create adapters for native marketing sources"""
 
         adapters = []
-        external_sources = ExternalDataSource.objects.filter(team_id=self.context.team.pk)
 
-        for source in external_sources:
+        for source in self._external_sources:
             if source.source_type not in VALID_NATIVE_MARKETING_SOURCES:
                 continue
 
-            tables = list(self._warehouse_tables.filter(external_data_source=source))
+            tables = self._tables_by_source_id.get(str(source.id), [])
             if not tables:
                 continue
 
@@ -289,16 +301,15 @@ class MarketingSourceFactory:
     def _create_external_adapters(self) -> list[MarketingSourceAdapter]:
         """Create adapters for non-native marketing sources"""
         adapters = []
-        external_sources = ExternalDataSource.objects.filter(team_id=self.context.team.pk)
 
-        for source in external_sources:
+        for source in self._external_sources:
             if source.source_type not in VALID_NON_NATIVE_MARKETING_SOURCES:
                 continue
             adapter_class = self._adapter_registry.get(source.source_type)
             if not adapter_class:
                 continue
 
-            tables = list(self._warehouse_tables.filter(external_data_source=source))
+            tables = self._tables_by_source_id.get(str(source.id), [])
             if not tables:
                 continue
 
@@ -307,8 +318,9 @@ class MarketingSourceFactory:
                 if not source_map:
                     continue
 
-                # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id)
-                schema = table.externaldataschema_set.first()
+                # For non-native: use schema ID to match frontend (table.schema?.id || table.source?.id || table.id).
+                # Iterate the prefetched set — `.first()` issues a fresh query and bypasses the prefetch cache.
+                schema = next(iter(table.externaldataschema_set.all()), None)
                 source_id = str(schema.id) if schema else str(table.id)
 
                 config = ExternalConfig(

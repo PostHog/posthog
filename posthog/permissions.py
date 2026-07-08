@@ -30,6 +30,7 @@ from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update"]
@@ -435,10 +436,17 @@ class TimeSensitiveActionPermission(BasePermission):
         if getattr(view, "action", None) in exclude_actions:
             return True
 
-        allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+        # Reads never require re-auth.
+        if getattr(view, "time_sensitive_allow_safe_methods", True) and request.method in SAFE_METHODS:
+            return True
+
+        # A risk-driven step-up blocks every non-safe action until the user re-authenticates,
+        # including the field/action allow-lists below — those only relax the time-based freshness
+        # window for a normally-aged session, not an anomalous one.
+        if step_up_required(request.session):
+            return False
 
         allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
-        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_if_only_fields and request.method not in SAFE_METHODS:
             data = getattr(request, "data", None)
             data_keys: set[str] = set()
@@ -448,21 +456,16 @@ class TimeSensitiveActionPermission(BasePermission):
             if data_keys and data_keys.issubset(set(allow_if_only_fields)):
                 return True
 
+        allow_actions = getattr(view, "time_sensitive_allow_actions", None)
         if allow_actions and view.action in allow_actions:
             return True
 
-        if allow_safe_methods and request.method in SAFE_METHODS:
-            return True
-
-        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-
-        if not session_created_at:
+        reference = sensitive_action_reference(request.session)
+        if reference is None:
             # This should always be covered by the middleware but just in case
             return False
 
-        session_age_seconds = time.time() - session_created_at
-
-        if session_age_seconds > settings.SESSION_SENSITIVE_ACTIONS_AGE:
+        if time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE:
             return False
 
         return True

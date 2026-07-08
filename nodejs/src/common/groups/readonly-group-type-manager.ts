@@ -1,7 +1,7 @@
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { LazyLoader } from '~/common/utils/lazy-loader'
 import { GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { LazyLoader } from '~/utils/lazy-loader'
 
 /**
  * Read-only group type manager backed by a GroupReadRepository. Provides

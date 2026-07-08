@@ -8,6 +8,7 @@ import structlog
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import COST_ESTIMATED, COST_FALLBACK_DEFAULT, COST_MISSING, COST_RECORDED
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import get_product, record_cost
 
 logger = structlog.get_logger(__name__)
@@ -45,8 +46,11 @@ class RateLimitCallback(InstrumentedCallback):
     ) -> None:
         standard_logging_object = kwargs.get("standard_logging_object", {})
         response_cost = standard_logging_object.get("response_cost")
-        model = standard_logging_object.get("model", "unknown")
-        provider = standard_logging_object.get("custom_llm_provider", "unknown")
+        # Keep the litellm-view model for cost lookups (litellm.model_cost is keyed
+        # on the aliased name), but use the user-facing labels for metric emission.
+        litellm_model = standard_logging_object.get("model", "unknown")
+        litellm_provider = standard_logging_object.get("custom_llm_provider", "unknown")
+        provider, model = normalize_metric_labels(litellm_model, litellm_provider)
         product = get_product()
         input_tokens = standard_logging_object.get("prompt_tokens")
         output_tokens = standard_logging_object.get("completion_tokens")
@@ -65,7 +69,7 @@ class RateLimitCallback(InstrumentedCallback):
             COST_RECORDED.labels(provider=provider, model=model, product=product).inc(response_cost)
             return
 
-        estimated_cost = estimate_cost_from_tokens(model, input_tokens, output_tokens)
+        estimated_cost = estimate_cost_from_tokens(litellm_model, input_tokens, output_tokens)
 
         if estimated_cost and estimated_cost > 0:
             logger.debug(

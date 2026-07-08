@@ -23,13 +23,15 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"

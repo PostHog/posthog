@@ -1,9 +1,25 @@
+from datetime import datetime
+from typing import Any
+
 from rest_framework import serializers
 
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 MAX_GOAL_LENGTH = 500
 MAX_SUMMARY_LENGTH = 5_000
+
+# Single source of truth for session-list pagination bounds. Referenced by the query serializer
+# (which enforces + advertises them in the OpenAPI spec, so the MCP Zod schema inherits the same
+# limits) and by MCPSessionPagination for its response envelope.
+MCP_SESSION_LIST_DEFAULT_LIMIT = 100
+MCP_SESSION_LIST_MAX_LIMIT = 500
+
+# Same, for a single session's tool-call list. Default == max: this endpoint returns a
+# session's whole call list by default (sessions rarely exceed the cap), so callers that
+# omit limit get everything; the max doubles as the safety cap on the ClickHouse scan
+# (previously a hardcoded LIMIT in the query).
+MCP_TOOL_CALLS_DEFAULT_LIMIT = 500
+MCP_TOOL_CALLS_MAX_LIMIT = 500
 
 
 class MCPAnalyticsSubmissionSerializer(serializers.Serializer):
@@ -136,6 +152,102 @@ class MCPToolCallSerializer(serializers.Serializer):
     )
     duration_ms = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Duration of the tool call in milliseconds when captured."
+    )
+
+
+class MCPSessionListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+    )
+    order_by = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, "
+            "tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. "
+            "Defaults to '-session_start' (newest sessions first)."
+        ),
+    )
+    date_from = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Start of the window to aggregate sessions over. PostHog date string — relative "
+            "(e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'."
+        ),
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=MCP_SESSION_LIST_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=MCP_SESSION_LIST_MAX_LIMIT,
+        help_text=(
+            f"Maximum number of sessions to return per page. Defaults to {MCP_SESSION_LIST_DEFAULT_LIMIT}; "
+            f"values above {MCP_SESSION_LIST_MAX_LIMIT} are rejected."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "Number of sessions to skip before returning results. Combine with limit to page through "
+            "sessions; the response's has_next flag indicates whether more remain."
+        ),
+    )
+
+
+class LenientDateTimeField(serializers.DateTimeField):
+    """A DateTimeField that treats an unparseable value as absent (None) rather than raising.
+
+    ``date_from`` on the tool-calls endpoint is only a scan-pruning hint, never a filter — a
+    bad value should fall back to the default lookback instead of 400-ing the request. Keeps
+    the ``date-time`` OpenAPI type (drf-spectacular reads the DateTimeField base class).
+    """
+
+    def run_validation(self, *args: Any, **kwargs: Any) -> datetime | None:
+        try:
+            return super().run_validation(*args, **kwargs)
+        except serializers.ValidationError:
+            return None
+
+
+class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
+    date_from = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp lower bound for the event scan — pass the session's start so "
+            "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=MCP_TOOL_CALLS_DEFAULT_LIMIT,
+        min_value=1,
+        max_value=MCP_TOOL_CALLS_MAX_LIMIT,
+        help_text=(
+            f"Maximum tool calls to return per page (1–{MCP_TOOL_CALLS_MAX_LIMIT}). Defaults to "
+            f"{MCP_TOOL_CALLS_DEFAULT_LIMIT} — the whole page — so a session's calls come back in one "
+            f"request; pass a smaller value for a lighter response. Values above the cap are rejected."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text=(
+            "Number of tool calls to skip before returning results. Combine with limit to page through "
+            "a session's calls; the response's has_next flag indicates whether more remain."
+        ),
     )
 
 

@@ -57,7 +57,7 @@ ROUNDING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 RANDOM_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
-    "rand": HogQLFunctionMeta("rand", 0, 0),
+    "rand": HogQLFunctionMeta("rand", 0, 0, case_sensitive=False),
 }
 
 # Combined mathematical functions

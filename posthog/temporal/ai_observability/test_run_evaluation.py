@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -8,17 +8,35 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
-from products.ai_observability.backend.llm.errors import StructuredOutputParseError
+from products.ai_observability.backend.llm.errors import (
+    AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
+from .evaluation_errors import (
+    MAX_STATUS_REASON_DETAIL_LENGTH,
+    require_user_error_spec,
+    status_reason_detail_for_terminal_user_error,
+    terminal_user_error_result_from_application_error,
+)
+from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -29,6 +47,7 @@ from .run_evaluation import (
     RunEvaluationWorkflow,
     SendEvaluationDisabledEmailInputs,
     SendTrialUsageEmailInputs,
+    WorkflowResult,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -41,6 +60,42 @@ from .run_evaluation import (
     send_evaluation_disabled_email_activity,
     send_trial_usage_email_activity,
 )
+
+
+def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():
+    hog_spec = require_user_error_spec("hog_error")
+    permission_spec = require_user_error_spec("permission_error")
+    long_message = "x" * (MAX_STATUS_REASON_DETAIL_LENGTH + 10)
+
+    assert status_reason_detail_for_terminal_user_error(permission_spec, "provider denied") is None
+    assert status_reason_detail_for_terminal_user_error(hog_spec, long_message) == (
+        f"{long_message[: MAX_STATUS_REASON_DETAIL_LENGTH - 3]}..."
+    )
+
+
+def test_terminal_user_error_result_from_application_error_uses_key_details_for_byok_model_not_found():
+    result = terminal_user_error_result_from_application_error(
+        ApplicationError(
+            "Model 'missing-model' not found.",
+            {
+                "error_type": "model_not_found",
+                "key_id": "key-123",
+                "provider": "openai",
+                "model": "missing-model",
+            },
+            non_retryable=True,
+        ),
+        allows_na=False,
+    )
+
+    assert result is not None
+    assert result["terminal_user_error"] is True
+    assert result["skip_reason"] == "model_not_found"
+    assert result["status_reason"] == "model_not_found"
+    assert result["is_byok"] is True
+    assert result["key_id"] == "key-123"
+    assert result["provider"] == "openai"
+    assert result["model"] == "missing-model"
 
 
 def create_mock_event_data(team_id: int, **overrides: Any) -> dict[str, Any]:
@@ -71,6 +126,13 @@ def setup_data():
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
+
+
+@pytest.fixture
+def grandfathered(setup_data, settings):
+    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
+    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
 
 
 class TestRunEvaluationWorkflow:
@@ -109,7 +171,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity(self, setup_data):
+    def test_execute_llm_judge_activity(self, setup_data, grandfathered):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -149,6 +211,54 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "oversized_input",
+        [
+            pytest.param(
+                [{"role": "user", "content": f"message {i}: " + "x" * 200} for i in range(3000)],
+                id="many_lines",
+            ),
+            pytest.param([{"role": "user", "content": "x" * 600_000}], id="single_line_blob"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, grandfathered):
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": oversized_input,
+                "$ai_output_choices": [{"role": "assistant", "content": "ok"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=1)
+            mock_client.complete.return_value = mock_response
+
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            sent_prompt = mock_client.complete.call_args.args[0].messages[0]["content"]
+            raw_size = sum(len(message["content"]) for message in oversized_input)
+            assert len(sent_prompt) <= JUDGE_EVENT_MAX_CHARS
+            assert len(sent_prompt) < raw_size
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -338,8 +448,177 @@ class TestRunEvaluationWorkflow:
         assert parsed.evaluation_id == "eval-123"
         assert parsed.event_data == event_data
 
+    @pytest.mark.asyncio
+    async def test_terminal_user_error_disables_emails_without_emitting_evaluation_event(self):
+        calls: list[str] = []
+
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            calls.append("fetch")
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Hog eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_hog_eval_activity")
+        async def mock_execute_hog_eval(
+            evaluation: dict[str, Any], event_data: dict[str, Any]
+        ) -> EvaluationActivityResult:
+            calls.append("execute_hog")
+            return {
+                "result_type": "boolean",
+                "verdict": False,
+                "reasoning": "Must return boolean, got int: 42",
+                "allows_na": False,
+                "skipped": True,
+                "skip_reason": "hog_error",
+                "terminal_user_error": True,
+                "status_reason": "hog_error",
+            }
+
+        @activity.defn(name="disable_evaluation_activity")
+        async def mock_disable_evaluation(
+            evaluation_id: str, team_id: int, reason: str, reason_detail: str | None = None
+        ) -> bool:
+            calls.append(f"disable:{evaluation_id}:{team_id}:{reason}:{reason_detail}")
+            return True
+
+        @activity.defn(name="send_evaluation_disabled_email_activity")
+        async def mock_send_evaluation_disabled_email(inputs: SendEvaluationDisabledEmailInputs) -> None:
+            calls.append(f"email:{inputs.evaluation_id}:{inputs.status_reason}:{inputs.human_readable_reason}")
+
+        @activity.defn(name="emit_evaluation_event_activity")
+        async def mock_emit_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
+            calls.append("emit")
+            raise AssertionError("terminal user errors must not emit $ai_evaluation")
+
+        task_queue = str(uuid.uuid4())
+        evaluation_id = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_fetch_evaluation,
+                    mock_execute_hog_eval,
+                    mock_disable_evaluation,
+                    mock_send_evaluation_disabled_email,
+                    mock_emit_evaluation_event,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=evaluation_id,
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == [
+            "fetch",
+            "execute_hog",
+            f"disable:{evaluation_id}:1:hog_error:Must return boolean, got int: 42",
+            (
+                f"email:{evaluation_id}:hog_error:"
+                "The Hog evaluation code failed. Fix the code before re-enabling this evaluation."
+            ),
+        ]
+        assert result["evaluation_id"] == evaluation_id
+        assert result["evaluation_type"] == "hog"
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["message"] == "Must return boolean, got int: 42"
+
+    @pytest.mark.asyncio
+    async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
+        calls: list[str] = []
+
+        @activity.defn(name="fetch_evaluation_activity")
+        async def mock_fetch_evaluation(inputs: RunEvaluationInputs) -> dict[str, Any]:
+            calls.append("fetch")
+            return {
+                "id": inputs.evaluation_id,
+                "name": "Hog eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {},
+                "output_type": "boolean",
+                "output_config": {},
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_hog_eval_activity")
+        async def mock_execute_hog_eval(
+            evaluation: dict[str, Any], event_data: dict[str, Any]
+        ) -> EvaluationActivityResult:
+            calls.append("execute_hog")
+            return {
+                "result_type": "boolean",
+                "verdict": False,
+                "reasoning": "Must return boolean, got int: 42",
+                "allows_na": False,
+                "skipped": True,
+                "skip_reason": "hog_error",
+                "terminal_user_error": True,
+                "status_reason": "hog_error",
+            }
+
+        @activity.defn(name="disable_evaluation_activity")
+        async def mock_disable_evaluation(
+            evaluation_id: str, team_id: int, reason: str, reason_detail: str | None = None
+        ) -> bool:
+            calls.append(f"disable:{evaluation_id}:{team_id}:{reason}:{reason_detail}")
+            return False
+
+        @activity.defn(name="send_evaluation_disabled_email_activity")
+        async def mock_send_evaluation_disabled_email(inputs: SendEvaluationDisabledEmailInputs) -> None:
+            calls.append("email")
+            raise AssertionError("already-disabled terminal errors must not send another email")
+
+        task_queue = str(uuid.uuid4())
+        evaluation_id = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[
+                    mock_fetch_evaluation,
+                    mock_execute_hog_eval,
+                    mock_disable_evaluation,
+                    mock_send_evaluation_disabled_email,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=evaluation_id,
+                        event_data=create_mock_event_data(team_id=1),
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == [
+            "fetch",
+            "execute_hog",
+            f"disable:{evaluation_id}:1:hog_error:Must return boolean, got int: 42",
+        ]
+        assert result["evaluation_id"] == evaluation_id
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -381,7 +660,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -520,7 +799,9 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(self, error_props: dict[str, Any], setup_data):
+    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
+        self, error_props: dict[str, Any], setup_data, grandfathered
+    ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -664,12 +945,16 @@ class TestRunEvaluationWorkflow:
 
         assert evaluation.enabled
 
-        await disable_evaluation_activity(str(evaluation.id), team.id, "trial_limit_reached")
+        disabled = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
 
         await sync_to_async(evaluation.refresh_from_db)()
+        assert disabled is True
         assert not evaluation.enabled
         assert evaluation.status == "error"
-        assert evaluation.status_reason == "trial_limit_reached"
+        assert evaluation.status_reason == "hog_error"
+        assert evaluation.status_reason_detail == "Must return boolean, got int: 42"
 
         logs = await sync_to_async(
             lambda: list(ActivityLog.objects.filter(scope="Evaluation", item_id=str(evaluation.id), activity="updated"))
@@ -680,8 +965,21 @@ class TestRunEvaluationWorkflow:
         fields = {c["field"]: c for c in detail["changes"]}
         assert fields["status"]["before"] == "active"
         assert fields["status"]["after"] == "error"
-        assert fields["status_reason"]["after"] == "trial_limit_reached"
+        assert fields["status_reason"]["after"] == "hog_error"
+        assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
         assert logs[0].is_system is True
+
+        disabled_again = await disable_evaluation_activity(
+            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+        )
+
+        logs_after_retry = await sync_to_async(
+            lambda: ActivityLog.objects.filter(
+                scope="Evaluation", item_id=str(evaluation.id), activity="updated"
+            ).count()
+        )()
+        assert disabled_again is False
+        assert logs_after_retry == 1
 
     @pytest.mark.django_db(transaction=True)
     def test_successful_execution_does_not_disable_evaluation(self, setup_data):
@@ -720,30 +1018,41 @@ class TestRunEvaluationWorkflow:
         evaluation.refresh_from_db()
         assert evaluation.enabled is True
 
-    @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self, setup_data):
-        evaluation_obj = setup_data["evaluation"]
-        team = setup_data["team"]
-
+    def test_execute_llm_judge_activity_parse_error_raises_non_retryable(self):
         evaluation = {
-            "id": str(evaluation_obj.id),
+            "id": "eval-123",
             "name": "Test Evaluation",
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this response factually accurate?"},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-4.1",
+                "provider_key_id": None,
+            },
         }
 
         event_data = create_mock_event_data(
-            team.id,
+            1,
             properties={
                 "$ai_input": [{"role": "user", "content": "What is 2+2?"}],
                 "$ai_output_choices": [{"role": "assistant", "content": "4"}],
             },
         )
 
-        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+        with (
+            patch(
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
+            ) as mock_get_or_create,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_increment_errors,
+        ):
+            mock_get_or_create.return_value = (
+                MagicMock(active_provider_key=None, trial_evals_used=0, trial_eval_limit=100),
+                False,
+            )
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.complete.side_effect = StructuredOutputParseError(
@@ -753,8 +1062,9 @@ class TestRunEvaluationWorkflow:
             with pytest.raises(ApplicationError, match="Failed to parse structured output") as exc_info:
                 execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-            assert exc_info.value.non_retryable is True
-            assert exc_info.value.details[0] == {"error_type": "parse_error"}
+        mock_increment_errors.assert_called_once_with("parse_error", provider="openai")
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.details[0] == {"error_type": "parse_error"}
 
     @pytest.mark.parametrize(
         "raised_exception, expected_label",
@@ -766,7 +1076,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
-        self, raised_exception: Exception, expected_label: str, setup_data
+        self, raised_exception: Exception, expected_label: str, setup_data, grandfathered
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -796,8 +1106,11 @@ class TestRunEvaluationWorkflow:
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data, settings):
         team = setup_data["team"]
+        # Only a grandfathered team gets past the funded gate to the model-allowlist check.
+        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50)
 
         evaluation = {
             "id": str(setup_data["evaluation"].id),
@@ -816,11 +1129,159 @@ class TestRunEvaluationWorkflow:
 
         event_data = create_mock_event_data(team.id)
 
-        with pytest.raises(ApplicationError, match="not available on the trial plan") as exc_info:
-            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
+        ):
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
-        assert exc_info.value.non_retryable is True
-        assert exc_info.value.details[0]["error_type"] == "model_not_allowed"
+        mock_client_class.assert_not_called()
+        mock_user_errors.assert_called_once_with("model_not_allowed", provider=None)
+        mock_errors.assert_not_called()
+        assert result["terminal_user_error"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "model_not_allowed"
+        assert result["status_reason"] == "model_not_allowed"
+        assert result["verdict"] is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-5-mini",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
+        ):
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_client_class.assert_not_called()
+        mock_user_errors.assert_called_once_with("provider_key_required", provider=None)
+        mock_errors.assert_not_called()
+        assert result["terminal_user_error"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "provider_key_required"
+        assert result["status_reason"] == "provider_key_required"
+        assert result["verdict"] is None
+
+    @pytest.mark.parametrize(
+        "raised_exception, skip_reason, status_reason, provider_key_state",
+        [
+            pytest.param(
+                AuthenticationError(),
+                "auth_error",
+                "provider_key_invalid",
+                LLMProviderKey.State.INVALID,
+                id="auth_error",
+            ),
+            pytest.param(
+                ModelPermissionError("gpt-5.4"),
+                "permission_error",
+                "provider_key_permission_denied",
+                LLMProviderKey.State.ERROR,
+                id="permission_error",
+            ),
+            pytest.param(
+                QuotaExceededError(),
+                "quota_error",
+                "provider_key_quota_exceeded",
+                LLMProviderKey.State.ERROR,
+                id="quota_error",
+            ),
+            pytest.param(
+                RateLimitError(),
+                "rate_limit",
+                "provider_key_rate_limited",
+                LLMProviderKey.State.ERROR,
+                id="rate_limit",
+            ),
+            pytest.param(
+                ModelNotFoundError("gpt-5.4"),
+                "model_not_found",
+                "model_not_found",
+                None,
+                id="model_not_found",
+            ),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_byok_provider_user_errors_return_terminal_result(
+        self,
+        raised_exception: Exception,
+        skip_reason: str,
+        status_reason: str,
+        provider_key_state: str | None,
+        setup_data,
+    ):
+        team = setup_data["team"]
+        provider_key = LLMProviderKey.objects.create(
+            team=team,
+            provider="openai",
+            name="OpenAI",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-5.4",
+                "provider_key_id": str(provider_key.id),
+            },
+        }
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
+        ):
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = raised_exception
+
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_client.complete.assert_called_once()
+        mock_user_errors.assert_called_once_with(skip_reason, provider="openai")
+        mock_errors.assert_not_called()
+        assert result["terminal_user_error"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == skip_reason
+        assert result["status_reason"] == status_reason
+        assert result["is_byok"] is True
+        assert result["key_id"] == str(provider_key.id)
+        assert result["provider"] == "openai"
+        assert result["model"] == "gpt-5.4"
+        if provider_key_state is None:
+            assert "provider_key_state" not in result
+        else:
+            assert result["provider_key_state"] == provider_key_state
 
 
 class TestExecuteHogEvalActivity:
@@ -902,6 +1363,8 @@ class TestExecuteHogEvalActivity:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
         assert "Must return boolean" in result["reasoning"]
 
     @pytest.mark.asyncio
@@ -1029,28 +1492,125 @@ class TestExecuteHogEvalActivity:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_hog_eval_unexpected_error_raises(self, setup_data):
-        team = setup_data["team"]
+    async def test_hog_eval_length_null_returns_skipped(self):
+        from posthog.cdp.validation import compile_hog
 
+        bytecode = compile_hog("return length(null) > 0", "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return length(null) > 0", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Runtime error: Can not call length on null" in result["reasoning"]
+        assert "TypeError" not in result["reasoning"]
+        assert "NoneType" not in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_hog_eval_comparison_type_error_returns_skipped(self):
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog("return properties.missing <= 1.0", "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": "return properties.missing <= 1.0", "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert "Runtime error: '<=' not supported between instances of 'NoneType' and 'float'" in result["reasoning"]
+        assert "Unexpected error during evaluation" not in result["reasoning"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("source", "properties", "expected_reasoning"),
+        [
+            (
+                "return output =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern",
+            ),
+            (
+                "return match(properties.tool_calls, 'tool')",
+                {"tool_calls": ["tool_call"]},
+                "Function match requires input",
+            ),
+            (
+                "let calls := []; calls[1] := 'tool_call'; return true",
+                {},
+                "Index 1 out of range",
+            ),
+        ],
+        ids=["invalid-regex", "list-regex-input", "array-assignment-index"],
+    )
+    async def test_hog_eval_vm_user_errors_return_skipped(self, source, properties, expected_reasoning):
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog(source, "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": source, "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+        event_properties = {"$ai_input": "test input", "$ai_output": "test output", **properties}
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1, properties=event_properties))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert expected_reasoning in result["reasoning"]
+        assert "Unexpected error during evaluation" not in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_hog_eval_unexpected_error_raises(self):
         from posthog.cdp.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
         evaluation = {
-            "id": str(setup_data["evaluation"].id),
+            "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
             "evaluation_config": {"source": "return true", "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
         }
 
-        event_data = create_mock_event_data(team.id)
+        event_data = create_mock_event_data(1)
 
         # An unexpected error is a bug in our code, so it must still surface to error tracking.
         unexpected_error = {
@@ -1332,6 +1892,8 @@ class TestExecuteHogEvalActivityAllowsNA:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
         assert result["verdict"] is False
         assert "Must return boolean" in result["reasoning"]
 
@@ -1394,7 +1956,7 @@ class TestSendTrialUsageEmailActivity:
     )
     async def test_sends_correct_template_for_threshold(self, setup_data, threshold_pct, expected_template):
         team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
@@ -1411,6 +1973,22 @@ class TestSendTrialUsageEmailActivity:
             call_kwargs = mock_email_class.call_args[1]
             assert call_kwargs["template_name"] == expected_template
             mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_skips_exhausted_email_when_trial_not_actually_exhausted(self, setup_data):
+        # provider_key_required disables route here with threshold 100 for teams cut off mid-trial
+        # at the deprecation date or that never started — "used up" would be false for them.
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 50})
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=100))
+
+            mock_email_class.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -1431,7 +2009,7 @@ class TestSendTrialUsageEmailActivity:
     @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
     async def test_campaign_key_includes_threshold_and_team(self, setup_data, threshold_pct):
         team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
@@ -1528,6 +2106,7 @@ class TestSendEvaluationDisabledEmailActivity:
                     evaluation_name="My Eval",
                     status_reason="model_not_allowed",
                     human_readable_reason="The model 'gpt-9' isn't available on the trial plan.",
+                    disabled_at=datetime(2026, 6, 25, 12, 0, 0, tzinfo=UTC),
                 )
             )
 
@@ -1538,6 +2117,8 @@ class TestSendEvaluationDisabledEmailActivity:
             assert "isn't available on the trial plan" in call_kwargs["template_context"]["disabled_reason"]
             # Campaign key must include the reason so a later different-reason error triggers a fresh email.
             assert "model_not_allowed" in call_kwargs["campaign_key"]
+            # It also includes the disable timestamp so a later same-reason disable sends a fresh email.
+            assert "1782388800000000" in call_kwargs["campaign_key"]
             mock_message.send.assert_called_once()
 
     @pytest.mark.asyncio

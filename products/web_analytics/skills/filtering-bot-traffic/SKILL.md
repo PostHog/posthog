@@ -52,8 +52,10 @@ so you don't pass anything in. Available wherever you pick an event property.
 
 ### HogQL functions (raw SQL)
 
-Pass the user agent explicitly. Use `coalesce(properties.$raw_user_agent, properties.$user_agent)`
-to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures.
+Pass the user agent explicitly. Use `coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)`
+to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures. The `nullIf`
+keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot —
+this mirrors the expression the virtual properties use internally.
 
 | Function                 | Returns                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------- |
@@ -133,16 +135,16 @@ which tools (OpenAI, Anthropic, Perplexity, …) read your site and which pages 
 SELECT count() AS human_pageviews
 FROM events
 WHERE event = '$pageview'
-    AND NOT isLikelyBot(coalesce(properties.$raw_user_agent, properties.$user_agent))
+    AND NOT isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
 
 -- top bots by hits
 SELECT
-    getBotName(coalesce(properties.$raw_user_agent, properties.$user_agent)) AS bot,
-    getBotOperator(coalesce(properties.$raw_user_agent, properties.$user_agent)) AS operator,
+    getBotName(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS bot,
+    getBotOperator(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)) AS operator,
     count() AS hits
 FROM events
 WHERE event = '$pageview'
-    AND isLikelyBot(coalesce(properties.$raw_user_agent, properties.$user_agent))
+    AND isLikelyBot(coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent))
 GROUP BY bot, operator
 ORDER BY hits DESC
 ```
@@ -158,9 +160,11 @@ the capture API) before building bot insights.
 
 ## Gotchas
 
-- **Not retroactive.** `$virt_*` properties only exist on events processed after the
-  classifier shipped. Keep `dateRange.date_from` within the last few months for reliable
-  results; older events won't classify.
+- **Needs a captured user agent.** Classification is computed at query time from the event's
+  `$raw_user_agent` / `$user_agent`, so it works on any historical event — there's no need to
+  restrict `dateRange.date_from`. The one requirement is that a user agent was captured; events
+  from sources that never set one can't be classified (and empty UAs fall through to
+  `Automation` / `no_user_agent`, below).
 - **`isLikelyBot` is "likely".** Detection is a user-agent heuristic — some bots spoof
   real browser UAs, and some legit tools use bot-like ones. Treat it as best-effort, not
   ground truth.

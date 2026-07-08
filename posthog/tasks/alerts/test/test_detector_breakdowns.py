@@ -18,6 +18,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.api.services.query import ExecutionMode
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 
@@ -255,7 +256,11 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
 
         alert = _make_alert(MagicMock(), ZSCORE_DETECTOR_CONFIG)
         extraction = extract_detector_series(
-            MagicMock(spec=Insight), alert.team, _make_query_without_breakdown(), ZSCORE_DETECTOR_CONFIG
+            MagicMock(spec=Insight),
+            alert.team,
+            _make_query_without_breakdown(),
+            ZSCORE_DETECTOR_CONFIG,
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
         )
         assert extraction.series == []
         assert extraction.empty_query_result is True
@@ -284,7 +289,13 @@ class TestCheckTrendsAlertWithDetectorBreakdowns:
         )
 
         alert = _make_alert(MagicMock(), ZSCORE_DETECTOR_CONFIG)
-        extraction = extract_detector_series(MagicMock(spec=Insight), alert.team, query, ZSCORE_DETECTOR_CONFIG)
+        extraction = extract_detector_series(
+            MagicMock(spec=Insight),
+            alert.team,
+            query,
+            ZSCORE_DETECTOR_CONFIG,
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        )
         assert extraction.series == []
         assert extraction.empty_query_result is False
 

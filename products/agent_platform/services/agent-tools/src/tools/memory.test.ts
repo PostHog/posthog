@@ -4,12 +4,11 @@
  * SeaweedFS before running.
  */
 import { S3Client } from '@aws-sdk/client-s3'
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 import {
     buildTestStore,
     HttpClient,
-    MemoryStore,
     newTestPrefix,
     S3MemoryStore,
     type ToolContext,
@@ -29,7 +28,6 @@ function makeCtx(store: S3MemoryStore | undefined): ToolContext {
         memoryStore: store,
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
-        isPreview: false,
     }
 }
 
@@ -240,96 +238,5 @@ describe('memory tools (real S3 / SeaweedFS)', () => {
             expect(data.results[0].path).toBe('incidents/db.md')
             expect(data.results[0].score).toBeGreaterThan(0)
         })
-    })
-})
-
-describe('memory tools — preview-mode side-effect isolation', () => {
-    /** Mutating tools must short-circuit before touching the store when the
-     *  session is in preview mode: the store is keyed on (team_id,
-     *  application_id) and not forked per revision, so a draft would otherwise
-     *  mutate the same files the live revision reads. Each test pins a
-     *  store-method spy and asserts it is never called. */
-    function previewCtxWithSpy(): { ctx: ToolContext; store: MemoryStore } {
-        const spied: MemoryStore = {
-            list: vi.fn(),
-            read: vi.fn(),
-            readHeader: vi.fn(),
-            put: vi.fn(),
-            delete: vi.fn(),
-            exists: vi.fn(),
-        }
-        const ctx: ToolContext = {
-            teamId: 42,
-            applicationId: 'app-test',
-            sessionId: 'sess-preview',
-            secret: () => undefined,
-            secretAllowedHosts: () => undefined,
-            log: () => undefined,
-            memoryStore: spied,
-            http: new HttpClient(),
-            posthogApiBaseUrl: 'http://localhost:8010',
-            isPreview: true,
-        }
-        return { ctx, store: spied }
-    }
-
-    it('memory-write returns a synthetic created_at and never calls store.put', async () => {
-        const { ctx, store: spied } = previewCtxWithSpy()
-        const r = (await memoryWriteV1.run(
-            { path: 'incidents/db.md', description: 'd', content: 'c' },
-            ctx
-        )) as Envelope
-        expect(r.ok).toBe(true)
-        const data = r.data as { path: string; created_at: string }
-        expect(data.path).toBe('incidents/db.md')
-        expect(data.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-        expect(spied.put).not.toHaveBeenCalled()
-    })
-
-    it('memory-update returns a synthetic updated_at and never calls store.put / store.read', async () => {
-        const { ctx, store: spied } = previewCtxWithSpy()
-        const r = (await memoryUpdateV1.run({ path: 'notes/x.md', description: 'new' }, ctx)) as Envelope
-        expect(r.ok).toBe(true)
-        const data = r.data as { path: string; updated_at: string }
-        expect(data.path).toBe('notes/x.md')
-        expect(data.updated_at).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-        expect(spied.read).not.toHaveBeenCalled()
-        expect(spied.put).not.toHaveBeenCalled()
-    })
-
-    it('memory-delete returns deleted=true and never calls store.delete', async () => {
-        const { ctx, store: spied } = previewCtxWithSpy()
-        const r = (await memoryDeleteV1.run({ path: 'incidents/db.md' }, ctx)) as Envelope
-        expect(r.ok).toBe(true)
-        expect(r.data).toEqual({ path: 'incidents/db.md', deleted: true })
-        expect(spied.delete).not.toHaveBeenCalled()
-    })
-
-    it('read tools (list / search / read) still touch the store in preview — reads have no live-state effect', async () => {
-        // Author must be able to verify the read paths during preview;
-        // only writes are gated. Pinning this guards against an accidental
-        // future overgeneralization that would block reads too.
-        const previewStore: MemoryStore = {
-            list: vi.fn().mockResolvedValue([]),
-            read: vi.fn().mockRejectedValue(new Error('not found')),
-            readHeader: vi.fn(),
-            put: vi.fn(),
-            delete: vi.fn(),
-            exists: vi.fn(),
-        }
-        const ctx: ToolContext = {
-            teamId: 42,
-            applicationId: 'app-test',
-            sessionId: 'sess-preview',
-            secret: () => undefined,
-            secretAllowedHosts: () => undefined,
-            log: () => undefined,
-            memoryStore: previewStore,
-            http: new HttpClient(),
-            posthogApiBaseUrl: 'http://localhost:8010',
-            isPreview: true,
-        }
-        await memoryListV1.run({}, ctx)
-        expect(previewStore.list).toHaveBeenCalledTimes(1)
     })
 })
