@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCheckbox,
-    LemonDialog,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -27,6 +19,7 @@ import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType 
 import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+import { confirmFlagActiveToggleInProject } from './updateFlagActiveInProject'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
@@ -115,6 +108,7 @@ const getColumns = ({
                                 size="small"
                                 loading={!!toggling}
                                 disabledReason={toggling ? 'Updating…' : undefined}
+                                aria-label={`${record.active ? 'Disable' : 'Enable'} feature flag in this project`}
                                 data-attr="feature-flag-projects-toggle"
                             />
                         )}
@@ -278,23 +272,10 @@ export default function FeatureFlagProjects(): JSX.Element {
         }
         const teamId = record.team_id
         const flagId = record.flag_id
-        const teamName = currentOrganization?.teams?.find((t) => t.id === teamId)?.name ?? `Project ${teamId}`
-        LemonDialog.open({
-            title: `${active ? 'Enable' : 'Disable'} this flag in ${teamName}?`,
-            description: `This flag will be immediately ${
-                active ? 'rolled out to' : 'rolled back from'
-            } the users matching the release conditions in ${teamName}.`,
-            primaryButton: {
-                children: 'Confirm',
-                type: 'primary',
-                size: 'small',
-                onClick: () => toggleProjectFlagActive(teamId, flagId, active),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'tertiary',
-                size: 'small',
-            },
+        confirmFlagActiveToggleInProject({
+            teamName: currentOrganization?.teams?.find((t) => t.id === teamId)?.name ?? `Project ${teamId}`,
+            active,
+            onConfirm: () => toggleProjectFlagActive(teamId, flagId, active),
         })
     }
 

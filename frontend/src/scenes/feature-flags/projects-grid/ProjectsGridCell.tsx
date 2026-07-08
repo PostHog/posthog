@@ -60,6 +60,7 @@ export function ProjectsGridCell({
                     size="small"
                     loading={toggling}
                     disabledReason={toggling ? 'Updating…' : undefined}
+                    aria-label={`${sibling.active ? 'Disable' : 'Enable'} feature flag in this project`}
                     data-attr="projects-grid-cell-toggle"
                 />
             )}

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
+import { confirmFlagActiveToggleInProject } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
@@ -141,26 +142,12 @@ export function ProjectsGrid(): JSX.Element {
                         toggling={flagId !== null ? togglingFlagIds[`${teamId}:${flagId}`] : false}
                         onToggle={
                             flagId !== null
-                                ? (active) => {
-                                      const teamName = teamsById.get(teamId)?.name ?? `Project ${teamId}`
-                                      LemonDialog.open({
-                                          title: `${active ? 'Enable' : 'Disable'} this flag in ${teamName}?`,
-                                          description: `This flag will be immediately ${
-                                              active ? 'rolled out to' : 'rolled back from'
-                                          } the users matching the release conditions in ${teamName}.`,
-                                          primaryButton: {
-                                              children: 'Confirm',
-                                              type: 'primary',
-                                              size: 'small',
-                                              onClick: () => toggleFlagActive(flag.key, teamId, flagId, active),
-                                          },
-                                          secondaryButton: {
-                                              children: 'Cancel',
-                                              type: 'tertiary',
-                                              size: 'small',
-                                          },
+                                ? (active) =>
+                                      confirmFlagActiveToggleInProject({
+                                          teamName: teamsById.get(teamId)?.name ?? `Project ${teamId}`,
+                                          active,
+                                          onConfirm: () => toggleFlagActive(flag.key, teamId, flagId, active),
                                       })
-                                  }
                                 : undefined
                         }
                     />

@@ -647,7 +647,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
         toggleProjectFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
-        projectFlagActiveToggleFinished: (teamId: number, flagId: number) => ({ teamId, flagId }),
+        projectFlagActiveUpdated: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
+        projectFlagActiveUpdateFailed: (teamId: number, flagId: number) => ({ teamId, flagId }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
@@ -986,7 +987,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             {} as Record<string, boolean>,
             {
                 toggleProjectFlagActive: (state, { teamId, flagId }) => ({ ...state, [`${teamId}:${flagId}`]: true }),
-                projectFlagActiveToggleFinished: (state, { teamId, flagId }) => {
+                projectFlagActiveUpdated: (state, { teamId, flagId }) => {
+                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    return rest
+                },
+                projectFlagActiveUpdateFailed: (state, { teamId, flagId }) => {
                     const { [`${teamId}:${flagId}`]: _, ...rest } = state
                     return rest
                 },
@@ -1713,6 +1718,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     })),
+    // Extends the projectsWithCurrentFlag loader's reducer, so this block must come after loaders().
+    reducers({
+        projectsWithCurrentFlag: {
+            projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>
+                state.map((p) => (p.team_id === teamId && p.flag_id === flagId ? { ...p, active } : p)),
+        },
+    }),
     listeners(({ actions, values, props, sharedListeners }) => ({
         setCronExpression: ({ cronExpression }) => {
             if (!cronExpression) {
@@ -1965,21 +1977,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
             const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
-            if (updatedFlag) {
-                const newActive = updatedFlag.active ?? active
-                actions.loadProjectsWithCurrentFlagSuccess(
-                    values.projectsWithCurrentFlag.map((p) =>
-                        p.team_id === teamId && p.flag_id === flagId ? { ...p, active: newActive } : p
-                    )
-                )
-                // Keep the flag page and the flags list in sync when the toggled row is the current project's flag.
-                if (flagId === values.featureFlag.id && teamId === values.currentTeamId) {
-                    const syncedFlag = { ...values.featureFlag, active: newActive }
-                    actions.setFeatureFlag(syncedFlag)
-                    actions.updateFlag(syncedFlag)
-                }
+            if (!updatedFlag) {
+                actions.projectFlagActiveUpdateFailed(teamId, flagId)
+                return
             }
-            actions.projectFlagActiveToggleFinished(teamId, flagId)
+            const newActive = updatedFlag.active ?? active
+            actions.projectFlagActiveUpdated(teamId, flagId, newActive)
+            // Keep the flag page and the flags list in sync when the toggled row is the current project's flag.
+            if (flagId === values.featureFlag.id && teamId === values.currentTeamId) {
+                const syncedFlag = { ...values.featureFlag, active: newActive }
+                actions.setFeatureFlag(syncedFlag)
+                actions.updateFlag(syncedFlag)
+            }
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
