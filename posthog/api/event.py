@@ -653,7 +653,7 @@ class EventViewSet(
 
         user = request.user if request.user.is_authenticated else None
 
-        restricted = get_restricted_properties_for_team(team_id=team.pk, user=cast(User | None, user), team=team)
+        restricted = get_restricted_properties_for_team(user=cast(User | None, user), team=team)
         restricted_event_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.EVENT}
         restricted_person_properties = {name for name, ptype in restricted if ptype == PropertyDefinition.Type.PERSON}
 
