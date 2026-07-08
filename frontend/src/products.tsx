@@ -2033,6 +2033,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['IdentityMatching'],
     },
     {
+        path: 'Inbox',
+        displayLabel: 'Inbox',
+        category: ProductItemCategory.TOOLS,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.inbox(),
+        sceneKey: 'Inbox',
+        sceneKeys: ['Inbox'],
+    },
+    {
         path: 'LLM analytics',
         displayLabel: 'AI observability',
         intents: [
