@@ -74,6 +74,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time the partial submission was created, in the account timezone.",
             "updated_at": "Time the partial submission was last updated, in the account timezone.",
             "account_timezone": "The configured timezone for the account.",
+            "submitted_at_utc": "Time the partial submission was completed, if it was, in UTC.",
+            "created_at_utc": "Time the partial submission was created, in UTC.",
+            "updated_at_utc": "Time the partial submission was last updated, in UTC.",
         },
     },
     "products": {
