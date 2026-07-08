@@ -206,8 +206,14 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                     const trimmedContent = content?.trim() ?? ''
                     const snippet = trimmedContent.length > 60 ? trimmedContent.slice(0, 57) + '…' : trimmedContent
                     const date = dateMarker.format('YYYY-MM-DD')
+                    // Mention the tags for tag-scoped annotations, so an agent following the
+                    // suggested prompt reproduces the scoping and not just the note.
+                    const tagScopeSuffix =
+                        scope === AnnotationScope.Tag && scopedTags.length
+                            ? ` for everything tagged ${scopedTags.join(', ')}`
+                            : ''
                     tryShowMCPHint('annotations.create', {
-                        derivedPrompt: snippet ? `Annotate ${date}: ${snippet}` : undefined,
+                        derivedPrompt: snippet ? `Annotate ${date}${tagScopeSuffix}: ${snippet}` : undefined,
                     })
                 }
                 actions.closeModal()
