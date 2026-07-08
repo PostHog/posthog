@@ -88,6 +88,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
@@ -599,9 +600,17 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "account_group_type_index",
         ]
 
-    @staticmethod
-    def validate_account_group_type_index(value):
-        return validate_group_type_index("account_group_type_index", value)
+    def validate_account_group_type_index(self, value):
+        value = validate_group_type_index("account_group_type_index", value)
+        # Repointing the account group type once accounts exist would orphan them. Enforce that
+        # here so the caller gets a clean 400 instead of the model-layer pre_save signal raising a
+        # Django ValidationError that DRF doesn't recognize and surfaces as a 500. The signal
+        # stays as a defense-in-depth backstop.
+        instance = self.instance
+        if instance is not None and value != instance.account_group_type_index:
+            if customer_analytics.team_has_accounts(instance.team_id):
+                raise serializers.ValidationError("Cannot change the account group type once accounts exist.")
+        return value
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {

@@ -150,6 +150,12 @@ def get_account_context_data(
     )
 
 
+def team_has_accounts(team_id: int) -> bool:
+    """Whether any accounts exist for the team. Backs the config guard that blocks repointing
+    ``account_group_type_index`` once accounts exist (which would orphan them)."""
+    return Account.objects.for_team(team_id).exists()
+
+
 def _resolve_account(team_id: int, account_id: str | None = None, external_id: str | None = None) -> Account | None:
     try:
         if account_id:

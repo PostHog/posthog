@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 
 from parameterized import parameterized
@@ -15,6 +16,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
+
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -716,6 +719,27 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_changing_account_group_type_index_with_accounts_returns_400(self):
+        # Repointing account_group_type_index once accounts exist is rejected. This must surface as a
+        # clean 400 from the DRF layer, not the Django ValidationError raised by the model pre_save
+        # signal escaping as an unhandled 500.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        account_model = apps.get_model("customer_analytics", "Account")
+        TeamCustomerAnalyticsConfig.objects.filter(team=self.team).update(account_group_type_index=0)
+        account_model.objects.create_account(team=self.team, name="Acme")
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"account_group_type_index": 1}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        self.team.customer_analytics_config.refresh_from_db()
+        self.assertEqual(self.team.customer_analytics_config.account_group_type_index, 0)
 
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
