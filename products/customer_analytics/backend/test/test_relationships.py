@@ -384,7 +384,7 @@ class TestWritePathSync(BaseTest):
     def test_update_external_account_syncs_roles(self):
         account = Account.objects.create_account(team=self.team, name="Acme", external_id="acme-1")
         result = facade.update_external_account(
-            self.team.id, "acme-1", role_assignments={"csm": self.user.id}, tags=None, tags_mode="add"
+            self.team.id, "acme-1", relationship_assignments={"CSM": self.user.id}, tags=None, tags_mode="add"
         )
         assert result.error is None
         rows = self._active_rows(account)

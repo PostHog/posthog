@@ -9,6 +9,7 @@ import { HeatmapsWarnings } from 'scenes/heatmaps/components/HeatmapsWarnings'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { recordingClickmapLogic } from './recordingClickmapLogic'
@@ -51,8 +52,7 @@ export function HeatmapRecording(): JSX.Element {
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { hasValidReplayIframeData } = useValues(logic)
-    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
-    const { setClickmapEnabled } = useActions(clickmapLogic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     if (!hasValidReplayIframeData) {
         return (
@@ -73,8 +73,7 @@ export function HeatmapRecording(): JSX.Element {
                     <UrlSearchHeader />
                     <LemonDivider className="my-4" />
                     <FilterPanel
-                        clickmapEnabled={clickmapAvailable ? clickmapEnabled : undefined}
-                        onClickmapEnabledChange={clickmapAvailable ? setClickmapEnabled : undefined}
+                        clickmapSettings={clickmapAvailable ? <ClickmapSettings iframeRef={iframeRef} /> : undefined}
                     />
                     <LemonDivider className="my-4" />
                     <div className="relative flex flex-1 overflow-hidden min-h-screen">

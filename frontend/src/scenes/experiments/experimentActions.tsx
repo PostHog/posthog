@@ -4,13 +4,109 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { Experiment } from '~/types'
 
-import { hasEnded } from './experimentsLogic'
+import { hasEnded, isExperimentExposureFrozen, isExperimentPaused, isLaunched } from './experimentsLogic'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(
     experiment: Pick<Experiment, 'archived' | 'start_date' | 'end_date' | 'status'>
 ): boolean {
     return !experiment.archived && hasEnded(experiment)
+}
+
+/** Whether the experiment's flag release groups still carry the exposure-freeze stamps.
+ * Unlike the status check, this also covers paused or stopped experiments whose flag was
+ * frozen earlier — reset clears the stamps in all of those states. */
+export function hasFrozenExposureStamps(experiment: Pick<Experiment, 'feature_flag'>): boolean {
+    return !!experiment.feature_flag?.filters?.groups?.some((group) => group.exposure_frozen === true)
+}
+
+/** Whether an experiment can have its exposure frozen (ignoring permissions). */
+export function canFreezeExposure(
+    experiment: Pick<Experiment, 'start_date' | 'end_date' | 'status' | 'feature_flag' | 'holdout_id' | 'holdout'>
+): boolean {
+    const flagFilters = experiment.feature_flag?.filters
+    // Freezing exposure narrows the flag to a person cohort, which group-aggregated flags can't use.
+    const isGroupAggregated = flagFilters?.aggregation_group_type_index != null
+    // Holdout assignment and early access enrollment (super_groups) are evaluated before release
+    // conditions, so the freeze couldn't stop enrollment through them — the backend rejects these.
+    const hasHoldout =
+        experiment.holdout_id != null ||
+        experiment.holdout != null ||
+        !!flagFilters?.holdout ||
+        !!flagFilters?.holdout_groups?.length
+    const hasSuperGroups = !!flagFilters?.super_groups?.length
+    return (
+        isLaunched(experiment) &&
+        !hasEnded(experiment) &&
+        !isExperimentPaused(experiment) &&
+        !isExperimentExposureFrozen(experiment) &&
+        !isGroupAggregated &&
+        !hasHoldout &&
+        !hasSuperGroups
+    )
+}
+
+export function confirmFreezeExposure(onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Freeze exposure?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    New users can <b>no longer enroll</b>. Everyone already enrolled keeps their variant, and metrics
+                    keep updating — useful for measuring long-term impact (revenue, retention, renewals) after you stop
+                    adding new users.
+                </p>
+                <p>
+                    This snapshots the currently-exposed users into a static cohort and narrows the feature flag to it.
+                    The experiment <b>keeps running</b>, so results keep updating.
+                </p>
+                <p>
+                    From a frozen state you can end an experiment or ship a variant at any time. You can unfreeze as
+                    well to reopen enrollment.
+                </p>
+            </div>
+        ),
+        primaryButton: {
+            children: 'Freeze exposure',
+            type: 'primary',
+            onClick: onConfirm,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+export function confirmUnfreezeExposure(onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Unfreeze exposure?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    New users can <b>enroll again</b> under the flag's original release conditions. Everyone already
+                    enrolled keeps their variant, and the snapshot cohort is removed.
+                </p>
+                <p>
+                    Heads up: users enrolled before the freeze and after the unfreeze joined at different times, which
+                    can mix populations and cause bias in your results.
+                </p>
+            </div>
+        ),
+        primaryButton: {
+            children: 'Unfreeze exposure',
+            type: 'primary',
+            onClick: onConfirm,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
 }
 
 export function confirmArchiveExperiment(

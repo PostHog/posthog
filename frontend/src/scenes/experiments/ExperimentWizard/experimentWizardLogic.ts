@@ -9,6 +9,7 @@ import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
+import { getExperimentVariants } from '../utils'
 import type { experimentWizardLogicType } from './experimentWizardLogicType'
 
 export type ExperimentWizardStep = 'about' | 'variants' | 'analytics'
@@ -191,7 +192,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
 
                 // Linked feature flags show variants read-only so we skip validations
                 if (!linkedFeatureFlag) {
-                    const variants = experiment.parameters?.feature_flag_variants ?? []
+                    const variants = getExperimentVariants(experiment)
                     const variantKeys = variants.map((v) => v.key)
                     const hasDuplicateKeys = variantKeys.length !== new Set(variantKeys).size
                     const hasEmptyKeys = variants.some((v) => !v.key || v.key.trim().length === 0)
@@ -273,7 +274,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     actions.setLinkedFeatureFlag(match)
                     actions.setFeatureFlagConfig({
                         feature_flag_key: match.key,
-                        feature_flag_variants: match.filters?.multivariate?.variants || [],
+                        variants: match.filters?.multivariate?.variants || [],
                     })
                 }
             }

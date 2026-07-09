@@ -108,7 +108,7 @@ export class ToolExecutor {
         }
 
         if (toolName === 'render-ui') {
-            // render-ui is only advertised when the flag is on; reject calls otherwise.
+            // render-ui is only advertised to MCP Apps hosts; reject calls from others.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
@@ -410,7 +410,8 @@ export class ToolExecutor {
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
-            state.scopeGatedTools
+            state.scopeGatedTools,
+            { isInlineExecUiHost: state.clientProfile.isInlineExecUiHost() }
         )
 
         return {

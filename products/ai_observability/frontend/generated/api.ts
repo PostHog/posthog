@@ -23,6 +23,7 @@ import type {
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationReportApi,
+    EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
     EvaluationSummaryRequestApi,
@@ -71,7 +72,7 @@ import type {
     PatchedDatasetApi,
     PatchedDatasetItemApi,
     PatchedEvaluationApi,
-    PatchedEvaluationReportApi,
+    PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedParserRecipeApi,
@@ -826,14 +827,14 @@ export const getLlmAnalyticsEvaluationReportsUpdateUrl = (projectId: string, id:
 export const llmAnalyticsEvaluationReportsUpdate = async (
     projectId: string,
     id: string,
-    evaluationReportApi: NonReadonly<EvaluationReportApi>,
+    evaluationReportUpdateApi?: NonReadonly<EvaluationReportUpdateApi>,
     options?: RequestInit
-): Promise<EvaluationReportApi> => {
-    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsUpdateUrl(projectId, id), {
+): Promise<EvaluationReportUpdateApi> => {
+    return apiMutator<EvaluationReportUpdateApi>(getLlmAnalyticsEvaluationReportsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluationReportApi),
+        body: JSON.stringify(evaluationReportUpdateApi),
     })
 }
 
@@ -847,14 +848,14 @@ export const getLlmAnalyticsEvaluationReportsPartialUpdateUrl = (projectId: stri
 export const llmAnalyticsEvaluationReportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEvaluationReportApi?: NonReadonly<PatchedEvaluationReportApi>,
+    patchedEvaluationReportUpdateApi?: NonReadonly<PatchedEvaluationReportUpdateApi>,
     options?: RequestInit
-): Promise<EvaluationReportApi> => {
-    return apiMutator<EvaluationReportApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
+): Promise<EvaluationReportUpdateApi> => {
+    return apiMutator<EvaluationReportUpdateApi>(getLlmAnalyticsEvaluationReportsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedEvaluationReportApi),
+        body: JSON.stringify(patchedEvaluationReportUpdateApi),
     })
 }
 
@@ -863,7 +864,7 @@ export const getLlmAnalyticsEvaluationReportsDestroyUrl = (projectId: string, id
 }
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ * Evaluation report configs are deleted only when their evaluation is deleted. Use PATCH enabled=false to stop delivery.
  */
 export const llmAnalyticsEvaluationReportsDestroy = async (
     projectId: string,

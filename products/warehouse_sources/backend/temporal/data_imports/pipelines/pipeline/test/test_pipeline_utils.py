@@ -131,6 +131,23 @@ def test_table_from_py_list_inconsistent_types_with_str_and_dict():
     )
 
 
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        # bool in one row, list in another: wrapping to a list yields [true]/["x"], whose element
+        # types differ, so an intermediate pyarrow list array would raise "tried to convert to boolean".
+        ([{"column": True}, {"column": ["x"]}], ["[true]", '["x"]']),
+        # dict in one row, list in another: would raise "cannot mix struct and non-struct values".
+        ([{"column": {"a": 1}}, {"column": ["x"]}], ['[{"a":1}]', '["x"]']),
+    ],
+)
+def test_table_from_py_list_list_mixed_with_incompatible_element_types(rows, expected):
+    table = table_from_py_list(rows)
+
+    assert table.equals(pa.table({"column": expected}))
+    assert table.schema.equals(pa.schema([("column", pa.string())]))
+
+
 def test_table_from_py_list_with_lists():
     table = table_from_py_list([{"column": ["hello"]}, {"column": ["hi"]}])
 
