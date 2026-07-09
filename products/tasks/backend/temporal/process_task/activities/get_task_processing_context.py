@@ -15,6 +15,7 @@ from products.tasks.backend.constants import (
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     vm_sandbox_allowed_origins,
 )
@@ -85,6 +86,10 @@ class TaskProcessingContext:
     agent_proxy_keep_stream_open: bool = False
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
+    # rtk command-output compression is on by default (the sandbox image ships the binary).
+    # The kill-switch flag wins over everything; otherwise a per-run state override
+    # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
+    rtk_enabled: bool = True
 
     @property
     def mode(self) -> str:
@@ -235,6 +240,44 @@ def _is_agent_proxy_keep_stream_open_enabled(
         agent_proxy_keep_stream_open=enabled,
     )
     return enabled
+
+
+def _is_rtk_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    """rtk compression is on by default. The kill-switch flag wins over everything —
+    a fleet-wide disable must not be pinned back on by a per-run override — and
+    otherwise the per-run state override (the user's toggle in PostHog Code settings)
+    applies. Fails open (enabled, override honored) on flag-service errors so the
+    default posture is preserved."""
+    try:
+        disabled = bool(
+            posthoganalytics.feature_enabled(
+                RTK_DISABLED_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("rtk_disabled_flag_check_failed", run_id=run_id, error=str(e))
+        disabled = False
+
+    if disabled:
+        log_with_activity_context("rtk_disabled_flag_checked", run_id=run_id, rtk_enabled=False)
+        return False
+
+    state_override = (state or {}).get("rtk_enabled")
+    if isinstance(state_override, bool):
+        return state_override
+
+    return True
 
 
 def _is_sandbox_event_ingest_enabled(
@@ -669,6 +712,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
     )
+    rtk_enabled = _is_rtk_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"rtk_enabled: {rtk_enabled} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -705,4 +759,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
+        rtk_enabled=rtk_enabled,
     )
