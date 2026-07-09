@@ -65,7 +65,7 @@ const parseFilter = (raw: string): _MetricFilterApi | null => {
     return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
 }
 
-const resolveDate = (value: string | null | undefined): string | null => {
+export const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
     }

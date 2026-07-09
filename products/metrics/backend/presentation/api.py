@@ -383,7 +383,7 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=255,
-        help_text="Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.",
+        help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
     )
     limit = serializers.IntegerField(
         required=False,
@@ -417,9 +417,9 @@ class _MetricEventSampleSerializer(serializers.Serializer):
     is_monotonic = serializers.BooleanField(help_text="True for monotonically increasing counters.")
     service_name = serializers.CharField(help_text="Service that emitted the metric.")
     trace_id = serializers.CharField(
-        help_text="Trace this emission belongs to; empty if none. Use it to pivot to the trace.",
+        help_text="Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace.",
     )
-    span_id = serializers.CharField(help_text="Span this emission belongs to; empty if none.")
+    span_id = serializers.CharField(help_text="Span this emission belongs to (hex); empty if none.")
     attributes = serializers.DictField(
         child=serializers.CharField(),
         help_text="Per-emission attributes (high-cardinality labels on the data point).",
