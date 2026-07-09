@@ -216,24 +216,19 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
     if "name" in fields:
         raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
 
-    definition_changed = False
-    if "definition" in fields:
-        canonical_def, referenced = _canonical_definition(fields["definition"], team, user)
-        old_hash = canonical_query_hash(metric.definition) if metric.definition else None
-        new_hash = canonical_query_hash(canonical_def) if canonical_def else None
-        definition_changed = old_hash != new_hash
-        fields["definition"] = canonical_def
-        fields["referenced_table_names"] = referenced
+    old_definition_hash = _definition_hash(metric.definition)
 
-    if "source_insight_short_id" in fields and not fields["source_insight_short_id"]:
-        # Unlinking from the insight also clears the snapshot hash so drift no longer applies.
-        fields["source_insight_short_id"] = None
-        fields["source_insight_query_hash"] = None
+    # Route definition / insight-link through the same resolver as create, so a PATCH honors the
+    # definition-XOR-insight rule, snapshots (and validates) on relink, and drops the hash on unlink.
+    definition_arg = fields.pop("definition", _UNSET)
+    source_insight_arg = fields.pop("source_insight_short_id", _UNSET)
+    fields.update(_resolve_definition_fields(definition_arg, source_insight_arg, team, user))
 
     for key, value in fields.items():
         setattr(metric, key, value)
 
-    if definition_changed and metric.status == MetricStatus.APPROVED:
+    if _definition_hash(metric.definition) != old_definition_hash and metric.status == MetricStatus.APPROVED:
+        # The definition now computes something different, so its approval no longer holds.
         _reset_to_proposed(metric)
 
     with team_scope(team.id):
@@ -269,7 +264,7 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
     if not query:
         raise SourceInsightUnavailable("Could not convert the source insight's query. Edit the definition or unlink.")
 
-    canonical_def, referenced = validate_metric_definition(query, metric.team, user)
+    canonical_def, referenced = _canonical_definition(query, metric.team, user)
     new_hash = canonical_query_hash(query)
     changed = new_hash != metric.source_insight_query_hash
 

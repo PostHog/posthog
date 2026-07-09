@@ -274,3 +274,37 @@ class TestUpdateResetsApproval(BaseTest):
         approve_metric(metric, self.user)
         refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="clarified")
         assert refined.status == MetricStatus.APPROVED
+
+
+class TestUpdateInsightLink(BaseTest):
+    def _insight(self, query: dict | None = None) -> Insight:
+        return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
+
+    def test_relink_to_new_insight_snapshots_and_resets_approval(self) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="mrr",
+            description="d",
+            source_insight_short_id=self._insight().short_id,
+        )
+        approve_metric(metric, self.user)
+        insight_b = self._insight(query=_HOGQL_B)
+
+        updated = update_metric(metric, team=self.team, user=self.user, source_insight_short_id=insight_b.short_id)
+
+        assert updated.status == MetricStatus.PROPOSED
+        assert updated.source_insight_short_id == insight_b.short_id
+        assert "persons" in updated.definition["query"]
+        assert compute_drift([updated])[updated.id] is False
+
+    def test_definition_and_source_are_mutually_exclusive_on_update(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        with self.assertRaises(ValidationError):
+            update_metric(
+                metric,
+                team=self.team,
+                user=self.user,
+                definition=_HOGQL_A,
+                source_insight_short_id=self._insight().short_id,
+            )

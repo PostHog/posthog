@@ -111,6 +111,9 @@ class MetricSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.BOOL)
     def get_is_drifted(self, obj: Metric) -> bool:
-        # compute_drift short-circuits (no query) for metrics without a source insight, so this is
-        # free for the common unlinked case and one bounded query for the linked ones.
+        # The list view precomputes drift for the whole page into ``drift_map`` (one bulk query);
+        # single-object paths (retrieve, create, approve, ...) fall back to a bounded per-object query.
+        drift_map = self.context.get("drift_map")
+        if drift_map is not None and obj.id in drift_map:
+            return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]

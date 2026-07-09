@@ -34,6 +34,18 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
         return queryset.filter(team_id=self.team_id, deleted=False).order_by("-created_at")
 
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
+        # into a per-metric insight lookup (an N+1 over the catalog list).
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        metrics = page if page is not None else list(queryset)
+        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(metrics)}
+        serializer = self.get_serializer(metrics, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
     @extend_schema(description="Create a metric, or refine the one already holding this name for the team.")
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = self.get_serializer(data=request.data)

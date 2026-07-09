@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -126,6 +129,22 @@ class TestMetricLifecycleAPI(APIBaseTest):
         body = response.json()
         assert body["definition"]["kind"] == "HogQLQuery"
         assert body["is_drifted"] is False
+
+    def test_list_computes_drift_in_a_single_insight_query(self) -> None:
+        # is_drifted must not fan out into one insight lookup per metric: the list view precomputes
+        # drift for the whole page in one bulk query. Three linked metrics => one insight query.
+        for i in range(3):
+            insight = self._insight()
+            self.client.post(
+                self.url,
+                {"name": f"m{i}", "description": "d", "source_insight_short_id": insight.short_id},
+                format="json",
+            )
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        insight_queries = [q for q in ctx.captured_queries if "posthog_dashboarditem" in q["sql"]]
+        assert len(insight_queries) == 1, insight_queries
 
     def test_approve_returns_409_while_drifted(self) -> None:
         insight = self._insight()
