@@ -2487,7 +2487,9 @@ class PgAnalyzeSourceConfig(config.Config):
 
 @config.config
 class PhylloSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -3317,7 +3319,7 @@ class TickTickSourceConfig(config.Config):
 
 @config.config
 class TicketTailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

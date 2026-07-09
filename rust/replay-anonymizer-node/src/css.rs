@@ -1,6 +1,5 @@
-//! Blur inline `url(data:image/...;base64,...)` backgrounds in CSS. Mirrors `anonymize/css.ts`, but the
-//! regex `URL_DATA_IMAGE_RE` is replaced with a single linear left-to-right scan (no backtracking).
-//! `None` means "unchanged".
+//! Blur inline `url(data:image/...;base64,...)` backgrounds in CSS, using a single linear
+//! left-to-right scan (no backtracking regex). `None` means "unchanged".
 
 use std::borrow::Cow;
 

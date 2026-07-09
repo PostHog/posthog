@@ -270,6 +270,7 @@ the row lists both.
 | persona                 | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
 | pexels                  | HTTP                        | requests                                                        | ✅                          |
+| phyllo                  | HTTP                        | requests                                                        | ✅                          |
 | picqer                  | HTTP                        | requests                                                        | ✅                          |
 | pingdom                 | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
@@ -333,6 +334,7 @@ the row lists both.
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | testrail                | HTTP                        | requests                                                        | ✅                          |
 | thinkific               | HTTP                        | requests                                                        | ✅                          |
+| tickettailor            | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tmdb                    | HTTP                        | requests                                                        | ✅                          |
 | todoist                 | HTTP                        | requests                                                        | ✅                          |
@@ -605,7 +607,6 @@ doesn't conflict with concurrent PRs.
 - perk
 - persona
 - pexels
-- phyllo
 - pipeliner
 - pivotal_tracker
 - piwik
@@ -697,7 +698,6 @@ doesn't conflict with concurrent PRs.
 - thinkific_courses
 - thrive_learning
 - ticketmaster
-- tickettailor
 - ticktick
 - tile38
 - timely

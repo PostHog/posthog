@@ -60,11 +60,43 @@ export function confirmFreezeExposure(onConfirm: () => void): void {
                     This snapshots the currently-exposed users into a static cohort and narrows the feature flag to it.
                     The experiment <b>keeps running</b>, so results keep updating.
                 </p>
-                <p>From a frozen state you can end an experiment or ship a variant at any time.</p>
+                <p>
+                    From a frozen state you can end an experiment or ship a variant at any time. You can unfreeze as
+                    well to reopen enrollment.
+                </p>
             </div>
         ),
         primaryButton: {
             children: 'Freeze exposure',
+            type: 'primary',
+            onClick: onConfirm,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+export function confirmUnfreezeExposure(onConfirm: () => void): void {
+    LemonDialog.open({
+        title: 'Unfreeze exposure?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    New users can <b>enroll again</b> under the flag's original release conditions. Everyone already
+                    enrolled keeps their variant, and the snapshot cohort is removed.
+                </p>
+                <p>
+                    Heads up: users enrolled before the freeze and after the unfreeze joined at different times, which
+                    can mix populations and cause bias in your results.
+                </p>
+            </div>
+        ),
+        primaryButton: {
+            children: 'Unfreeze exposure',
             type: 'primary',
             onClick: onConfirm,
             size: 'small',

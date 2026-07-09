@@ -1451,8 +1451,7 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
-        const showCreateSentimentEvalButton =
-            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
+        const showCreateSentimentEvalButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
