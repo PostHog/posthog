@@ -44,6 +44,12 @@ class ChartHopSource(ResumableSource[ChartHopSourceConfig, ChartHopResumeConfig]
         return ExternalDataSourceType.CHARTHOP
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `org_id` selects which org the stored API token is used against; retargeting it must
+        # re-require the token so an editor can't point the preserved credential at another org.
+        return ["org_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHART_HOP,

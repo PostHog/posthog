@@ -23,6 +23,11 @@ class TestChartHopSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CHARTHOP
 
+    def test_org_id_is_a_connection_host_field(self) -> None:
+        # Changing org_id must force the api_key to be re-entered, so the stored token is
+        # never retargeted at another org the editor doesn't hold credentials for.
+        assert self.source.connection_host_fields == ["org_id"]
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.name.value == "ChartHop"
