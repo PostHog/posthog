@@ -59,7 +59,7 @@ class TestCreateExperiment(APIBaseTest):
         from products.experiments.backend.models.experiment import Experiment
 
         experiment = Experiment.objects.get(id=result.id)
-        assert experiment.parameters["variant_notes"] == {"control": "baseline", "test": "new checkout"}
+        assert experiment.parameters == {"variant_notes": {"control": "baseline", "test": "new checkout"}}
 
     @freeze_time("2025-01-01 12:00:00")
     def test_create_experiment_with_start_date(self):
