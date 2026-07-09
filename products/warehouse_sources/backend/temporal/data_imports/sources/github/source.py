@@ -298,7 +298,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             # available and defer the failure to sync time. Reuse the curated wording, like
             # validate_credentials does.
             raw = str(e)
-            reason = next(
+            credential_reason = next(
                 (
                     friendly
                     for pattern, friendly in self.get_non_retryable_errors().items()
@@ -307,7 +307,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
                 raw,
             )
             for name in org_endpoints:
-                result[name] = reason
+                result[name] = credential_reason
             return result
         reason = check_org_endpoint_permission(access_token, config.repository, egress_identity)
         for name in org_endpoints:
