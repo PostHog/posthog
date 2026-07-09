@@ -1187,7 +1187,6 @@ class EventStreamViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
     mixins.CreateModelMixin,
-    mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.DestroyModelMixin,
     mixins.ListModelMixin,
@@ -1207,13 +1206,6 @@ class EventStreamViewSet(
     def list(self, request: Request, *args, **kwargs) -> Response:
         streams = api.list_event_streams(self.team_id, user=cast(User, request.user))
         return Response(EventStreamSerializer(instance=streams, many=True).data)
-
-    @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
-    def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        stream = api.get_event_stream(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
-        if stream is None:
-            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(EventStreamSerializer(instance=stream).data)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = EventStreamSerializer(data=request.data)

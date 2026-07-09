@@ -1019,28 +1019,6 @@ export const eventStreamsCreate = async (
     })
 }
 
-export const getEventStreamsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/event_streams/${id}/`
-}
-
-/**
- * The caller's event stream: a live feed of selected accounts' events posted to a
- * Slack channel of their choice. Per-user — each team member owns at most one stream, and
- * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
- * destination that is re-provisioned inside the same transaction as every write, so
- * config and delivery can't drift apart.
- */
-export const eventStreamsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<EventStreamApi> => {
-    return apiMutator<EventStreamApi>(getEventStreamsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getEventStreamsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/event_streams/${id}/`
 }

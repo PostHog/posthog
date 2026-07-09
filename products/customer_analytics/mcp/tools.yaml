@@ -407,8 +407,8 @@ tools:
             idempotent: true
         title: Add account to my event stream
         description: >
-            Add a Customer Analytics account to the caller's event stream so its users' matching events start posting
-            to their Slack channel. Provide the stream `id` and the `account_id` to add. Idempotent — adding an account
+            Add a Customer Analytics account to the caller's event stream so its users' matching events start posting to
+            their Slack channel. Provide the stream `id` and the `account_id` to add. Idempotent — adding an account
             that is already in the stream is a no-op. Only accounts with an `external_id` actually deliver (the
             external_id is how events are matched to the account).
         feature_flag: customer-analytics-event-stream
@@ -425,8 +425,8 @@ tools:
         description: >
             Create the caller's personal Customer Analytics event stream — a live feed of selected accounts' events
             posted to a Slack channel of their choice. Each user has at most one stream per project (409 if one already
-            exists; use event-streams-list first). Provide `event_names` to watch, and optionally `slack_integration`
-            + `slack_channel_id` for delivery — the stream only delivers once events, a Slack channel, and at least one
+            exists; use event-streams-list first). Provide `event_names` to watch, and optionally `slack_integration` +
+            `slack_channel_id` for delivery — the stream only delivers once events, a Slack channel, and at least one
             member account are all configured and `enabled` is true.
         feature_flag: customer-analytics-event-stream
     event-streams-destroy:
@@ -440,8 +440,8 @@ tools:
             idempotent: true
         title: Delete my event stream
         description: >
-            Delete the caller's event stream and its account memberships, and stop its Slack delivery. Only the
-            caller's own stream can be deleted.
+            Delete the caller's event stream and its account memberships, and stop its Slack delivery. Only the caller's
+            own stream can be deleted.
         feature_flag: customer-analytics-event-stream
     event-streams-list:
         operation: event_streams_list
@@ -484,13 +484,10 @@ tools:
             idempotent: true
         title: Remove account from my event stream
         description: >
-            Remove a Customer Analytics account from the caller's event stream so its events stop posting to their
-            Slack channel. Provide the stream `id` and the `account_id` to remove. Idempotent — removing an account
-            that is not in the stream is a no-op.
+            Remove a Customer Analytics account from the caller's event stream so its events stop posting to their Slack
+            channel. Provide the stream `id` and the `account_id` to remove. Idempotent — removing an account that is
+            not in the stream is a no-op.
         feature_flag: customer-analytics-event-stream
-    event-streams-retrieve:
-        operation: event_streams_retrieve
-        enabled: false
     event-streams-send-test-message:
         operation: event_streams_send_test_message_create
         enabled: true

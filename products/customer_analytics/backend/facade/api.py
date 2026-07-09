@@ -1997,11 +1997,6 @@ def list_event_streams(team_id: int, *, user: "User") -> list[contracts.EventStr
     return [_to_event_stream_view(s) for s in _own_streams(team_id, user).order_by("created_at")]
 
 
-def get_event_stream(team_id: int, stream_id: str | UUID, *, user: "User") -> contracts.EventStreamView | None:
-    stream = _own_streams(team_id, user).filter(id=stream_id).first()
-    return _to_event_stream_view(stream) if stream is not None else None
-
-
 def create_event_stream(
     *,
     team_id: int,
