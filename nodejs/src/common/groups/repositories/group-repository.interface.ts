@@ -64,6 +64,17 @@ export interface GroupRepository {
         }[]
     >
 
+    /**
+     * Batch-fetch full group rows for the given (team, type index, key) tuples in a single query.
+     * Unlike `fetchGroupsByKeys` (a partial, personhog-routed projection used by CDP/error-tracking),
+     * this returns the complete `Group` — including `created_at` and `version` — so the ingestion
+     * group cache can be warmed with entries equivalent to a per-key `fetchGroup`.
+     */
+    fetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string }[],
+        callerTag?: string
+    ): Promise<Group[]>
+
     insertGroup(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,

@@ -61,6 +61,48 @@ export class PostgresGroupRepository
         }
     }
 
+    async fetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string }[],
+        callerTag?: string
+    ): Promise<Group[]> {
+        if (entries.length === 0) {
+            return []
+        }
+
+        // Deduplicate inputs so a repeated tuple can't produce duplicate rows.
+        const seen = new Set<string>()
+        const teamIds: TeamId[] = []
+        const groupTypeIndexes: GroupTypeIndex[] = []
+        const groupKeys: string[] = []
+        for (const { teamId, groupTypeIndex, groupKey } of entries) {
+            const key = `${teamId}:${groupTypeIndex}:${groupKey}`
+            if (seen.has(key)) {
+                continue
+            }
+            seen.add(key)
+            teamIds.push(teamId)
+            groupTypeIndexes.push(groupTypeIndex)
+            groupKeys.push(groupKey)
+        }
+
+        // UNNEST with constant query shape keeps the plan cacheable regardless of batch size.
+        // Read from the primary (PERSONS_WRITE) so the warmed cache reflects in-flight writes,
+        // matching the freshness the per-key fetchGroup path uses for updates.
+        const { rows } = await this.postgres.query<RawGroup>(
+            PostgresUse.PERSONS_WRITE,
+            `SELECT g.*
+             FROM posthog_group g
+             JOIN unnest($1::int[], $2::int[], $3::text[]) AS t(team_id, group_type_index, group_key)
+               ON g.team_id = t.team_id
+              AND g.group_type_index = t.group_type_index
+              AND g.group_key = t.group_key`,
+            [teamIds, groupTypeIndexes, groupKeys],
+            queryTag('fetchGroups', callerTag)
+        )
+
+        return rows.map((row) => this.toGroup(row))
+    }
+
     async fetchGroupsByKeys(
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],

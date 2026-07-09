@@ -52,6 +52,15 @@ export class PersonHogGroupRepository implements GroupRepository {
         }
     }
 
+    fetchGroups(
+        entries: { teamId: TeamId; groupTypeIndex: GroupTypeIndex; groupKey: string }[],
+        callerTag?: string
+    ): Promise<Group[]> {
+        // Full group rows (with created_at/version) aren't exposed over the gRPC proto,
+        // so this always reads from Postgres.
+        return timedPostgres(this.clientLabel, 'fetchGroups', () => this.postgres.fetchGroups(entries, callerTag))
+    }
+
     async fetchGroupsByKeys(
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],

@@ -337,6 +337,52 @@ describe('PostgresGroupRepository Integration', () => {
         })
     })
 
+    describe('fetchGroups', () => {
+        it('returns full group rows for matching tuples and omits non-matching ones', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ group_type_index: 0, group_key: 'group-a', version: 3 })
+            await insertTestGroup({ group_type_index: 1, group_key: 'group-b' })
+
+            const result = await repository.fetchGroups([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'group-a' },
+                { teamId, groupTypeIndex: 1 as GroupTypeIndex, groupKey: 'group-b' },
+                // Right key but wrong type index — must not match.
+                { teamId, groupTypeIndex: 2 as GroupTypeIndex, groupKey: 'group-a' },
+                // Absent key — must not match.
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'missing' },
+            ])
+
+            expect(result).toHaveLength(2)
+            const byKey = new Map(result.map((group) => [group.group_key, group]))
+            expect(byKey.get('group-a')).toMatchObject({
+                team_id: teamId,
+                group_type_index: 0,
+                group_key: 'group-a',
+                group_properties: groupProperties,
+                created_at: createdAt,
+                version: 3,
+            })
+            expect(byKey.get('group-b')).toMatchObject({
+                team_id: teamId,
+                group_type_index: 1,
+                group_key: 'group-b',
+            })
+        })
+
+        it('deduplicates repeated tuples and returns [] for empty input', async () => {
+            await insertTestTeam(teamId)
+            await insertTestGroup({ group_type_index: 0, group_key: 'group-a' })
+
+            expect(await repository.fetchGroups([])).toEqual([])
+
+            const result = await repository.fetchGroups([
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'group-a' },
+                { teamId, groupTypeIndex: 0 as GroupTypeIndex, groupKey: 'group-a' },
+            ])
+            expect(result).toHaveLength(1)
+        })
+    })
+
     describe('insertGroup', () => {
         it('should insert a group successfully', async () => {
             await insertTestTeam(teamId)

@@ -95,6 +95,7 @@ function createMockPostgres(): jest.Mocked<GroupRepository> {
     return {
         fetchGroup: jest.fn(),
         fetchGroupsByKeys: jest.fn(),
+        fetchGroups: jest.fn(),
         fetchGroupTypesByTeamIds: jest.fn(),
         fetchGroupTypesByProjectIds: jest.fn(),
         insertGroup: jest.fn(),
