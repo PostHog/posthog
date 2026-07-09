@@ -114,7 +114,7 @@ class TestPopularSourceTypes(BaseTest):
         super().setUp()
         cache.delete(api.POPULAR_SOURCE_TYPES_CACHE_KEY)
 
-    def _create_source(self, team_id: int, source_type: str, deleted: bool = False) -> ExternalDataSource:
+    def _create_source(self, team_id: int, source_type: str, deleted: bool | None = False) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=team_id,
             source_id=str(uuid.uuid4()),
@@ -124,26 +124,28 @@ class TestPopularSourceTypes(BaseTest):
             deleted=deleted,
         )
 
-    def test_ranks_source_types_by_connection_count_across_teams_excluding_deleted(self) -> None:
+    def test_ranks_source_types_by_distinct_team_count(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._create_source(self.team.pk, "Postgres")
-        self._create_source(self.team.pk, "Postgres")
-        self._create_source(other_team.pk, "Postgres")
+        self._create_source(self.team.pk, "Postgres")  # duplicate within a team adds no weight
+        self._create_source(other_team.pk, "Postgres", deleted=None)  # NULL deleted counts as live
         self._create_source(self.team.pk, "Stripe")
-        self._create_source(self.team.pk, "Stripe", deleted=True)
+        self._create_source(other_team.pk, "Stripe", deleted=True)  # soft-deleted excluded
         self._create_source(other_team.pk, "Hubspot")
 
         with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=True):
-            assert api.get_popular_source_types() == {"Postgres": 1, "Stripe": 2, "Hubspot": 3}
+            # Postgres: 2 teams. Stripe and Hubspot tie at 1 team each — alphabetical tiebreak.
+            assert api.get_popular_source_types() == {"Postgres": 1, "Hubspot": 2, "Stripe": 3}
 
     def test_limit_truncates_to_top_n(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
         self._create_source(self.team.pk, "Postgres")
-        self._create_source(self.team.pk, "Postgres")
+        self._create_source(other_team.pk, "Postgres")
         self._create_source(self.team.pk, "Stripe")
         self._create_source(self.team.pk, "Hubspot")
 
         with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=True):
-            assert api.get_popular_source_types(limit=2) == {"Postgres": 1, "Stripe": 2}
+            assert api.get_popular_source_types(limit=2) == {"Postgres": 1, "Hubspot": 2}
 
     def test_caches_the_ranking_across_calls(self) -> None:
         self._create_source(self.team.pk, "Postgres")

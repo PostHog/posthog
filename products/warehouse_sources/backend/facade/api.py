@@ -164,22 +164,26 @@ def list_sources(team_id: int, *, include_deleted: bool = False) -> list[contrac
 
 
 def _compute_popular_source_types() -> dict[str, int]:
+    # exclude(deleted=True) rather than filter(deleted=False): the column is nullable and
+    # NULL means "not deleted" on historical rows — same convention as list_sources above.
     counts = (
-        _ExternalDataSource.objects.filter(deleted=False)
+        _ExternalDataSource.objects.exclude(deleted=True)
         .values("source_type")
-        .annotate(count=Count("id"))
-        .order_by("-count")
+        .annotate(count=Count("team_id", distinct=True))
+        .order_by("-count", "source_type")
     )
     return {row["source_type"]: rank for rank, row in enumerate(counts, start=1)}
 
 
 def get_popular_source_types(limit: int = 10) -> dict[str, int]:
-    """1-indexed source_type -> rank, by connected ExternalDataSource count across all teams.
+    """1-indexed source_type -> rank, by how many distinct teams have that source connected.
 
-    Deliberately cross-team, unlike every other function in this module — popularity is a
-    global product signal, not a per-tenant one. Cloud-only: on self-hosted/local dev "all
-    teams" is just one company's own projects, not a meaningful ranking signal. Cached ~7
-    days since this is a full-table aggregate scan with no natural per-team cache key.
+    Distinct teams rather than raw connection count, so one team with many duplicate
+    connections can't skew the ranking. Deliberately cross-team, unlike every other
+    function in this module — popularity is a global product signal, not a per-tenant one.
+    Cloud-only: on self-hosted/local dev "all teams" is just one company's own projects,
+    not a meaningful ranking signal. Cached ~7 days since this is a full-table aggregate
+    scan with no natural per-team cache key.
     """
     if not is_cloud():
         return {}

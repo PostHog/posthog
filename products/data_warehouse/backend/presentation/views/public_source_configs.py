@@ -35,9 +35,7 @@ def build_source_configs() -> dict[str, dict]:
         except Exception:
             logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
             config["tables"] = []
-        rank = popular_ranks.get(str(source_type))
-        if rank is not None:
-            config["popularityRank"] = rank
+        config["popularityRank"] = popular_ranks.get(str(source_type))
         results[str(source_type)] = config
 
     return results
@@ -66,7 +64,7 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         ),
     )
     def list(self, request: Request) -> Response:
-        # Results are deploy-static (they only change when source code ships), so this is a
-        # safe candidate for caching if the endpoint ever gets hot; today it is fetched only
-        # at posthog.com build time.
+        # Results change only on deploy (source code) or when the ~weekly popularityRank
+        # recomputes — no longer deploy-static, so mind the rank staleness window if this
+        # ever gets response caching; today it is fetched only at posthog.com build time.
         return Response(status=status.HTTP_200_OK, data=build_source_configs())

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { memo } from 'react'
+import { ReactNode, memo } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -89,6 +89,35 @@ const SourceTile = memo(function SourceTile({
     )
 })
 
+function SourceGrid({
+    items,
+    accessDisabledReason,
+    onNotify,
+    onSelect,
+    children,
+}: {
+    items: CatalogItem[]
+    accessDisabledReason: string | null
+    onNotify: (item: CatalogItem) => void
+    onSelect: (item: CatalogItem) => void
+    children?: ReactNode
+}): JSX.Element {
+    return (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
+            {items.map((item) => (
+                <SourceTile
+                    key={item.name}
+                    item={item}
+                    accessDisabledReason={accessDisabledReason}
+                    onNotify={onNotify}
+                    onSelect={onSelect}
+                />
+            ))}
+            {children}
+        </div>
+    )
+}
+
 function RequestSourceTile({ onRequest }: { onRequest: () => void }): JSX.Element {
     return (
         <button
@@ -159,17 +188,12 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                 {showPopularSection && (
                     <div className="flex flex-col gap-2">
                         <h3 className="text-sm font-semibold text-muted mb-0">Popular sources</h3>
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
-                            {popularItems.map((item) => (
-                                <SourceTile
-                                    key={item.name}
-                                    item={item}
-                                    accessDisabledReason={accessDisabledReason}
-                                    onNotify={registerInterest}
-                                    onSelect={selectSourceType}
-                                />
-                            ))}
-                        </div>
+                        <SourceGrid
+                            items={popularItems}
+                            accessDisabledReason={accessDisabledReason}
+                            onNotify={registerInterest}
+                            onSelect={selectSourceType}
+                        />
                     </div>
                 )}
 
@@ -188,18 +212,14 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     </div>
                 )}
 
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3">
-                    {filteredItems.map((item) => (
-                        <SourceTile
-                            key={item.name}
-                            item={item}
-                            accessDisabledReason={accessDisabledReason}
-                            onNotify={registerInterest}
-                            onSelect={selectSourceType}
-                        />
-                    ))}
+                <SourceGrid
+                    items={filteredItems}
+                    accessDisabledReason={accessDisabledReason}
+                    onNotify={registerInterest}
+                    onSelect={selectSourceType}
+                >
                     <RequestSourceTile onRequest={showSourceRequest} />
-                </div>
+                </SourceGrid>
             </div>
 
             <LemonModal
