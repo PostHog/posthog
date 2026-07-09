@@ -781,6 +781,16 @@ from = [
     "products.user_interviews",
 ]
 
+# streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
+
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.bridge_views.*",
+]
+from = [
+    "products.streamlit_apps",
+]
+
 # Legacy leaks — core (posthog/ee) imports these internals directly.
 # Each block below should shrink as imports migrate to the facade.
 # These products have had backend:contract-check removed from package.json
