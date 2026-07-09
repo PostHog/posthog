@@ -94,8 +94,27 @@ class TestRedis(TestCase):
                 self.assertIsNot(client1, client2)
                 # Should have been called twice (once per loop)
                 self.assertEqual(mock_from_url.call_count, 2)
-                # Verify the calls were made with correct parameters
-                mock_from_url.assert_any_call("redis://mocked:6379", db=0)
+                # Socket timeouts must be passed through so a hung Redis can't block a worker forever
+                mock_from_url.assert_any_call(
+                    "redis://mocked:6379",
+                    db=0,
+                    socket_timeout=20.0,
+                    socket_connect_timeout=3.0,
+                )
+
+    def test_sync_redis_client_passes_socket_timeouts(self):
+        # Guard that the sync production client is built with socket timeouts (regression: a hung
+        # Redis node blocking a web worker indefinitely)
+        with patch("redis.from_url") as mock_from_url:
+            with self.settings(TEST=False, REDIS_URL="redis://mocked:6379"):
+                get_client()
+
+            mock_from_url.assert_called_once_with(
+                "redis://mocked:6379",
+                db=0,
+                socket_timeout=20.0,
+                socket_connect_timeout=3.0,
+            )
 
     def test_same_loop_returns_cached_client_test_mode(self):
         """In test mode, calling get_async_client twice returns the same cached instance."""
