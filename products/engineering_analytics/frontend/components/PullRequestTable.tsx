@@ -47,7 +47,9 @@ export interface PullRequestTableProps {
     costLensEnabled: boolean
     /** Author column is redundant on the author page (every row is the same author) — hide it there. */
     showAuthor?: boolean
-    /** Rows per page — the list page's 50 by default; the hub passes a small page to stay scannable. */
+    /** Show the Created date column and default the sort to newest-first. Off for the hub's triage order. */
+    showCreated?: boolean
+    /** Rows per page — the list page's 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
@@ -61,7 +63,8 @@ export function PullRequestTable({
     sourceId,
     costLensEnabled,
     showAuthor = true,
-    pageSize = 50,
+    showCreated = false,
+    pageSize = 25,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
     embedded = false,
@@ -82,7 +85,7 @@ export function PullRequestTable({
                             targetBlankIcon
                             className="font-mono text-[11px] text-tertiary"
                         >
-                            {row.repoOwner}/{row.repoName} #{row.number}
+                            #{row.number}
                         </Link>
                         {row.labels.slice(0, 3).map((label) => (
                             <LemonTag key={label} type="option">
@@ -178,6 +181,25 @@ export function PullRequestTable({
                   },
               ] as LemonTableColumns<PullRequestRow>)
             : []),
+        ...(showCreated
+            ? ([
+                  {
+                      title: 'Created',
+                      key: 'created',
+                      width: 110,
+                      align: 'right',
+                      tooltip: 'When the pull request was opened.',
+                      sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+                      render: (_, row) => (
+                          <Tooltip title={dayjs(row.createdAt).format('MMM D, YYYY HH:mm')}>
+                              <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
+                                  {dayjs(row.createdAt).format('MMM D')}
+                              </span>
+                          </Tooltip>
+                      ),
+                  },
+              ] as LemonTableColumns<PullRequestRow>)
+            : []),
         {
             title: 'Open time',
             key: 'age',
@@ -226,6 +248,7 @@ export function PullRequestTable({
                 }
             }}
             useURLForSorting={false}
+            defaultSorting={showCreated ? { columnKey: 'created', order: -1 } : null}
             pagination={{ pageSize }}
             emptyState={emptyState ?? "No pull requests yet. They'll appear once the GitHub source syncs."}
             nouns={['pull request', 'pull requests']}

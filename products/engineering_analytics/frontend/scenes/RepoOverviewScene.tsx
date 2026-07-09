@@ -3,9 +3,7 @@
 
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { ReactNode } from 'react'
 
-import { IconBox } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -15,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { EntityHeader } from '../components/EntityHeader'
+import { RepoEntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
@@ -33,29 +31,6 @@ import { repoOverviewLogic } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
-}
-
-function RepoEntityHeader({ repoFullName, right }: { repoFullName: string; right?: ReactNode }): JSX.Element {
-    const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
-    return (
-        <EntityHeader
-            icon={<IconBox />}
-            title={name}
-            // No slug line when the source hasn't reported a repo name yet.
-            slug={
-                repoFullName ? (
-                    <>
-                        {repoFullName}
-                        {' · '}
-                        <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
-                            View on GitHub
-                        </Link>
-                    </>
-                ) : undefined
-            }
-            right={right}
-        />
-    )
 }
 
 /** A right-now backlog count in the hero: number over a small label, colored only when it's a pressure. */

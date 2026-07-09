@@ -1,20 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { SourceScopeChip } from '../components/ScopeBar'
 import { StatCard } from '../components/StatCard'
 import { CIStatusFilter, PRStateFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
@@ -26,30 +20,17 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         pullRequestsLoading,
         tableTruncated,
         stateFilter,
-        author,
-        repo,
         ciStatusFilter,
         search,
-        authorOptions,
-        repoOptions,
         hasActiveFilters,
         activeCard,
         sourceId,
+        activeSource,
         notConnected,
         pullRequestsLoadError,
-        costLensEnabled,
     } = useValues(engineeringAnalyticsLogic)
-    const {
-        setStateFilter,
-        setAuthor,
-        setRepo,
-        setCiStatusFilter,
-        setSearch,
-        resetFilters,
-        applyCardFilter,
-        setCostLensEnabled,
-        refresh,
-    } = useActions(engineeringAnalyticsLogic)
+    const { setStateFilter, setCiStatusFilter, setSearch, resetFilters, applyCardFilter, refresh } =
+        useActions(engineeringAnalyticsLogic)
 
     // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
     // the PR list) shows a retryable error, never the misleading "connect" state.
@@ -65,7 +46,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
+            <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <StatCard
                     label="Open PRs"
@@ -101,7 +82,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                     placeholder="Search title, repo, author, #id…"
                     value={search}
                     onChange={setSearch}
-                    className="w-64"
+                    className="w-80"
                 />
                 <LemonSegmentedButton
                     size="small"
@@ -127,40 +108,14 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                         { value: 'none', label: 'CI: none', labelInMenu: 'No CI' },
                     ]}
                 />
-                <LemonSelect
-                    size="small"
-                    placeholder="Repo: all"
-                    value={repo}
-                    onChange={setRepo}
-                    allowClear
-                    options={repoOptions.map((r) => ({ value: r, label: r }))}
-                />
-                <div className="w-48">
-                    <LemonInputSelect
-                        mode="single"
-                        size="small"
-                        placeholder="Author: anyone"
-                        value={author ? [author] : []}
-                        onChange={(values) => setAuthor(values[0] ?? null)}
-                        options={authorOptions.map((a) => ({ key: a, label: a }))}
-                        data-attr="engineering-analytics-author-filter"
-                    />
-                </div>
-                <LemonSwitch
-                    label="Cost columns"
-                    checked={costLensEnabled}
-                    onChange={setCostLensEnabled}
-                    size="small"
-                    bordered
-                    data-attr="engineering-analytics-cost-lens"
-                />
             </div>
 
             <PullRequestTable
                 rows={filteredPullRequests}
                 loading={pullRequestsLoading}
                 sourceId={sourceId}
-                costLensEnabled={costLensEnabled}
+                costLensEnabled
+                showCreated
                 emptyState={
                     hasActiveFilters ? (
                         <div className="flex flex-col items-center gap-2">
@@ -175,12 +130,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 }
             />
 
-            <div className="text-xs text-tertiary">
-                CI status is workflow-level for each pull request's latest commit, not per-check. A run that hasn't
-                completed shows as Running, not a pass or fail. "Open→merge" is created-to-merged time (merged PRs
-                only), never review or cycle time.
-                {tableTruncated && ' Showing the most recent 1000 PRs.'}
-            </div>
+            {tableTruncated && <div className="text-xs text-tertiary">Showing the most recent 1000 pull requests.</div>}
         </div>
     )
 }
