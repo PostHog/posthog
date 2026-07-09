@@ -32,6 +32,19 @@ import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/postho
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
+// Email MX validation runs on every email send, so without a mock the test-panel
+// email tests would do live DNS lookups for their fixture recipients (and
+// example.com publishes a null MX, which validation correctly blocks). Resolve
+// everything as deliverable — validation behavior is covered by
+// email-validation.service.test.ts.
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
+        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
+        resolve6: jest.fn().mockResolvedValue([]),
+    })),
+}))
+
 describe('CDP API', () => {
     let hub: Hub
     let cdpDeps: CdpConsumerBaseDeps
@@ -768,6 +781,59 @@ describe('CDP API', () => {
             expect(getGroupsSpy).not.toHaveBeenCalled()
             const invocation = executeSpy.mock.calls[0][0]
             expect(invocation.filterGlobals.$group_0).toEqual('org-provided')
+        })
+    })
+
+    describe('hogflow wait_until_condition test invocations', () => {
+        // Matches events whose name equals `eventName` - same shape the serializer compiles
+        // for an "events to wait for" entry.
+        const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+
+        const waitFlowConfiguration = {
+            name: 'Wait flow',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'wait_node',
+                    name: 'Wait',
+                    type: 'wait_until_condition',
+                    config: {
+                        events: [
+                            {
+                                filters: {
+                                    bytecode: eventBytecode('follow_up'),
+                                    events: [{ id: 'follow_up', name: 'follow_up', type: 'events', order: 0 }],
+                                },
+                            },
+                        ],
+                        condition: { filters: null },
+                        max_wait_duration: '5m',
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'wait_node', to: 'exit_node', type: 'branch', index: 0 },
+                { from: 'wait_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        it.each([
+            ['matching', 'follow_up', 'exit_node'],
+            ['non-matching', 'some_other_event', 'wait_node'],
+        ])('a %s test event resolves the wait step correctly', async (_, eventName, expectedNextActionId) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event!, event: eventName } },
+                    mock_async_functions: true,
+                    configuration: waitFlowConfiguration,
+                    current_action_id: 'wait_node',
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.nextActionId).toEqual(expectedNextActionId)
         })
     })
 

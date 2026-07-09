@@ -1,6 +1,6 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
-import { QUnitType, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dateOptionPlurals } from 'scenes/retention/constants'
@@ -178,7 +178,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                     (_, i) =>
                         dayjs(date_to)
                             .tz(timezone)
-                            .add(i - numUnits, interval as QUnitType) >= startDate
+                            .add(i - numUnits, interval) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {

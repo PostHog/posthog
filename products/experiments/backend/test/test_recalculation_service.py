@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -9,6 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -490,3 +492,32 @@ class TestLiveQueryProgress(BaseTest):
                 side_effect=Exception("clusterAllReplicas unavailable"),
             ):
                 assert get_live_query_progress(recalc) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
+    def test_counts_rows_from_queries_finished_during_the_run(self):
+        # The per-metric queries usually outlive no single 2s poll: a query that finishes between polls must
+        # still be visible via system.query_log, otherwise the run's progress reads zero for its whole life.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="live-ql", name="live-ql")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live-ql")
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now()
+        )
+
+        with tags_context(
+            team_id=self.team.id,
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            product=Product.EXPERIMENTS,
+            feature=Feature.CACHE_WARMUP,
+        ):
+            sync_execute("SELECT sum(number) FROM numbers(1000)", team_id=self.team.id)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        with team_scope(self.team.id, canonical=True):
+            progress = get_live_query_progress(recalc)
+
+        assert progress is not None
+        assert progress["rows_read"] == 1000
+        assert progress["estimated_rows_total"] == 1000
+        assert progress["running_metrics"] == 0

@@ -47,8 +47,7 @@ def extract_last_execute_sql_call(output: dict[str, Any] | None) -> dict[str, st
     """Return the query and result from the most recent successful *answer* ``execute-sql`` call.
 
     Schema discovery runs through ``execute-sql`` against
-    ``system.information_schema.*`` (the ``mcp-sql-schema-discovery`` regime,
-    forced on in the sandbox), so those discovery queries land in the same
+    ``system.information_schema.*``, so those discovery queries land in the same
     ``execute-sql`` call list as the real answer query. They are skipped here so
     the judge grades the question's answer, not a column lookup the agent ran
     afterward.
@@ -84,8 +83,7 @@ def _is_schema_discovery_query(query: Any) -> bool:
 class AnswerQueryRan(Scorer):
     """Binary: did the agent run a real (non-discovery) ``execute-sql`` answer query?
 
-    Under the ``mcp-sql-schema-discovery`` regime (forced on in the sandbox),
-    schema discovery also runs through ``execute-sql`` against
+    Schema discovery also runs through ``execute-sql`` against
     ``system.information_schema.*``. So a plain "``execute-sql`` was called"
     check passes even when the agent only inspected the schema and never
     answered with SQL. This requires a successful ``execute-sql`` whose query

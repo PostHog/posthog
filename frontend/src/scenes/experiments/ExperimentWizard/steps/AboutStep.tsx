@@ -52,7 +52,7 @@ export function AboutStep(): JSX.Element {
         clearFeatureFlagKeyValidation()
         setFeatureFlagConfig({
             feature_flag_key: flag.key,
-            feature_flag_variants: flag.filters?.multivariate?.variants || [],
+            variants: flag.filters?.multivariate?.variants || [],
         })
     }
 

@@ -367,7 +367,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
                 component: <ParserRecipesSettings />,
-                flag: 'LLM_ANALYTICS_CUSTOM_PARSERS',
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
         ],
