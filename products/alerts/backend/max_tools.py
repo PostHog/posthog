@@ -486,6 +486,8 @@ class UpsertAlertTool(MaxTool):
             insight = await sync_to_async(lambda: alert.insight)()
             if config_updates or conditions_or_threshold_changed:
                 query = await sync_to_async(self._get_upgraded_query)(insight)
+                if query is None:
+                    return "Insight has no valid query.", {"error": "unsupported_insight"}
                 threshold_config = alert.threshold.configuration if alert.threshold else None
                 try:
                     validate_alert_config(
