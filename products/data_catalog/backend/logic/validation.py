@@ -5,8 +5,9 @@ upgrade-canonical definition (so schema migrations never read as drift later) pl
 directly references (cached on the row for the catalog's denied-table filter).
 """
 
-from typing import Optional
+from typing import NoReturn, Optional
 
+from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, FunnelsQuery, HogQLQuery, TrendsQuery
@@ -26,8 +27,12 @@ from ..facade.enums import MARKDOWN_DEFINITION_KIND
 
 # Query kinds a metric definition may take. Node kinds are the RFC's "event with filters"
 # single series; insight kinds are the classic viz shapes. Kept small on purpose.
-_NODE_MODELS = {"EventsNode": EventsNode, "ActionsNode": ActionsNode, "DataWarehouseNode": DataWarehouseNode}
-_INSIGHT_MODELS = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
+_NODE_MODELS: dict[str, type[BaseModel]] = {
+    "EventsNode": EventsNode,
+    "ActionsNode": ActionsNode,
+    "DataWarehouseNode": DataWarehouseNode,
+}
+_INSIGHT_MODELS: dict[str, type[BaseModel]] = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
 _SUPPORTED_KINDS = {"HogQLQuery", *_NODE_MODELS, *_INSIGHT_MODELS}
 
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
@@ -50,7 +55,7 @@ class _TableReferenceCollector(TraversingVisitor):
         super().visit_join_expr(node)
 
 
-def _fail(error: str, hint: str) -> None:
+def _fail(error: str, hint: str) -> NoReturn:
     raise ValidationError({"field": "definition", "error": error, "hint": hint})
 
 
@@ -149,12 +154,12 @@ def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple
     return definition, sorted(collector.tables)
 
 
-def _validate_schema_model(definition: dict, model_class: type) -> tuple[dict, list[str]]:
+def _validate_schema_model(definition: dict, model_class: type[BaseModel]) -> tuple[dict, list[str]]:
     _ensure_valid_schema(definition, model_class)
     return definition, _extract_warehouse_tables(definition)
 
 
-def _ensure_valid_schema(definition: dict, model_class: type) -> None:
+def _ensure_valid_schema(definition: dict, model_class: type[BaseModel]) -> None:
     try:
         model_class.model_validate(definition)
     except Exception as e:

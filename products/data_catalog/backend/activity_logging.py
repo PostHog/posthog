@@ -4,10 +4,10 @@
 trail (create, approve, definition change, soft delete). Registered from ``apps.ready()``.
 """
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from .models import Metric
@@ -37,6 +37,6 @@ def handle_metric_activity(
         activity=activity,
         detail=Detail(
             name=instance.name,
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes_between(cast(AuditableScope, scope), previous=before_update, current=after_update),
         ),
     )

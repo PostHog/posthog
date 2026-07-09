@@ -4,6 +4,8 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 (name reservation, upsert, validation) live in the logic layer behind the facade.
 """
 
+from typing import cast
+
 from django.db.models import QuerySet
 
 from drf_spectacular.utils import extend_schema
@@ -13,6 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 
 from ..facade import api
 from ..facade.models import Metric
@@ -44,7 +47,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         metric = api.upsert_metric(
             team=self.team,
-            user=request.user,
+            user=cast(User, request.user),
             name=data["name"],
             description=data["description"],
             **optional,
@@ -60,7 +63,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if "name" in fields and fields["name"] != metric.name:
             raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
         fields.pop("name", None)
-        metric = api.update_metric(metric, team=self.team, user=request.user, **fields)
+        metric = api.update_metric(metric, team=self.team, user=cast(User, request.user), **fields)
         return Response(self.get_serializer(metric).data)
 
     def perform_destroy(self, instance: Metric) -> None:

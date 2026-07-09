@@ -15426,8 +15426,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       unit?: string;
-      /** Email of the human accountable for this metric, or null. */
-      readonly owner: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -38743,8 +38746,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       unit?: string;
-      /** Email of the human accountable for this metric, or null. */
-      readonly owner?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable

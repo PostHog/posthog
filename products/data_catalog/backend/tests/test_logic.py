@@ -39,6 +39,7 @@ class TestMetricUpsert(BaseTest):
         )
         refined = self._upsert("mrr", description="v2")
         assert refined.description == "v2"
+        assert refined.definition is not None
         assert refined.definition["kind"] == "HogQLQuery"
         assert refined.referenced_table_names == ["events"]
         assert refined.created_source == CreatedSource.AI_GENERATED

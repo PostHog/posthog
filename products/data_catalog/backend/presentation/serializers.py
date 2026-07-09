@@ -91,6 +91,6 @@ class MetricSerializer(serializers.ModelSerializer):
             "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
         }
 
-    @extend_schema_field(OpenApiTypes.STR)
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_owner(self, obj: Metric) -> str | None:
-        return obj.owner.email if obj.owner_id else None
+        return obj.owner.email if obj.owner else None
