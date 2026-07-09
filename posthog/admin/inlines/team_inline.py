@@ -2,13 +2,18 @@ from django.utils.html import format_html
 
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
-from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.admins.team_admin import TeamAdmin, TeamAdminForm
 from posthog.models import Team
 
 
 class TeamInline(TabularInlinePaginated):
     extra = 0
     model = Team
+    # Reuse the standalone team form so the inline shares its test_account_filters handling:
+    # the field is optional (an empty [] is otherwise rejected as required, blocking org saves)
+    # and non-list values are rejected. Without this the inline falls back to the default
+    # ModelForm, which requires the field and accepts any JSON.
+    form = TeamAdminForm
     per_page = 20
     pagination_key = "page-team"
     show_change_link = True

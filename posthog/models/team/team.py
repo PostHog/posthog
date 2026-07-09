@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
@@ -558,7 +557,6 @@ class Team(UUIDTClassicModel):
     test_account_filters = field_access_control(
         models.JSONField(
             default=list,
-            blank=True,
             help_text="""Filters used to identify internal/test users. Each entry is a property filter.
 
             Supported entry types and the exact shape each accepts:
@@ -635,17 +633,6 @@ class Team(UUIDTClassicModel):
 
     # Environment-level default HogQL query modifiers
     modifiers = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
-
-    def clean(self) -> None:
-        super().clean()
-        # test_account_filters is blank=True so ModelForms accept empty input, but that also lets the
-        # default inline form accept any non-list JSON ({}, "oops") and the NOT NULL column reject a
-        # blank input that cleaned to None. Enforce the same contract as TeamAdminForm on every
-        # ModelForm path: empty -> [], anything non-list -> error.
-        if self.test_account_filters is None:
-            self.test_account_filters = []
-        elif not isinstance(self.test_account_filters, list):
-            raise ValidationError({"test_account_filters": "test_account_filters must be a JSON list (e.g. `[]`)."})
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id

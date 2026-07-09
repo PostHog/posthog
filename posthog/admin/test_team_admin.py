@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
-from django.forms import ModelForm, modelform_factory
+from django.forms import ModelForm
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -627,35 +627,32 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
 
 
 class TestTeamInlineForm(BaseTest):
-    def _inline_form(self) -> ModelForm:
+    def _inline_form(self, data: dict | None = None) -> ModelForm:
         request = RequestFactory().get("/")
         request.user = self.user
-        formset_class = TeamInline(Organization, AdminSite()).get_formset(request)
-        return formset_class.form()
+        form_class = TeamInline(Organization, AdminSite()).get_formset(request).form
+        return form_class(data=data, instance=self.team) if data is not None else form_class()
 
     def test_test_account_filters_is_not_required(self) -> None:
-        # Disabling an org saves the Organization admin form, which validates the
-        # TeamInline formset for every team. An empty `[]` is in Django's form
-        # empty_values, so a required field rejects it as "This field is required",
-        # blocking the org save for any team whose filters were cleared.
+        # Disabling an org saves the Organization admin form, which validates the TeamInline formset
+        # for every team. The default ModelForm makes test_account_filters required, and an empty
+        # `[]` is in Django's form empty_values, so it's rejected as "This field is required",
+        # blocking the org save for any team whose filters were cleared. Reusing TeamAdminForm makes
+        # the field optional.
         assert self._inline_form().fields["test_account_filters"].required is False
 
     def test_blank_test_account_filters_normalizes_to_empty_list(self) -> None:
-        # blank=True makes the field optional, but the column is NOT NULL and a blank input
-        # cleans to None. Without Team.clean() normalizing None the value passes form
-        # validation and then errors on save; it must round-trip to `[]`, never None.
-        form_class = modelform_factory(Team, fields=["test_account_filters"])
-        form = form_class(data={"test_account_filters": ""}, instance=self.team)
-        assert form.is_valid(), form.errors
-        form.save()
-        self.team.refresh_from_db()
-        assert self.team.test_account_filters == []
+        # A blank input cleans to None, and the column is NOT NULL; TeamAdminForm normalizes it to []
+        # so it never reaches the DB as None.
+        form = self._inline_form({"test_account_filters": ""})
+        form.is_valid()  # other inline fields are absent, but only this field's outcome matters here
+        assert "test_account_filters" not in form.errors
+        assert form.cleaned_data["test_account_filters"] == []
 
     @parameterized.expand([("object", "{}"), ("nested_object", '{"key": "email"}'), ("string", '"oops"')])
     def test_non_list_test_account_filters_is_rejected(self, _name: str, raw: str) -> None:
-        # blank=True also lets the default inline form accept any valid non-list JSON, which would
-        # otherwise be assigned straight onto the model. Team.clean() must reject it as TeamAdminForm does.
-        form_class = modelform_factory(Team, fields=["test_account_filters"])
-        form = form_class(data={"test_account_filters": raw}, instance=self.team)
-        assert not form.is_valid()
+        # required=False also lets the field accept any valid non-list JSON; TeamAdminForm rejects it
+        # rather than assigning a dict/string onto test_account_filters.
+        form = self._inline_form({"test_account_filters": raw})
+        form.is_valid()
         assert "test_account_filters" in form.errors
