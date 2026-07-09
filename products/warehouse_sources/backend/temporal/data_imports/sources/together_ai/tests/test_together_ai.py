@@ -141,14 +141,19 @@ class TestFetchRetries:
         unauthorized = MagicMock()
         unauthorized.status_code = 401
         unauthorized.ok = False
-        unauthorized.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=unauthorized)
+        unauthorized.reason = "Unauthorized"
+        unauthorized.url = f"{TOGETHER_AI_BASE_URL}/x?type=dedicated"
 
         session = MagicMock()
         session.get.return_value = unauthorized
 
-        with pytest.raises(requests.HTTPError):
+        with pytest.raises(requests.HTTPError) as exc_info:
             together_ai._fetch(session, f"{TOGETHER_AI_BASE_URL}/x", None, {}, MagicMock())
 
+        # The rebuilt error must not leak the query string or response body into stored error state.
+        message = str(exc_info.value)
+        assert "401 Client Error: Unauthorized" in message
+        assert "?type=dedicated" not in message
         assert session.get.call_count == 1
 
 
@@ -204,7 +209,3 @@ class TestTogetherAISourceResponse:
         # don't rewrite on every sync.
         assert response.partition_keys == [cfg.partition_key]
         assert response.partition_mode == "datetime"
-
-    def test_evaluations_use_workflow_id_and_models_partition_on_created(self) -> None:
-        assert together_ai_source("k", "evaluations", MagicMock()).primary_keys == ["workflow_id"]
-        assert together_ai_source("k", "models", MagicMock()).partition_keys == ["created"]

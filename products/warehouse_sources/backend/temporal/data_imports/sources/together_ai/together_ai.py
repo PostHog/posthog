@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -50,8 +51,19 @@ def _fetch(
         raise TogetherAIRetryableError(f"Together AI API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Together AI API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        # Never log response.text or the raw URL: the error body can echo account content and the
+        # query string could carry request metadata. Log only status plus scheme/host/path.
+        safe = urlsplit(response.url)
+        safe_url = f"{safe.scheme}://{safe.netloc}{safe.path}"
+        logger.error("Together AI API error", status=response.status_code, url=safe_url)
+        # raise_for_status() would embed the full request URL in the exception, which is surfaced as
+        # the schema's latest_error. Rebuild the error from scheme/host/path only so no request params
+        # or response body reach stored error state. The "<status> Client Error: <reason> for url:
+        # https://api.together.xyz" prefix stays stable for get_non_retryable_errors() matching.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe_url}",
+            response=response,
+        )
 
     return response.json()
 
@@ -75,13 +87,13 @@ def _extract_rows(payload: Any, endpoint: str) -> list[dict[str, Any]]:
 
 def get_rows(api_key: str, endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = TOGETHER_AI_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     url = f"{TOGETHER_AI_BASE_URL}{endpoint_config.path}"
     payload = _fetch(session, url, endpoint_config.params or None, _get_headers(api_key), logger)
 
     rows = _extract_rows(payload, endpoint)
-    logger.debug(f"Together AI: fetched {len(rows)} rows from {endpoint}")
+    logger.debug("Together AI: fetched rows", count=len(rows), endpoint=endpoint)
     if rows:
         yield rows
 
@@ -113,5 +125,7 @@ def get_status_code(api_key: str, endpoint: str | None = None) -> int:
         params = None
 
     url = f"{TOGETHER_AI_BASE_URL}{path}"
-    response = make_tracked_session().get(url, params=params, headers=_get_headers(api_key), timeout=10)
+    response = make_tracked_session(redact_values=(api_key,)).get(
+        url, params=params, headers=_get_headers(api_key), timeout=10
+    )
     return response.status_code
