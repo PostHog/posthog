@@ -327,7 +327,7 @@
                                     "!scenes/product-tours/stepUtils",
                                     "!scenes/product-tours/constants",
                                     "!scenes/product-tours/editor/generateStepHtml",
-                                    "!scenes/experiments/experimentsLogic",
+                                    "!scenes/experiments/experimentStatus",
                                     "!scenes/experiments/utils",
                                     "!~/scenes/experiments/utils",
                                     "!scenes/session-recordings/components/PanelSettings"

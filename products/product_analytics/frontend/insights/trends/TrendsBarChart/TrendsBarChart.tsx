@@ -12,7 +12,7 @@ import {
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
@@ -362,6 +362,9 @@ export function TrendsBarChart({
         [isAggregated, clickDeps]
     )
 
+    // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
@@ -483,6 +486,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}

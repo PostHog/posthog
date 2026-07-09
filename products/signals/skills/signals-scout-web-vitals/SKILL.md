@@ -16,7 +16,7 @@ compatibility: >
   signal_scout_report:write (for emit-report/edit-report, granted because this scout
   authors reports directly via the report channel). Assumes the signals-scout MCP family
   and standard analytics tools (execute-sql against the events table, read-data-schema,
-  activity-log-list, and the inbox tools in the MCP tools section).
+  advanced-activity-logs-list, and the inbox tools in the MCP tools section).
 allowed_tools:
   - emit_report
   - edit_report
@@ -298,7 +298,7 @@ candidate — with an empty or tiny prior window there's no baseline to regress 
 new or freshly-popular page would look like a band cross. Judge those on their absolute
 band through the standing-poor path instead; don't date them as a deploy regression. Then
 pull a 30-day daily p75 series for that one path (`toStartOfDay(timestamp)`, same filters,
-`GROUP BY day`) to find the step day, and correlate with `activity-log-list` over the same
+`GROUP BY day`) to find the step day, and correlate with `advanced-activity-logs-list` over the same
 window. You usually can't see the team's
 deploys — frame it as "consistent with a change around {day}, confirm against your
 release log".
@@ -467,7 +467,7 @@ Direct calls (read-only):
   `$device_type` / `$geoip_country_code` / `$browser`. Metrics: `LCP`, `INP`, `CLS`, `FCP`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$web_vitals'`) — confirm the
   team's captured `$web_vitals_*` properties and sample values before aggregating.
-- `activity-log-list` — pair a dated regression onset with recent deploys or flag changes
+- `advanced-activity-logs-list` — pair a dated regression onset with recent deploys or flag changes
   for cross-source convergence.
 
 Inbox & reviewer routing:

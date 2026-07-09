@@ -41,6 +41,10 @@ MAX_CUSTOM_IMAGES_PER_USER = 10
 MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
+# Kill switch: rtk command-output compression is on by default in cloud sandboxes;
+# enabling this flag disables it fleet-wide — over any per-run override — without
+# an image rebuild.
+RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
