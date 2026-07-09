@@ -246,7 +246,6 @@ export const FEATURE_FLAGS = {
     ACTION_REFERENCE_COUNT: 'action-reference-count', // owner: @andyzzhao #team-product-analytics, gates bulk action reference counting on actions list
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_GATEWAY: 'ai-gateway', // owner: #team-ai-gateway, gates the AI gateway UI and llm_gateway:read on project secret API keys
-    AI_OBSERVABILITY_EVALUATIONS_TRACE_TARGET: 'ai-observability-evaluations-trace-target', // owner: #team-ai-observability
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_15_MINUTE_INTERVAL: 'alerts-15-minute-interval', // owner: #team-analytics-platform, gates 15-minute insight alert interval
     ALERTS_ANOMALY_DETECTION: 'alerts-anomaly-detection', // owner: @andrewm4894
@@ -344,15 +343,13 @@ export const FEATURE_FLAGS = {
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
-    LLM_ANALYTICS_CUSTOM_PARSERS: 'ai-observability-custom-parsers', // owner: #team-ai-observability
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-ai-observability #team-posthog-ai
     LLM_ANALYTICS_EARLY_ADOPTERS: 'llm-analytics-early-adopters', // owner: #team-ai-observability
-    LLM_ANALYTICS_EVALUATIONS_SENTIMENT: 'llm-analytics-sentiment-evaluations', // owner: #team-ai-observability
+    LLM_ANALYTICS_EVALUATIONS_REPORTS: 'llm-analytics-evaluations-reports', // owner: #team-ai-observability
     LLM_ANALYTICS_OFFLINE_EVALS: 'llm-analytics-offline-evals', // owner: #team-ai-observability
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys
-    LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
