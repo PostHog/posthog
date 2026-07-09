@@ -66,7 +66,7 @@ export interface PageURLSearchResult {
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
     // kea-router JSON-parses query params (?pageURL=123 arrives as a number) and pageUrl is
     // persisted, so a non-string value would otherwise crash `url.split` below on every recompute
-    const urlString: string = typeof url === 'string' ? url : String(url ?? '')
+    const urlString: string = String(url ?? '')
     const parsed = parseWebAnalyticsURL(urlString)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
