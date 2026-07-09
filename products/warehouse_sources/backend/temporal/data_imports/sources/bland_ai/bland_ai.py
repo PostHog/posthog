@@ -133,7 +133,9 @@ def _transcript_rows(
                     # The parent call's creation time. Utterance `created_at`s aren't monotonic
                     # across calls (a long call's utterances postdate the next call's creation),
                     # so this is the field the incremental cursor and partitioning key off.
-                    "call_created_at": call.get("created_at"),
+                    # Direct access on purpose: a silent None here would corrupt partitions and
+                    # stall the incremental watermark.
+                    "call_created_at": call["created_at"],
                 }
             )
     return rows

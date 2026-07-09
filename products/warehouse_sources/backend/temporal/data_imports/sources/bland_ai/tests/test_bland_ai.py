@@ -265,7 +265,7 @@ class TestGetPathwayRows:
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_empty_pathway_list_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        responses = {f"{BASE_URL}/v1/pathway": []}
+        responses: dict[str, Any] = {f"{BASE_URL}/v1/pathway": []}
         mock_session.return_value.get.side_effect = _url_router(responses)
 
         assert list(get_rows("key", "pathways", mock.MagicMock(), _make_manager())) == []
