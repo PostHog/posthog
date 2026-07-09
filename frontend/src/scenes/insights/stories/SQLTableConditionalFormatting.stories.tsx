@@ -1,5 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { userLogic } from 'scenes/userLogic'
+
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { useStorybookMocks } from '~/mocks/browser'
 import { DEFAULT_PICKER_COLORS } from '~/queries/nodes/DataVisualization/Components/ConditionalFormatting/ConditionalFormattingTab'
 import { DataTableVisualization } from '~/queries/nodes/DataVisualization/DataVisualization'
 import {
@@ -26,8 +33,8 @@ function equalsRule(columnName: string, hex: string, colorMode: 'light' | 'dark'
     }
 }
 
-// One rule per default palette color, for both the "light" and "dark" columns, so every color is
-// exercised as a light-mode-saved rule and a dark-mode-saved rule.
+// One rule per default palette color, for both the "light rule" and "dark rule" columns, so every
+// color is exercised both as a rule saved in light mode and as one saved in dark mode.
 const conditionalFormatting: ConditionalFormattingRule[] = DEFAULT_PICKER_COLORS.flatMap((hex) => [
     equalsRule('light', hex, 'light'),
     equalsRule('dark', hex, 'dark'),
@@ -43,15 +50,15 @@ const query: DataVisualizationNode = {
     tableSettings: {
         columns: [
             { column: 'color' },
-            { column: 'light', settings: { display: { label: 'Light mode' } } },
-            { column: 'dark', settings: { display: { label: 'Dark mode' } } },
+            { column: 'light', settings: { display: { label: 'Rule saved in light mode' } } },
+            { column: 'dark', settings: { display: { label: 'Rule saved in dark mode' } } },
         ],
         conditionalFormatting,
     },
 }
 
-// Each row shows a color's hex in both the light and dark columns, so the cell text sits on its own
-// color and its legibility is obvious.
+// Each row shows a color's hex in both rule columns, so the cell text sits on its own color and its
+// legibility is obvious.
 const cachedResults: HogQLQueryResponse<string[][]> = {
     results: DEFAULT_PICKER_COLORS.map((hex) => [hex, hex, hex]),
     columns: ['color', 'light', 'dark'],
@@ -60,6 +67,48 @@ const cachedResults: HogQLQueryResponse<string[][]> = {
         ['light', 'String'],
         ['dark', 'String'],
     ],
+}
+
+// The table computes cell colors in JS from `themeLogic.isDarkModeOn`, which the snapshot runner's
+// body-attribute theme flip does NOT reach (it only switches CSS variables). So each story pins one
+// theme end to end: the user is mocked with the matching `theme_mode` (kea side) and the story
+// globals pin the body attribute (CSS side). Rendering is held until `isDarkModeOn` reflects the
+// mocked user, so the snapshot's waitForSelector can't fire while the other theme's colors are up.
+function ConditionalFormattingTable({ mode }: { mode: 'light' | 'dark' }): JSX.Element | null {
+    useStorybookMocks({
+        get: {
+            '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, theme_mode: mode }],
+        },
+    })
+    const { user } = useValues(userLogic)
+    const { loadUser } = useActions(userLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    // The KeaStory decorator mounts userLogic (kicking off the initial user load) before this
+    // render registers the mock override above, so if the default user won that race, fetch once
+    // more with the override in place.
+    useEffect(() => {
+        if (user && user.theme_mode !== mode) {
+            loadUser()
+        }
+    }, [user, mode, loadUser])
+
+    if (user?.theme_mode !== mode || isDarkModeOn !== (mode === 'dark')) {
+        return null
+    }
+
+    return (
+        <div className="p-4">
+            <DataTableVisualization
+                uniqueKey="conditional-formatting"
+                query={query}
+                setQuery={() => {}}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        </div>
+    )
 }
 
 type Story = StoryObj<typeof DataTableVisualization>
@@ -76,20 +125,16 @@ const meta: Meta<typeof DataTableVisualization> = {
 
 export default meta
 
-// Renders just the table (not the whole insight scene). Storybook snapshots both light and dark
-// themes automatically, so together they show each default color rendered in both modes with
-// readable text.
-export const ConditionalFormatting: Story = {
-    render: () => (
-        <div className="p-4">
-            <DataTableVisualization
-                uniqueKey="conditional-formatting"
-                query={query}
-                setQuery={() => {}}
-                cachedResults={cachedResults}
-                readOnly
-                embedded
-            />
-        </div>
-    ),
+// Light theme: light-saved rules render their raw color, dark-saved rules are lightened by 30.
+export const ConditionalFormattingLight: Story = {
+    globals: { theme: 'light' },
+    parameters: { testOptions: { skipDarkMode: true } },
+    render: () => <ConditionalFormattingTable mode="light" />,
+}
+
+// Dark theme: dark-saved rules render their raw color, light-saved rules are darkened by 30.
+export const ConditionalFormattingDark: Story = {
+    globals: { theme: 'dark' },
+    parameters: { testOptions: { skipLightMode: true } },
+    render: () => <ConditionalFormattingTable mode="dark" />,
 }
