@@ -32,9 +32,10 @@ const meta: Meta = {
 
 export default meta
 
-// Table with conditional formatting rules that paint cells with light pastel backgrounds. In dark
-// mode the cell text must stay dark enough to read against those backgrounds rather than inheriting
-// the theme's near-white text color. Storybook snapshots both light and dark themes automatically.
+// Table with a conditional-formatting rule for every default palette color, once as a light-mode
+// rule and once as a dark-mode rule (the "light mode" and "dark mode" columns). Each cell shows its
+// own hex on its own background, so the text must stay legible on every color. Storybook snapshots
+// both light and dark themes automatically, giving us the light and dark rendering of each color.
 /* eslint-disable @typescript-eslint/no-var-requires */
 export const SQLTableConditionalFormatting: Story = createInsightStory(__sqlTableConditionalFormatting as any)
 SQLTableConditionalFormatting.parameters = {

@@ -8,52 +8,485 @@
     "kind": "DataVisualizationNode",
     "source": {
       "kind": "HogQLQuery",
-      "query": "SELECT product, revenue, growth, conversion FROM plans"
+      "query": "SELECT color, hex AS light, hex AS dark FROM palette"
     },
     "display": "ActionsTable",
     "tableSettings": {
       "columns": [
-        { "column": "product", "settings": { "formatting": { "prefix": "", "suffix": "" } } },
-        { "column": "revenue", "settings": { "formatting": { "prefix": "$", "suffix": "" } } },
-        { "column": "growth", "settings": { "formatting": { "prefix": "", "suffix": "%" } } },
-        { "column": "conversion", "settings": { "formatting": { "prefix": "", "suffix": "%" } } }
+        {
+          "column": "color",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "light",
+          "settings": {
+            "display": {
+              "label": "Light mode"
+            },
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "dark",
+          "settings": {
+            "display": {
+              "label": "Dark mode"
+            },
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
       ],
       "conditionalFormatting": [
         {
-          "id": "rule-revenue-high",
-          "templateId": "greater_than",
-          "columnName": "revenue",
-          "input": "5000",
-          "color": "#C1FBA4",
-          "colorMode": "light",
-          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 13, 38]
-        },
-        {
-          "id": "rule-revenue-low",
-          "templateId": "less_than",
-          "columnName": "revenue",
-          "input": "1000",
-          "color": "#FDFFB6",
-          "colorMode": "light",
-          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 15, 38]
-        },
-        {
-          "id": "rule-growth-negative",
-          "templateId": "less_than",
-          "columnName": "growth",
-          "input": "0",
+          "id": "light-#FFADAD",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#FFADAD",
           "color": "#FFADAD",
           "colorMode": "light",
-          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 15, 38]
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
         },
         {
-          "id": "rule-conversion-high",
-          "templateId": "greater_than",
-          "columnName": "conversion",
-          "input": "20",
+          "id": "dark-#FFADAD",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#FFADAD",
+          "color": "#FFADAD",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#E8A598",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#E8A598",
+          "color": "#E8A598",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#E8A598",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#E8A598",
+          "color": "#E8A598",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#FFD6A5",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#FFD6A5",
+          "color": "#FFD6A5",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#FFD6A5",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#FFD6A5",
+          "color": "#FFD6A5",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#FFCFD2",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#FFCFD2",
+          "color": "#FFCFD2",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#FFCFD2",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#FFCFD2",
+          "color": "#FFCFD2",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#FDFFB6",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#FDFFB6",
+          "color": "#FDFFB6",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#FDFFB6",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#FDFFB6",
+          "color": "#FDFFB6",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#C1FBA4",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#C1FBA4",
+          "color": "#C1FBA4",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#C1FBA4",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#C1FBA4",
+          "color": "#C1FBA4",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#9BF6FF",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#9BF6FF",
+          "color": "#9BF6FF",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#9BF6FF",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#9BF6FF",
+          "color": "#9BF6FF",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#A0C4FF",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#A0C4FF",
           "color": "#A0C4FF",
           "colorMode": "light",
-          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 13, 38]
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#A0C4FF",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#A0C4FF",
+          "color": "#A0C4FF",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#BDB2FF",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#BDB2FF",
+          "color": "#BDB2FF",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#BDB2FF",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#BDB2FF",
+          "color": "#BDB2FF",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "light-#FFC6FF",
+          "templateId": "equals",
+          "columnName": "light",
+          "input": "#FFC6FF",
+          "color": "#FFC6FF",
+          "colorMode": "light",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
+        },
+        {
+          "id": "dark-#FFC6FF",
+          "templateId": "equals",
+          "columnName": "dark",
+          "input": "#FFC6FF",
+          "color": "#FFC6FF",
+          "colorMode": "dark",
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "input",
+            1,
+            1,
+            32,
+            "value",
+            1,
+            1,
+            11,
+            38
+          ]
         }
       ]
     }
@@ -66,13 +499,63 @@
   "cache_target_age": "2026-03-04T22:10:59.052768Z",
   "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
   "result": [
-    ["Enterprise", 12000, 8.5, 34],
-    ["Pro", 6400, -2.1, 22],
-    ["Starter", 850, 15.2, 12],
-    ["Free", 210, -30.0, 4]
+    [
+      "Red (default)",
+      "#FFADAD",
+      "#FFADAD"
+    ],
+    [
+      "Salmon",
+      "#E8A598",
+      "#E8A598"
+    ],
+    [
+      "Orange",
+      "#FFD6A5",
+      "#FFD6A5"
+    ],
+    [
+      "Pink",
+      "#FFCFD2",
+      "#FFCFD2"
+    ],
+    [
+      "Yellow",
+      "#FDFFB6",
+      "#FDFFB6"
+    ],
+    [
+      "Green",
+      "#C1FBA4",
+      "#C1FBA4"
+    ],
+    [
+      "Cyan",
+      "#9BF6FF",
+      "#9BF6FF"
+    ],
+    [
+      "Blue",
+      "#A0C4FF",
+      "#A0C4FF"
+    ],
+    [
+      "Purple",
+      "#BDB2FF",
+      "#BDB2FF"
+    ],
+    [
+      "Magenta",
+      "#FFC6FF",
+      "#FFC6FF"
+    ]
   ],
   "hasMore": false,
-  "columns": ["product", "revenue", "growth", "conversion"],
+  "columns": [
+    "color",
+    "light",
+    "dark"
+  ],
   "created_at": "2026-03-04T16:11:08.460573Z",
   "created_by": {
     "id": 1,
@@ -108,12 +591,20 @@
   "timezone": "UTC",
   "is_cached": true,
   "query_status": null,
-  "hogql": "SELECT product, revenue, growth, conversion FROM plans LIMIT 101 OFFSET 0",
+  "hogql": "SELECT color, hex AS light, hex AS dark FROM palette LIMIT 101 OFFSET 0",
   "types": [
-    ["product", "String"],
-    ["revenue", "Int64"],
-    ["growth", "Float64"],
-    ["conversion", "Int64"]
+    [
+      "color",
+      "String"
+    ],
+    [
+      "light",
+      "String"
+    ],
+    [
+      "dark",
+      "String"
+    ]
   ],
   "resolved_date_range": null,
   "alerts": [],
