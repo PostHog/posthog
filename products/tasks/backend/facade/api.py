@@ -1608,6 +1608,21 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         logger.exception("task_run_slack_update_for_pr_failed for run %s", run.id)
 
 
+def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url or run.task.origin_product != Task.OriginProduct.ONBOARDING:
+        return
+    if run.task.created_by_id is None:
+        return
+
+    if not run.task.mark_pr_ready_email_sent(pr_url):
+        return
+
+    from posthog.tasks.email import send_wizard_pr_ready_email  # noqa: PLC0415 - keep email task import lazy
+
+    transaction.on_commit(lambda: send_wizard_pr_ready_email.delay(str(run.id)))
+
+
 def update_task_run(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, validated_data: dict
 ) -> contracts.TaskRunDetailDTO | None:
@@ -1706,6 +1721,7 @@ def update_task_run(
     new_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if new_pr_url and new_pr_url != old_pr_url:
         _post_slack_update_for_pr(run)
+        _send_wizard_pr_ready_email_for_pr(run)
         # Surface the PR in the run's progress timeline the moment the agent reports it, so the install
         # UI advances past "Started agent" instead of waiting on the 15-min CI follow-up loop to emit
         # these. Steps coalesce by id with the workflow's own pr/ci emissions (frontend mergeProgressStep),
@@ -1749,6 +1765,7 @@ def set_task_run_output(
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
+    _send_wizard_pr_ready_email_for_pr(run)
     return _task_run_detail_to_dto(run)
 
 

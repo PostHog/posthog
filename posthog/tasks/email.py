@@ -28,7 +28,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import feature_enabled_or_false, get_client
+from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -37,6 +37,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -914,6 +915,52 @@ def send_canary_email(user_email: str) -> None:
     )
     message.add_recipient(email=user_email)
     message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_wizard_pr_ready_email(run_id: str) -> None:
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id)
+    task = run.task
+    user = task.created_by
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if user is None or not user.email or not pr_url:
+        return
+
+    template_context = {
+        "pr_url": pr_url,
+        "repository": task.repository or "",
+        "first_name": user.first_name or "",
+        "organization_name": run.team.organization.name,
+        "project_name": run.team.name,
+        "branch_name": run.branch or "",
+        "task_id": str(task.id),
+        "run_id": str(run.id),
+        "site_url": settings.SITE_URL,
+    }
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"wizard_pr_ready_{task.id}",
+        subject="Your pull request is ready",
+        template_name="wizard_pr_ready",
+        template_context=template_context,
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(user.distinct_id),
+            event="wizard pr ready email sent",
+            properties={
+                "task_id": str(task.id),
+                "run_id": str(run.id),
+                "team_id": run.team_id,
+                "origin_product": task.origin_product,
+                "repository": task.repository,
+                "branch_name": run.branch,
+            },
+            groups=groups(team=run.team),
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

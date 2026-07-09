@@ -40,6 +40,7 @@ from posthog.tasks.email import (
     send_password_reset,
     send_posthog_ai_access_request,
     send_provisioning_welcome,
+    send_wizard_pr_ready_email,
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
@@ -47,6 +48,7 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.tasks.backend.models import Task, TaskRun
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -377,6 +379,45 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "via" not in mocked_email_messages[0].html_body
+
+    def test_send_wizard_pr_ready_email_uses_customer_io_context(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
+        task = Task.objects.create(
+            team=user.team,
+            created_by=user,
+            title="Install PostHog",
+            description="Set up PostHog",
+            origin_product=Task.OriginProduct.ONBOARDING,
+            repository="posthog/posthog-js",
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=user.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog-js/pull/1"},
+            branch="posthog-code/install-posthog",
+        )
+
+        send_wizard_pr_ready_email(str(run.id))
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        call_kwargs = MockEmailMessage.call_args.kwargs
+        assert call_kwargs["use_http"] is True
+        assert call_kwargs["template_name"] == "wizard_pr_ready"
+        assert call_kwargs["campaign_key"] == f"wizard_pr_ready_{task.id}"
+        assert call_kwargs["template_context"] == {
+            "pr_url": "https://github.com/posthog/posthog-js/pull/1",
+            "repository": "posthog/posthog-js",
+            "first_name": user.first_name,
+            "organization_name": org.name,
+            "project_name": user.team.name,
+            "branch_name": "posthog-code/install-posthog",
+            "task_id": str(task.id),
+            "run_id": str(run.id),
+            "site_url": settings.SITE_URL,
+        }
 
     @patch("posthoganalytics.capture")
     def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
