@@ -335,40 +335,34 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
-def serialize_tile_in_worker(
-    tile, order: int, context: dict, chained: bool, *, in_pool: bool = True
-) -> tuple[int, dict, list]:
+def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> tuple[int, dict, list]:
     """
     Pool-worker wrapper around serialize_tile_with_context. The task-chain context is a
     thread-local flag on the request thread, so when chained refresh is enabled we re-raise
     the flag on the worker and hand any queued tasks back for the request thread to chain.
 
-    ``in_pool`` should be False when this runs inline on the request thread (parallel
-    serialization disabled or under tests) — that thread's connection is already managed
+    Only used on the parallel-serialization pool path — the inline path calls
+    serialize_tile_with_context directly since that thread's connection is already managed
     by Django's normal per-request lifecycle.
     """
     # Pool threads outlive the request, so Django's request_finished cleanup never runs here;
-    # discard stale/errored connections on entry and exit like DatabaseSyncToAsync does.
-    if in_pool and not settings.TEST:
+    # discard stale/errored connections on entry like DatabaseSyncToAsync does.
+    if not settings.TEST:
         close_old_connections()
-    try:
-        if not chained:
-            order, tile_data = serialize_tile_with_context(tile, order, context)
-            return order, tile_data, []
+    if not chained:
+        order, tile_data = serialize_tile_with_context(tile, order, context)
+        return order, tile_data, []
 
-        set_in_context(True)
-        try:
-            order, tile_data = serialize_tile_with_context(tile, order, context)
-        finally:
-            # Drain unconditionally: pool threads are reused across requests, so any task
-            # queued via add_task_to_on_commit before a later exception must not linger on
-            # this thread's chain and leak into the next chained request it happens to serve.
-            chained_tasks = drain_task_chain()
-            set_in_context(False)
-        return order, tile_data, chained_tasks
+    set_in_context(True)
+    try:
+        order, tile_data = serialize_tile_with_context(tile, order, context)
     finally:
-        if in_pool and not settings.TEST:
-            close_old_connections()
+        # Drain unconditionally: pool threads are reused across requests, so any task
+        # queued via add_task_to_on_commit before a later exception must not linger on
+        # this thread's chain and leak into the next chained request it happens to serve.
+        chained_tasks = drain_task_chain()
+        set_in_context(False)
+    return order, tile_data, chained_tasks
 
 
 class ReorderLayout(StrEnum):
@@ -2049,17 +2043,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         team = self.context["get_team"]()
-        chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
-            "chained_dashboard_tile_refresh",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-        )
-        parallel_serialization_enabled = not settings.TEST and posthoganalytics.feature_enabled(
-            "parallel_dashboard_tile_serialization",
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
+
+        def _org_flag_enabled(flag_key: str) -> bool:
+            org_id = str(team.organization_id)
+            return posthoganalytics.feature_enabled(
+                flag_key,
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+            )
+
+        chained_tile_refresh_enabled = _org_flag_enabled("chained_dashboard_tile_refresh")
+        # Pool threads use separate DB connections, invisible to the test transaction and to
+        # assertNumQueries, so parallel serialization is never enabled under tests.
+        parallel_serialization_enabled = not settings.TEST and _org_flag_enabled(
+            "parallel_dashboard_tile_serialization"
         )
 
         layout_size = "sm"  # default layout size
@@ -2078,11 +2076,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 return []
 
             if not parallel_serialization_enabled:
-                # Inline path: flag-gated rollout for production, and always under tests —
-                # pool threads use separate DB connections, which can't see the uncommitted
-                # test transaction and are invisible to assertNumQueries.
                 tile_results = [
-                    serialize_tile_in_worker(tile, order, self.context, chained_tile_refresh_enabled, in_pool=False)
+                    (*serialize_tile_with_context(tile, order, self.context), [])
                     for order, tile in enumerate(sorted_tiles)
                 ]
             else:
@@ -2104,7 +2099,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile_results = [future.result() for future in futures]
 
             serialized_tiles = []
-            for _order, tile_data, chained_tasks in tile_results:
+            for _, tile_data, chained_tasks in tile_results:
                 serialized_tiles.append(cast(ReturnDict, tile_data))
                 # Re-queue worker-thread tasks on the request thread's chain, in dashboard layout
                 # order, so task_chain_context() executes them as one chain on commit as before.
