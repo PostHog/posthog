@@ -126,10 +126,10 @@ posthog/hogql/** @PostHog/team-data-tools
 posthog/hogql_queries/hogql_query_runner.py @PostHog/team-data-tools
 rust/hogql/ @PostHog/team-data-tools
 
-# Tracing/Metrics — owned by @PostHog/team-apm (logs itself comes from products/logs/product.yaml)
-products/tracing/** @PostHog/team-apm
-products/metrics/** @PostHog/team-apm
-posthog/temporal/logs_alerting/ @PostHog/team-apm
+# Tracing/Metrics — owned by @PostHog/apm (logs itself comes from products/logs/product.yaml)
+products/tracing/** @PostHog/apm
+products/metrics/** @PostHog/apm
+posthog/temporal/logs_alerting/ @PostHog/apm
 
 # Error Tracking - owned by @PostHog/team-error-tracking
 products/error_tracking/backend/** @PostHog/team-error-tracking
