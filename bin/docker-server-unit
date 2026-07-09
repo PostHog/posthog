@@ -11,38 +11,92 @@ chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-echo "🔧 Starting with Nginx Unit server (default, stable)..."
+# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
+if [ "${USE_GRANIAN:-false}" = "true" ]; then
+    # Granian config is env-only and uses granian's own documented GRANIAN_*
+    # env vars (the CLI reads them natively) — no aliases, no flag plumbing.
+    # The exports below only set PostHog defaults where they differ from
+    # granian's own; any deployment-provided GRANIAN_* var applies directly.
 
-export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
-export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
-export NGINX_UNIT_REQUEST_LIMIT=${NGINX_UNIT_REQUEST_LIMIT:-7500}
+    # asgi serves posthog.asgi:application, wsgi serves posthog.wsgi:application
+    export GRANIAN_INTERFACE=${GRANIAN_INTERFACE:-asgi}
+    export GRANIAN_HOST=${GRANIAN_HOST:-0.0.0.0}
+    # Match Unit's 4 workers for equivalent sync view concurrency.
+    # ASGI + sync views (thread_sensitive=True): each worker handles one sync
+    # request at a time — only workers give concurrency. WSGI: per-worker
+    # concurrency comes from the blocking thread pool instead; steer it via
+    # GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS rather than more workers.
+    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
+    export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+    export GRANIAN_LOG_ACCESS_ENABLED=${GRANIAN_LOG_ACCESS_ENABLED:-true}
+    export GRANIAN_RESPAWN_FAILED_WORKERS=${GRANIAN_RESPAWN_FAILED_WORKERS:-true}
 
-if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
-  # Cleanup temp directories on exit
-  trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR" "$UNIT_STATEDIR"' EXIT
+    # Granian's native Prometheus exporter (worker spawns/respawns, blocking
+    # pool utilization and queue depth, connections, GIL wait). Binds
+    # loopback-only (granian's default address); bin/granian_metrics.py merges
+    # its output into the port-8001 scrape response, so no extra scrape target
+    # is needed.
+    export GRANIAN_METRICS_ENABLED=${GRANIAN_METRICS_ENABLED:-true}
+    export GRANIAN_METRICS_PORT=${GRANIAN_METRICS_PORT:-9090}
 
-  # Pre-bake the Unit configuration into a state directory so unitd starts
-  # with config already loaded. This avoids the docker-entrypoint.sh pattern
-  # of: start unitd → apply config via API (loading all workers) → stop unitd
-  # → restart unitd (loading all workers again). That double-start means every
-  # worker process loads the full Django app twice on each pod startup.
-  UNIT_STATEDIR=$(mktemp -d)
-  envsubst < /docker-entrypoint.d/unit.json.tpl > "$UNIT_STATEDIR/conf.json"
-  chmod -R 700 "$UNIT_STATEDIR"
+    if [ "$GRANIAN_INTERFACE" = "wsgi" ]; then
+        APP_TARGET="posthog.wsgi:application"
+    else
+        APP_TARGET="posthog.asgi:application"
+        # uvloop drives the Python asyncio loop; WSGI has none.
+        export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
+    fi
+
+    echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server (opt-in via USE_GRANIAN=true)..."
+
+    # The container runs as root (Unit needs it for its control socket), but the
+    # application must not: Unit drops its app processes to nobody via
+    # unit.json.tpl, so this branch drops privileges the same way before exec.
+    # PROMETHEUS_MULTIPROC_DIR is world-writable above, ports are >1024.
+    DROP_PRIVILEGES="setpriv --reuid=nobody --regid=nogroup --clear-groups"
+
+    # Start metrics HTTP server in background on port 8001
+    $DROP_PRIVILEGES python ./bin/granian_metrics.py &
+    METRICS_PID=$!
+
+    # Combined trap: kill metrics server and cleanup temp directory
+    trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+    exec $DROP_PRIVILEGES granian "$APP_TARGET"
 else
-  # Cleanup temp directory on exit
-  trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+    echo "🔧 Starting with Nginx Unit server (default, stable)..."
 
-  envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
-fi
+    export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
+    export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+    export NGINX_UNIT_REQUEST_LIMIT=${NGINX_UNIT_REQUEST_LIMIT:-7500}
 
-# We need to run as root so that nginx unit can proxy the control socket for stats
-# However each application is run as "nobody"
-if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
-  # nosemgrep: trailofbits.generic.container-user-root.container-user-root
-  exec unitd --no-daemon --user root --statedir "$UNIT_STATEDIR" \
-      --control unix:/var/run/control.unit.sock
-else
-  # nosemgrep: trailofbits.generic.container-user-root.container-user-root
-  exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+    if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
+      # Cleanup temp directories on exit
+      trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR" "$UNIT_STATEDIR"' EXIT
+
+      # Pre-bake the Unit configuration into a state directory so unitd starts
+      # with config already loaded. This avoids the docker-entrypoint.sh pattern
+      # of: start unitd → apply config via API (loading all workers) → stop unitd
+      # → restart unitd (loading all workers again). That double-start means every
+      # worker process loads the full Django app twice on each pod startup.
+      UNIT_STATEDIR=$(mktemp -d)
+      envsubst < /docker-entrypoint.d/unit.json.tpl > "$UNIT_STATEDIR/conf.json"
+      chmod -R 700 "$UNIT_STATEDIR"
+    else
+      # Cleanup temp directory on exit
+      trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+      envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+    fi
+
+    # We need to run as root so that nginx unit can proxy the control socket for stats
+    # However each application is run as "nobody"
+    if [ "${NGINX_UNIT_PRELOAD_CONFIG:-false}" = "true" ]; then
+      # nosemgrep: trailofbits.generic.container-user-root.container-user-root
+      exec unitd --no-daemon --user root --statedir "$UNIT_STATEDIR" \
+          --control unix:/var/run/control.unit.sock
+    else
+      # nosemgrep: trailofbits.generic.container-user-root.container-user-root
+      exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+    fi
 fi

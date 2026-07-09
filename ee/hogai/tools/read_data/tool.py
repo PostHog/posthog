@@ -40,7 +40,7 @@ from products.business_knowledge.backend.constants import BK_DRILLDOWN_DEFAULT_R
 from products.business_knowledge.backend.logic import get_document_window, has_ready_sources
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.posthog_ai.backend.models.assistant import AgentArtifact
-from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
@@ -609,13 +609,25 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         serialized = database.serialize(hogql_context, include_only={table_name})
 
-        if table_name not in serialized:
+        # Warehouse tables serialize under their dotted key (`zendesk.groups`) but are also queryable by
+        # their raw underscore name (`zendesk_groups`), carried in `search_aliases`. Accept either form.
+        table = serialized.get(table_name)
+        if table is None:
+            table = next(
+                (t for t in serialized.values() if table_name in (getattr(t, "search_aliases", None) or [])),
+                None,
+            )
+        if table is None:
             return f"Could not serialize schema for table `{table_name}`."
 
-        table = serialized[table_name]
-        semantics = self._warehouse_table_semantics({table_name}).get(table_name) or {}
+        # Semantics and the raw DataWarehouseTable are keyed by the raw underscore name — the
+        # `search_aliases` entry when the serialized key is dotted (`zendesk.groups` → `zendesk_groups`).
+        # Native tables have no alias, so this collapses to `table_name`.
+        aliases = getattr(table, "search_aliases", None) or []
+        db_name = aliases[0] if aliases else table_name
+        semantics = self._warehouse_table_semantics({db_name}).get(db_name) or {}
         descriptions = self._get_table_descriptions()
-        raw_table = database.get_table(table_name)
+        raw_table = database.get_table(db_name)
         raw_fields = raw_table.fields
 
         # Source-table description (warehouse only) wins; otherwise fall back to the resolver, which
@@ -743,6 +755,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         dashboard_ctx = DashboardContext(
             team=self._team,
             insights_data=insights_data,
+            user=self._user,
             name=dashboard_name,
             description=dashboard.description,
             dashboard_id=dashboard_id,
@@ -758,6 +771,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_error_tracking_issue(self, issue_id: str) -> str:
         context = ErrorTrackingIssueContext(
             team=self._team,
+            user=self._user,
             issue_id=issue_id,
         )
         return await context.execute_and_format()
@@ -765,6 +779,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     async def _read_survey(self, survey_id: str) -> str:
         context = SurveyContext(
             team=self._team,
+            user=self._user,
             survey_id=survey_id,
         )
         survey = await context.aget_survey()
@@ -783,6 +798,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case VisualizationArtifactContent():
                 context = InsightContext(
                     team=self._team,
+                    user=self._user,
                     query=content.query,
                     name=content.name,
                     description=content.description,
@@ -909,7 +925,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         trace_query = TraceQuery(traceId=trace_id)
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(trace_query)
 
         results = query_results.get("results", [])

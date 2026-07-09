@@ -10,7 +10,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -22,7 +22,6 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -30,6 +29,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
@@ -65,8 +65,7 @@ export function FunnelLineChart({
     inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
@@ -139,7 +138,7 @@ export function FunnelLineChart({
         [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildFunnelLineTimeSeriesConfig({
                 indexedSteps: steps,
@@ -153,6 +152,7 @@ export function FunnelLineChart({
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
             }),
+            curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
@@ -162,6 +162,7 @@ export function FunnelLineChart({
             goalLines,
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
+            funnelsFilter?.chartStyle,
             showValuesOnSeries,
             legendConfig,
             TOOLTIP_CONFIG,

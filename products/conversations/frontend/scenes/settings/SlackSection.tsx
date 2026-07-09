@@ -48,6 +48,7 @@ function SlackChannelSection(): JSX.Element {
         slackNotifyOnJoin,
         slackNotifyOnLeave,
         slackAlertChannelId,
+        slackNudgeEnabled,
         currentTeamLoading,
     } = useValues(supportSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -64,6 +65,7 @@ function SlackChannelSection(): JSX.Element {
         setSlackNotifyOnJoin,
         setSlackNotifyOnLeave,
         setSlackAlertChannel,
+        setSlackNudgeEnabled,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -124,6 +126,24 @@ function SlackChannelSection(): JSX.Element {
                                 Refresh
                             </LemonButton>
                         </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex flex-col gap-2">
+                        <div>
+                            <label className="font-medium">Ticket nudges</label>
+                            <p className="text-xs text-muted-alt">
+                                When enabled, SupportHog replies in-thread asking whether the customer wants to open a
+                                ticket. This means customers don't have to remember the emoji reaction or @mention.
+                                'Support channels' will still have tickets created for every thread, and no nudge is
+                                sent.
+                            </p>
+                        </div>
+                        <LemonCheckbox
+                            checked={slackNudgeEnabled}
+                            onChange={setSlackNudgeEnabled}
+                            disabled={currentTeamLoading}
+                            label="Nudge users to open tickets"
+                        />
                     </div>
                     {memberAlertsEnabled && (
                         <>

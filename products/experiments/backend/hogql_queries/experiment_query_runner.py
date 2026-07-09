@@ -38,7 +38,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
+    parse_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -78,6 +80,27 @@ DEFAULT_EXPOSURE_TTL_SECONDS = {
     "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
+
+# Cap on merged precompute job width. Without it, the frozen band (everything
+# older than 4 days, one uniform TTL) merges into a single INSERT, so a cold or
+# TTL-expired long-running experiment scans hundreds of days in one query. For
+# high-volume teams that deterministically exceeds the per-query bytes-to-read
+# cap or the 600s timeout and can never succeed. Seven days keeps the worst
+# observed per-day scan rates comfortably under both limits, while creating far
+# fewer jobs (and fewer rows per user to re-aggregate at read time) than daily
+# chunks. Completed chunks persist, so a wide backfill converges across runs
+# instead of failing atomically on every attempt.
+PRECOMPUTE_MAX_WINDOW_DAYS = 7
+
+
+def experiment_precompute_ttl_schedule(team_timezone: str) -> TtlSchedule:
+    """The experiment TTL schedule with job width capped at PRECOMPUTE_MAX_WINDOW_DAYS."""
+    return parse_ttl_schedule(
+        DEFAULT_EXPOSURE_TTL_SECONDS,
+        team_timezone,
+        max_window_days=PRECOMPUTE_MAX_WINDOW_DAYS,
+    )
+
 
 # Minimum experiment runtime before auto-enabling precomputation. The
 # today-window TTL (DEFAULT_EXPOSURE_TTL_SECONDS["0d"], 15 min) caches the
@@ -135,12 +158,18 @@ class ExperimentQueryRunner(QueryRunner):
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
+        error_event_context: Optional[str] = "ui",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
+        # because the generic /query API path constructs runners without kwargs; internal callers that own
+        # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
+        # so the error boundary stays silent for them. See error_handling._emit_runner_terminal_error_event.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -257,7 +286,7 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
@@ -288,7 +317,7 @@ class ExperimentQueryRunner(QueryRunner):
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},

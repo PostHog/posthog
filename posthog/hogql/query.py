@@ -53,7 +53,7 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -75,6 +75,7 @@ class HogQLQueryExecutor:
     placeholders: Optional[dict[str, ast.Expr]] = None
     variables: Optional[dict[str, HogQLVariable]] = None
     workload: Workload = Workload.DEFAULT
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT
     settings: Optional[HogQLGlobalSettings] = None
     modifiers: Optional[HogQLQueryModifiers] = None
     limit_context: Optional[LimitContext] = LimitContext.QUERY
@@ -636,6 +637,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
             except Exception as e:
@@ -658,6 +660,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    ch_user=self.ch_user,
                     external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]

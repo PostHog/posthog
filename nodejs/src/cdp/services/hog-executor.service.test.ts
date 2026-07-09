@@ -107,6 +107,7 @@ describe('Hog Executor', () => {
             expect(result).toEqual({
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -620,6 +621,49 @@ describe('Hog Executor', () => {
                 `"https://example.com/posthog-webhook"`
             )
         })
+
+        it('rebuilds mapping inputs when an invocation arrives without inputs (rerun path)', async () => {
+            // The rerun path strips `inputs` from the persisted globals and lets
+            // the executor rebuild them. For mapping destinations the mapping's
+            // own inputs (e.g. Google Ads `gclid`) must be re-merged — otherwise
+            // they resolve to nothing and the function early-exits on rerun.
+            const hog = `return inputs.gclid`
+            const mappingFn = createHogFunction({
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                inputs_schema: [],
+                mappings: [
+                    {
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                        inputs: {
+                            gclid: {
+                                order: 0,
+                                value: '{person.properties.gclid ?? person.properties.$initial_gclid}',
+                                bytecode: await compileHog(
+                                    'return person.properties.gclid ?? person.properties.$initial_gclid'
+                                ),
+                            },
+                        },
+                    },
+                ],
+            })
+
+            const invocation = createExampleInvocation(mappingFn, {
+                person: {
+                    id: 'uuid',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'test@posthog.com', $initial_gclid: 'INITIAL_TOKEN_ABC' },
+                },
+            })
+            // Simulate the rerun blob: inputs are stripped before persistence.
+            expect(invocation.state.globals.inputs).toBeUndefined()
+
+            const res = await executor.execute(invocation)
+            expect(res.error).toBeUndefined()
+            expect(res.execResult).toBe('INITIAL_TOKEN_ABC')
+        })
     })
 
     describe('slow functions', () => {
@@ -993,6 +1037,39 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createAccountInvocation())
             expect(result.error).toContain('has no secret API token configured')
+        })
+
+        it('captures exception with team_id when secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+            )
+        })
+
+        it('does not capture exception when queue is set up successfully', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {

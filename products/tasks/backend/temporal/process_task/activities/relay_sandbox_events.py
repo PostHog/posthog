@@ -11,11 +11,16 @@ import httpx_sse
 import structlog
 import temporalio.client
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.permission_broker import (
+    parse_permission_request,
+    try_auto_respond_permission_request,
+)
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -143,7 +148,11 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
             return
         logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         await redis_stream.mark_error(str(e)[:500])
-        raise
+        # The stream now carries an error sentinel — a retried attempt would
+        # append events past it that disconnected consumers never see. Fail
+        # the activity for good; retries are reserved for attempt-level
+        # deaths (worker restart), where no sentinel was written.
+        raise ApplicationError(str(e), non_retryable=True) from e
     except Exception as e:
         try:
             marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
@@ -169,7 +178,9 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
                 logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
             else:
                 logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        raise
+        # A complete/error sentinel was written above (or attempted) — same
+        # reasoning as the RuntimeError path: don't retry past a sentinel.
+        raise ApplicationError(str(e), non_retryable=True) from e
 
 
 async def _mark_error_unless_run_is_terminal(
@@ -329,6 +340,10 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if task_run is not None:
+                                permission_request = parse_permission_request(event_data)
+                                if permission_request is not None:
+                                    await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -663,6 +678,34 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+
+def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
+    """Answer a sandbox permission request from the run's permission mode, or escalate to a human.
+
+    A broker failure falls through to the prompt path so a broker bug degrades to
+    human approval instead of a stalled agent.
+    """
+    try:
+        if try_auto_respond_permission_request(task_run, permission_request):
+            return
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_permission_broker_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+    try:
+        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
+
+        post_slack_permission_request_for_task_run(task_run, permission_request)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_slack_permission_prompt_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

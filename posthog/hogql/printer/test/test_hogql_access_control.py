@@ -572,6 +572,20 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
 
+    def test_to_printed_hogql_bypass_prints_warehouse_table_userless(self):
+        # Guards the fail-closed fix: query runners print the response HogQL userless right after the
+        # user-scoped execute. Without the bypass, that print fails closed on a warehouse table; the param
+        # must reach the database so warehouse-backed insights don't 500 on the print.
+        from posthog.hogql.errors import QueryError
+        from posthog.hogql.parser import parse_select
+        from posthog.hogql.printer import to_printed_hogql
+
+        query = parse_select("SELECT id FROM allowed_table")
+        with self.assertRaises(QueryError):
+            to_printed_hogql(query, self.team)
+        printed = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
+        assert "allowed_table" in printed
+
     def test_denied_table_lookup_raises_access_error(self):
         from posthog.hogql.errors import QueryError
 

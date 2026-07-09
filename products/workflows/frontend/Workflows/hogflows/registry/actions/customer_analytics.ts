@@ -43,24 +43,7 @@ registerActionNodeCategory({
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: [
                 { key: 'account', result_path: null, label: 'Account' },
-                { key: 'account_csm_email', result_path: 'properties.csm.email', label: 'CSM email' },
-                { key: 'account_csm_id', result_path: 'properties.csm.id', label: 'CSM ID' },
-                {
-                    key: 'account_executive_email',
-                    result_path: 'properties.account_executive.email',
-                    label: 'Account executive email',
-                },
-                {
-                    key: 'account_executive_id',
-                    result_path: 'properties.account_executive.id',
-                    label: 'Account executive ID',
-                },
-                {
-                    key: 'account_owner_email',
-                    result_path: 'properties.account_owner.email',
-                    label: 'Account owner email',
-                },
-                { key: 'account_owner_id', result_path: 'properties.account_owner.id', label: 'Account owner ID' },
+                { key: 'account_relationships', result_path: 'relationships', label: 'Relationships' },
                 {
                     key: 'account_stripe_customer_id',
                     result_path: 'properties.stripe_customer_id',
@@ -83,9 +66,17 @@ registerActionNodeCategory({
         },
         {
             type: 'function',
-            name: 'Update account',
-            description: 'Assign role contacts or tag a Customer analytics account.',
-            config: { template_id: 'template-posthog-update-account', inputs: {} },
+            name: 'Tag account',
+            description: 'Add, replace, or remove tags on a Customer analytics account.',
+            config: { template_id: 'template-posthog-tag-account', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null },
+        },
+        {
+            type: 'function',
+            name: 'Update account relationships',
+            description: 'Assign users to relationship roles on a Customer analytics account.',
+            config: { template_id: 'template-posthog-update-account-relationships', inputs: {} },
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null },
         },

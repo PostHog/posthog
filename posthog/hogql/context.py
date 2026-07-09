@@ -68,11 +68,6 @@ class HogQLContext:
     external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
-    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
-    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
-    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
-    geoip_dict_fallback_enabled: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?

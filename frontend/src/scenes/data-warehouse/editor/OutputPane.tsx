@@ -81,6 +81,7 @@ import {
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -1006,13 +1007,11 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     className="m-2 flex-shrink-0"
                     data-attr="sql-editor-output-pane-sync-warnings"
                 >
-                    <div className="font-semibold mb-1">
-                        Some warehouse sources used by this query are out of date — results may not reflect current data
-                    </div>
-                    <ul className="list-disc pl-5 space-y-1">
+                    Some warehouse sources used by this query are out of date — results may not reflect current data:
+                    <ul className="list-disc pl-5">
                         {syncWarnings.map((warning, index) => (
                             <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                                {warning.message}
+                                {trimRedundantTail(warning.message)}
                                 {warning.source_id && (
                                     <>
                                         {' '}

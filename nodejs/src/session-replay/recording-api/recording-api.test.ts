@@ -8,7 +8,6 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getBlockDecryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 
 import { RecordingApi } from './recording-api'
 import { RecordingService } from './recording-service'
@@ -130,7 +129,7 @@ describe('RecordingApi', () => {
                 endpoint: undefined,
                 forcePathStyle: undefined,
             })
-            expect(getKeyStore).toHaveBeenCalledWith(expect.any(RetentionService), 'us-west-2', {
+            expect(getKeyStore).toHaveBeenCalledWith('us-west-2', {
                 kmsEndpoint: undefined,
                 dynamoDBEndpoint: undefined,
             })

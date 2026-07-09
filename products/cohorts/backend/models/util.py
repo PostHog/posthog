@@ -612,7 +612,7 @@ def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
 
 def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
     distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
-    # The leading `SELECT distinct_id` is load-bearing: breakdown_props rewrites it via string replace.
+    # Callers embed this in `distinct_id IN (...)`, so it must select exactly distinct_id.
     return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
 
 
