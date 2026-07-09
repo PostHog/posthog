@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -12,7 +12,6 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
@@ -52,14 +51,14 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions as data: Discuss (always), Archive/Restore, and Create PR. Task
- * creation/navigation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
+ * Detail-pane actions as data: Archive/Restore and Create PR. Discuss is rendered separately as a
+ * standalone dropdown button (`DiscussReportButton`) since it opens a question popover rather than
+ * firing on click. Task creation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
  * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
-    const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
-    const { createPrFromReport, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { primaryTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
@@ -109,45 +108,15 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         }
     }
 
-    // Discuss is always available – it never changes the report's state, it just opens a
-    // conversation with the agent, so it stays even for resolved/archived reports. When the report
-    // already has a linked run (e.g. the task that opened its PR), jump straight into that
-    // conversation so guidance reaches the agent already on the job; otherwise kick off a fresh
-    // research task seeded from the report.
-    const discuss: ReportDetailAction = {
-        key: 'discuss',
-        label: 'Discuss',
-        icon: <IconMessage />,
-        loading: isDiscussing,
-        tooltip: primaryTask
-            ? 'Continue the conversation with the agent working on this report'
-            : 'Ask the agent about this report',
-        onClick: () => {
-            // `has_existing_task` splits the two Discuss paths (jump into an existing run vs. kick
-            // off a fresh research task) without needing a second event type.
-            captureInboxReportAction({
-                report,
-                actionType: 'discuss',
-                surface: 'detail_pane',
-                extra: { has_existing_task: !!primaryTask },
-            })
-            if (primaryTask) {
-                router.actions.push(urls.taskDetail(primaryTask.task.id))
-                return
-            }
-            discussReport(report)
-        },
-    }
-
-    // A resolved report is terminal – its PR already merged, so only Discuss applies.
+    // A resolved report is terminal – its PR already merged, so only Discuss (rendered separately)
+    // applies and there are no data-driven actions here.
     if (isResolved) {
-        return [discuss]
+        return []
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
     if (isArchived) {
         return [
-            discuss,
             {
                 key: 'restore',
                 label: 'Restore',
@@ -160,7 +129,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
-        discuss,
         {
             key: 'archive',
             label: 'Archive',

@@ -32,15 +32,10 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
     return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
 }
 
-function buildDiscussReportPrompt(report: SignalReport, question?: string): string {
-    const base = `Discuss PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the contributing findings and help the user understand and decide what to do.${
-        report.summary ? `\n\nReport summary:\n${report.summary}` : ''
-    }`
-    const trimmed = question?.trim()
-    if (!trimmed) {
-        return base
-    }
-    return `${base}\n\nThe user asks:\n${trimmed}`
+function buildDiscussReportPrompt(reportUrl: string, question: string): string {
+    // The task is already linked to the report, but including the URL lets the agent open and read
+    // the full report itself. The user's question follows after a blank line for clear separation.
+    return `Let's discuss this PostHog Inbox report: ${reportUrl}\n\n${question.trim()}`
 }
 
 async function createReportTask(
@@ -94,7 +89,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     path(['scenes', 'inbox', 'inboxTaskKickoffLogic']),
 
     actions({
-        discussReport: (report: SignalReport, question?: string) => ({ report, question }),
+        discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
         createPrFromReport: (report: SignalReport) => ({ report }),
         discussReportSuccess: true,
         discussReportFailure: true,
@@ -122,9 +117,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     listeners(({ actions }) => ({
-        discussReport: async ({ report, question }) => {
+        discussReport: async ({ report, reportUrl, question }) => {
             try {
-                await createReportTask(report, 'research', buildDiscussReportPrompt(report, question), 'Discuss report')
+                await createReportTask(report, 'research', buildDiscussReportPrompt(reportUrl, question), 'Discuss report')
                 actions.discussReportSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
