@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -19,15 +20,12 @@ function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.El
     }
     return (
         <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 p-2 text-xs">
-            {entries.map(([key, value]) => (
-                <>
-                    <span key={`${key}-k`} className="text-secondary font-mono">
-                        {key}
-                    </span>
-                    <span key={`${key}-v`} className="font-mono break-all">
-                        {value}
-                    </span>
-                </>
+            {/* Index-keyed: the same attribute key can appear in both the datapoint and resource maps. */}
+            {entries.map(([key, value], index) => (
+                <Fragment key={index}>
+                    <span className="text-secondary font-mono">{key}</span>
+                    <span className="font-mono break-all">{value}</span>
+                </Fragment>
             ))}
         </div>
     )
@@ -42,7 +40,7 @@ function SamplesTab(): JSX.Element {
             dataSource={samples}
             loading={samplesLoading}
             size="small"
-            rowKey={(sample) => `${sample.timestamp}-${sample.trace_id}-${sample.value}`}
+            rowKey={(sample, rowIndex) => `${rowIndex}-${sample.timestamp}-${sample.trace_id}`}
             emptyState={
                 hasMetricName
                     ? 'No emissions for this metric in the selected range.'
