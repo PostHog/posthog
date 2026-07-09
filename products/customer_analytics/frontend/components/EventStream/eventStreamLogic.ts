@@ -23,13 +23,6 @@ import type {
 import { AccountsEvents } from '../Accounts/constants'
 import type { eventStreamLogicType } from './eventStreamLogicType'
 
-/** What still needs configuring before the stream can deliver to Slack. */
-export interface EventStreamDeliveryGaps {
-    needsEvents: boolean
-    needsSlackChannel: boolean
-    needsAccounts: boolean
-}
-
 /** Locally staged edits to the stream config, applied on Save. */
 export interface EventStreamDraft {
     enabled: boolean
@@ -121,20 +114,6 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
             (eventStream: EventStreamApi | null) =>
                 (accountId: string): boolean =>
                     !!eventStream?.account_ids?.includes(accountId),
-        ],
-        deliveryGaps: [
-            (s) => [s.eventStream],
-            (eventStream: EventStreamApi | null): EventStreamDeliveryGaps | null => {
-                if (!eventStream?.enabled) {
-                    return null
-                }
-                const gaps: EventStreamDeliveryGaps = {
-                    needsEvents: !eventStream.event_names?.length,
-                    needsSlackChannel: !eventStream.slack_integration || !eventStream.slack_channel_id,
-                    needsAccounts: !eventStream.account_ids?.length,
-                }
-                return gaps.needsEvents || gaps.needsSlackChannel || gaps.needsAccounts ? gaps : null
-            },
         ],
     }),
     listeners(({ actions, values }) => ({

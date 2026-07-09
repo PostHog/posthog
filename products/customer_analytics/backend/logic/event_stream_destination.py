@@ -32,9 +32,6 @@ class EventStreamTestMessageError(Exception):
 _SLACK_TEMPLATE = "template-slack"
 _DESTINATION_TYPE = "destination"
 
-# HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
-_HOG_FUNCTION_NAME_MAX_LEN = 400
-
 # `exact` on an empty list compiles, but an accidental fall-through must never match a real
 # group key — pair the disabled state with a filter value no group can have.
 _NO_MEMBERS_SENTINEL = "$customer_analytics_event_stream_no_members"
@@ -57,12 +54,6 @@ def member_group_keys(stream: EventStream) -> list[str]:
         .exclude(account__external_id="")
         .values_list("account__external_id", flat=True)
     )
-
-
-def _clip_name(name: str) -> str:
-    if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
-        return name
-    return name[: _HOG_FUNCTION_NAME_MAX_LEN - 1] + "…"
 
 
 def _build_filters(stream: EventStream, group_type_index: int, group_keys: list[str]) -> dict[str, Any]:
@@ -111,7 +102,7 @@ def _destination_config(stream: EventStream, group_type_index: int | None, group
         "type": _DESTINATION_TYPE,
         "enabled": enabled,
         "template_id": _SLACK_TEMPLATE,
-        "name": _clip_name(f"Customer analytics event stream → Slack #{channel_display.lstrip('#')}"),
+        "name": f"Customer analytics event stream → Slack #{channel_display.lstrip('#')}",
         "description": "Streams selected customers' events live to Slack. Managed by Customer analytics.",
         "filters": _build_filters(stream, group_type_index if group_type_index is not None else 0, group_keys),
         "inputs": {
