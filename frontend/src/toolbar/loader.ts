@@ -57,7 +57,9 @@ function loadApp(): Promise<ToolbarModule> {
                 // cache bucket as the toolbar.css loader.
                 const fiveMinutesInMillis = 5 * 60 * 1000
                 const cacheBuster = Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                return import(resolveAppUrl(`toolbar-app.js?t=${cacheBuster}`))
+                // Retried too: reaching here doesn't mean the network is healthy — the primary
+                // import may have failed on a transient error rather than a version-skew 404.
+                return importWithRetry(resolveAppUrl(`toolbar-app.js?t=${cacheBuster}`), 2, 300)
             })
             .then((module) => {
                 controllerDelegate = module.posthogToolbarController
