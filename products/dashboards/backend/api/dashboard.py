@@ -187,11 +187,11 @@ RUN_WIDGETS_QUERY_CONCURRENCY = 4
 # Conservative default: tiles can trigger synchronous ClickHouse computation, and this pool is
 # the per-process ceiling across all concurrent dashboard GETs, so size it like the widget-query
 # pool rather than "tiles per dashboard". Env-tunable so it can be resized without a deploy.
-DASHBOARD_TILE_SERIALIZE_CONCURRENCY = get_from_env("DASHBOARD_TILE_SERIALIZE_CONCURRENCY", 8, type_cast=int)
+DASHBOARD_TILE_SERIALIZE_CONCURRENCY = max(1, get_from_env("DASHBOARD_TILE_SERIALIZE_CONCURRENCY", 8, type_cast=int))
 # Ceiling on how long one dashboard GET waits for its tile futures — keeps a slow tenant from
 # holding request threads and pool slots until the gunicorn timeout kills the worker.
-DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS = get_from_env(
-    "DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS", 90.0, type_cast=float
+DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS = max(
+    1.0, get_from_env("DASHBOARD_TILE_SERIALIZE_TIMEOUT_SECONDS", 90.0, type_cast=float)
 )
 
 # Shared across requests: spawning OS threads per dashboard GET is measurable overhead,
@@ -354,23 +354,30 @@ def collect_tile_futures(
     surfacing the failure, so successful refreshes aren't ghosted by a failing sibling.
     A future that is already running when the deadline passes cannot be cancelled; its eventual
     chained tasks are returned to nobody, which is the residual ghost-status window we accept.
+    wait() blocks until the slowest tile finishes or the deadline passes — even if an earlier
+    tile already failed — so that tile's chained tasks are collected rather than ghosted too.
     """
     _done, not_done = wait(futures, timeout=timeout)
     for future in not_done:
         future.cancel()
 
     tile_results: list[tuple[int, dict, list]] = []
-    failure: BaseException | None = None
+    timeout_failure: BaseException | None = None
+    real_failure: BaseException | None = None
     for future in futures:
         if future.cancelled() or not future.done():
-            failure = failure or TimeoutError(f"Dashboard tile serialization timed out after {timeout}s")
+            timeout_failure = timeout_failure or TimeoutError(
+                f"Dashboard tile serialization timed out after {timeout}s"
+            )
             continue
         exception = future.exception()
         if exception is not None:
-            failure = failure or exception
+            real_failure = real_failure or exception
             continue
         tile_results.append(future.result())
-    return tile_results, failure
+    # A genuine exception is always more useful than the synthetic timeout, even if a tile
+    # that never started (and so only produced the timeout) was submitted earlier.
+    return tile_results, real_failure or timeout_failure
 
 
 def fail_chained_tasks(chained_tasks: list) -> None:
@@ -403,8 +410,10 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
     """
     # Pool threads outlive the request, so Django's request_finished cleanup never runs here;
     # discard stale/errored connections on entry and exit like DatabaseSyncToAsync does, since
-    # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used.
-    if not settings.TEST:
+    # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used. Tests that
+    # opt into the pool via DASHBOARD_TILE_PARALLEL_IN_TESTS still need this cleanup, since the
+    # override doesn't change that pool threads use separate, real DB connections.
+    if not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False):
         close_old_connections()
     try:
         if not chained:
@@ -432,7 +441,7 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
             set_in_context(False)
         return order, tile_data, chained_tasks
     finally:
-        if not settings.TEST:
+        if not settings.TEST or getattr(settings, "DASHBOARD_TILE_PARALLEL_IN_TESTS", False):
             close_old_connections()
 
 
@@ -2164,15 +2173,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             else:
                 # UserPermissions caches are lazily populated check-then-set dicts shared through
                 # self.context; warm them on the request thread so pool workers only read them
-                # and never race the population.
-                dashboard_permissions = self.user_permissions.dashboard(dashboard)
-                _ = dashboard_permissions.effective_restriction_level
-                _ = dashboard_permissions.effective_privilege_level
-                for tile in sorted_tiles:
-                    if tile.insight is not None:
-                        insight_permissions = self.user_permissions.insight(tile.insight)
-                        _ = insight_permissions.effective_restriction_level
-                        _ = insight_permissions.effective_privilege_level
+                # and never race the population. Skip on shared/embedded renders: those build
+                # UserPermissions with an AnonymousUser, and the underlying org-membership lookup
+                # raises for it, so the serializer getters short-circuit on `is_shared` instead.
+                if not self.context.get("is_shared"):
+                    dashboard_permissions = self.user_permissions.dashboard(dashboard)
+                    _ = dashboard_permissions.effective_restriction_level
+                    _ = dashboard_permissions.effective_privilege_level
+                    for tile in sorted_tiles:
+                        if tile.insight is not None:
+                            insight_permissions = self.user_permissions.insight(tile.insight)
+                            _ = insight_permissions.effective_restriction_level
+                            _ = insight_permissions.effective_privilege_level
 
                 # All tiles are needed before returning, so collect in submission (layout) order —
                 # wall-clock is the slowest tile either way, without as_completed's waiter machinery.
