@@ -1142,3 +1142,46 @@ async fn writer_skips_distinct_ids_pointing_at_another_teams_person() {
     common::cleanup_team_real_tables(&pool, team_a).await;
     common::cleanup_team_real_tables(&pool, team_b).await;
 }
+
+/// A create reusing a team's existing uuid under a different (freshly
+/// allocated) id is rejected by the (team_id, uuid) unique index and must
+/// surface as a data failure — never as silent success — so the acked-
+/// write loss is observable.
+#[tokio::test]
+async fn writer_surfaces_duplicate_uuid_creates_as_data_failures() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_009;
+    common::cleanup_team_real_tables(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    let original = make_person(team_id as i64, 999_099_004, 0);
+    let taken_uuid = original.uuid.clone();
+    assert!(matches!(
+        writer.upsert_batch(vec![original]).await,
+        BatchOutcome::Success
+    ));
+
+    let mut duplicate = make_person(team_id as i64, 999_099_005, 0);
+    duplicate.uuid = taken_uuid;
+    let outcome = writer.upsert_batch(vec![duplicate]).await;
+    match outcome {
+        BatchOutcome::Partial { data_failed, .. } => {
+            assert_eq!(data_failed.len(), 1);
+            assert_eq!(data_failed[0].id, 999_099_005);
+        }
+        other => panic!("duplicate uuid must surface as a data failure, got {other:?}"),
+    }
+
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM posthog_person WHERE team_id = $1")
+        .bind(team_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "the duplicate row must not exist");
+
+    common::cleanup_team_real_tables(&pool, team_id).await;
+}

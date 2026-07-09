@@ -373,12 +373,33 @@ fn record_upsert_outcome(
         Err(e) => {
             let kind = classify_error(&e);
             counter!("personhog_writer_upsert_errors_total", "mode" => mode).increment(1);
+            // A create reusing a team's existing uuid under a different id
+            // is acked by the leader but rejected here by the (team_id,
+            // uuid) unique index — an acked write lost to a caller-contract
+            // violation. Surfaced under its own metric so it never blends
+            // into generic data errors; per-record counts are the
+            // mode="row" series (a chunk-mode hit recounts in row
+            // fallback).
+            if is_uuid_conflict(&e) {
+                counter!("personhog_writer_uuid_conflict_drops_total", "mode" => mode).increment(1);
+            }
             error!(error = %e, error_kind = ?kind, mode, "upsert failed");
             Err(WriteError {
                 message: e.to_string(),
                 kind,
             })
         }
+    }
+}
+
+/// Whether the error is a unique violation on the person uuid index.
+fn is_uuid_conflict(e: &sqlx::Error) -> bool {
+    match e {
+        sqlx::Error::Database(db_err) => {
+            db_err.code().as_deref() == Some("23505")
+                && db_err.constraint().is_some_and(|c| c.contains("uuid"))
+        }
+        _ => false,
     }
 }
 

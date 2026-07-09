@@ -184,18 +184,28 @@ message AllocatePersonIdsResponse {
 // later create. The id also determines the partition (murmur2 of
 // "team_id:person_id"), so it must be known before routing.
 //
-// Retries must reuse the same person_id and uuid: the writer's upsert
-// and the distinct-id inserts are idempotent for an identical record,
-// and the leader treats a create for an already-cached person with a
-// matching uuid as success.
+// Retries must reuse the same person_id (and the same uuid, when one was
+// supplied explicitly — an omitted uuid re-derives identically from the
+// id): the writer's upsert and the distinct-id inserts are idempotent
+// for an identical record, and the leader treats a create for an
+// already-cached person with a matching uuid as success.
 message CreatePersonRequest {
   int64 team_id = 1;
   // Allocated via AllocatePersonIds. See above.
   int64 person_id = 2;
-  // Client-generated UUIDv4. The caller guarantees freshness: (team_id,
-  // uuid) is unique on posthog_person, so a create reusing a team's
-  // existing uuid under a different allocated id is acked by the leader
-  // but rejected by the writer's insert — the acked create is lost.
+  // Optional. Leave empty (recommended) and the leader derives a
+  // deterministic UUIDv5 from (team_id, person_id): the id allocator
+  // never vends an id twice, so derived uuids inherit that uniqueness
+  // and cannot collide — and retries that reuse the id re-derive the
+  // identical uuid. The derived uuid is returned in the response.
+  //
+  // Supply an explicit uuid only when the person has an external
+  // identity (e.g. imports carrying source uuids). Explicit uuids come
+  // with a freshness contract the system cannot verify upstream:
+  // (team_id, uuid) is unique on posthog_person, and a create reusing a
+  // team's existing uuid under a different allocated id is acked by the
+  // leader but rejected at the writer's insert — the acked create is
+  // lost (surfaced via personhog_writer_uuid_conflict_drops_total).
   // Existence checks belong to the caller (ingestion's distinct-id
   // resolution), not this RPC.
   string uuid = 3;

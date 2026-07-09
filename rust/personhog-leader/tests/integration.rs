@@ -1409,3 +1409,38 @@ async fn create_person_is_idempotent_for_retries_and_rejects_id_reuse() {
 
     cancel.cancel();
 }
+
+/// An omitted uuid is derived deterministically from (team_id, person_id):
+/// the response carries a valid uuid, and a retry that reuses only the id
+/// re-derives the identical uuid and lands on the idempotent-success path
+/// instead of AlreadyExists.
+#[tokio::test]
+async fn create_person_derives_deterministic_uuid_when_omitted() {
+    const PERSON_ID: i64 = 2;
+    let (mut client, _mock_cluster, cancel) = start_create_test_service().await;
+
+    let mut req = create_request(PERSON_ID, "");
+    req.uuid = String::new();
+    let created = client
+        .create_person(with_partition(req.clone(), 2))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    uuid::Uuid::parse_str(&created.uuid).expect("derived uuid must be valid");
+
+    let retried = client
+        .create_person(with_partition(req, 2))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(
+        retried.uuid, created.uuid,
+        "an id-only retry must re-derive the same uuid and succeed"
+    );
+
+    cancel.cancel();
+}

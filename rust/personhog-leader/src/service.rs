@@ -17,6 +17,16 @@ use uuid::Uuid;
 
 use personhog_common::partitioning::partition_for_person;
 
+/// Namespace for uuids derived from `(team_id, person_id)` when
+/// CreatePerson is called without an explicit uuid. Deliberately distinct
+/// from the replica's split-person namespace: that one derives from
+/// distinct ids, which are frequently numeric strings, so sharing a
+/// namespace would let `team:distinct_id` and `team:person_id` inputs
+/// collide.
+const CREATED_PERSON_UUIDV5_NAMESPACE: Uuid = Uuid::from_bytes([
+    0x7d, 0x44, 0x2f, 0x78, 0x6a, 0x3c, 0x4a, 0x4e, 0x9f, 0x2a, 0x1e, 0x8c, 0x5b, 0x4d, 0x0a, 0x91,
+]);
+
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -375,9 +385,23 @@ impl PersonHogLeader for PersonHogLeaderService {
             )));
         };
 
-        // Validate before acquiring the per-key lock.
-        Uuid::parse_str(&req.uuid)
-            .map_err(|e| Status::invalid_argument(format!("invalid uuid: {e}")))?;
+        // Validate before acquiring the per-key lock. An omitted uuid is
+        // derived from (team_id, person_id): the id allocator never vends
+        // an id twice, so derived uuids inherit that uniqueness and can
+        // never trip the (team_id, uuid) index at the writer. Explicit
+        // uuids are normalized so retry comparisons and PG state agree on
+        // one canonical form.
+        let uuid = if req.uuid.is_empty() {
+            Uuid::new_v5(
+                &CREATED_PERSON_UUIDV5_NAMESPACE,
+                format!("{}:{}", req.team_id, req.person_id).as_bytes(),
+            )
+            .to_string()
+        } else {
+            Uuid::parse_str(&req.uuid)
+                .map_err(|e| Status::invalid_argument(format!("invalid uuid: {e}")))?
+                .to_string()
+        };
         if req.distinct_ids.len() > 100 {
             return Err(Status::invalid_argument(
                 "maximum 100 distinct_ids per create",
@@ -403,12 +427,13 @@ impl PersonHogLeader for PersonHogLeaderService {
         let _guard = mutex.lock().await;
 
         // The id may already be taken — in cache or, via the fallback, in
-        // PG. A retry of the same create (matching uuid) is success; a
-        // different uuid means the id was not freshly allocated, which the
-        // AllocatePersonIds contract rules out for honest callers.
+        // PG. A retry of the same create (matching uuid — re-derived
+        // identically when omitted) is success; a different uuid means the
+        // id was not freshly allocated, which the AllocatePersonIds
+        // contract rules out for honest callers.
         match self.lookup_or_load_locked(partition, &cache_key).await {
             Ok(existing) => {
-                return if existing.uuid == req.uuid {
+                return if existing.uuid == uuid {
                     counter!("personhog_leader_creates_total", "outcome" => "idempotent_retry")
                         .increment(1);
                     Ok(Response::new(CreatePersonResponse {
@@ -432,7 +457,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         };
         let created = CachedPerson {
             id: req.person_id,
-            uuid: req.uuid.clone(),
+            uuid,
             team_id: req.team_id,
             properties,
             created_at,
