@@ -12,6 +12,7 @@ from unittest import mock
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
+from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
@@ -21,6 +22,7 @@ from posthog.tasks.usage_report import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     finish_row_tracking,
+    get_all_rows_for_team,
     increment_rows,
     setup_row_tracking,
     will_hit_billing_limit,
@@ -195,3 +197,19 @@ class TestRowTracking(BaseTest):
 
         async with self._setup_redis_rows(20, team_id=another_team.pk):
             assert await self._run(source, 10) is True
+
+    @pytest.mark.asyncio
+    async def test_transient_redis_error_during_operation_fails_open(self):
+        # A connect timeout during the Redis op (not just ping) must be swallowed so the
+        # billing check fails open rather than leaking into error tracking.
+        fake_redis = mock.AsyncMock()
+        fake_redis.hgetall.side_effect = redis_exceptions.TimeoutError("Timeout connecting to server")
+
+        with (
+            override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_async_client",
+                return_value=fake_redis,
+            ),
+        ):
+            assert await get_all_rows_for_team(self.team.pk) == 0

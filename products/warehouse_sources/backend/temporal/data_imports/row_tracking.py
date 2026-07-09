@@ -1,13 +1,17 @@
 import uuid
 import asyncio
+import functools
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from django.conf import settings
 from django.db.models import F, Q, Sum
 
+import structlog
 from dateutil import parser
+from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.cloud_utils import get_cached_instance_license
@@ -22,6 +26,33 @@ from products.warehouse_sources.backend.models.external_data_job import External
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+logger = structlog.get_logger(__name__)
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _fail_open_on_redis_error(default: R) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+    """Swallow transient Redis errors during row tracking, returning a safe default.
+
+    Row tracking is best-effort and the billing-limit check fails open, so a Redis
+    connection blip (e.g. a connect timeout during an operation) should degrade to
+    "no data" rather than propagate and pollute error tracking.
+    """
+
+    def decorator(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+        @functools.wraps(fn)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            try:
+                return await fn(*args, **kwargs)
+            except redis_exceptions.RedisError as e:
+                logger.warning("dwh_row_tracking_redis_error", operation=fn.__name__, error=str(e))
+                return default
+
+        return wrapper
+
+    return decorator
 
 
 def _get_hash_key(team_id: int) -> str:
@@ -40,12 +71,17 @@ async def _get_redis():
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
+    except redis_exceptions.RedisError as e:
+        # Transient connectivity blip — row tracking fails open, so log rather than capture.
+        logger.warning("dwh_row_tracking_redis_unavailable", error=str(e))
+        redis = None
     except Exception as e:
         capture_exception(e)
 
     yield redis
 
 
+@_fail_open_on_redis_error(None)
 async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
     async with _get_redis() as redis:
         if not redis:
@@ -55,6 +91,7 @@ async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         await redis.expire(_get_hash_key(team_id), 60 * 60 * 24 * 7)  # 7 day expire
 
 
+@_fail_open_on_redis_error(None)
 async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
     async with _get_redis() as redis:
         if not redis:
@@ -63,6 +100,7 @@ async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         await redis.hincrby(_get_hash_key(team_id), str(schema_id), rows)
 
 
+@_fail_open_on_redis_error(None)
 async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
     async with _get_redis() as redis:
         if not redis:
@@ -82,6 +120,7 @@ async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
             await redis.hincrby(_get_hash_key(team_id), str(schema_id), -rows)
 
 
+@_fail_open_on_redis_error(None)
 async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
     async with _get_redis() as redis:
         if not redis:
@@ -90,6 +129,7 @@ async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         await redis.hdel(_get_hash_key(team_id), str(schema_id))
 
 
+@_fail_open_on_redis_error(0)
 async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
     async with _get_redis() as redis:
         if not redis:
@@ -103,6 +143,7 @@ async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
         return 0
 
 
+@_fail_open_on_redis_error(0)
 async def get_all_rows_for_team(team_id: int) -> int:
     async with _get_redis() as redis:
         if not redis:
