@@ -1,5 +1,6 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+import time
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from copy import deepcopy
@@ -1879,11 +1880,17 @@ class ExperimentService:
         ``request`` is required because FeatureFlagSerializer needs a real request
         with authentication and session context to persist the flag change.
         """
+        # Phase timings are logged at the end: the freeze spans several backends (ClickHouse scan,
+        # personhog RPCs, cohort build with its cache side effects, flag save) whose relative cost
+        # can't be reconstructed from any single backend's logs — see experiment_freeze_exposure_timing.
+        freeze_started_at = time.monotonic()
+
         # Phase 1 — unlocked: fail obviously-invalid requests before the expensive snapshot build.
         self._validate_freeze_exposure_state(experiment)
 
         # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
         exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
+        scan_done_at = time.monotonic()
         if not exposed_person_uuids:
             # An empty snapshot cohort ANDed into every release group would un-enroll every user.
             raise ValidationError(
@@ -1896,9 +1903,11 @@ class ExperimentService:
         # their variant. The resolved pairs feed the snapshot insert directly, so the persons
         # aren't fetched from personhog a second time.
         resolved_person_pairs = self._resolve_exposed_persons(exposed_person_uuids)
+        resolve_done_at = time.monotonic()
 
         # 3. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
         exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, resolved_person_pairs)
+        cohort_build_done_at = time.monotonic()
 
         # Phase 2 — locked: any failure here drops the snapshot cohort, which is referenced only by
         # the flag change attempted below — a failed freeze should leave nothing behind.
@@ -1963,10 +1972,26 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
         locked_flag.refresh_from_db()
         experiment.feature_flag = locked_flag
+        flag_save_done_at = time.monotonic()
 
         # end_date intentionally left null — metrics keep flowing.
 
         self._report_experiment_exposure_frozen(experiment, request=request)
+
+        # flag_save_ms includes the transaction commit, so it carries the on-commit flag cache
+        # rebuilds; cohort_build_ms carries the cohort dependency cache warm-up triggered by the
+        # snapshot cohort's creation.
+        logger.info(
+            "experiment_freeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            exposed_count=len(exposed_person_uuids),
+            scan_ms=round((scan_done_at - freeze_started_at) * 1000),
+            resolve_ms=round((resolve_done_at - scan_done_at) * 1000),
+            cohort_build_ms=round((cohort_build_done_at - resolve_done_at) * 1000),
+            flag_save_ms=round((flag_save_done_at - cohort_build_done_at) * 1000),
+            total_ms=round((time.monotonic() - freeze_started_at) * 1000),
+        )
 
         return experiment
 
@@ -2289,6 +2314,8 @@ class ExperimentService:
         this path (see Experiment.is_exposure_frozen). The snapshot cohort is soft-deleted after
         the flag save so it doesn't accumulate as clutter.
         """
+        unfreeze_started_at = time.monotonic()
+
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
@@ -2315,11 +2342,24 @@ class ExperimentService:
         # Refresh so the experiment's nested flag reflects the restored filters when serialized.
         flag.refresh_from_db()
         experiment.feature_flag = flag
+        flag_save_done_at = time.monotonic()
 
         # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
         self._delete_orphaned_snapshot_cohorts(cohort_ids)
+        cohort_cleanup_done_at = time.monotonic()
 
         self._report_experiment_exposure_unfrozen(experiment, request=request)
+
+        # flag_save_ms carries the on-commit flag cache rebuilds; cohort_cleanup_ms carries the
+        # orphan check plus the cohort-delete cache side effects (dependency cache warm-up).
+        logger.info(
+            "experiment_unfreeze_exposure_timing",
+            team_id=self.team.pk,
+            experiment_id=experiment.pk,
+            flag_save_ms=round((flag_save_done_at - unfreeze_started_at) * 1000),
+            cohort_cleanup_ms=round((cohort_cleanup_done_at - flag_save_done_at) * 1000),
+            total_ms=round((time.monotonic() - unfreeze_started_at) * 1000),
+        )
 
         return experiment
 
