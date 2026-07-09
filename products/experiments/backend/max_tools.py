@@ -152,6 +152,8 @@ class CreateExperimentTool(MaxTool):
                     f"Feature flag '{feature_flag_key}' is already used by experiment '{existing_experiment_with_flag.name}'"
                 )
 
+            # The flag already exists with valid variants, so the experiment links to it as-is —
+            # no flag config to send. (create_experiment reuses the existing flag unchanged.)
             service = ExperimentService(team=self._team, user=self._user)
             return service.create_experiment(
                 name=name,
