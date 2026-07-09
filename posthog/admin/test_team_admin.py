@@ -634,25 +634,19 @@ class TestTeamInlineForm(BaseTest):
         return form_class(data=data, instance=self.team) if data is not None else form_class()
 
     def test_test_account_filters_is_not_required(self) -> None:
-        # Disabling an org saves the Organization admin form, which validates the TeamInline formset
-        # for every team. The default ModelForm makes test_account_filters required, and an empty
-        # `[]` is in Django's form empty_values, so it's rejected as "This field is required",
-        # blocking the org save for any team whose filters were cleared. Reusing TeamAdminForm makes
-        # the field optional.
+        # Guards org-disable: the field must stay optional or an empty [] re-blocks the org save.
         assert self._inline_form().fields["test_account_filters"].required is False
 
     def test_blank_test_account_filters_normalizes_to_empty_list(self) -> None:
-        # A blank input cleans to None, and the column is NOT NULL; TeamAdminForm normalizes it to []
-        # so it never reaches the DB as None.
+        # Blank input cleans to None; it must normalize to [] so it never hits the NOT NULL column as None.
         form = self._inline_form({"test_account_filters": ""})
-        form.is_valid()  # other inline fields are absent, but only this field's outcome matters here
+        form.is_valid()  # only this field's outcome matters; other inline fields are absent
         assert "test_account_filters" not in form.errors
         assert form.cleaned_data["test_account_filters"] == []
 
     @parameterized.expand([("object", "{}"), ("nested_object", '{"key": "email"}'), ("string", '"oops"')])
     def test_non_list_test_account_filters_is_rejected(self, _name: str, raw: str) -> None:
-        # required=False also lets the field accept any valid non-list JSON; TeamAdminForm rejects it
-        # rather than assigning a dict/string onto test_account_filters.
+        # required=False must not let non-list JSON through onto the field.
         form = self._inline_form({"test_account_filters": raw})
         form.is_valid()
         assert "test_account_filters" in form.errors
