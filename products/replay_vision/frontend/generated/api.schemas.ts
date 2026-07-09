@@ -20,12 +20,14 @@ export const TriggerTypeEnumApi = {
 
 /**
  * * `group_summary` - Group summary
+ * * `alert` - Alert
  * * `per_observation` - Per observation
  */
 export type VisionActionModeEnumApi = (typeof VisionActionModeEnumApi)[keyof typeof VisionActionModeEnumApi]
 
 export const VisionActionModeEnumApi = {
     GroupSummary: 'group_summary',
+    Alert: 'alert',
     PerObservation: 'per_observation',
 } as const
 
@@ -78,6 +80,56 @@ export interface SynthesisConfigApi {
      * @maxLength 500
      */
     prompt_guide?: string
+}
+
+/**
+ * * `count` - Count of matching observations
+ * * `avg_score` - Average score
+ */
+export type VisionAlertMetricEnumApi = (typeof VisionAlertMetricEnumApi)[keyof typeof VisionAlertMetricEnumApi]
+
+export const VisionAlertMetricEnumApi = {
+    Count: 'count',
+    AvgScore: 'avg_score',
+} as const
+
+/**
+ * * `gt` - Greater than
+ * * `gte` - Greater than or equal
+ * * `lt` - Less than
+ * * `lte` - Less than or equal
+ * * `eq` - Equal
+ */
+export type VisionAlertOperatorEnumApi = (typeof VisionAlertOperatorEnumApi)[keyof typeof VisionAlertOperatorEnumApi]
+
+export const VisionAlertOperatorEnumApi = {
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+    Eq: 'eq',
+} as const
+
+/**
+ * The alert condition for mode='alert', evaluated over each run's observation window after
+ * `selection` targeting is applied. The action delivers only when the condition holds.
+ */
+export interface AlertConfigApi {
+    /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).
+     *
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score */
+    metric: VisionAlertMetricEnumApi
+    /** Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.
+     *
+     * * `gt` - Greater than
+     * * `gte` - Greater than or equal
+     * * `lt` - Less than
+     * * `lte` - Less than or equal
+     * * `eq` - Equal */
+    operator: VisionAlertOperatorEnumApi
+    /** The value the metric is compared against. */
+    threshold: number
 }
 
 /**
@@ -179,6 +231,7 @@ export interface VisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -187,6 +240,8 @@ export interface VisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**
@@ -240,6 +295,7 @@ export interface PatchedVisionActionApi {
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation */
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -248,6 +304,8 @@ export interface PatchedVisionActionApi {
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
+    /** Alert condition; required when mode is 'alert', ignored otherwise. */
+    alert_config?: AlertConfigApi
     /** List of delivery destinations the synthesized summary is sent to. */
     delivery_config?: DeliveryTargetApi[]
     /**

@@ -110,6 +110,13 @@ class AlertConfigSerializer(serializers.Serializer):
         help_text="The value the metric is compared against.",
     )
 
+    def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
+        # Non-alert actions store the {} default; represent it as-is rather than KeyErroring on the
+        # required fields. Writes still validate the full shape whenever alert_config is provided.
+        if not instance:
+            return {}
+        return cast(dict[str, Any], super().to_representation(instance))
+
 
 class SynthesisConfigSerializer(serializers.Serializer):
     """Options for the group-summary synthesis step."""

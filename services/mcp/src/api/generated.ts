@@ -9395,6 +9395,58 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `count` - Count of matching observations
+     * * `avg_score` - Average score
+     */
+    export type VisionAlertMetricEnum = typeof VisionAlertMetricEnum[keyof typeof VisionAlertMetricEnum];
+
+
+    export const VisionAlertMetricEnum = {
+      Count: 'count',
+      AvgScore: 'avg_score',
+    } as const;
+
+    /**
+     * * `gt` - Greater than
+     * * `gte` - Greater than or equal
+     * * `lt` - Less than
+     * * `lte` - Less than or equal
+     * * `eq` - Equal
+     */
+    export type VisionAlertOperatorEnum = typeof VisionAlertOperatorEnum[keyof typeof VisionAlertOperatorEnum];
+
+
+    export const VisionAlertOperatorEnum = {
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+      Eq: 'eq',
+    } as const;
+
+    /**
+     * The alert condition for mode='alert', evaluated over each run's observation window after
+     * `selection` targeting is applied. The action delivers only when the condition holds.
+     */
+    export interface AlertConfig {
+      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).
+       *
+       * * `count` - Count of matching observations
+       * * `avg_score` - Average score */
+      metric: VisionAlertMetricEnum;
+      /** Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.
+       *
+       * * `gt` - Greater than
+       * * `gte` - Greater than or equal
+       * * `lt` - Less than
+       * * `lte` - Less than or equal
+       * * `eq` - Equal */
+      operator: VisionAlertOperatorEnum;
+      /** The value the metric is compared against. */
+      threshold: number;
+    }
+
     export interface AlertSimulate {
       /** Insight ID to simulate the detector on. */
       insight: number;
@@ -38249,6 +38301,7 @@ export namespace Schemas {
 
     /**
      * * `group_summary` - Group summary
+     * * `alert` - Alert
      * * `per_observation` - Per observation
      */
     export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
@@ -38256,6 +38309,7 @@ export namespace Schemas {
 
     export const VisionActionModeEnum = {
       GroupSummary: 'group_summary',
+      Alert: 'alert',
       PerObservation: 'per_observation',
     } as const;
 
@@ -38332,6 +38386,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -38340,6 +38395,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**
@@ -45608,6 +45665,7 @@ export namespace Schemas {
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
+       * * `alert` - Alert
        * * `per_observation` - Per observation */
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
@@ -45616,6 +45674,8 @@ export namespace Schemas {
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
+      /** Alert condition; required when mode is 'alert', ignored otherwise. */
+      alert_config?: AlertConfig;
       /** List of delivery destinations the synthesized summary is sent to. */
       delivery_config?: DeliveryTarget[];
       /**

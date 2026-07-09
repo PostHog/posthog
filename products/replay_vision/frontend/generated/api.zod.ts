@@ -38,11 +38,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -103,6 +103,29 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            operator: zod
+                .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
+                .describe(
+                    '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
+                )
+                .describe(
+                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
+                ),
+            threshold: zod.number().describe('The value the metric is compared against.'),
+        })
+        .describe(
+            "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
@@ -155,11 +178,11 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "What fires the action. MVP supports 'schedule' only.\n\n\* `schedule` - Schedule\n\* `threshold` - Threshold"
         ),
     mode: zod
-        .enum(['group_summary', 'per_observation'])
-        .describe('\* `group_summary` - Group summary\n\* `per_observation` - Per observation')
+        .enum(['group_summary', 'alert', 'per_observation'])
+        .describe('\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation')
         .optional()
         .describe(
-            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `per_observation` - Per observation"
+            "What the action produces. MVP supports 'group_summary' only.\n\n\* `group_summary` - Group summary\n\* `alert` - Alert\n\* `per_observation` - Per observation"
         ),
     trigger_config: zod
         .object({
@@ -220,6 +243,29 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Options for the group-summary synthesis step.')
         .optional()
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
+    alert_config: zod
+        .object({
+            metric: zod
+                .enum(['count', 'avg_score'])
+                .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .describe(
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                ),
+            operator: zod
+                .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
+                .describe(
+                    '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
+                )
+                .describe(
+                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
+                ),
+            threshold: zod.number().describe('The value the metric is compared against.'),
+        })
+        .describe(
+            "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."
+        )
+        .optional()
+        .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
     delivery_config: zod
         .array(
             zod
