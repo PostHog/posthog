@@ -97,6 +97,18 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(action.delivery_config[0]["integration_id"], self.integration.id)
         self.assertIsNotNone(action.next_run_at)
 
+    def test_second_digest_for_scanner_rejected(self) -> None:
+        first = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-1", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(first.status_code, 201, first.content)
+        self.assertTrue(first.json()["is_scanner_digest"])
+        second = self.client.post(
+            self.actions_url, data=self._create_payload(name="digest-2", is_scanner_digest=True), format="json"
+        )
+        self.assertEqual(second.status_code, 400, second.content)
+        self.assertIn("daily digest", second.json()["detail"].lower())
+
     def test_list(self) -> None:
         self.client.post(self.actions_url, data=self._create_payload(), format="json")
         resp = self.client.get(self.actions_url)
@@ -331,6 +343,8 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual(body["synthesized_markdown"], "# Themes")
         self.assertEqual([o["id"] for o in body["observations"]], [str(obs_b.id), str(obs_a.id)])
+        # 1-based position in summary order — what the report's `[obs N]` citations reference.
+        self.assertEqual([o["index"] for o in body["observations"]], [1, 2])
         self.assertEqual(body["observations"][0]["session_id"], "sess-b")
         self.assertEqual(body["observations"][0]["title"], "Onboarding")
         self.assertEqual(body["observations"][1]["recording_subject_email"], "user@example.com")
@@ -349,6 +363,9 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
 
         body = self.client.get(f"{self.runs_url()}{run.id}/").json()
         self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
+        # `mine` was second in observation_ids; dropping the unresolved foreign id must leave a gap, not
+        # renumber it to 1 — otherwise its `index` would no longer match the `[obs 2]` citation in the report.
+        self.assertEqual(body["observations"][0]["index"], 2)
 
     @parameterized.expand(
         [

@@ -845,6 +845,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        rtk_enabled: bool = True,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -855,6 +856,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
+            rtk_enabled=rtk_enabled,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -954,6 +956,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1007,6 +1010,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            rtk_enabled=rtk_enabled,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
