@@ -788,12 +788,10 @@ export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ *
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
@@ -808,26 +806,13 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -842,7 +827,6 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -855,7 +839,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -878,12 +862,10 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMin = 60
@@ -892,32 +874,18 @@ export const llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMax = 1440
 export const llmAnalyticsEvaluationReportsUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -932,7 +900,6 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -945,7 +912,7 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .max(llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()
@@ -968,12 +935,10 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax = 64
-
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 100
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 10000
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
@@ -982,32 +947,18 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
 export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    evaluation: zod.uuid().optional().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
         .optional()
         .describe(
-            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.\n\n\* `scheduled` - Scheduled\n\* `every_n` - Every N"
         ),
     rrule: zod
         .string()
         .optional()
         .describe(
-            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    starts_at: zod.iso
-        .datetime({ offset: true })
-        .nullish()
-        .describe(
-            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
-        ),
-    timezone_name: zod
-        .string()
-        .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
-        .optional()
-        .describe(
-            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America\/New_York'). Defaults to 'UTC'."
+            "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     delivery_targets: zod
         .unknown()
@@ -1022,7 +973,6 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
     enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
@@ -1035,7 +985,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax)
         .nullish()
         .describe(
-            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         ),
     cooldown_minutes: zod
         .number()

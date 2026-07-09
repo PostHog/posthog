@@ -21,9 +21,7 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -67,7 +65,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
         canEnableReason,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
     const {
         setEvaluationName,
@@ -387,8 +384,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
-                        isReportableEvaluation &&
-                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
+                        isReportableEvaluation && {
                             key: 'reports',
                             label: 'Reports',
                             'data-attr': 'llma-evaluation-reports-tab',
@@ -602,21 +598,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     </div>
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
-                                    {isNewEvaluation &&
-                                        isReportableEvaluation &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                            <EvaluationReportConfig evaluationId="new" />
-                                        )}
+                                    {isNewEvaluation && isReportableEvaluation && (
+                                        <EvaluationReportConfig evaluationId="new" />
+                                    )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation &&
-                                    isReportableEvaluation &&
-                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                        <div className="mt-6">
-                                            <EvaluationReportConfig evaluationId={evaluation.id} />
-                                        </div>
-                                    )}
+                                {!isNewEvaluation && isReportableEvaluation && (
+                                    <div className="mt-6">
+                                        <EvaluationReportConfig evaluationId={evaluation.id} />
+                                    </div>
+                                )}
                             </div>
                         ),
                     },
