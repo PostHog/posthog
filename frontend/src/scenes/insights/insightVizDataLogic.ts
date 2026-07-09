@@ -892,20 +892,29 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // clamp the funnel steps
-    if (
-        maybeChangedSeries &&
-        isFunnelsQuery(currentState) &&
-        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
-            (insightFilter as FunnelsFilter)?.funnelToStep != null)
-    ) {
-        // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
-        )
-        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
-            ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
+    // clamp the funnel conversion window and per-exclusion step ranges against the new series
+    if (maybeChangedSeries && isFunnelsQuery(currentState)) {
+        const funnelsFilter = insightFilter as FunnelsFilter | undefined
+        const hasConversionWindow = funnelsFilter?.funnelFromStep != null || funnelsFilter?.funnelToStep != null
+        const hasExclusions = (funnelsFilter?.exclusions?.length ?? 0) > 0
+
+        if (hasConversionWindow || hasExclusions) {
+            // Filter out GroupNode types as funnels only use AnyEntityNode
+            const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+                (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
+            )
+            ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+                ...funnelsFilter,
+                ...getClampedFunnelStepRange(funnelsFilter ?? {}, funnelSeries),
+                ...(hasExclusions
+                    ? {
+                          exclusions: funnelsFilter?.exclusions?.map((exclusion) => ({
+                              ...exclusion,
+                              ...getClampedFunnelStepRange(exclusion, funnelSeries),
+                          })),
+                      }
+                    : {}),
+            }
         }
     }
 

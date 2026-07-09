@@ -8,17 +8,17 @@
  * ## When to Use gather()
  *
  * - After `concurrently()`: collect all concurrent results into one batch
- * - After `groupBy().concurrently()`: collect all group results into one batch
+ * - After `concurrentlyPerGroup()`: collect all group results into one batch
  *
  * ## How gather() Works
  *
  * Without gather(), pipelines stream results as they become available:
  * - `concurrently()` returns items one at a time (in input order)
- * - `groupBy().concurrently()` returns groups one at a time as each completes
+ * - `concurrentlyPerGroup()` returns groups one at a time as each completes
  *
  * With gather(), all results are collected and returned in a single batch.
  */
-import { GroupProcessingBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -88,13 +88,13 @@ describe('Gathering Results', () => {
     })
 
     /**
-     * Without gather(), groupBy().concurrently() returns groups one at a time
+     * Without gather(), concurrentlyPerGroup() returns groups one at a time
      * as each group completes. With gather(), all groups are collected into
      * a single batch.
      *
      * Within each group, events are always processed sequentially (order preserved).
      */
-    it('gather() after groupBy().concurrently() collects groups into one batch', async () => {
+    it('gather() after concurrentlyPerGroup() collects groups into one batch', async () => {
         const delays: Record<string, number> = {
             alice: 30,
             bob: 10,
@@ -107,10 +107,6 @@ describe('Gathering Results', () => {
             }
         }
 
-        function createGroupPipeline(groupBuilder: GroupProcessingBuilder<Event, Event>) {
-            return groupBuilder.sequentially((b) => b.pipe(createVariableDelayStep()))
-        }
-
         // Input order: alice:1, bob:2, alice:3, bob:4
         const events: Event[] = [
             { userId: 'alice', eventId: 1 },
@@ -121,8 +117,10 @@ describe('Gathering Results', () => {
 
         // Without gather: groups stream one at a time in completion order
         const streamingPipeline = newBatchPipelineBuilder<Event>()
-            .groupBy((event) => event.userId)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => event.userId,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
+            )
             .build()
 
         streamingPipeline.feed(events.map((e) => createOkContext(e, {})))
@@ -146,8 +144,10 @@ describe('Gathering Results', () => {
 
         // With gather: all groups collected into one batch
         const gatheringPipeline = newBatchPipelineBuilder<Event>()
-            .groupBy((event) => event.userId)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => event.userId,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
+            )
             .gather()
             .build()
 

@@ -671,7 +671,7 @@ function CostChip({
                         <hr className="my-0.5 border-border" />
                         <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
                         {typeof markupUsd === 'number' && markupUsd > 0 && (
-                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                            <div>Markup: {formatLLMCost(markupUsd)}</div>
                         )}
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
