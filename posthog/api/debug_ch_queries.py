@@ -526,26 +526,23 @@ class DebugCHQueries(viewsets.ViewSet):
                 raise exceptions.ValidationError("exception_code must be a positive integer.")
 
         params: dict = {
-            "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
             "not_query": "%request:_api_debug_ch_queries_%",
         }
         extra_filters = ""
         if team_id_filter is not None:
-            extra_filters += " AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s"
+            extra_filters += " AND team_id = %(team_id)s"
             params["team_id"] = team_id_filter
         if experiment_id_filter is not None:
-            extra_filters += " AND JSONExtractInt(log_comment, 'experiment_id') = %(experiment_id)s"
+            extra_filters += " AND lc_experiment_id = %(experiment_id)s"
             params["experiment_id"] = experiment_id_filter
         # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
         # sub-queries carry them too and stay grouped with their parent read under these filters.
         if metric_type_filter is not None:
-            extra_filters += " AND JSONExtractString(log_comment, 'experiment_metric_type') = %(metric_type)s"
+            extra_filters += " AND toString(log_comment.experiment_metric_type) = %(metric_type)s"
             params["metric_type"] = metric_type_filter
         if funnel_order_type_filter is not None:
-            extra_filters += (
-                " AND JSONExtractString(log_comment, 'experiment_funnel_order_type') = %(funnel_order_type)s"
-            )
+            extra_filters += " AND toString(log_comment.experiment_funnel_order_type) = %(funnel_order_type)s"
             params["funnel_order_type"] = funnel_order_type_filter
 
         # Filter at the group level (a group's terminal exception_code, resolved per query_id in per_query):
@@ -560,6 +557,9 @@ class DebugCHQueries(viewsets.ViewSet):
         # We rank groups by total duration (build + read — the user waited for both, synchronously) and
         # return every row of the top 100 groups; Python then nests the builds under their parent read.
         # Rows with no group id (legacy / non-runner queries) fall back to a group of one via `grp`.
+        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
+        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
+        # ''-when-missing semantics JSONExtractString gave us on the raw column.
         # nosemgrep: clickhouse-fstring-param-audit - extra_filters is built from hardcoded SQL fragments; user values flow through params
         sql_query = f"""
             WITH per_query AS (
@@ -574,33 +574,34 @@ class DebugCHQueries(viewsets.ViewSet):
                     argMax(exception_code, type) AS exception_code,
                     argMax(memory_usage, type) AS memory_usage,
                     max(type) AS status,
-                    argMax(JSONExtractInt(log_comment, 'team_id'), type) AS team_id,
-                    argMax(JSONExtractString(log_comment, 'query_type'), type) AS query_type,
-                    argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
-                    argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
-                    argMax(JSONExtractString(log_comment, 'experiment_funnel_order_type'), type) AS experiment_funnel_order_type,
-                    argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id,
-                    argMax(JSONExtractString(log_comment, 'experiment_exposures_path'), type) AS experiment_exposures_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
-                    argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id,
-                    argMax(JSONExtractString(log_comment, 'experiment_precompute_skip_reason'), type) AS experiment_precompute_skip_reason,
-                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_from'), type) AS experiment_scan_date_from,
-                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_to'), type) AS experiment_scan_date_to,
-                    argMax(JSONExtractString(log_comment, 'precompute_window_start'), type) AS precompute_window_start,
-                    argMax(JSONExtractString(log_comment, 'precompute_window_end'), type) AS precompute_window_end
+                    argMax(team_id, type) AS team_id,
+                    argMax(lc_query_type, type) AS query_type,
+                    argMax(ifNull(toString(log_comment.experiment_name), ''), type) AS experiment_name,
+                    argMax(ifNull(toString(log_comment.experiment_metric_name), ''), type) AS experiment_metric_name,
+                    argMax(ifNull(toString(log_comment.experiment_execution_path), ''), type) AS experiment_execution_path,
+                    argMax(ifNull(toString(log_comment.experiment_metric_type), ''), type) AS experiment_metric_type,
+                    argMax(ifNull(toString(log_comment.experiment_funnel_order_type), ''), type) AS experiment_funnel_order_type,
+                    argMax(lc_experiment_id, type) AS experiment_id,
+                    argMax(ifNull(toString(log_comment.experiment_exposures_path), ''), type) AS experiment_exposures_path,
+                    argMax(ifNull(toString(log_comment.experiment_metric_events_path), ''), type) AS experiment_metric_events_path,
+                    argMax(ifNull(toString(log_comment.experiment_query_surface), ''), type) AS experiment_query_surface,
+                    argMax(ifNull(toString(log_comment.experiment_precompute_table), ''), type) AS experiment_precompute_table,
+                    argMax(ifNull(toString(log_comment.experiment_query_group_id), ''), type) AS experiment_query_group_id,
+                    argMax(ifNull(toString(log_comment.experiment_precompute_skip_reason), ''), type) AS experiment_precompute_skip_reason,
+                    argMax(ifNull(toString(log_comment.experiment_scan_date_from), ''), type) AS experiment_scan_date_from,
+                    argMax(ifNull(toString(log_comment.experiment_scan_date_to), ''), type) AS experiment_scan_date_to,
+                    argMax(ifNull(toString(log_comment.precompute_window_start), ''), type) AS precompute_window_start,
+                    argMax(ifNull(toString(log_comment.precompute_window_end), ''), type) AS precompute_window_end
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
                         read_bytes, read_rows, exception_code, memory_usage,
-                        toInt8(type) AS type, log_comment
-                    FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                        toInt8(type) AS type, log_comment, team_id, lc_query_type, lc_experiment_id
+                    FROM query_log_archive
                     WHERE
-                        event_time > now() - INTERVAL %(hours)s HOUR
-                        AND JSONExtractString(log_comment, 'product') = 'experiments'
+                        event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                        AND event_time > now() - INTERVAL %(hours)s HOUR
+                        AND lc_product = 'experiments'
                         AND is_initial_query
                         AND query NOT LIKE %(not_query)s
                         {extra_filters}
@@ -717,7 +718,6 @@ class DebugCHQueries(viewsets.ViewSet):
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
         params: dict = {
-            "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
             "not_query": "%request:_api_debug_ch_queries_%",
         }
@@ -728,20 +728,23 @@ class DebugCHQueries(viewsets.ViewSet):
         # One terminal query_log row per query (toInt8(type) > 1 excludes QueryStart), so plain
         # counts are per-query without the GROUP BY query_id dedup the slowest_queries endpoint needs.
         # Duration/bytes stats only cover successful reads — failed ones have truncated durations.
+        # Reads query_log_archive (not system.query_log, which retains only hours): log_comment is a
+        # typed JSON column there, so tags are dot-accessed; ifNull(toString(...), '') preserves the
+        # ''-when-missing semantics JSONExtractString gave us on the raw column.
         # nosemgrep: clickhouse-fstring-param-audit - skip_reason_counts is built from a hardcoded tuple
         reads_sql = f"""
             SELECT
                 coalesce(
-                    nullIf(JSONExtractString(log_comment, 'experiment_exposures_path'), ''),
-                    JSONExtractString(log_comment, 'experiment_execution_path')
+                    nullIf(toString(log_comment.experiment_exposures_path), ''),
+                    ifNull(toString(log_comment.experiment_execution_path), '')
                 ) AS exposures_path,
                 count() AS reads,
                 countIf(exception_code != 0) AS failed_reads,
                 {skip_reason_counts},
                 countIf(skip_reason = '') AS attempted,
-                countIf(JSONExtractString(log_comment, 'experiment_metric_events_path') = 'precomputed') AS me_precomputed,
-                countIf(JSONExtractString(log_comment, 'experiment_metric_events_path') = 'direct_scan') AS me_direct_scan,
-                countIf(JSONExtractString(log_comment, 'experiment_metric_events_path') = 'not_applicable') AS me_not_applicable,
+                countIf(metric_events_path = 'precomputed') AS me_precomputed,
+                countIf(metric_events_path = 'direct_scan') AS me_direct_scan,
+                countIf(metric_events_path = 'not_applicable') AS me_not_applicable,
                 avgIf(query_duration_ms, exception_code = 0) AS avg_duration_ms,
                 quantileIf(0.5)(query_duration_ms, exception_code = 0) AS p50_duration_ms,
                 quantileIf(0.9)(query_duration_ms, exception_code = 0) AS p90_duration_ms,
@@ -750,12 +753,14 @@ class DebugCHQueries(viewsets.ViewSet):
             FROM (
                 SELECT
                     query_duration_ms, exception_code, read_bytes, log_comment,
-                    JSONExtractString(log_comment, 'experiment_precompute_skip_reason') AS skip_reason
-                FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                    ifNull(toString(log_comment.experiment_precompute_skip_reason), '') AS skip_reason,
+                    ifNull(toString(log_comment.experiment_metric_events_path), '') AS metric_events_path
+                FROM query_log_archive
                 WHERE
-                    event_time > now() - INTERVAL %(hours)s HOUR
-                    AND JSONExtractString(log_comment, 'product') = 'experiments'
-                    AND JSONExtractString(log_comment, 'experiment_query_surface') = 'metric'
+                    event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                    AND event_time > now() - INTERVAL %(hours)s HOUR
+                    AND lc_product = 'experiments'
+                    AND toString(log_comment.experiment_query_surface) = 'metric'
                     AND is_initial_query
                     AND toInt8(type) > 1
                     AND query NOT LIKE %(not_query)s
@@ -819,16 +824,17 @@ class DebugCHQueries(viewsets.ViewSet):
 
         builds_sql = """
             SELECT
-                JSONExtractString(log_comment, 'experiment_precompute_table') AS build_table,
+                ifNull(toString(log_comment.experiment_precompute_table), '') AS build_table,
                 exception_code,
                 count() AS builds,
                 sum(query_duration_ms) AS total_duration_ms,
                 sum(read_bytes) AS total_read_bytes
-            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            FROM query_log_archive
             WHERE
-                event_time > now() - INTERVAL %(hours)s HOUR
-                AND JSONExtractString(log_comment, 'product') = 'experiments'
-                AND JSONExtractString(log_comment, 'experiment_query_surface') = 'precompute_build'
+                event_date >= toDate(now() - INTERVAL %(hours)s HOUR)
+                AND event_time > now() - INTERVAL %(hours)s HOUR
+                AND lc_product = 'experiments'
+                AND toString(log_comment.experiment_query_surface) = 'precompute_build'
                 AND is_initial_query
                 AND toInt8(type) > 1
                 AND query NOT LIKE %(not_query)s

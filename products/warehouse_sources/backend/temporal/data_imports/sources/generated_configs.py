@@ -789,7 +789,8 @@ class CloudflareSourceConfig(config.Config):
 
 @config.config
 class CoassembleSourceConfig(config.Config):
-    pass
+    workspace_id: str
+    api_key: str
 
 
 @config.config
@@ -1749,7 +1750,7 @@ class IntruderSourceConfig(config.Config):
 
 @config.config
 class InvoicedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1795,7 +1796,8 @@ class JotformSourceConfig(config.Config):
 
 @config.config
 class JudgeMeReviewsSourceConfig(config.Config):
-    pass
+    shop_domain: str
+    api_token: str
 
 
 @config.config
@@ -2085,7 +2087,7 @@ class MendeleySourceConfig(config.Config):
 
 @config.config
 class MentionSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -2331,7 +2333,7 @@ class OmnisendSourceConfig(config.Config):
 
 @config.config
 class OncehubSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2491,7 +2493,7 @@ class PandaDocSourceConfig(config.Config):
 
 @config.config
 class PaperformSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2876,7 +2878,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplyIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3168,7 +3170,9 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmailySourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
@@ -3227,7 +3231,7 @@ class SparkPostSourceConfig(config.Config):
 
 @config.config
 class SplitIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3263,7 +3267,7 @@ class StatuspageSourceConfig(config.Config):
 
 @config.config
 class StiggSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3386,7 +3390,7 @@ class TeamworkSourceConfig(config.Config):
 
 @config.config
 class TempoSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
