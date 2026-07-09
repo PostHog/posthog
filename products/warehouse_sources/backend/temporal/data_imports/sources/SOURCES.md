@@ -229,6 +229,7 @@ the row lists both.
 | mailgun                 | HTTP                        | requests                                                        | ✅                          |
 | mailjet                 | HTTP                        | requests                                                        | ✅                          |
 | mailosaur               | HTTP                        | requests                                                        | ✅                          |
+| mailtrap                | HTTP                        | requests                                                        | ✅                          |
 | marketstack             | HTTP                        | requests                                                        | ✅                          |
 | matomo                  | HTTP                        | requests                                                        | ✅                          |
 | mention                 | HTTP                        | requests                                                        | ✅                          |
