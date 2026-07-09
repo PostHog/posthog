@@ -229,6 +229,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response_data[0] == {
             "id": my_key.id,
             "label": my_label,
+            "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,
