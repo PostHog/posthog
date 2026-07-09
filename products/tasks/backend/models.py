@@ -1287,6 +1287,40 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def effective_rtk(self) -> bool | None:
+        """rtk posture for analytics: the launch-persisted effective value, falling
+        back to the user's explicit override for runs that never launched."""
+        state = self.state if isinstance(self.state, dict) else {}
+        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
+        return rtk if isinstance(rtk, bool) else None
+
+    def _analytics_usage_properties(self) -> dict:
+        """Token usage and rtk posture for analytics events.
+
+        The agent-server merges cumulative usage into ``state.token_usage`` as turns
+        settle.
+        """
+        props: dict = {}
+        state = self.state if isinstance(self.state, dict) else {}
+        usage = state.get("token_usage")
+        if isinstance(usage, dict):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "thought_tokens",
+                "total_tokens",
+                "turns",
+            ):
+                value = usage.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props["usage_turns" if key == "turns" else key] = value
+        rtk = self.effective_rtk()
+        if rtk is not None:
+            props["rtk_enabled"] = rtk
+        return props
+
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
@@ -1303,7 +1337,12 @@ class TaskRun(models.Model):
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
+                # The bare `environment` property gets clobbered by the analytics
+                # client's deployment-region super-property, so ship the run's
+                # local/cloud value under an unclobbered name too.
+                "run_environment": self.environment,
                 "mode": self.mode,
+                **self._analytics_usage_properties(),
             }
             if properties:
                 all_properties.update(properties)
