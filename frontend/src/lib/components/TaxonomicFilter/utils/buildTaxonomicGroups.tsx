@@ -20,6 +20,7 @@ import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywo
 import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
+    getMCPExcludedEventProperties,
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
@@ -141,6 +142,12 @@ export interface BuildTaxonomicGroupsContext {
     groupAnalyticsTaxonomicGroups: TaxonomicFilterGroup[]
     groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
     eventNames: string[]
+    /**
+     * The picker's requested group types — read by group definitions that adapt to which
+     * tabs are present (e.g. Event properties excludes the known MCP schema only when the
+     * MCP properties tab is there to host it).
+     */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /**
      * Distinct promoted properties for events currently in context. Surfaced first in the
      * SuggestedFilters tab so the team's chosen "summary" property is one click away.
@@ -360,6 +367,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
                     ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                     : []),
+                // The known MCP schema lives only in its own group when that tab is
+                // present — exclusive, the way autocapture separates element properties.
+                ...getMCPExcludedEventProperties(eventNames, ctx.taxonomicGroupTypes),
             ],
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
             ...withKeywordShortcuts<PropertyDefinition>(

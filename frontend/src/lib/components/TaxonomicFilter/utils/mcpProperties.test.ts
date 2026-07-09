@@ -84,6 +84,38 @@ describe('mcpProperties', () => {
             })
         })
 
+        it.each([
+            {
+                name: 'excludes the known schema from Event properties when the MCP tab is requested',
+                eventNames: [MCP_TOOL_CALL_EVENT],
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: true,
+            },
+            {
+                name: 'keeps Event properties intact when the MCP tab is not requested',
+                eventNames: [MCP_TOOL_CALL_EVENT],
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: false,
+            },
+            {
+                name: 'keeps Event properties intact when not scoped to MCP events',
+                eventNames: ['$pageview'],
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties, TaxonomicFilterGroupType.EventProperties],
+                expectExcluded: false,
+            },
+        ])('$name', ({ eventNames, taxonomicGroupTypes, expectExcluded }) => {
+            const groups = buildTaxonomicGroups({ ...baseContext, eventNames, taxonomicGroupTypes })
+            const eventProperties = groups.find((g) => g.type === TaxonomicFilterGroupType.EventProperties)
+            if (expectExcluded) {
+                // Exclusive like autocapture: the known schema lives only in the MCP tab.
+                expect(eventProperties?.excludedProperties).toEqual(
+                    expect.arrayContaining(getMCPPropertyFilterOptions())
+                )
+            } else {
+                expect(eventProperties?.excludedProperties ?? []).not.toContain('$mcp_tool_name')
+            }
+        })
+
         it('seeds $mcp_is_error into SuggestedFilters when scoped to $mcp_tool_call', () => {
             const scoped = buildTaxonomicGroups({ ...baseContext, eventNames: [MCP_TOOL_CALL_EVENT] })
             const suggested = scoped.find((g) => g.type === TaxonomicFilterGroupType.SuggestedFilters)

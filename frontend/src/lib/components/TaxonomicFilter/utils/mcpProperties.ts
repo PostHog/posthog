@@ -52,3 +52,18 @@ export function getMCPPropertyFilterOptions(): string[] {
  *  primary properties yet (`promotedPropertiesForContextEvents` is unwired), so it
  *  shows only this list. */
 export const MCP_TOOL_CALL_SUGGESTED_PROPERTIES: string[] = ['$mcp_is_error']
+
+/** When the MCP properties group is available in a picker, the known schema is
+ *  excluded from Event properties so each property lives in exactly one group —
+ *  mirroring how autocapture's element properties exist only in the Elements group.
+ *  `$mcp_*` keys a team ingests beyond the known schema still surface under
+ *  Event properties. */
+export function getMCPExcludedEventProperties(
+    eventNames: string[],
+    requestedGroupTypes: TaxonomicFilterGroupType[] | undefined
+): string[] {
+    return includesMCPAnalyticsEvents(eventNames) &&
+        requestedGroupTypes?.includes(TaxonomicFilterGroupType.MCPProperties)
+        ? getMCPPropertyFilterOptions()
+        : []
+}

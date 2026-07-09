@@ -40,6 +40,8 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
  */
 export interface UseTaxonomicGroupsContextInput {
     eventNames?: string[]
+    /** Requested group types — read by group definitions that adapt to which tabs are present. */
+    taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     schemaColumns?: DatabaseSchemaField[]
     schemaColumnsLoading?: boolean
     metadataSource?: AnyDataNode
@@ -106,6 +108,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
                 aggregationLabel
             ),
             eventNames: input.eventNames ?? (EMPTY_ARRAY as unknown as string[]),
+            taxonomicGroupTypes: input.taxonomicGroupTypes,
             schemaColumns: input.schemaColumns ?? (EMPTY_ARRAY as unknown as DatabaseSchemaField[]),
             schemaColumnsLoading: input.schemaColumnsLoading,
             metadataSource: input.metadataSource ?? DEFAULT_METADATA_SOURCE,
@@ -132,6 +135,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         personMetadataPropertyDefinitions,
         featureFlags,
         input.eventNames,
+        input.taxonomicGroupTypes,
         input.schemaColumns,
         input.schemaColumnsLoading,
         input.metadataSource,

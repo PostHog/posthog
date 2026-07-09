@@ -297,6 +297,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
 
     const ctx = useTaxonomicGroupsContext({
         eventNames,
+        taxonomicGroupTypes,
         schemaColumns,
         schemaColumnsLoading,
         metadataSource,

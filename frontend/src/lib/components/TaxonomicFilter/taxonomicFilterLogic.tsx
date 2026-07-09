@@ -52,6 +52,7 @@ import {
 import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
+    getMCPExcludedEventProperties,
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
@@ -617,6 +618,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
+                (_, props) => props.taxonomicGroupTypes,
             ],
             (
                 currentTeam: TeamType,
@@ -646,7 +648,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>
+                featureFlags: Record<string, boolean | string | undefined>,
+                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
@@ -838,6 +841,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
                                 ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                                 : []),
+                            // The known MCP schema lives only in its own group when that tab is
+                            // present — exclusive, the way autocapture separates element properties.
+                            ...getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
