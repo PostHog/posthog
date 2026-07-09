@@ -383,9 +383,9 @@ class TestRepoPickerOptions(TestCase):
                 "default_option_id": "allow",
                 "reject_option_id": "reject",
                 "options": [
-                    {"optionId": "allow", "kind": "allow_once", "label": "Allow once"},
+                    {"optionId": "allow", "kind": "allow_once", "label": "Allow"},
                     {"optionId": "always", "kind": "allow_always", "label": "Always allow this command"},
-                    {"optionId": "reject", "kind": "reject_once", "label": "Deny once"},
+                    {"optionId": "reject", "kind": "reject_once", "label": "Deny"},
                 ],
             },
             timeout=900,

@@ -123,9 +123,9 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert context["tool_label"] == "Check available PDF generation tools"
         assert context["tool_detail"] == 'python3 -c "import reportlab"'
         assert [option["label"] for option in context["options"]] == [
-            "Allow once",
+            "Allow",
             "Always allow this command",
-            "Deny once",
+            "Deny",
         ]
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
