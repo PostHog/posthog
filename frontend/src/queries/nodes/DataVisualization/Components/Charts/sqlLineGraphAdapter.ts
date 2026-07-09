@@ -21,6 +21,7 @@ import { dayjs } from 'lib/dayjs'
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
@@ -429,6 +430,7 @@ export function buildLineChartConfig({
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
+        curve: chartStyleCurve(chartSettings.chartStyle),
         tooltip: {
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),
             ...(labelFormatter ? { labelFormatter } : {}),
@@ -526,6 +528,7 @@ export function buildComboChartConfig({
         // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
         // render off-scale and invisible.
         trendLines: isPercent ? [] : buildTrendLineConfigs(ySeriesData),
+        curve: chartStyleCurve(chartSettings.chartStyle),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {

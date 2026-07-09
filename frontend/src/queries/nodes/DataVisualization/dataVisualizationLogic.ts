@@ -366,6 +366,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.rightYAxisSettings,
                   }
                 : undefined,
+        chartStyle:
+            state.chartStyle || settings.chartStyle
+                ? {
+                      ...state.chartStyle,
+                      ...settings.chartStyle,
+                  }
+                : undefined,
     }
 }
 
