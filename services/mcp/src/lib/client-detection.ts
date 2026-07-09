@@ -8,29 +8,26 @@
  *
  * The `MCPClientProfile` class owns all per-client behavior decisions:
  *
- * - `isCliModeEnabled()` matches clients that should default to single-exec
- *   ("CLI") mode and drop `structuredContent` when a `formatted_results`
- *   override is set. Every known Anthropic client qualifies — matched against
- *   the `x-anthropic-client` (`vendorClient`) header, since Anthropic pools MCP
- *   transports across all its products and reports the live one there. Other
- *   coding agents are matched by self-reported client name. Cursor is
- *   deliberately excluded from the name match — it reads text for the model and
- *   renders `structuredContent` in UI, so it does not need single-exec mode or
- *   the formatted-results workaround.
+ * - `isToolsModeClient()` matches the clients that keep the full per-tool
+ *   roster ("tools" mode) instead of the single-exec CLI default. This is the
+ *   only way a client lands in tools mode without an explicit `?mode=` /
+ *   `x-posthog-mcp-mode` override — see `resolveMode`.
+ *
+ * - `isCliModeEnabled()` matches clients that should drop `structuredContent`
+ *   when a `formatted_results` override is set. Every known Anthropic client
+ *   qualifies — matched against the `x-anthropic-client` (`vendorClient`)
+ *   header, since Anthropic pools MCP transports across all its products and
+ *   reports the live one there. Other coding agents are matched by
+ *   self-reported client name. Cursor is deliberately excluded from the name
+ *   match — it reads text for the model and renders `structuredContent` in UI,
+ *   so it does not need the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
  *   sent by the PostHog Code Tasks wrapper.
  *
- * - `isVibeCodingClient()` matches the OAuth application name (returned by
- *   token introspection — see `StateManager._fetchApiKey`). Vibe-coding
- *   platforms like Lovable and Replit connect through their own OAuth app
- *   while reporting a generic `clientInfo.name`, so the OAuth name is the
- *   reliable identifier. Used to force single-exec mode regardless of the
- *   self-reported MCP client name.
- *
  * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
- *   that render interactive UI (iframes). Used to put them in single-exec mode so
- *   the `render-ui` tool is available, gated behind the `mcp-render-ui` flag.
+ *   that render interactive UI (iframes). Used to advertise the `render-ui`
+ *   tool to them, gated behind the `mcp-render-ui` flag.
  *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
@@ -57,11 +54,13 @@ function matchesAnyFragment(clientName: string | undefined, fragments: readonly 
     return fragments.some((fragment) => normalized.includes(normalizeClientName(fragment)))
 }
 
+// Coding agents and LLM-driven clients that render text rather than MCP Apps UI.
+// Matched by `isCliModeEnabled()`, which gates dropping `structuredContent` when a
+// `formatted_results` override is set. Mode selection does NOT read this list — CLI
+// (single-exec) is the default for every client; `TOOLS_MODE_CLIENT_NAME_FRAGMENTS`
+// is the tools-mode allow-list.
 export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'claude-code',
-    // Cursor sends `content[].text` to the model and displays `structuredContent` in UI,
-    // so it doesn't need this workaround — leaving structuredContent available for the UI.
-    // 'cursor',
     'cline',
     'roo-code',
     'roo-cline',
@@ -103,6 +102,20 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // benefits from the same single-exec mode as the coding agents.
     'ando-mcp-gateway',
 ] as const
+
+// Clients that keep the full per-tool roster ("tools" mode) instead of the
+// single-exec CLI default.
+// - Cursor self-reports `clientInfo.name` (`cursor-vscode`, `Cursor`); it sends
+//   `content[].text` to the model and renders `structuredContent` in its UI, so
+//   the full roster serves it better than the exec wrapper. Some older Cursor
+//   builds omit `clientInfo.name` and are only identifiable by their
+//   `Cursor/x.y.z (...)` User-Agent, hence the UA fragment too.
+// - ChatGPT connects through OpenAI's shared `openai-mcp` client whose
+//   `clientInfo.name` is generic; the surface only shows up in the User-Agent
+//   parenthetical (`openai-mcp/1.0.0 (ChatGPT)`). Other openai-mcp surfaces
+//   (Codex, Agent Builder, Responses API) stay on the CLI default.
+export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor', 'chatgpt'] as const
+export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor', 'chatgpt'] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
@@ -150,22 +163,10 @@ export function resolveEffectiveClientName(
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
-// PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
-// emission in single-exec mode. Slack-launched runs send `"slack"` and
-// posthog_ai (Max) runs send `"posthog_ai"`; only PostHog Code renders MCP UI
-// apps, so this is the sole consumer that gates UI-apps payload emission.
+// PostHog Code UI. Slack-launched runs send `"slack"` and posthog_ai (Max) runs
+// send `"posthog_ai"`; only PostHog Code renders MCP UI apps, so this is the
+// sole consumer that gates UI-apps payload emission in single-exec mode.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
-
-// OAuth application names (from token introspection) for upstream tools that
-// should default to single-exec mode. These match against the OAuth
-// `client_name` (the registered OAuth app name in PostHog), not the MCP
-// `clientInfo.name` self-report — many of these platforms connect through a
-// generic MCP client wrapper, so the OAuth name is what reliably identifies
-// the upstream tool. Substring match is case-insensitive and separator-agnostic
-// so "Lovable", "Lovable.dev", "Replit", and "Replit Agent" all resolve.
-// Notion is included here because a sizeable share of sessions only carry the
-// OAuth name without the `notion-mcp-client` self-report.
-export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
 
 // Claude web/desktop and Cowork are MCP Apps hosts that render interactive UI
 // (iframes), so the `render-ui` tool is meaningful for them. They send
@@ -212,13 +213,19 @@ export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
 }
 
 type CapabilityOverride = {
+    // Matched against the self-reported `clientInfo.name`.
     fragments: readonly string[]
+    // Matched against the User-Agent, for surfaces that omit `clientInfo.name`
+    // entirely — Codex through OpenAI's shared `openai-mcp` client identifies
+    // only via `openai-mcp/x.y.z (Codex)`.
+    userAgentFragments?: readonly string[]
     capabilities: Partial<ClientCapabilities>
 }
 
 const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
+        userAgentFragments: ['codex'],
         capabilities: { supportsInstructions: false },
     },
 ]
@@ -255,8 +262,22 @@ export class MCPClientProfile {
         this.userAgent = input.userAgent
     }
 
+    isToolsModeClient(): boolean {
+        // The only clients that auto-select the full per-tool roster; everyone
+        // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
+        // the self-reported `clientInfo.name` and the User-Agent (ChatGPT's
+        // surface only appears in the UA parenthetical); never on the vendor
+        // header, so Anthropic pooled transports can't land in tools mode.
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
     isCliModeEnabled(): boolean {
-        // Every Anthropic product runs in CLI (single-exec) mode.
+        // Gates dropping `structuredContent` when a `formatted_results` override
+        // is set — these clients read `content[].text`, so the structured copy
+        // would only bloat the payload. Every Anthropic product qualifies.
         if (this.isAnthropicClient()) {
             return true
         }
@@ -282,10 +303,6 @@ export class MCPClientProfile {
 
     isPostHogCodeConsumer(): boolean {
         return this.consumer === POSTHOG_CODE_CONSUMER
-    }
-
-    isVibeCodingClient(): boolean {
-        return matchesAnyFragment(this.oauthClientName, VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS)
     }
 
     isClaudeUiHost(): boolean {
@@ -336,7 +353,10 @@ export class MCPClientProfile {
     private _resolveCapabilities(): ClientCapabilities {
         const resolved: ClientCapabilities = { ...DEFAULT_CLIENT_CAPABILITIES }
         for (const override of CLIENT_CAPABILITY_OVERRIDES) {
-            if (matchesAnyFragment(this.clientName, override.fragments)) {
+            if (
+                matchesAnyFragment(this.clientName, override.fragments) ||
+                matchesAnyFragment(this.userAgent, override.userAgentFragments ?? [])
+            ) {
                 Object.assign(resolved, override.capabilities)
             }
         }
@@ -352,8 +372,8 @@ export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean 
     return new MCPClientProfile({ consumer: mcpConsumer }).isPostHogCodeConsumer()
 }
 
-export function isVibeCodingClient(oauthClientName: string | undefined): boolean {
-    return new MCPClientProfile({ oauthClientName }).isVibeCodingClient()
+export function isToolsModeClient(clientName: string | undefined, userAgent?: string | undefined): boolean {
+    return new MCPClientProfile({ clientName, userAgent }).isToolsModeClient()
 }
 
 export function isClaudeUiHostClient(args: {
