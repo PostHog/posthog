@@ -42,7 +42,7 @@ def _mock_response(
     response.json.return_value = json_data
     response.text = str(json_data)
     response.raise_for_status.side_effect = (
-        requests.HTTPError(f"{status_code} Client Error") if status_code >= 400 else None
+        requests.HTTPError(f"{status_code} Client Error", response=response) if status_code >= 400 else None
     )
     return response
 
@@ -131,13 +131,22 @@ class TestUnleash:
         with pytest.raises(requests.HTTPError):
             _fetch_unwrapped(session, "http://url", None, MagicMock())
 
+    @parameterized.expand([(301,), (302,), (307,)])
+    def test_fetch_refuses_redirects(self, status_code: int) -> None:
+        # The session never follows redirects — a 3xx would move the sync off the validated
+        # host (SSRF), so it must fail rather than be treated as an empty page.
+        session = MagicMock()
+        session.get.return_value = _mock_response(status_code=status_code)
+        with pytest.raises(UnleashHostNotAllowedError):
+            _fetch_unwrapped(session, "http://url", None, MagicMock())
+
     # --- get_rows ---
 
     @staticmethod
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[Optional[int], Any],
+        pages: dict[Any, Any],
         endpoint: str,
     ) -> tuple[list[dict], list[dict[str, Any]]]:
         """Run get_rows with a fake _fetch keyed by the `offset` param (None = unpaginated)."""
@@ -316,10 +325,41 @@ class TestUnleash:
         assert valid is False
         assert message == "blocked"
 
-    def test_validate_credentials_rejects_unparseable_url(self, monkeypatch: Any) -> None:
-        valid, message = validate_credentials("   ", TOKEN, team_id=1)
+    @parameterized.expand(
+        [
+            ("blank", "   "),
+            ("bad_scheme", "ftp://unleash.example.com"),
+            # Parser-differential SSRF guards: urlparse and urllib3 disagree on where the
+            # authority ends for backslash/userinfo URLs, so validation could approve one host
+            # while requests connects to another.
+            ("userinfo", "https://169.254.169.254@unleash.example.com"),
+            ("backslash", "https://169.254.169.254\\@unleash.example.com"),
+            ("encoded_backslash", "https://169.254.169.254%5C@unleash.example.com"),
+        ]
+    )
+    def test_validate_credentials_rejects_malformed_or_ambiguous_urls(self, _name: str, raw_url: str) -> None:
+        valid, message = validate_credentials(raw_url, TOKEN, team_id=1)
         assert valid is False
         assert message == "Invalid Unleash instance URL"
+
+    def test_check_endpoint_permissions_rejects_ambiguous_url_for_all_endpoints(self) -> None:
+        result = check_endpoint_permissions(
+            "https://169.254.169.254\\@unleash.example.com", TOKEN, ["projects", "users"], team_id=1
+        )
+        assert result == {"projects": "Invalid Unleash instance URL", "users": "Invalid Unleash instance URL"}
+
+    def test_get_rows_blocks_ambiguous_url(self) -> None:
+        with pytest.raises(UnleashHostNotAllowedError):
+            list(
+                get_rows(
+                    instance_url="https://169.254.169.254\\@unleash.example.com",
+                    api_token=TOKEN,
+                    endpoint="projects",
+                    team_id=1,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
 
     def test_validate_credentials_handles_connection_errors(self, monkeypatch: Any) -> None:
         session = MagicMock()

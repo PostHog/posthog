@@ -54,7 +54,9 @@ def normalize_instance_url(instance_url: str) -> str:
     ``/api`` or ``/api/admin`` suffix.
     """
     url = instance_url.strip().rstrip("/")
-    if url and not re.match(r"^https?://", url, flags=re.IGNORECASE):
+    # Only default the scheme for bare hosts — a non-http(s) scheme must survive normalization
+    # so _validated_hostname can reject it.
+    if url and "://" not in url:
         url = f"https://{url}"
     for suffix in ("/api/admin", "/api"):
         if url.lower().endswith(suffix):
@@ -69,8 +71,35 @@ def _headers(api_token: str) -> dict[str, str]:
     return {"Authorization": api_token, "Accept": "application/json"}
 
 
+def _get_session(api_token: str) -> requests.Session:
+    # The instance URL is user-supplied, so pin redirects off so host validation and the
+    # outbound request stay on the same target (SSRF defense-in-depth). Redact the token
+    # from logs.
+    return make_tracked_session(headers=_headers(api_token), redact_values=(api_token,), allow_redirects=False)
+
+
+def _validated_hostname(base_url: str) -> Optional[str]:
+    """Hostname of the normalized instance URL, or None when the URL is malformed or ambiguous.
+
+    SSRF guard: urlparse treats a backslash as ordinary userinfo and an "@" as a userinfo
+    separator, but urllib3/requests treat the backslash as an authority separator, so
+    `https://127.0.0.1\\@example.com` validates as example.com yet connects to 127.0.0.1.
+    A legitimate instance URL has no userinfo, so reject either construct outright (same
+    guard as the n8n source) and require a plain http(s) URL with a clean hostname.
+    """
+    if "\\" in base_url or "%5c" in base_url.lower():
+        return None
+    parsed = urlparse(base_url)
+    if parsed.scheme not in ("http", "https") or "@" in parsed.netloc:
+        return None
+    hostname = parsed.hostname
+    if not hostname or not re.match(r"^[A-Za-z0-9.\-]+$", hostname):
+        return None
+    return hostname
+
+
 def _check_host(instance_url: str, team_id: int) -> None:
-    hostname = urlparse(normalize_instance_url(instance_url)).hostname
+    hostname = _validated_hostname(normalize_instance_url(instance_url))
     if not hostname:
         raise UnleashHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
     host_ok, host_err = _is_host_safe(hostname, team_id)
@@ -102,6 +131,11 @@ def _fetch(
 ) -> Any:
     response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
+    # The session never follows redirects: a 3xx would move the sync off the validated host
+    # (SSRF), so refuse it rather than silently fetching an empty body.
+    if 300 <= response.status_code < 400:
+        raise UnleashHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
+
     if response.status_code == 429 or response.status_code >= 500:
         raise UnleashRetryableError(f"Unleash API error (retryable): status={response.status_code}, url={url}")
 
@@ -127,7 +161,7 @@ def get_rows(
 
     base_url = normalize_instance_url(instance_url)
     url = f"{base_url}{config.path}"
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+    session = _get_session(api_token)
 
     if not config.paginated:
         rows = _extract_rows(_fetch(session, url, None, logger), config, url)
@@ -212,7 +246,7 @@ def validate_credentials(
     hard failure.
     """
     base_url = normalize_instance_url(instance_url)
-    hostname = urlparse(base_url).hostname
+    hostname = _validated_hostname(base_url)
     if not hostname:
         return False, "Invalid Unleash instance URL"
 
@@ -223,11 +257,11 @@ def validate_credentials(
         if not host_ok:
             return False, host_err or HOST_NOT_ALLOWED_ERROR
 
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+    session = _get_session(api_token)
     try:
-        # Don't follow redirects: the validated host could 3xx to an internal address, defeating
-        # the host check above (SSRF).
-        response = session.get(f"{base_url}{DEFAULT_PROBE_PATH}", timeout=15, allow_redirects=False)
+        # The session never follows redirects: the validated host could 3xx to an internal
+        # address, defeating the host check above (SSRF).
+        response = session.get(f"{base_url}{DEFAULT_PROBE_PATH}", timeout=15)
     except requests.exceptions.RequestException as e:
         return False, f"Could not connect to Unleash: {e}"
 
@@ -259,14 +293,14 @@ def check_endpoint_permissions(
     they report as reachable rather than blocking the schema picker.
     """
     base_url = normalize_instance_url(instance_url)
-    hostname = urlparse(base_url).hostname
+    hostname = _validated_hostname(base_url)
     if not hostname:
         return dict.fromkeys(endpoints, "Invalid Unleash instance URL")
     host_ok, host_err = _is_host_safe(hostname, team_id)
     if not host_ok:
         return dict.fromkeys(endpoints, host_err or HOST_NOT_ALLOWED_ERROR)
 
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+    session = _get_session(api_token)
     results: dict[str, str | None] = {}
     for endpoint in endpoints:
         config = UNLEASH_ENDPOINTS.get(endpoint)
@@ -275,7 +309,7 @@ def check_endpoint_permissions(
             continue
         params = {"limit": 1} if config.paginated else None
         try:
-            response = session.get(f"{base_url}{config.path}", params=params, timeout=15, allow_redirects=False)
+            response = session.get(f"{base_url}{config.path}", params=params, timeout=15)
         except requests.exceptions.RequestException:
             results[endpoint] = None
             continue
