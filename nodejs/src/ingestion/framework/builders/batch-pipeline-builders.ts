@@ -14,6 +14,7 @@ import {
 import { FilterMapBatchPipeline, FilterMapMappingFunction } from '~/ingestion/framework/filter-map-batch-pipeline'
 import { GatheringBatchPipeline } from '~/ingestion/framework/gathering-batch-pipeline'
 import { IngestionWarningHandlingBatchPipeline } from '~/ingestion/framework/ingestion-warning-handling-batch-pipeline'
+import { Pipeline } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig, ResultHandlingPipeline } from '~/ingestion/framework/result-handling-pipeline'
 import { RetryOptions, withBatchRetry } from '~/ingestion/framework/retry'
 import { SequentialBatchPipeline } from '~/ingestion/framework/sequential-batch-pipeline'
@@ -39,23 +40,18 @@ export class GroupProcessingBuilder<
     TOutput,
     CInput = Record<string, never>,
     COutput = CInput,
-    TKey = string,
     R extends string = never,
 > {
-    // Stored with an erased input type so this contravariant function-typed field
-    // does not force BatchPipelineBuilder to be invariant in TOutput (which would
-    // break covariant subpipelines that narrow a batch's output type). The
-    // constructor still accepts a correctly typed GroupingFunction<TOutput, TKey>,
-    // and the processor pins TOutput back when the group pipeline is built.
-    private readonly groupingFn: GroupingFunction<any, TKey>
-
+    // Holds a completion function instead of the grouping function and previous
+    // pipeline directly: a groupingFn field would be contravariant in TOutput,
+    // making BatchPipelineBuilder invariant in TOutput and breaking covariant
+    // subpipeline callbacks (e.g. in newBatchingPipeline). In this closure's
+    // signature TOutput only appears in variance-neutral positions.
     constructor(
-        private readonly previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>,
-        groupingFn: GroupingFunction<TOutput, TKey>,
-        private readonly maxConcurrency?: number
-    ) {
-        this.groupingFn = groupingFn
-    }
+        private readonly buildGroupedPipeline: <U, R2 extends string>(
+            processor: Pipeline<TOutput, U, COutput, R2>
+        ) => BatchPipeline<TInput, U, CInput, COutput, R | R2>
+    ) {}
 
     /**
      * Process the items within each group sequentially through the provided
@@ -66,14 +62,7 @@ export class GroupProcessingBuilder<
         callback: (builder: StartPipelineBuilder<TOutput, COutput>) => PipelineBuilder<TOutput, U, COutput, R2>
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | R2> {
         const processor = callback(new StartPipelineBuilder<TOutput, COutput>()).build()
-        return new BatchPipelineBuilder(
-            new ConcurrentlyGroupingBatchPipeline<TInput, TOutput, U, TKey, CInput, COutput, R, R2>(
-                this.groupingFn,
-                processor,
-                this.previousPipeline,
-                this.maxConcurrency
-            )
-        )
+        return new BatchPipelineBuilder(this.buildGroupedPipeline(processor))
     }
 }
 
@@ -162,11 +151,16 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput, R e
     concurrentlyPerGroup<TKey, U, ROut extends string = never>(
         groupingFn: GroupingFunction<TOutput, TKey>,
         callback: (
-            group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, TKey, R>
+            group: GroupProcessingBuilder<TInput, TOutput, CInput, COutput, R>
         ) => BatchPipelineBuilder<TInput, U, CInput, COutput, ROut>,
         options?: { maxConcurrency?: number }
     ): BatchPipelineBuilder<TInput, U, CInput, COutput, R | ROut> {
-        return callback(new GroupProcessingBuilder(this.pipeline, groupingFn, options?.maxConcurrency))
+        return callback(
+            new GroupProcessingBuilder(
+                <U2, R2 extends string>(processor: Pipeline<TOutput, U2, COutput, R2>) =>
+                    new ConcurrentlyGroupingBatchPipeline(groupingFn, processor, this.pipeline, options?.maxConcurrency)
+            )
+        )
     }
 
     handleSideEffects(
