@@ -213,6 +213,26 @@ export function getSurveyResponseValue(
     return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
 }
 
+// Some persisted surveys carry a malformed `events`/`cancelEvents` where `values` isn't an array.
+// Downstream rendering and saving assume an array (they call `.map`/`.filter` on it), so coerce the
+// shape once on load rather than defending at every call site.
+export function normalizeSurveyConditionsEventValues(
+    conditions: SurveyDisplayConditions | null
+): SurveyDisplayConditions | null {
+    if (!conditions) {
+        return conditions
+    }
+
+    const normalized = { ...conditions }
+    if (normalized.events && !Array.isArray(normalized.events.values)) {
+        normalized.events = { ...normalized.events, values: [] }
+    }
+    if (normalized.cancelEvents && !Array.isArray(normalized.cancelEvents.values)) {
+        normalized.cancelEvents = { ...normalized.cancelEvents, values: [] }
+    }
+    return normalized
+}
+
 export function sanitizeSurveyDisplayConditions(
     displayConditions?: SurveyDisplayConditions | null,
     surveyType?: SurveyType

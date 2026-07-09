@@ -115,6 +115,7 @@ import {
     getSurveyStartDateForQuery,
     isSurveyRunning,
     isThumbQuestion,
+    normalizeSurveyConditionsEventValues,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -746,6 +747,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         if (!survey.appearance) {
                             survey.appearance = defaultSurveyAppearance
                         }
+                        // Coerce any malformed `conditions.events`/`cancelEvents` values into arrays so the
+                        // editor and save path can trust the shape (see normalizeSurveyConditionsEventValues).
+                        survey.conditions = normalizeSurveyConditionsEventValues(survey.conditions)
                         const currentFilters = values.answerFilters
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions - first for index-based, then for id-based

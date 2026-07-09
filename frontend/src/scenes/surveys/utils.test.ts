@@ -33,6 +33,7 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSimpleSurveyAudienceTargeting,
+    normalizeSurveyConditionsEventValues,
     sanitizeColor,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
@@ -405,6 +406,38 @@ describe('survey utils', () => {
             expect(result?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
             expect(result?.events).toEqual({ values: [{ name: 'test' }] })
             expect(result?.deviceTypes).toEqual(['mobile'])
+        })
+    })
+
+    describe('normalizeSurveyConditionsEventValues', () => {
+        it('passes through null/undefined conditions unchanged', () => {
+            expect(normalizeSurveyConditionsEventValues(null)).toBeNull()
+        })
+
+        it('coerces a malformed non-array events.values into an empty array', () => {
+            // Persisted surveys with this shape crash the editor at events.map(...)
+            const input = {
+                events: { values: 'survey shown' },
+                cancelEvents: { values: { name: 'foo' } },
+            } as unknown as SurveyDisplayConditions
+
+            const result = normalizeSurveyConditionsEventValues(input)
+
+            expect(result?.events).toEqual({ values: [] })
+            expect(result?.cancelEvents).toEqual({ values: [] })
+        })
+
+        it('preserves well-formed array values', () => {
+            const input: SurveyDisplayConditions = {
+                actions: null,
+                events: { repeatedActivation: true, values: [{ name: 'clicked' }] },
+                cancelEvents: { values: [{ name: 'cancelled' }] },
+            }
+
+            const result = normalizeSurveyConditionsEventValues(input)
+
+            expect(result?.events).toEqual({ repeatedActivation: true, values: [{ name: 'clicked' }] })
+            expect(result?.cancelEvents).toEqual({ values: [{ name: 'cancelled' }] })
         })
     })
 

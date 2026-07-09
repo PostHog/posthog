@@ -114,7 +114,10 @@ function SurveyEventSelector({
     const { setSurveyValue } = useActions(surveyLogic)
     const excludedObjectProperties = useExcludedObjectProperties()
 
-    const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
+    // Defend against surveys persisted with a non-array `values` shape - a truthy non-array would
+    // slip past `|| []` and blow up the later `events.map(...)` calls with "v.map is not a function".
+    const rawValues = survey.conditions?.[conditionField]?.values
+    const events: SurveyEventsWithProperties[] = Array.isArray(rawValues) ? rawValues : []
 
     const updateEventAtIndex = (index: number, updatedEvent: SurveyEventsWithProperties): void => {
         const newEvents = [...events]
