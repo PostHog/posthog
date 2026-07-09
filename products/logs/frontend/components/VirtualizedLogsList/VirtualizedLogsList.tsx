@@ -18,8 +18,6 @@ import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import {
     createConfiguredColumn,
     createControlsColumn,
-    createMessageColumn,
-    createTimestampColumn,
 } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 import {
     LOG_ROW_HEADER_HEIGHT,
@@ -207,26 +205,22 @@ export function VirtualizedLogsList({
     }, [columnConfigs, customColumnAliases])
 
     // Columns memoized on structural deps only — per-row state (selection,
-    // expansion, prettify) is read from kea inside cell components.
+    // expansion, prettify) is read from kea inside cell components. Everything after the
+    // pinned controls column is a configured column; there are no special cases here.
     const columns = useMemo(() => {
-        const managed = columnConfigs.filter((config) => config.type !== 'timestamp' && config.type !== 'message')
+        const rendering = { tzLabelFormat, orderBy, onChangeOrderBy, wrapBody, prettifyJson, flexWidthRef }
         return [
             createControlsColumn({ dataSourceRef }),
-            ...columnConfigs.map((config) => {
-                if (config.type === 'timestamp') {
-                    return createTimestampColumn({ tzLabelFormat, orderBy, onChangeOrderBy })
-                }
-                if (config.type === 'message') {
-                    return createMessageColumn({ wrapBody, prettifyJson, flexWidthRef })
-                }
-                return createConfiguredColumn({
+            ...columnConfigs.map((config, index) =>
+                createConfiguredColumn({
                     config,
                     alias: aliasById.get(config.id),
                     callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
-                    isFirst: managed.indexOf(config) === 0,
-                    isLast: managed.indexOf(config) === managed.length - 1,
+                    rendering,
+                    isFirst: index === 0,
+                    isLast: index === columnConfigs.length - 1,
                 })
-            }),
+            ),
         ]
     }, [
         tzLabelFormat,

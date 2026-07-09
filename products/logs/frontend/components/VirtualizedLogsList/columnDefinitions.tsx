@@ -147,54 +147,20 @@ export function createControlsColumn(params: {
     }
 }
 
-export function createTimestampColumn(params: {
-    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
-    orderBy?: LogsOrderBy
-    onChangeOrderBy?: (orderBy: LogsOrderBy) => void
-}): VirtualizedTableColumn<ParsedLogMessage> {
-    const { tzLabelFormat, orderBy, onChangeOrderBy } = params
-
-    return {
-        key: 'timestamp',
-        title: 'Timestamp',
-        sizing: { type: 'fixed', width: TIMESTAMP_WIDTH },
-        render: (log) => (
-            <div className="flex items-center shrink-0" style={{ width: TIMESTAMP_WIDTH }}>
-                <span className="text-xs text-muted font-mono">
-                    <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
-                </span>
-            </div>
-        ),
-        renderHeader: () => (
-            <div
-                className="flex items-center justify-between pr-3 gap-1 h-full border-r"
-                style={{ width: TIMESTAMP_WIDTH, flexShrink: 0 }}
-            >
-                Timestamp
-                <LemonButton
-                    size="xsmall"
-                    className="h-full"
-                    icon={orderBy === 'latest' ? <IconArrowDown /> : <IconArrowUp />}
-                    tooltip={
-                        orderBy === 'latest'
-                            ? 'Showing latest first. Click to show earliest first (reloads).'
-                            : 'Showing earliest first. Click to show latest first (reloads).'
-                    }
-                    onClick={() => {
-                        const newOrderBy = orderBy === 'latest' ? 'earliest' : 'latest'
-                        onChangeOrderBy?.(newOrderBy)
-                    }}
-                    disabled={!orderBy || !onChangeOrderBy}
-                />
-            </div>
-        ),
-    }
-}
-
 export interface ConfiguredColumnCallbacks {
     onResize?: (id: string, width: number) => void
     onRemove?: (id: string) => void
     onMove?: (id: string, direction: 'left' | 'right') => void
+}
+
+/** Presentation context shared by every configured column, resolved once per table render. */
+export interface ConfiguredColumnRendering {
+    tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime' | 'displayTimezone'>
+    orderBy?: LogsOrderBy
+    onChangeOrderBy?: (orderBy: LogsOrderBy) => void
+    wrapBody: boolean
+    prettifyJson: boolean
+    flexWidthRef: RefObject<number | undefined | null>
 }
 
 /** Read a server-computed custom column value off the raw row by its canonical alias. */
@@ -206,42 +172,156 @@ function customColumnValue(log: ParsedLogMessage, alias: string | undefined): st
     return value == null ? '' : String(value)
 }
 
+function ColumnHeaderMenu({
+    config,
+    callbacks,
+    isFirst,
+    isLast,
+}: {
+    config: LogsColumnConfig
+    callbacks: ConfiguredColumnCallbacks
+    isFirst: boolean
+    isLast: boolean
+}): JSX.Element | null {
+    const { onRemove, onMove } = callbacks
+    if (!onRemove && !onMove) {
+        return null
+    }
+    return (
+        <LemonMenu
+            items={[
+                onMove
+                    ? {
+                          label: 'Move left',
+                          icon: <IconArrowLeft />,
+                          disabledReason: isFirst ? 'Already at the start' : undefined,
+                          onClick: () => onMove(config.id, 'left'),
+                      }
+                    : null,
+                onMove
+                    ? {
+                          label: 'Move right',
+                          icon: <IconArrowRight />,
+                          disabledReason: isLast ? 'Already at the end' : undefined,
+                          onClick: () => onMove(config.id, 'right'),
+                      }
+                    : null,
+                onRemove
+                    ? {
+                          label: 'Remove column',
+                          icon: <IconTrash />,
+                          status: 'danger' as const,
+                          onClick: () => onRemove(config.id),
+                      }
+                    : null,
+            ]}
+        >
+            <LemonButton size="xsmall" noPadding icon={<IconEllipsis className="text-muted" />} className="shrink-0" />
+        </LemonMenu>
+    )
+}
+
+function TimestampSortButton({
+    orderBy,
+    onChangeOrderBy,
+}: Pick<ConfiguredColumnRendering, 'orderBy' | 'onChangeOrderBy'>): JSX.Element {
+    return (
+        <LemonButton
+            size="xsmall"
+            className="h-full"
+            icon={orderBy === 'latest' ? <IconArrowDown /> : <IconArrowUp />}
+            tooltip={
+                orderBy === 'latest'
+                    ? 'Showing latest first. Click to show earliest first (reloads).'
+                    : 'Showing earliest first. Click to show latest first (reloads).'
+            }
+            onClick={() => onChangeOrderBy?.(orderBy === 'latest' ? 'earliest' : 'latest')}
+            disabled={!orderBy || !onChangeOrderBy}
+        />
+    )
+}
+
 /**
- * Generic resizable column driven by a LogsColumnConfig: built-in types resolve client-side
- * from row fields via the registry; custom columns read the server-computed value keyed by
- * `alias`. Custom values render through AttributeCell so the special-case renderers
- * (PersonDisplay for distinct-id keys, ViewRecordingButton for session-id keys) keep working.
+ * The single column factory: every configured column — built-in or custom — renders through
+ * here, so all of them are reorderable, removable, and resizable. Message is the one layout
+ * exception (the flex fill column, so no resizer). Type differences are confined to the cell
+ * renderer (timestamp -> TZLabel, message -> MessageCell, rest -> AttributeCell, which keeps
+ * the PersonDisplay / ViewRecordingButton special cases) plus timestamp's sort toggle.
  */
 export function createConfiguredColumn(params: {
     config: LogsColumnConfig
     alias?: string
     callbacks: ConfiguredColumnCallbacks
+    rendering: ConfiguredColumnRendering
     isFirst: boolean
     isLast: boolean
 }): VirtualizedTableColumn<ParsedLogMessage> {
-    const { config, alias, callbacks, isFirst, isLast } = params
-    const { onResize, onRemove, onMove } = callbacks
+    const { config, alias, callbacks, rendering, isFirst, isLast } = params
     const title = columnLabel(config)
-    const width = config.width ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
+
+    if (config.type === 'message') {
+        return {
+            key: `col:${config.id}`,
+            title,
+            sizing: { type: 'flex', minWidth: MESSAGE_MIN_WIDTH },
+            render: (log) => (
+                <MessageColumnCell
+                    log={log}
+                    wrapBody={rendering.wrapBody}
+                    prettifyJson={rendering.prettifyJson}
+                    flexWidthRef={rendering.flexWidthRef}
+                />
+            ),
+            renderHeader: () => (
+                <div
+                    className="flex items-center justify-between px-1 gap-1"
+                    style={getMessageStyle(rendering.flexWidthRef.current ?? undefined)}
+                >
+                    <span className="truncate" title={title}>
+                        {title}
+                    </span>
+                    <ColumnHeaderMenu config={config} callbacks={callbacks} isFirst={isFirst} isLast={isLast} />
+                </div>
+            ),
+        }
+    }
+
+    const width = config.width ?? (config.type === 'timestamp' ? TIMESTAMP_WIDTH : DEFAULT_ATTRIBUTE_COLUMN_WIDTH)
     const totalWidth = width + RESIZER_HANDLE_WIDTH
 
     const semanticKey = config.type === 'custom' ? (config.name ?? config.expression ?? '') : config.type
-    const getValue =
-        config.type === 'custom'
-            ? (log: ParsedLogMessage): string => customColumnValue(log, alias)
-            : LOGS_COLUMN_REGISTRY[config.type].getValue
+    const renderValue =
+        config.type === 'timestamp'
+            ? (log: ParsedLogMessage): JSX.Element => (
+                  <div className="flex items-center shrink-0" style={{ width: totalWidth }}>
+                      <span className="text-xs text-muted font-mono">
+                          <TZLabel time={log.timestamp} {...rendering.tzLabelFormat} timestampStyle="absolute" />
+                      </span>
+                  </div>
+              )
+            : (log: ParsedLogMessage): JSX.Element => (
+                  <AttributeCell
+                      attributeKey={semanticKey}
+                      value={
+                          config.type === 'custom'
+                              ? customColumnValue(log, alias)
+                              : LOGS_COLUMN_REGISTRY[config.type].getValue(log)
+                      }
+                      width={totalWidth}
+                  />
+              )
 
     return {
         key: `col:${config.id}`,
         title,
         sizing: { type: 'resizable', width, minWidth: MIN_ATTRIBUTE_COLUMN_WIDTH },
-        render: (log) => <AttributeCell attributeKey={semanticKey} value={getValue(log)} width={totalWidth} />,
+        render: renderValue,
         renderHeader: () => (
             <ResizableElement
                 defaultWidth={totalWidth}
                 minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
                 maxWidth={Infinity}
-                onResize={(newWidth) => onResize?.(config.id, newWidth - RESIZER_HANDLE_WIDTH)}
+                onResize={(newWidth) => callbacks.onResize?.(config.id, newWidth - RESIZER_HANDLE_WIDTH)}
                 className="flex items-center h-full shrink-0 group/header"
                 innerClassName="h-full"
             >
@@ -249,67 +329,12 @@ export function createConfiguredColumn(params: {
                     <span className="truncate flex-1" title={title}>
                         {title}
                     </span>
-                    {(onRemove || onMove) && (
-                        <LemonMenu
-                            items={[
-                                onMove
-                                    ? {
-                                          label: 'Move left',
-                                          icon: <IconArrowLeft />,
-                                          disabledReason: isFirst ? 'Already at the start' : undefined,
-                                          onClick: () => onMove(config.id, 'left'),
-                                      }
-                                    : null,
-                                onMove
-                                    ? {
-                                          label: 'Move right',
-                                          icon: <IconArrowRight />,
-                                          disabledReason: isLast ? 'Already at the end' : undefined,
-                                          onClick: () => onMove(config.id, 'right'),
-                                      }
-                                    : null,
-                                onRemove
-                                    ? {
-                                          label: 'Remove column',
-                                          icon: <IconTrash />,
-                                          status: 'danger' as const,
-                                          onClick: () => onRemove(config.id),
-                                      }
-                                    : null,
-                            ]}
-                        >
-                            <LemonButton
-                                size="xsmall"
-                                noPadding
-                                icon={<IconEllipsis className="text-muted" />}
-                                className="shrink-0"
-                            />
-                        </LemonMenu>
+                    {config.type === 'timestamp' && (
+                        <TimestampSortButton orderBy={rendering.orderBy} onChangeOrderBy={rendering.onChangeOrderBy} />
                     )}
+                    <ColumnHeaderMenu config={config} callbacks={callbacks} isFirst={isFirst} isLast={isLast} />
                 </div>
             </ResizableElement>
-        ),
-    }
-}
-
-export function createMessageColumn(params: {
-    wrapBody: boolean
-    prettifyJson: boolean
-    flexWidthRef: RefObject<number | undefined | null>
-}): VirtualizedTableColumn<ParsedLogMessage> {
-    const { wrapBody, prettifyJson, flexWidthRef } = params
-
-    return {
-        key: 'message',
-        title: 'Message',
-        sizing: { type: 'flex', minWidth: MESSAGE_MIN_WIDTH },
-        render: (log) => (
-            <MessageColumnCell log={log} wrapBody={wrapBody} prettifyJson={prettifyJson} flexWidthRef={flexWidthRef} />
-        ),
-        renderHeader: () => (
-            <div className="flex items-center px-1" style={getMessageStyle(flexWidthRef.current ?? undefined)}>
-                Message
-            </div>
         ),
     }
 }
