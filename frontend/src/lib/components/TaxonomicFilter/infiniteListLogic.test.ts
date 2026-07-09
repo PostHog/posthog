@@ -1234,12 +1234,28 @@ describe('infiniteListLogic', () => {
             expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
         })
 
-        it('prepends a synthetic selected row with a friendly label on the suggested list when the selection is not visible', async () => {
+        it('prepends a synthetic selected row keyed by the raw value on the suggested list when the selection is not visible', async () => {
             const listLogic = mountSuggestedList({ value: '$pageview', groupType: TaxonomicFilterGroupType.Events })
             await expectLogic(listLogic).toFinishAllListeners()
             expect(listLogic.values.results[0]).toMatchObject({
-                name: 'Pageview',
+                name: '$pageview',
                 group: TaxonomicFilterGroupType.Events,
+            })
+        })
+
+        it('prepends a synthetic row for a name-keyed property group so the round-trip guard still passes', async () => {
+            const listLogic = mountSuggestedList({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                ],
+                value: '$browser',
+                groupType: TaxonomicFilterGroupType.EventProperties,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results[0]).toMatchObject({
+                name: '$browser',
+                group: TaxonomicFilterGroupType.EventProperties,
             })
         })
 

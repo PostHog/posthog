@@ -1142,7 +1142,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         getItemGroup(leadingItem, taxonomicGroups, group)?.getValue?.(leadingItem) === null
                             ? 1
                             : 0
-                    if (isSuggested && selectionKey) {
+                    if (isSuggested) {
                         // The aggregated list is fully client-side (recents/pinned prefixes),
                         // so both floating and prepending are safe here.
                         const selectedIndex = orderedBase.findIndex((item) => {
@@ -1170,9 +1170,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             // `undefined` and the round-trip below fails — keeping their raw ids
                             // out of the list, which is the intent.
                             const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
-                            const friendlyLabel = getCoreFilterDefinition(String(value), groupType)?.label
+                            // Keep `name` as the raw key: consumers persist `item.name` verbatim
+                            // (e.g. ActionFilterRow, universalFiltersLogic), so baking a friendly
+                            // label in here would corrupt the saved value on a no-op re-pick, and
+                            // it would defeat the round-trip guard below for name-keyed groups
+                            // (EventProperties/PersonProperties/SessionProperties `getValue`
+                            // reads `.name`). The renderer already prettifies raw keys at render
+                            // time via PropertyKeyInfo/getCoreFilterDefinition.
                             const synthetic = {
-                                name: friendlyLabel ?? String(value),
+                                name: String(value),
                                 value,
                                 group: groupType,
                             } as unknown as TaxonomicDefinitionTypes

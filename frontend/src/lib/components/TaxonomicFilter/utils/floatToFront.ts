@@ -2,7 +2,7 @@
  *  catch-all row), preserving the order of everything else.
  *  No-op when `index <= offset` (already in place, or not found via `findIndex` -> -1).
  *  Shared by the rebuild menu's `Combobox` and the legacy `infiniteListLogic`
- *  so the committed-selection promotion behaves identically across surfaces. */
+ *  for the committed-selection promotion; callers choose the offset per surface. */
 export function floatToFront<T>(list: T[], index: number, offset = 0): T[] {
     if (index <= offset) {
         return list
