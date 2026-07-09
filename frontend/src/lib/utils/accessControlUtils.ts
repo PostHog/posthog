@@ -42,7 +42,7 @@ export const getMinimumAccessLevel = (resource: APIScopeObject): AccessControlLe
  * @returns The maximum access level required, or null if no maximum is set
  */
 export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLevel | null => {
-    if (resource === AccessControlResourceType.ActivityLog) {
+    if (resource === AccessControlResourceType.ActivityLog || resource === AccessControlResourceType.Toolbar) {
         return AccessControlLevel.Viewer
     }
     return null
@@ -93,7 +93,7 @@ export const orderedAccessLevels = (resourceType: AccessControlResourceType): Ac
     if (resourceType === AccessControlResourceType.Project || resourceType === AccessControlResourceType.Organization) {
         return [AccessControlLevel.None, AccessControlLevel.Member, AccessControlLevel.Admin]
     }
-    if (resourceType === AccessControlResourceType.ActivityLog) {
+    if (resourceType === AccessControlResourceType.ActivityLog || resourceType === AccessControlResourceType.Toolbar) {
         return [AccessControlLevel.None, AccessControlLevel.Viewer]
     }
     return [AccessControlLevel.None, AccessControlLevel.Viewer, AccessControlLevel.Editor, AccessControlLevel.Manager]
