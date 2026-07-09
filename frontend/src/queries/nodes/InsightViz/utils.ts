@@ -184,9 +184,9 @@ export const getQueryBasedDashboard = (
 
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        // We use 512 for query timeouts and memory-limit errors — both are surfaced as actionable validation messages
+        // 400/512/513 all carry an actionable validation message (bad query / too slow / out of memory).
         // Async queries put the error message on data.error_message, while synchronous ones use detail
-        return error?.status === 400 || error?.status === 512
+        return error?.status === 400 || error?.status === 512 || error?.status === 513
             ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
             : null
     }
@@ -196,7 +196,7 @@ export const extractValidationError = (error: Error | Record<string, any> | null
 
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        if (error?.status === 400 || error?.status === 512) {
+        if (error?.status === 400 || error?.status === 512 || error?.status === 513) {
             return error.code ?? error.data?.code ?? null
         }
     }
@@ -204,8 +204,7 @@ export const extractValidationErrorCode = (error: Error | Record<string, any> | 
     return null
 }
 
-// 512 also covers memory-limit errors, so check extractValidationError/extractValidationErrorCode
-// first when the distinction matters — this alone can't tell a timeout from an OOM.
+// Query took too long. Out-of-memory errors use their own status (513), so this stays unambiguous.
 export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         return error?.status === 512

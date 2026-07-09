@@ -528,11 +528,25 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Render embedded URLs (e.g. a docs link the backend includes) as clickable links.
-function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
+function isPostHogDocsUrl(url: string): boolean {
+    try {
+        const { protocol, hostname } = new URL(url)
+        return (
+            (protocol === 'https:' || protocol === 'http:') &&
+            (hostname === 'posthog.com' || hostname.endsWith('.posthog.com'))
+        )
+    } catch {
+        return false
+    }
+}
+
+// Render embedded URLs (e.g. a docs link the backend includes) as clickable links. Only PostHog
+// URLs are linkified — error detail can echo user-controlled text (e.g. a HogQL parse error), so we
+// don't turn arbitrary strings into clickable external links.
+export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
     // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
     return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 ? (
+        index % 2 === 1 && isPostHogDocsUrl(part) ? (
             <Link key={index} to={part} target="_blank">
                 {part}
             </Link>
@@ -580,16 +594,30 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
-            {isMemoryLimitError && !cta ? (
-                <AIConsentPopoverWrapper onApprove={debugWithAI}>
-                    <LemonButton type="primary" onClick={debugWithAI} data-attr="insight-memory-limit-debug-with-ai">
-                        Debug with PostHog AI
-                    </LemonButton>
-                </AIConsentPopoverWrapper>
-            ) : (
-                (cta ??
-                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />))
-            )}
+            {(() => {
+                const defaultCta =
+                    cta ??
+                    (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
+                // For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
+                // beside it so users who decline AI consent (or lack AI access) still have a next step.
+                if (isMemoryLimitError && !cta) {
+                    return (
+                        <div className="flex items-center gap-2">
+                            <AIConsentPopoverWrapper onApprove={debugWithAI}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={debugWithAI}
+                                    data-attr="insight-memory-limit-debug-with-ai"
+                                >
+                                    Debug with PostHog AI
+                                </LemonButton>
+                            </AIConsentPopoverWrapper>
+                            {defaultCta}
+                        </div>
+                    )
+                }
+                return defaultCta
+            })()}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">

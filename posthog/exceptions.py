@@ -82,9 +82,10 @@ class ClickHouseQueryTimeOut(APIException):
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
-    # 512 (like ClickHouseEstimatedQueryExecutionTimeTooLong) so the frontend surfaces the detail
-    # in the actionable "problem with this query" panel rather than the generic error state.
-    status_code = 512
+    # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
+    # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
+    # failure is never mistaken for a timeout on either the client or in status-based alerting.
+    status_code = 513
     # Stable machine-readable code so the frontend can recognise out-of-memory failures without
     # matching on the (translatable, changeable) detail copy. Keep in sync with the frontend
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
