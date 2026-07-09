@@ -190,6 +190,7 @@ const subscriptionsList = (): ToolBase<
             query: {
                 created_by: params.created_by,
                 dashboard: params.dashboard,
+                dashboard_tiles: params.dashboard_tiles,
                 insight: params.insight,
                 limit: params.limit,
                 offset: params.offset,

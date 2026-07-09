@@ -555,6 +555,10 @@ export type SubscriptionsListParams = {
      */
     dashboard?: number
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number
+    /**
      * Filter by insight ID.
      */
     insight?: number
