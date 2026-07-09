@@ -135,6 +135,17 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(EventStream.objects.unscoped().filter(team_id=self.team.id).count(), 1)
 
+    def test_deleting_owner_deletes_stream_and_archives_destination(self):
+        stream = self._create_stream()
+        function = self._destination(stream)
+
+        self.user.delete()
+
+        self.assertFalse(EventStream.objects.unscoped().filter(id=stream["id"]).exists())
+        function.refresh_from_db()
+        self.assertTrue(function.deleted)
+        self.assertFalse(function.enabled)
+
     def test_streams_are_per_user(self):
         stream = self._create_stream()
         teammate = self._create_user("teammate@posthog.com")

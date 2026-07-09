@@ -207,16 +207,9 @@ def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> st
     return stream.slack_channel_id
 
 
-def archive_event_stream_destination_by_id(*, team_id: int, stream_id: str, user: "User") -> None:
-    """Archive the destination of the caller's stream (before the stream row is deleted).
-    Owner-scoped so a delete that will 404 can't archive someone else's destination."""
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id, created_by=user).first()
-    if stream is not None:
-        archive_event_stream_destination(stream)
-
-
 def archive_event_stream_destination(stream: EventStream) -> None:
-    """Disable and soft-delete the stream's managed HogFunction (on stream deletion)."""
+    """Disable and soft-delete the stream's managed HogFunction. Invoked by the EventStream
+    ``pre_delete`` signal (signals.py), so it runs on every deletion path."""
     function = _managed_hog_function(stream)
     if function is None:
         return

@@ -1270,12 +1270,11 @@ class EventStreamViewSet(
 
     @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
-        user = cast(User, request.user)
-        with transaction.atomic():
-            event_stream_destination.archive_event_stream_destination_by_id(
-                team_id=self.team_id, stream_id=self.kwargs["pk"], user=user
-            )
-            deleted = api.delete_event_stream(team_id=self.team_id, stream_id=self.kwargs["pk"], user=user)
+        # The EventStream pre_delete signal archives the managed destination inside the
+        # same delete transaction, on this and every other deletion path.
+        deleted = api.delete_event_stream(
+            team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
+        )
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)

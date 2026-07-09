@@ -19,9 +19,10 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         db_constraint=False,
         related_name="customer_analytics_event_streams",
     )
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
+    # CASCADE, not SET_NULL: created_by is the owner, and an ownerless stream would keep
+    # delivering to Slack with nobody able to manage it. The pre_delete signal (signals.py)
+    # archives the managed destination on every deletion path, including this cascade.
+    created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
 
     enabled = models.BooleanField(default=False)
     event_names = models.JSONField(default=list)
