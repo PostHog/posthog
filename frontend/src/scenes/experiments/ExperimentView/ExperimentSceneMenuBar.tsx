@@ -12,6 +12,7 @@ import {
     IconPlusSmall,
     IconRefresh,
     IconTrash,
+    IconUnlock,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -47,10 +48,11 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
     confirmFreezeExposure,
+    confirmUnfreezeExposure,
     hasFrozenExposureStamps,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -72,6 +74,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         isExperimentStopped,
         isCreatingExperimentDashboard,
         freezeExposureLoading,
+        unfreezeExposureLoading,
         showDebugPanel,
     } = useValues(experimentLogic)
     const {
@@ -81,6 +84,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExperimentDashboard,
         resetRunningExperiment,
         freezeExposure,
+        unfreezeExposure,
         toggleDebugPanel,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
@@ -308,6 +312,18 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                     >
                                         <IconLock />
                                         Freeze exposure
+                                    </SceneMenuBarItem>
+                                )}
+                                {isExperimentExposureFrozen(experiment) && (
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={() => confirmUnfreezeExposure(unfreezeExposure)}
+                                        disabled={unfreezeExposureLoading}
+                                        tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
+                                    >
+                                        <IconUnlock />
+                                        Unfreeze exposure
                                     </SceneMenuBarItem>
                                 )}
                                 <SceneMenuBarItem

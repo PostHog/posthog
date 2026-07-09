@@ -1055,6 +1055,9 @@ tools:
     experiments-requires-flag-implementation:
         operation: experiments_requires_flag_implementation_retrieve
         enabled: false
+    experiments-unfreeze-exposure-create:
+        operation: experiments_unfreeze_exposure_create
+        enabled: false
     experiments-update:
         operation: experiments_update
         enabled: false

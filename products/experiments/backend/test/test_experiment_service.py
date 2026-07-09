@@ -3621,6 +3621,86 @@ class TestExperimentService(APIBaseTest):
         assert groups[0][EXPOSURE_FROZEN_GROUP_KEY] is True
 
     # ------------------------------------------------------------------
+    # Unfreeze exposure
+    # ------------------------------------------------------------------
+
+    def test_unfreeze_exposure_restores_original_filters(self) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Test", feature_flag_key="unfreeze-flag")
+        flag = experiment.feature_flag
+
+        # Heterogeneous groups: one with a user-authored description, one bare.
+        catch_all = {"properties": [], "rollout_percentage": 100}
+        internal_group = {
+            "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
+            "rollout_percentage": 100,
+            "description": "Internal test users",
+        }
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
+        original_filters = deepcopy(flag.filters)
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        frozen.feature_flag.refresh_from_db()
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Unfreeze Test"')
+
+        unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
+        unfrozen.feature_flag.refresh_from_db()
+
+        # The flag is byte-for-byte back to its pre-freeze state: cohort condition, freeze keys,
+        # and marker note all removed; the user-authored description restored exactly.
+        assert unfrozen.feature_flag.filters == original_filters
+        assert unfrozen.is_exposure_frozen is False
+        assert unfrozen.is_running is True
+        assert unfrozen.end_date is None
+
+        # The snapshot cohort is soft-deleted, not left as clutter.
+        cohort.refresh_from_db()
+        assert cohort.deleted is True
+
+    def test_unfreeze_exposure_keeps_user_edits_made_while_frozen(self) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Edits", feature_flag_key="unfreeze-edits-flag")
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # While frozen, a user adds their own condition to the frozen group. The group keeps its
+        # freeze stamp, so the experiment stays frozen and can still be unfrozen. (Adding a brand-new
+        # unstamped group instead reopens enrollment and reverts the experiment to "running" — see
+        # test_flag_update_adding_unstamped_group_reopens_exposure.)
+        edited = deepcopy(flag.filters)
+        user_condition = {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}
+        edited["groups"][0]["properties"].append(user_condition)
+        self._update_flag_filters(flag, edited)
+
+        unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
+        unfrozen.feature_flag.refresh_from_db()
+
+        groups = unfrozen.feature_flag.filters["groups"]
+        assert len(groups) == 1
+        # Only the snapshot-cohort condition was removed from the frozen group — the user's stays.
+        assert groups[0]["properties"] == [user_condition]
+        assert EXPOSURE_FROZEN_GROUP_KEY not in groups[0]
+
+    def test_unfreeze_exposure_when_not_frozen_raises(self) -> None:
+        experiment = self._create_running_experiment(name="UF Not Frozen", feature_flag_key="uf-not-frozen-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().unfreeze_exposure(experiment, request=self._make_request())
+        assert "not frozen" in str(ctx.exception)
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_unfreeze_exposure_reports_analytics(self, mock_report: MagicMock) -> None:
+        experiment = self._create_running_experiment(name="Unfreeze Analytics", feature_flag_key="uf-analytics-flag")
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        self._service().unfreeze_exposure(frozen, request=self._make_request())
+
+        assert any(call.args[1] == "experiment exposure unfrozen" for call in mock_report.call_args_list)
+
+    # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
 
