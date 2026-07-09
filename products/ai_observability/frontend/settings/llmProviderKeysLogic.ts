@@ -17,6 +17,7 @@ export type LLMProvider =
     | 'azure_openai'
     | 'together_ai'
     | 'minimax'
+    | 'zeabur'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -30,6 +31,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
     minimax: 'MiniMax',
+    zeabur: 'Zeabur AI Hub',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -74,6 +76,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'mini max' || normalized === 'mini-max') {
         return 'minimax'
+    }
+    if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
+        return 'zeabur'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null

@@ -1,10 +1,9 @@
 //! Session-replay anonymizer: PII-scrubs rrweb events for the ml-mirror pipeline, exposed to Node as
 //! a Neon native addon.
 //!
-//! The scrubbers are a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts`
-//! (the source of truth): text/URL redaction, native image blur, `cv` de/recompression. Parity with
-//! the TS is asserted via shared JSON fixtures under `tests/fixtures/` (the same fixtures the Jest
-//! suite runs against).
+//! The scrubbers cover text/URL redaction, native image blur, and `cv` de/recompression. Behavior
+//! is pinned by the shared JSON fixtures under `tests/fixtures/`, which both `tests/parity.rs` and
+//! the Jest suite (through the addon) run against.
 //!
 //! The production surface is the byte-buffer pipeline in [`snapshot`]: the decompressed Kafka payload
 //! goes in, ready-to-write JSONL block lines plus envelope/per-event metadata come out — Rust owns

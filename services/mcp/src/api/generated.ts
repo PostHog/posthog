@@ -4489,6 +4489,7 @@ export namespace Schemas {
       Draft: 'draft',
       Running: 'running',
       Paused: 'paused',
+      ExposureFrozen: 'exposure_frozen',
       Stopped: 'stopped',
       All: 'all',
     } as const;
@@ -11791,18 +11792,6 @@ export namespace Schemas {
       value: string | number;
     }
 
-    /**
-     * * `span_attribute` - span_attribute
-     * * `span_resource_attribute` - span_resource_attribute
-     */
-    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
-
-
-    export const BreakdownTypeEnum = {
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
     export interface BreakdownValue {
       count: number;
       value: string;
@@ -16590,6 +16579,31 @@ export namespace Schemas {
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
      * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17257,6 +17271,31 @@ export namespace Schemas {
       PeecAI: 'PeecAI',
       Healthchecks: 'Healthchecks',
       Impact: 'Impact',
+      AikidoSecurity: 'AikidoSecurity',
+      Alguna: 'Alguna',
+      Anthropic: 'Anthropic',
+      Appwrite: 'Appwrite',
+      BlandAI: 'BlandAI',
+      BrowseAI: 'BrowseAI',
+      BrowserUse: 'BrowserUse',
+      ChartHop: 'ChartHop',
+      Cody: 'Cody',
+      Cursor: 'Cursor',
+      Decagon: 'Decagon',
+      Deepgram: 'Deepgram',
+      ElevenLabs: 'ElevenLabs',
+      Harvey: 'Harvey',
+      Hyperspell: 'Hyperspell',
+      Langfuse: 'Langfuse',
+      LingoDev: 'LingoDev',
+      M3ter: 'M3ter',
+      Maxio: 'Maxio',
+      Metorial: 'Metorial',
+      OpenRouter: 'OpenRouter',
+      TogetherAI: 'TogetherAI',
+      Vapi: 'Vapi',
+      Vespa: 'Vespa',
+      Writesonic: 'Writesonic',
     } as const;
 
     /**
@@ -17937,7 +17976,32 @@ export namespace Schemas {
        * * `Teachable` - Teachable
        * * `PeecAI` - PeecAI
        * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact */
+       * * `Impact` - Impact
+       * * `AikidoSecurity` - AikidoSecurity
+       * * `Alguna` - Alguna
+       * * `Anthropic` - Anthropic
+       * * `Appwrite` - Appwrite
+       * * `BlandAI` - BlandAI
+       * * `BrowseAI` - BrowseAI
+       * * `BrowserUse` - BrowserUse
+       * * `ChartHop` - ChartHop
+       * * `Cody` - Cody
+       * * `Cursor` - Cursor
+       * * `Decagon` - Decagon
+       * * `Deepgram` - Deepgram
+       * * `ElevenLabs` - ElevenLabs
+       * * `Harvey` - Harvey
+       * * `Hyperspell` - Hyperspell
+       * * `Langfuse` - Langfuse
+       * * `LingoDev` - LingoDev
+       * * `M3ter` - M3ter
+       * * `Maxio` - Maxio
+       * * `Metorial` - Metorial
+       * * `OpenRouter` - OpenRouter
+       * * `TogetherAI` - TogetherAI
+       * * `Vapi` - Vapi
+       * * `Vespa` - Vespa
+       * * `Writesonic` - Writesonic */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -21215,6 +21279,7 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -21228,6 +21293,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
+      Zeabur: 'zeabur',
     } as const;
 
     /**
@@ -22467,6 +22533,7 @@ export namespace Schemas {
       Draft: 'draft',
       Running: 'running',
       Paused: 'paused',
+      ExposureFrozen: 'exposure_frozen',
       Stopped: 'stopped',
     } as const;
 
@@ -22565,7 +22632,7 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
-      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
@@ -22650,7 +22717,7 @@ export namespace Schemas {
          * @nullable
          */
       conclusion_comment?: string | null;
-      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
@@ -22672,6 +22739,10 @@ export namespace Schemas {
     export interface FeatureFlagGroupType {
       aggregation_group_type_index?: number | null;
       description?: string | null;
+      /** Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition. */
+      exposure_frozen?: boolean | null;
+      /** Snapshot cohort the exposure freeze AND'd into this group's properties. */
+      exposure_frozen_cohort?: number | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       rollout_percentage?: number | null;
       sort_key?: string | null;
@@ -23163,7 +23234,7 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
-      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy: boolean;
@@ -24230,7 +24301,32 @@ export namespace Schemas {
        * * `Teachable` - Teachable
        * * `PeecAI` - PeecAI
        * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact */
+       * * `Impact` - Impact
+       * * `AikidoSecurity` - AikidoSecurity
+       * * `Alguna` - Alguna
+       * * `Anthropic` - Anthropic
+       * * `Appwrite` - Appwrite
+       * * `BlandAI` - BlandAI
+       * * `BrowseAI` - BrowseAI
+       * * `BrowserUse` - BrowserUse
+       * * `ChartHop` - ChartHop
+       * * `Cody` - Cody
+       * * `Cursor` - Cursor
+       * * `Decagon` - Decagon
+       * * `Deepgram` - Deepgram
+       * * `ElevenLabs` - ElevenLabs
+       * * `Harvey` - Harvey
+       * * `Hyperspell` - Hyperspell
+       * * `Langfuse` - Langfuse
+       * * `LingoDev` - LingoDev
+       * * `M3ter` - M3ter
+       * * `Maxio` - Maxio
+       * * `Metorial` - Metorial
+       * * `OpenRouter` - OpenRouter
+       * * `TogetherAI` - TogetherAI
+       * * `Vapi` - Vapi
+       * * `Vespa` - Vespa
+       * * `Writesonic` - Writesonic */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -27455,6 +27551,7 @@ export namespace Schemas {
 
 
     export const TraceSpanBreakdownType = {
+      Span: 'span',
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
@@ -27490,13 +27587,15 @@ export namespace Schemas {
     }
 
     export interface TraceSpansAttributeBreakdownQuery {
-      /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+      /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`). */
       breakdownKey: string;
-      /** Where the key lives: span-level attributes or resource-level attributes. */
+      /** Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes. */
       breakdownType: TraceSpanBreakdownType;
       /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
+      /** Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected. */
+      excludeBreakdownFilter?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: 'TraceSpansAttributeBreakdownQuery';
       /** Modifiers used when performing the query */
@@ -35930,7 +36029,8 @@ export namespace Schemas {
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
-       * * `minimax` - MiniMax */
+       * * `minimax` - MiniMax
+       * * `zeabur` - Zeabur AI Hub */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -37153,6 +37253,8 @@ export namespace Schemas {
       scanner: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;
+      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+      is_scanner_digest?: boolean;
       /** What fires the action. MVP supports 'schedule' only.
        *
        * * `schedule` - Schedule
@@ -39311,7 +39413,7 @@ export namespace Schemas {
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
-      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy?: boolean;
@@ -43423,7 +43525,8 @@ export namespace Schemas {
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
-       * * `minimax` - MiniMax */
+       * * `minimax` - MiniMax
+       * * `zeabur` - Zeabur AI Hub */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -44332,6 +44435,8 @@ export namespace Schemas {
       scanner?: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;
+      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+      is_scanner_digest?: boolean;
       /** What fires the action. MVP supports 'schedule' only.
        *
        * * `schedule` - Schedule
@@ -46224,7 +46329,7 @@ export namespace Schemas {
       emit_eligibility: EmitEligibility;
       /** Counts of reports already in the inbox, grouped by status. */
       existing_inbox_reports: ExistingInboxReports;
-      /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+      /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`. */
       recent_activity: RecentActivity;
       /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
       recent_reviewer_corrections: RecentReviewerCorrections;
@@ -50177,6 +50282,8 @@ export namespace Schemas {
      * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
      */
     export interface RunObservation {
+      /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
+      readonly index: number;
       /** Observation id; links to the observation detail view. */
       readonly id: string;
       /** Session recording id this observation was made on. */
@@ -52383,7 +52490,32 @@ export namespace Schemas {
        * * `Teachable` - Teachable
        * * `PeecAI` - PeecAI
        * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact */
+       * * `Impact` - Impact
+       * * `AikidoSecurity` - AikidoSecurity
+       * * `Alguna` - Alguna
+       * * `Anthropic` - Anthropic
+       * * `Appwrite` - Appwrite
+       * * `BlandAI` - BlandAI
+       * * `BrowseAI` - BrowseAI
+       * * `BrowserUse` - BrowserUse
+       * * `ChartHop` - ChartHop
+       * * `Cody` - Cody
+       * * `Cursor` - Cursor
+       * * `Decagon` - Decagon
+       * * `Deepgram` - Deepgram
+       * * `ElevenLabs` - ElevenLabs
+       * * `Harvey` - Harvey
+       * * `Hyperspell` - Hyperspell
+       * * `Langfuse` - Langfuse
+       * * `LingoDev` - LingoDev
+       * * `M3ter` - M3ter
+       * * `Maxio` - Maxio
+       * * `Metorial` - Metorial
+       * * `OpenRouter` - OpenRouter
+       * * `TogetherAI` - TogetherAI
+       * * `Vapi` - Vapi
+       * * `Vespa` - Vespa
+       * * `Writesonic` - Writesonic */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -53090,7 +53222,32 @@ export namespace Schemas {
        * * `Teachable` - Teachable
        * * `PeecAI` - PeecAI
        * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact */
+       * * `Impact` - Impact
+       * * `AikidoSecurity` - AikidoSecurity
+       * * `Alguna` - Alguna
+       * * `Anthropic` - Anthropic
+       * * `Appwrite` - Appwrite
+       * * `BlandAI` - BlandAI
+       * * `BrowseAI` - BrowseAI
+       * * `BrowserUse` - BrowserUse
+       * * `ChartHop` - ChartHop
+       * * `Cody` - Cody
+       * * `Cursor` - Cursor
+       * * `Decagon` - Decagon
+       * * `Deepgram` - Deepgram
+       * * `ElevenLabs` - ElevenLabs
+       * * `Harvey` - Harvey
+       * * `Hyperspell` - Hyperspell
+       * * `Langfuse` - Langfuse
+       * * `LingoDev` - LingoDev
+       * * `M3ter` - M3ter
+       * * `Maxio` - Maxio
+       * * `Metorial` - Metorial
+       * * `OpenRouter` - OpenRouter
+       * * `TogetherAI` - TogetherAI
+       * * `Vapi` - Vapi
+       * * `Vespa` - Vespa
+       * * `Writesonic` - Writesonic */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -53789,7 +53946,32 @@ export namespace Schemas {
        * * `Teachable` - Teachable
        * * `PeecAI` - PeecAI
        * * `Healthchecks` - Healthchecks
-       * * `Impact` - Impact */
+       * * `Impact` - Impact
+       * * `AikidoSecurity` - AikidoSecurity
+       * * `Alguna` - Alguna
+       * * `Anthropic` - Anthropic
+       * * `Appwrite` - Appwrite
+       * * `BlandAI` - BlandAI
+       * * `BrowseAI` - BrowseAI
+       * * `BrowserUse` - BrowserUse
+       * * `ChartHop` - ChartHop
+       * * `Cody` - Cody
+       * * `Cursor` - Cursor
+       * * `Decagon` - Decagon
+       * * `Deepgram` - Deepgram
+       * * `ElevenLabs` - ElevenLabs
+       * * `Harvey` - Harvey
+       * * `Hyperspell` - Hyperspell
+       * * `Langfuse` - Langfuse
+       * * `LingoDev` - LingoDev
+       * * `M3ter` - M3ter
+       * * `Maxio` - Maxio
+       * * `Metorial` - Metorial
+       * * `OpenRouter` - OpenRouter
+       * * `TogetherAI` - TogetherAI
+       * * `Vapi` - Vapi
+       * * `Vespa` - Vespa
+       * * `Writesonic` - Writesonic */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -53832,6 +54014,20 @@ export namespace Schemas {
       /** Outcome of automatic webhook registration. Only present for sources that support webhooks (e.g. Stripe) and have webhook-capable tables. */
       webhook?: SourceSetupWebhook;
     }
+
+    /**
+     * * `span` - span
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute
+     */
+    export type SpanPropertyTypeEnum = typeof SpanPropertyTypeEnum[keyof typeof SpanPropertyTypeEnum];
+
+
+    export const SpanPropertyTypeEnum = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
 
     /**
      * * `severity` - severity
@@ -56681,12 +56877,12 @@ export namespace Schemas {
          */
       success_rate: number | null;
       /**
-         * Median duration of completed runs, in seconds. Null if none completed.
+         * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p95_seconds: number | null;
@@ -56786,12 +56982,12 @@ export namespace Schemas {
          */
       queue_p50_seconds: number | null;
       /**
-         * Median duration of completed job instances, in seconds. Null if none completed.
+         * Median duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+         * 95th-percentile duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p95_seconds: number | null;
@@ -57740,8 +57936,11 @@ export namespace Schemas {
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
-      /** Aggregated value for the bucket. */
-      value: number;
+      /**
+         * Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.
+         * @nullable
+         */
+      value: number | null;
     }
 
     /**
@@ -58008,20 +58207,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `span` - span
-     * * `span_attribute` - span_attribute
-     * * `span_resource_attribute` - span_resource_attribute
-     */
-    export type _SpanPropertyFilterTypeEnum = typeof _SpanPropertyFilterTypeEnum[keyof typeof _SpanPropertyFilterTypeEnum];
-
-
-    export const _SpanPropertyFilterTypeEnum = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -58057,7 +58242,7 @@ export namespace Schemas {
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute */
-      type: _SpanPropertyFilterTypeEnum;
+      type: SpanPropertyTypeEnum;
       /** Comparison operator.
        *
        * * `exact` - exact
@@ -58234,13 +58419,16 @@ export namespace Schemas {
     } as const;
 
     export interface _TracingAttributeBreakdownQueryBody {
-      /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+      /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code". */
       breakdownKey: string;
-      /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+      /** Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
        *
+       * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute */
-      breakdownType: BreakdownTypeEnum;
+      breakdownType: SpanPropertyTypeEnum;
+      /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
+      excludeBreakdownFilter?: boolean;
       /** Order rows by span count or error count, descending. Defaults to count.
        *
        * * `count` - count
@@ -61346,6 +61534,7 @@ export namespace Schemas {
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
+      Zeabur: 'zeabur',
     } as const;
 
     export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
@@ -65868,10 +66057,22 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowHealthRunScope = {
+      All: 'all',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
@@ -66458,7 +66659,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.
+     * Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.
      */
     status?: ExperimentsListStatus;
     };
@@ -66470,6 +66671,7 @@ export namespace Schemas {
       All: 'all',
       Complete: 'complete',
       Draft: 'draft',
+      ExposureFrozen: 'exposure_frozen',
       Paused: 'paused',
       Running: 'running',
       Stopped: 'stopped',
@@ -68530,6 +68732,7 @@ export namespace Schemas {
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
+      Zeabur: 'zeabur',
     } as const;
 
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };

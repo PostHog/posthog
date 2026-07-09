@@ -1,0 +1,26 @@
+# Stable cluster mapping — rendered into the HCL manifest check.sh feeds
+# `hclexp validate -manifest`, so cross-cluster Distributed proxies resolve
+# against their target cluster's composition (remote existence + column
+# agreement) instead of -skip-validation.
+#
+# Format:  <cluster_name>  <roles>  [<aliases>]
+#   <roles>    comma-separated node roles whose compositions union into the
+#              cluster's schema (resolved per -env from ./nodes). Each must be a
+#              role in ./nodes.
+#   <aliases>  optional comma-separated remote_servers aliases sharing the
+#              cluster's schema.
+#
+# Env-independent: `hclexp validate -env <env>` selects each role's stack, and a
+# cluster whose roles aren't composed in that env resolves @absent on its own
+# (chschema #127). So the `posthog` data cluster — modeled here only for `local`,
+# prod goldens in posthog-cloud-infra — is validated for `local` and absent for the
+# cloud envs, from this one declaration, no per-env handling.
+#
+# `system.*` remotes are always resolvable and need no entry.
+
+ops            ops
+logs           logs
+aux            aux
+ai_events      ai_events
+batch_exports  batch_exports
+posthog        data           posthog_writable,posthog_primary_replica,posthog_single_shard
