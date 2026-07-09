@@ -21,12 +21,15 @@ import { HogFunctionManagerService } from './managers/hog-function-manager.servi
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { RustVmFilterShadow } from './rust-vm-filter-shadow'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
+    CDP_HOG_RUST_VM_SHADOW_FILTER_SAMPLE_RATE: number
+    MMDB_FILE_LOCATION: string
 }
 
 export interface HogFunctionInvocationPipelineDeps {
@@ -55,6 +58,7 @@ export interface BuildHogFunctionInvocationsOptions {
 export class HogFunctionInvocationPipeline {
     private hogRateLimiter: KeyedRateLimiterService
     private hogRateLimiterMirror: KeyedRateLimiterService | null
+    private rustVmFilterShadow: RustVmFilterShadow
 
     constructor(
         private config: HogFunctionInvocationPipelineConfig,
@@ -70,6 +74,10 @@ export class HogFunctionInvocationPipeline {
         this.hogRateLimiterMirror = deps.valkeyShadow
             ? new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
             : null
+        this.rustVmFilterShadow = new RustVmFilterShadow({
+            sampleRate: config.CDP_HOG_RUST_VM_SHADOW_FILTER_SAMPLE_RATE,
+            mmdbPath: config.MMDB_FILE_LOCATION,
+        })
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
@@ -91,7 +99,8 @@ export class HogFunctionInvocationPipeline {
 
                     const { invocations, metrics, logs } = await this.deps.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,
-                        globals
+                        globals,
+                        this.rustVmFilterShadow
                     )
 
                     this.deps.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
@@ -228,6 +237,11 @@ export class HogFunctionInvocationPipeline {
         })
 
         this.deps.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_function')
+
+        // Off the hot path: shadow-execute this batch's sampled filters on the Rust HogVM and
+        // compare. Fire-and-forget via mirrorCall so it can never throw into or delay the primary
+        // pipeline; the shadow guards against overlapping flushes internally.
+        void mirrorCall('hogvm.rust-filter-shadow-flush', () => this.rustVmFilterShadow.flush(), 5000)
 
         return notMaskedInvocations
     }

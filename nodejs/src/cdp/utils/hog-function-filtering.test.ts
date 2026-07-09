@@ -1,4 +1,7 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
+import type { FilterShadowCapturedInvocation, FilterShadowCapturer } from '../services/rust-vm-filter-shadow'
 import { HogFunctionFilterGlobals, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import {
     convertClickhouseRawEventToFilterGlobals,
@@ -356,6 +359,86 @@ describe('hog-function-filtering', () => {
 
             // Should execute bytecode because properties filters are present
             expect(result.match).toBe(true)
+        })
+    })
+
+    describe('Rust HogVM shadow capture', () => {
+        const makeShadow = (): { shadow: FilterShadowCapturer; captured: FilterShadowCapturedInvocation[] } => {
+            const captured: FilterShadowCapturedInvocation[] = []
+            return {
+                captured,
+                shadow: {
+                    shouldCapture: jest.fn().mockReturnValue(true),
+                    capture: (item) => captured.push(item),
+                },
+            }
+        }
+
+        const fn = {
+            id: 'shadow-fn',
+            team_id: 7,
+            name: 'Shadow Function',
+        } as unknown as HogFunctionType
+
+        const filterGlobals = {
+            event: '$pageview',
+            distinct_id: 'user_1',
+            timestamp: '2025-01-01T00:00:00.000Z',
+        } as HogFunctionFilterGlobals
+
+        it('captures the executed filter with the node match result, bytecode and globals snapshot', async () => {
+            const { shadow, captured } = makeShadow()
+            const filters = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }],
+                properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
+                bytecode: ['_H', 1, 30], // FALSE — the shadow must record the real boolean, not assume true
+            } as HogFunctionType['filters']
+
+            const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
+
+            expect(result.match).toBe(false)
+            expect(captured).toHaveLength(1)
+            expect(captured[0].functionId).toBe('shadow-fn')
+            expect(captured[0].teamId).toBe(7)
+            expect(captured[0].bytecode).toBe(filters!.bytecode)
+            expect(captured[0].node.match).toBe(false)
+            expect(parseJSON(captured[0].globalsJson).event).toBe('$pageview')
+        })
+
+        it('does not capture when the pre-filter short-circuits before running bytecode', async () => {
+            const { shadow, captured } = makeShadow()
+            const filters = {
+                events: [{ id: 'other_event', name: 'other_event', type: 'events', order: 0 }],
+                bytecode: ['_H', 1, 29],
+            } as HogFunctionType['filters']
+
+            const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
+
+            expect(result.match).toBe(false)
+            expect(captured).toHaveLength(0)
+        })
+
+        it('does not capture when there are no filters and bytecode execution is skipped', async () => {
+            const { shadow, captured } = makeShadow()
+            const filters = { bytecode: ['_H', 1, 29] } as HogFunctionType['filters']
+
+            const result = await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
+
+            expect(result.match).toBe(true)
+            expect(captured).toHaveLength(0)
+        })
+
+        it('does not capture when sampling declines the invocation', async () => {
+            const { shadow, captured } = makeShadow()
+            ;(shadow.shouldCapture as jest.Mock).mockReturnValue(false)
+            const filters = {
+                properties: [{ key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' }],
+                bytecode: ['_H', 1, 29],
+            } as HogFunctionType['filters']
+
+            await filterFunctionInstrumented({ fn, filters, filterGlobals, shadow })
+
+            expect(captured).toHaveLength(0)
         })
     })
 })

@@ -35,6 +35,7 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import type { FilterShadowCapturer } from './rust-vm-filter-shadow'
 import {
     SELF_LOOP_MAX_DEPTH,
     SelfLoopGuardMode,
@@ -264,7 +265,8 @@ export class HogExecutorService {
 
     async buildHogFunctionInvocations(
         hogFunctions: HogFunctionType[],
-        triggerGlobals: HogFunctionInvocationGlobals
+        triggerGlobals: HogFunctionInvocationGlobals,
+        filterShadow?: FilterShadowCapturer
     ): Promise<{
         invocations: CyclotronJobInvocationHogFunction[]
         metrics: MinimalAppMetric[]
@@ -286,6 +288,7 @@ export class HogExecutorService {
                 fn: hogFunction,
                 filters,
                 filterGlobals,
+                shadow: filterShadow,
             })
 
             // Add any generated metrics and logs to our collections
