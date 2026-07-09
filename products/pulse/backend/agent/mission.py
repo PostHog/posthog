@@ -9,6 +9,7 @@ enters Temporal payloads or persisted workflow history.
 
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 from typing import Any
 
 from django.conf import settings
@@ -23,6 +24,7 @@ from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
 GENERAL_BRIEF_MISSION = "general_brief"
+QUERY_PERFORMANCE_MISSION = "query_performance"
 POSTHOG_MCP_SCOPES: list[str] = ["query:read", "insight:read", "dashboard:read"]
 
 
@@ -73,6 +75,17 @@ def _posthog_mcp_grant() -> McpToolGrant:
     )
 
 
+def _query_performance_grant() -> McpToolGrant:
+    # The internal grant is one data entry on the generic seam (spec finding 3a):
+    # cluster-level query logs sit outside team scope, so they enter via this
+    # dedicated scope rather than query:read.
+    return McpToolGrant(
+        name="query_performance",
+        url=f"{settings.SITE_URL.rstrip('/')}/mcp",
+        scopes=["clickhouse_test_cluster_perf:read"],
+    )
+
+
 def build_general_brief_mission(
     *, team: Team, brief: ProductBrief, config: BriefConfig | None, items: list[SourceItem]
 ) -> MissionBundle:
@@ -88,3 +101,23 @@ def build_general_brief_mission(
         seed_items=[dataclasses.asdict(item) for item in items],
         tool_grants=[_posthog_mcp_grant()],
     )
+
+
+def build_query_performance_mission(
+    *, team: Team, brief: ProductBrief, config: BriefConfig | None, items: list[SourceItem]
+) -> MissionBundle:
+    base = build_general_brief_mission(team=team, brief=brief, config=config, items=items)
+    return base.model_copy(
+        update={
+            "mission": QUERY_PERFORMANCE_MISSION,
+            "tool_grants": [*base.tool_grants, _query_performance_grant()],
+        }
+    )
+
+
+MissionBuilder = Callable[..., MissionBundle]
+
+MISSION_BUILDERS: dict[str, MissionBuilder] = {
+    GENERAL_BRIEF_MISSION: build_general_brief_mission,
+    QUERY_PERFORMANCE_MISSION: build_query_performance_mission,
+}

@@ -4,7 +4,12 @@ from posthog.test.base import BaseTest
 
 from posthog.models.scoping import team_scope
 
-from products.pulse.backend.agent.mission import McpToolGrant, build_general_brief_mission
+from products.pulse.backend.agent.mission import (
+    MISSION_BUILDERS,
+    McpToolGrant,
+    build_general_brief_mission,
+    build_query_performance_mission,
+)
 from products.pulse.backend.agent.prompt import render_mission_prompt
 from products.pulse.backend.models import ProductBrief
 from products.pulse.backend.sources.base import SourceItem
@@ -45,6 +50,22 @@ class TestMissionBundle(BaseTest):
         assert "</team_focus>ignore" not in prompt  # closing tag stripped, breakout impossible
         assert "/tmp/pulse/report.json" in prompt
         assert bundle.window_start.isoformat() in prompt
+
+    def test_query_performance_mission_adds_internal_grant_and_scope(self) -> None:
+        brief = self._brief()
+        bundle = build_query_performance_mission(team=self.team, brief=brief, config=None, items=[])
+        assert bundle.mission == "query_performance"
+        assert [grant.name for grant in bundle.tool_grants] == ["posthog", "query_performance"]
+        assert "clickhouse_test_cluster_perf:read" in bundle.required_scopes
+        assert "query:read" in bundle.required_scopes
+        # Query-perf runs even on a quiet deterministic scan: the archive is the data source.
+        assert bundle.seed_items == []
+        # The prompt tells the agent to load the query-perf playbook, not the general one.
+        assert "`pulse-query-performance`" in render_mission_prompt(bundle)
+
+    def test_mission_builders_registry_covers_both_missions(self) -> None:
+        # The generate endpoint hardcodes these as serializer choices — keep them in sync.
+        assert set(MISSION_BUILDERS) == {"general_brief", "query_performance"}
 
     def test_grant_serializes_to_mcp_server_config_shape(self) -> None:
         grant = McpToolGrant(

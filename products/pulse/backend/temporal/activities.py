@@ -10,7 +10,7 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.agent.mission import MissionBundle, build_general_brief_mission
+from products.pulse.backend.agent.mission import MISSION_BUILDERS, MissionBundle
 from products.pulse.backend.agent.sandbox_run import run_mission
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
@@ -110,7 +110,8 @@ async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     items = await _gather_source_items(team, config, inputs.period_days)
-    bundle = build_general_brief_mission(team=team, brief=brief, config=config, items=items)
+    build_mission = MISSION_BUILDERS[inputs.mission]
+    bundle = build_mission(team=team, brief=brief, config=config, items=items)
 
     def _pin_window() -> None:
         ProductBrief.objects.for_team(inputs.team_id).filter(id=inputs.brief_id).update(
