@@ -8,6 +8,7 @@ from posthog.test.base import (
     _create_event,
     flush_persons_and_events,
     snapshot_postgres_queries,
+    snapshot_postgres_queries_context,
 )
 from unittest.mock import ANY, patch
 
@@ -509,6 +510,36 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         assert flag_response == expected_flag_response
         assert flag_response["created_by"]["id"] == self.user.id
+
+    def test_copy_feature_flag_with_dependencies_query_count(self):
+        dependency_keys = ("flag-c-query-count", "flag-b-query-count", "flag-a-query-count")
+        flag_to_copy, _, _ = self._create_dependency_chain(
+            "flag-a-query-count", "flag-b-query-count", "flag-c-query-count"
+        )
+
+        def dependency_target_flag_lookup(query: str) -> bool:
+            return (
+                'FROM "posthog_featureflag"' in query
+                and '"posthog_featureflag"."key" IN' in query
+                and any(dependency_key in query for dependency_key in dependency_keys)
+            )
+
+        with snapshot_postgres_queries_context(
+            self, custom_query_matcher=dependency_target_flag_lookup
+        ) as query_context:
+            response = self._post_copy_flag(flag_to_copy, copy_dependencies=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        self.assertEqual(
+            response.json()["success"][0]["copied_dependency_keys"], ["flag-c-query-count", "flag-b-query-count"]
+        )
+        target_team_refetches = [
+            query["sql"]
+            for query in query_context.captured_queries
+            if 'FROM "posthog_team"' in query["sql"] and f'"posthog_team"."id" IN ({self.team_2.id})' in query["sql"]
+        ]
+        self.assertEqual(target_team_refetches, [])
 
     def test_copy_feature_flag_update_existing(self):
         target_project = self.team_2
