@@ -54,6 +54,11 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             for table in (
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
+                # The default manager eager-loads created_by and prefetches externaldataschema_set;
+                # neither is used here, and a select_related("created_by") left in place makes the
+                # .only() below raise FieldError (created_by would be deferred AND traversed).
+                .select_related(None)
+                .prefetch_related(None)
                 .select_related("external_data_source")
                 # Exactly the fields get_data_warehouse_table_name reads (pks are always fetched).
                 # The fingerprint runs on every query run, even on cache hits, so the wide `columns`

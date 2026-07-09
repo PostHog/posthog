@@ -148,8 +148,9 @@ class TestQueriedAccessControlledResources(BaseTest):
         table.save()
 
         query = HogQLQuery(query="select * from stripe_customers")
-        # One query each for tables and views. A third means the .only() field list no longer
-        # covers what get_data_warehouse_table_name reads, i.e. rows silently defer-load per row.
+        # One query each for tables and views. A third means either the .only() field list no
+        # longer covers what get_data_warehouse_table_name reads (rows silently defer-load per
+        # row) or the default manager's externaldataschema_set prefetch leaked back in.
         with self.assertNumQueries(2):
             assert queried_access_controlled_resources(query, self.team) == {"warehouse_table"}
 
