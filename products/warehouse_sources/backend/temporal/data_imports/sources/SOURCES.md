@@ -163,11 +163,13 @@ the row lists both.
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
 | firehydrant             | HTTP                        | requests                                                        | ✅                          |
+| flexmail                | HTTP                        | requests                                                        | ✅                          |
 | float_app               | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fulcrum                 | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px            | HTTP                        | requests                                                        | ✅                          |
+| gitbook                 | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
@@ -518,7 +520,6 @@ doesn't conflict with concurrent PRs.
 - feishu
 - firebase
 - firebolt
-- flexmail
 - flexport
 - flowlu
 - formbricks
@@ -528,7 +529,6 @@ doesn't conflict with concurrent PRs.
 - freshchat
 - freshservice
 - fulcrum
-- gitbook
 - glassfrog
 - gmail
 - gnews

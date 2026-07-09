@@ -123,7 +123,10 @@ function VisionActionRunScene(): JSX.Element {
 
             {run.synthesized_markdown ? (
                 <LemonCard hoverEffect={false} className="p-4">
-                    <LemonMarkdown className="text-base">{summaryMarkdown}</LemonMarkdown>
+                    {/* Same untrusted-content guard as the scanner-page digest card. */}
+                    <LemonMarkdown className="text-base" disableImages>
+                        {summaryMarkdown}
+                    </LemonMarkdown>
                 </LemonCard>
             ) : run.status === 'running' ? (
                 <div className="text-muted italic">This run is in progress — check back shortly for the summary.</div>
