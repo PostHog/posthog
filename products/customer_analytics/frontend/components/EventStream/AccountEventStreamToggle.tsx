@@ -2,29 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
-interface AccountEventStreamToggleProps {
+// Rendered as flag-gated tab content (AccountNotebooksExpansion), so eventStreamLogic
+// only mounts — and only fires its load — when the tab is actually opened.
+export function AccountEventStreamToggle({
+    accountId,
+    externalId,
+}: {
     accountId: string
     externalId: string
-}
-
-export function AccountEventStreamToggle(props: AccountEventStreamToggleProps): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // Gate before the inner component so eventStreamLogic never mounts (and never
-    // fires its load request) when the feature is off.
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_EVENT_STREAM]) {
-        return null
-    }
-    return <AccountEventStreamToggleContent {...props} />
-}
-
-function AccountEventStreamToggleContent({ accountId, externalId }: AccountEventStreamToggleProps): JSX.Element {
+}): JSX.Element {
     const { eventStream, eventStreamLoading, membershipUpdatingIds, isAccountInStream } = useValues(eventStreamLogic)
     const { setAccountMembership } = useActions(eventStreamLogic)
 
@@ -33,8 +23,10 @@ function AccountEventStreamToggleContent({ accountId, externalId }: AccountEvent
     const settingsUrl = urls.settings('environment-customer-analytics', 'customer-analytics-event-stream')
 
     return (
-        <div className="flex flex-col gap-1 mt-4">
-            <h4 className="secondary uppercase text-secondary mb-0">Event stream</h4>
+        <div className="flex flex-col gap-2 items-start">
+            <p className="mb-0 text-secondary">
+                Stream this customer's events to your team's Slack channel in real time.
+            </p>
             <LemonSwitch
                 checked={included}
                 onChange={(checked) => setAccountMembership(accountId, checked)}

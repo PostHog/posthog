@@ -15,7 +15,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
@@ -142,6 +144,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
@@ -217,7 +220,6 @@ export function AccountNotebooksExpansion({
                 <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />
                     <ActiveRelationships accountId={accountId} />
-                    <AccountEventStreamToggle accountId={accountId} externalId={externalId} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <LemonTabs
@@ -306,6 +308,12 @@ export function AccountNotebooksExpansion({
                                 key: 'opportunities',
                                 label: 'Opportunities',
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                            },
+                            // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_EVENT_STREAM] && {
+                                key: 'event_stream' as const,
+                                label: 'Event stream',
+                                content: <AccountEventStreamToggle accountId={accountId} externalId={externalId} />,
                             },
                         ]}
                     />
