@@ -84,11 +84,15 @@ class TestProjectsEndpoint:
 
     def test_auth_header_uses_token_scheme(self) -> None:
         session = _session_with([_response(PROJECTS_PAYLOAD)])
-        with patch.object(deepgram_module, "make_tracked_session", return_value=session):
+        with patch.object(deepgram_module, "make_tracked_session", return_value=session) as make_session:
             list(get_rows("secret-key", "projects", LOGGER, _manager()))
 
         headers = session.get.call_args.kwargs["headers"]
         assert headers["Authorization"] == "Token secret-key"
+        # The key must be redacted from tracked telemetry and redirects pinned off — replaying the
+        # Authorization header against a redirect target would leak the credential cross-origin.
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+        assert make_session.call_args.kwargs["allow_redirects"] is False
 
 
 class TestSnapshotEndpoints:

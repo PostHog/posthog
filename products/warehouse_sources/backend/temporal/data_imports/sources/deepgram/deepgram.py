@@ -49,7 +49,8 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def validate_credentials(api_key: str) -> bool:
     url = f"{DEEPGRAM_BASE_URL}/projects"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -106,9 +107,11 @@ def _get_project_ids(session: requests.Session, headers: dict[str, str], logger:
 def _flatten_api_key_item(project_id: str, item: dict[str, Any]) -> dict[str, Any]:
     """Lift the nested `api_key` object to the root so `api_key_id` is a top-level primary key.
 
-    The member who created the key stays nested under `member`.
+    The member who created the key stays nested under `member`. Direct access on `api_key` fails
+    fast on a malformed response — `api_key_id` is part of the primary key, so silently emitting a
+    row without it would corrupt warehouse merges.
     """
-    row: dict[str, Any] = {"project_id": project_id, **item.get("api_key", {})}
+    row: dict[str, Any] = {"project_id": project_id, **item["api_key"]}
     if "member" in item:
         row["member"] = item["member"]
     return row
@@ -206,8 +209,10 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = DEEPGRAM_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    # One session reused across every request so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every request so urllib3 keeps the connection alive. The API key is
+    # redacted from logged URLs and captured samples, and redirects stay off as defense-in-depth —
+    # every request targets the fixed api.deepgram.com host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if not config.fan_out_over_projects:
         data = _fetch(session, _build_url(config.path), headers, logger)
