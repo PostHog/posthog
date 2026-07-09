@@ -66,6 +66,13 @@ def update_db_field_value(field, model_id, value):
     cursor.execute(f"update posthog_integration set {field}='{value}' where id='{model_id}';")
 
 
+def test_slack_oauth_scope_includes_canvas_scope_for_local_installs():
+    from posthog.models.integration import POSTHOG_SLACK_SCOPE
+
+    assert "canvases:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+    assert "files:write" in set(POSTHOG_SLACK_SCOPE.split(","))
+
+
 class TestIntegrationModel(BaseTest):
     def create_integration(
         self, kind: str, config: Optional[dict] = None, sensitive_config: Optional[dict] = None
@@ -470,6 +477,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "client_secret": "hubspot-client-secret",
                 "refresh_token": "REFRESH",
             },
+            timeout=10,
         )
 
         assert integration.config["expires_in"] == 1000
