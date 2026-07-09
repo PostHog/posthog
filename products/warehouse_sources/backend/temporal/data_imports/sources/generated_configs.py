@@ -2946,7 +2946,7 @@ class RootlySourceConfig(config.Config):
 
 @config.config
 class RssSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

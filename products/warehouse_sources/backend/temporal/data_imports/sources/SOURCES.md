@@ -316,6 +316,7 @@ the row lists both.
 | rocketlane              | HTTP                        | requests                                                        | ✅                          |
 | rollbar                 | HTTP                        | requests                                                        | ✅                          |
 | rootly                  | HTTP                        | requests                                                        | ✅                          |
+| rss                     | HTTP                        | requests                                                        | ✅                          |
 | ruddr                   | HTTP                        | requests                                                        | ✅                          |
 | safetyculture           | HTTP                        | requests                                                        | ✅                          |
 | salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -682,7 +683,6 @@ doesn't conflict with concurrent PRs.
 - rki_covid
 - rocket_chat
 - rocketlane
-- rss
 - sage_hr
 - sage_intacct
 - sailthru
