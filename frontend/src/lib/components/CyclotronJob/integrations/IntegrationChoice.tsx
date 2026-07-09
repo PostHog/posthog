@@ -52,14 +52,17 @@ export function IntegrationChoice({
     // only reflect the written value back into `value` after an async graph rebuild. Re-selecting
     // on every "still empty" render dispatches onChange in a loop until React throws its max
     // update depth error. The guard also keeps "Clear selection" cleared instead of instantly
-    // re-selecting the first integration.
+    // re-selecting the first integration. The flag is only consumed once a value or a connection
+    // exists, so a connection added while mounted (e.g. after connecting one) still gets defaulted.
     const hasAutoSelected = useRef(false)
 
     useEffect(() => {
         if (integrationsLoading || hasAutoSelected.current) {
             return
         }
-        hasAutoSelected.current = true
+        if (value || integrationsOfKind?.length) {
+            hasAutoSelected.current = true
+        }
         if (!value && integrationsOfKind?.length) {
             onChange?.(integrationsOfKind[0].id)
         }

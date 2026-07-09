@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -88,5 +90,61 @@ describe('IntegrationChoice', () => {
 
         expect(onChangeAfterRerender).not.toHaveBeenCalled()
         expect(onChange).toHaveBeenCalledTimes(1)
+    })
+
+    it('still auto-selects a connection that appears after an initially empty load', async () => {
+        // An empty first load must not consume the one-shot: connecting an integration while
+        // the picker stays mounted (setup modal, refetch) should still default the empty input.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations': () => [200, { results: [] }],
+            },
+        })
+        const onChange = jest.fn()
+        render(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChange} />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(screen.getByText('Choose GitHub connection')).toBeInTheDocument()
+        })
+        expect(onChange).not.toHaveBeenCalled()
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations': () => [200, { results: [GITHUB_INTEGRATION] }],
+            },
+        })
+        act(() => {
+            integrationsLogic.actions.loadIntegrations()
+        })
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+        expect(onChange).toHaveBeenCalledWith(1)
+    })
+
+    it('does not re-select after the value is cleared', async () => {
+        // Once a value has existed, later emptiness is a deliberate "Clear selection" and must
+        // stick instead of snapping back to the first connection.
+        const onChange = jest.fn()
+        const { rerender } = render(
+            <Provider>
+                <IntegrationChoice integration="github" value={1} onChange={onChange} />
+            </Provider>
+        )
+        await waitFor(() => {
+            expect(screen.getByText('Change')).toBeInTheDocument()
+        })
+
+        rerender(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChange} />
+            </Provider>
+        )
+
+        expect(onChange).not.toHaveBeenCalled()
     })
 })
