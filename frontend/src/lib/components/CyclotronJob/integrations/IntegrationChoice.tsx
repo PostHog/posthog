@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
@@ -47,11 +47,23 @@ export function IntegrationChoice({
     // saves. The UI surfaces a warning below instead so the user picks explicitly.
     const valueIsMissing = !integrationsLoading && !!value && !!integrations && !integrationKind
 
+    // One-shot defaulting, guarded by a ref: this effect re-runs on every render (onChange and
+    // integrationsOfKind get fresh identities each time), and some parents (the workflow editor)
+    // only reflect the written value back into `value` after an async graph rebuild. Re-selecting
+    // on every "still empty" render dispatches onChange in a loop until React throws its max
+    // update depth error. The guard also keeps "Clear selection" cleared instead of instantly
+    // re-selecting the first integration.
+    const hasAutoSelected = useRef(false)
+
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length) {
+        if (integrationsLoading || hasAutoSelected.current) {
+            return
+        }
+        hasAutoSelected.current = true
+        if (!value && integrationsOfKind?.length) {
             onChange?.(integrationsOfKind[0].id)
         }
-    }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
+    }, [integrationsLoading, onChange, value, integrationsOfKind])
 
     if (!kind) {
         return null

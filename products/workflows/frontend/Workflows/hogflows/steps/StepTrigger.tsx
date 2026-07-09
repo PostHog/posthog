@@ -423,7 +423,7 @@ function StepTriggerConfigurationWebhook({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'webhook' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionInputs } = useActions(workflowLogic)
     const { workflow, actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
@@ -462,14 +462,7 @@ function StepTriggerConfigurationWebhook({
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
-                setInputs={(inputs) =>
-                    setWorkflowActionConfig(action.id, {
-                        type: 'webhook',
-                        inputs,
-                        template_id: config.template_id,
-                        template_uuid: config.template_uuid,
-                    })
-                }
+                mergeInputs={(inputs) => partialSetWorkflowActionInputs(action.id, inputs)}
                 errors={validationResult?.errors}
                 warnings={validationResult?.warnings}
             />
@@ -615,7 +608,7 @@ function StepTriggerConfigurationTrackingPixel({
     action: Extract<HogFlowAction, { type: 'trigger' }>
     config: Extract<HogFlowAction['config'], { type: 'tracking_pixel' }>
 }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionInputs } = useActions(workflowLogic)
     const { workflow, actionValidationErrorsById } = useValues(workflowLogic)
     const validationResult = actionValidationErrorsById[action.id]
 
@@ -672,14 +665,7 @@ function StepTriggerConfigurationTrackingPixel({
             <HogFlowFunctionConfiguration
                 templateId={config.template_id}
                 inputs={config.inputs}
-                setInputs={(inputs) =>
-                    setWorkflowActionConfig(action.id, {
-                        type: 'tracking_pixel',
-                        inputs,
-                        template_id: config.template_id,
-                        template_uuid: config.template_uuid,
-                    })
-                }
+                mergeInputs={(inputs) => partialSetWorkflowActionInputs(action.id, inputs)}
                 errors={validationResult?.errors}
                 warnings={validationResult?.warnings}
             />

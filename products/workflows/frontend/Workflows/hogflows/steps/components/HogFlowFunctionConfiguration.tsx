@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCheck } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
@@ -20,7 +20,7 @@ import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 export function HogFlowFunctionConfiguration({
     templateId,
     inputs,
-    setInputs,
+    mergeInputs,
     mappings,
     setMappings,
     errors,
@@ -29,7 +29,10 @@ export function HogFlowFunctionConfiguration({
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
     mappings?: HogFunctionMappingType[]
-    setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
+    // Must merge the given keys into the action's current inputs (not replace them wholesale):
+    // the `inputs` prop lags behind writes while the graph rebuilds, so a replace built from it
+    // reverts other keys written in the meantime.
+    mergeInputs: (inputs: Record<string, CyclotronJobInputType>) => void
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
     warnings?: Record<string, string>
@@ -43,17 +46,23 @@ export function HogFlowFunctionConfiguration({
     const isEmailStep = templateId === 'template-email'
     const engagementEventsAvailable = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_ENGAGEMENT_EVENTS]
     const engagementEventsEnabled = !!currentTeam?.workflows_config?.capture_workflows_engagement_events
+    // One-shot seeding, guarded by a ref: the `inputs` prop lags behind writes while the graph
+    // rebuilds, so re-seeding whenever defaults look missing would dispatch on every render and
+    // loop until React's max update depth error.
+    const hasSeededDefaults = useRef(false)
+
     useEffect(() => {
-        // oxlint-disable-next-line exhaustive-deps
-        if (template) {
-            const defaults = templateToConfiguration(template).inputs ?? {}
-            const currentInputs = inputs ?? {}
-            const hasMissingDefaults = Object.keys(defaults).some((key) => !(key in currentInputs))
-            if (hasMissingDefaults) {
-                setInputs({ ...defaults, ...currentInputs })
-            }
+        if (!template || hasSeededDefaults.current) {
+            return
         }
-    }, [templateId])
+        hasSeededDefaults.current = true
+        const defaults = templateToConfiguration(template).inputs ?? {}
+        const currentInputs = inputs ?? {}
+        const missingDefaults = Object.fromEntries(Object.entries(defaults).filter(([key]) => !(key in currentInputs)))
+        if (Object.keys(missingDefaults).length > 0) {
+            mergeInputs(missingDefaults)
+        }
+    }, [template, inputs, mergeInputs])
 
     if (hogFunctionTemplatesByIdLoading) {
         return (
@@ -138,7 +147,7 @@ export function HogFlowFunctionConfiguration({
                 }}
                 showSource={false}
                 sampleGlobalsWithInputs={sampleGlobals}
-                onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
+                onInputChange={(key, value) => mergeInputs({ [key]: value })}
             />
             {isEmailStep && engagementEventsAvailable ? (
                 engagementEventsEnabled ? (

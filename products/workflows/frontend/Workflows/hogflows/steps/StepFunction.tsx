@@ -7,7 +7,7 @@ import { StepFunctionNode } from './hogFunctionStepLogic'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
     const { actionValidationErrorsById } = useValues(workflowLogic)
-    const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
+    const { partialSetWorkflowActionConfig, partialSetWorkflowActionInputs } = useActions(workflowLogic)
 
     const templateId = node.data.config.template_id
     const validationResult = actionValidationErrorsById[node.id]
@@ -20,7 +20,7 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
             <HogFlowFunctionConfiguration
                 templateId={templateId}
                 inputs={inputs}
-                setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                mergeInputs={(inputs) => partialSetWorkflowActionInputs(node.id, inputs)}
                 mappings={mappings}
                 setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
                 errors={validationResult?.errors}

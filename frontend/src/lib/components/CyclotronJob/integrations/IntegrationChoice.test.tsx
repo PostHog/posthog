@@ -61,4 +61,32 @@ describe('IntegrationChoice', () => {
             expect(screen.getByText(/no longer available/)).toBeInTheDocument()
         })
     })
+
+    it('auto-selects the first integration at most once while the value stays empty', async () => {
+        // Some parents (the workflow editor) only reflect the written value back into the
+        // `value` prop after an async graph rebuild, re-rendering with it still empty in the
+        // meantime. Auto-selecting again on those renders used to dispatch onChange in a loop
+        // until React crashed with its max-update-depth error.
+        const onChange = jest.fn()
+        const { rerender } = render(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChange} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+        expect(onChange).toHaveBeenCalledWith(1)
+
+        const onChangeAfterRerender = jest.fn()
+        rerender(
+            <Provider>
+                <IntegrationChoice integration="github" onChange={onChangeAfterRerender} />
+            </Provider>
+        )
+
+        expect(onChangeAfterRerender).not.toHaveBeenCalled()
+        expect(onChange).toHaveBeenCalledTimes(1)
+    })
 })

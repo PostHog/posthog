@@ -34,6 +34,7 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import {
+    CyclotronInputType,
     HogFlowActionSchema,
     SCHEDULED_TRIGGER_TYPES,
     isFunctionAction,
@@ -153,6 +154,10 @@ export const workflowLogic = kea<workflowLogicType>([
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
             actionId,
             config,
+        }),
+        partialSetWorkflowActionInputs: (actionId: string, inputs: Record<string, CyclotronInputType>) => ({
+            actionId,
+            inputs,
         }),
         setWorkflowActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setWorkflowAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
@@ -887,6 +892,21 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             actions.setWorkflowActionConfig(actionId, { ...action.config, ...config } as HogFlowAction['config'])
+        },
+        partialSetWorkflowActionInputs: ({ actionId, inputs }) => {
+            const action = values.workflow.actions.find((action) => action.id === actionId)
+            if (!action || !('inputs' in action.config)) {
+                return
+            }
+
+            // Merge against the live workflow rather than caller-provided state: the editor panel
+            // renders from an async-rebuilt copy of the graph, so callers can hold stale inputs.
+            // Sequential same-tick writes (e.g. picking an integration also clears its dependent
+            // fields) each read fresh state here and therefore compose instead of clobbering.
+            actions.setWorkflowActionConfig(actionId, {
+                ...action.config,
+                inputs: { ...action.config.inputs, ...inputs },
+            } as HogFlowAction['config'])
         },
         setWorkflowAction: async ({ actionId, action }) => {
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
