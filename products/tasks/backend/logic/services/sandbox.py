@@ -170,6 +170,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
+    rtk_enabled: bool = True,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -180,6 +181,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
+        # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
+        # even if a stale env value survives in a resumed sandbox.
+        "POSTHOG_RTK": "1" if rtk_enabled else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -301,6 +305,7 @@ class SandboxBase(ABC):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
