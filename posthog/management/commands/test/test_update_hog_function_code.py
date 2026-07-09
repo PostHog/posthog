@@ -303,7 +303,8 @@ class TestUpdateHogFunctionCode(BaseTest):
         buggy_hog = (
             "if (not match(inputs.webhookUrl, "
             "'^https://[^/]+.environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/workflows/.*')) {\n"
-            "    throw Error('Invalid URL.')\n}"
+            "    throw Error('Invalid URL. The URL should match ... or Power Platform environment format "
+            "(https://<tenant>.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/...)')\n}"
         ) + _SEND_BODY
         function = self._create_teams_function(buggy_hog)
 
@@ -315,8 +316,11 @@ class TestUpdateHogFunctionCode(BaseTest):
             call_command("update_hog_function_code", replace_key="microsoft-teams-powerplatform-cu-path", stdout=out)
 
         function.refresh_from_db()
+        # Both the regex and the human-readable example in the error message are widened.
         assert "automations/direct/(.*/)?workflows/.*'" in function.hog
+        assert "automations/direct/[<cluster>/]workflows/...)'" in function.hog
         assert "automations/direct/workflows/.*'" not in function.hog
+        assert "automations/direct/workflows/...)'" not in function.hog
         self.assertIn("Updated: 1", out.getvalue())
         compile_hog_for_check(function.hog, "destination")
 
