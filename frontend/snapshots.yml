@@ -4899,9 +4899,9 @@ snapshots:
     scenes-app-ai-observability-conversation-display--tools--light:
         hash: v1.k794b7964.8cef3e2b4016ddd7acd4573fc58711be40ebe7d669371df7b7d4a35324dfce8a.exvwcwzA0A82p-3LqqXM3F04g3shIirvtOlCd3H7Z8c
     scenes-app-ai-observability-prompts--empty-state--dark:
-        hash: v1.k794b7964.1f2503ad0152203e984367634002c47a551389565abab706312f07e07c81855c.eYgqyAER3vhnb5ppvZR_T_qqS8QdQfAKpfpX7_RVPTY
+        hash: v1.k794b7964.c8d83f25e82f659e199c0514b7eab4a0b1dab1e7a6a1c4e1de97a162a007b9f0.iR50GK7W2Ghw5_0tV7K5HMTfGuVyUSWQfYO-waZI_SA
     scenes-app-ai-observability-prompts--empty-state--light:
-        hash: v1.k794b7964.fcb49d1187406a0406d4fe642c27f72c7e8e1ed834cec879fca4a691b1887e5a.CK-BAy4rVR4uqiERyNzhF5-aLCWKblFSELggQJXftOg
+        hash: v1.k794b7964.83bb6355d1386b5957fb43acb45e48d351e3adea9c71f47a67eeedb0ce1949a1.T0OWcSem5zhD85QUMGVmdYHwJPtpYOZV3Epg8teUqlc
     scenes-app-ai-observability-prompts--prompts-list--dark:
         hash: v1.k794b7964.d04f5f25d543c7427fbfc2678fd8ef2828cec6d8c0107162204bbae9ec6e1c14.N6Zj2RLZ108T1ZC1w2KCCoMD7oaqaWSYBi_tChhGISM
     scenes-app-ai-observability-prompts--prompts-list--light:
@@ -5994,6 +5994,10 @@ snapshots:
         hash: v1.k794b7964.cc00450e03b730779f839814262f45aeb016075628e7b2e0fa3e49aec6f1fc7f.TF1Ss23Q9i7h6r3Lw4bezladG79Kyif_CYHRGhWsOmg
     scenes-app-insights-sqllinechart--sql-line-chart-trend-line-quill--light:
         hash: v1.k794b7964.c446ceed66b1a6056048603e17712a321d2689665867604245510d335c5fc547.aEjCQVGwfNkQ49GMID3RZuoXhA8T_hAD2xalr1WcXIE
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-dark--dark:
+        hash: v1.k794b7964.6a09bd0fd015c4e072926c1ae2c7aa6e63245d8a202f2115894ad9294966a827.dHUY30WwiPjsAuOOqE5STWSsx4s1yBR_3KVczyNzR6M
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-light--light:
+        hash: v1.k794b7964.d36479c0918232c1699974423947f5e4275220dd73407bb43b61aa5d1db72ce2.wHTxjjrO1gIW4D1_-JQ9Dby_EnWKug6pdte84r-Nvq8
     scenes-app-legal-documents--legal-documents-list--dark:
         hash: v1.k794b7964.9cb90971cdadb1eadf912754aeb2a82d4fcaf5d91aa716a39bed7b324e8f03be.M6963VTBjXD11KLz9OLd6vbdx2IBcrzUYEli26SO2as
     scenes-app-legal-documents--legal-documents-list--light:

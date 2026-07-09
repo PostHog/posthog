@@ -576,7 +576,7 @@ class BuzzsproutSourceConfig(config.Config):
 
 @config.config
 class CalComSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -779,7 +779,8 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudbedsSourceConfig(config.Config):
-    pass
+    api_key: str
+    property_id: str | None = None
 
 
 @config.config
@@ -1038,7 +1039,9 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DockerhubSourceConfig(config.Config):
-    pass
+    username: str
+    personal_access_token: str
+    namespace: str | None = None
 
 
 @config.config
@@ -1995,7 +1998,7 @@ class LoopsSourceConfig(config.Config):
 
 @config.config
 class LumaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2049,7 +2052,7 @@ class MailosaurSourceConfig(config.Config):
 
 @config.config
 class MailtrapSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2353,7 +2356,8 @@ class OneSignalSourceConfig(config.Config):
 
 @config.config
 class OnepagecrmSourceConfig(config.Config):
-    pass
+    user_id: str
+    api_key: str
 
 
 @config.config
@@ -2626,7 +2630,10 @@ class PipedriveSourceConfig(config.Config):
 
 @config.config
 class PipelinerSourceConfig(config.Config):
-    pass
+    service_url: str
+    space_id: str
+    username: str
+    password: str
 
 
 @config.config
@@ -2735,7 +2742,7 @@ class PrimetricSourceConfig(config.Config):
 
 @config.config
 class PrintifySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2939,7 +2946,7 @@ class RootlySourceConfig(config.Config):
 
 @config.config
 class RssSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3192,7 +3199,7 @@ class SmartsheetSourceConfig(config.Config):
 
 @config.config
 class SmartwaiverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3550,7 +3557,8 @@ class UbidotsSourceConfig(config.Config):
 
 @config.config
 class UnleashSourceConfig(config.Config):
-    pass
+    instance_url: str
+    api_token: str
 
 
 @config.config
