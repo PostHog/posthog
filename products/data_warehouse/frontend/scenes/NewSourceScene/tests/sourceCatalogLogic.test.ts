@@ -5,7 +5,7 @@ import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { availableSourcesLogic } from '../availableSourcesLogic'
-import { sourceCatalogLogic } from '../sourceCatalogLogic'
+import { ALL_SOURCES_CATEGORY, type SourceCategoryFilter, sourceCatalogLogic } from '../sourceCatalogLogic'
 
 const AVAILABLE_SOURCES: Record<string, SourceConfig> = {
     Stripe: {
@@ -95,5 +95,72 @@ describe('sourceCatalogLogic', () => {
 
         expect(logic.values.catalogItems).toBe(initialItems)
         expect(logic.values.catalogFuse).toBe(initialFuse)
+    })
+
+    describe('popular sources section', () => {
+        const RANKED_SOURCES: Record<string, SourceConfig> = {
+            Stripe: {
+                name: 'Stripe',
+                label: 'Stripe',
+                fields: [],
+                category: 'Payments & billing',
+                popularityRank: 2,
+            } as unknown as SourceConfig,
+            Postgres: {
+                name: 'Postgres',
+                label: 'Postgres',
+                fields: [],
+                category: 'Databases',
+                popularityRank: 1,
+            } as unknown as SourceConfig,
+            Hubspot: { name: 'Hubspot', label: 'Hubspot', fields: [], category: 'CRM' } as unknown as SourceConfig,
+        }
+
+        beforeEach(() => {
+            availableSourcesLogic.actions.loadSuccess(RANKED_SOURCES)
+        })
+
+        it('returns only ranked items, sorted ascending by rank', () => {
+            const logic = sourceCatalogLogic()
+            expect(logic.values.popularItems.map((item) => item.name)).toEqual(['Postgres', 'Stripe'])
+        })
+
+        const showPopularSectionCases: { search: string; category: SourceCategoryFilter; expected: boolean }[] = [
+            { search: '', category: ALL_SOURCES_CATEGORY, expected: true },
+            { search: 'anything', category: ALL_SOURCES_CATEGORY, expected: false },
+            { search: '', category: 'CRM', expected: false },
+        ]
+
+        it.each(showPopularSectionCases)(
+            'shows the popular section only on the default view (search=$search, category=$category)',
+            ({ search, category, expected }) => {
+                const logic = sourceCatalogLogic()
+                logic.actions.setSearch(search)
+                logic.actions.setSelectedCategory(category)
+                expect(logic.values.showPopularSection).toBe(expected)
+            }
+        )
+
+        it('does not show the popular section when nothing is ranked', () => {
+            availableSourcesLogic.actions.loadSuccess(AVAILABLE_SOURCES)
+            const logic = sourceCatalogLogic()
+            expect(logic.values.showPopularSection).toBe(false)
+        })
+
+        it('excludes a popular item from the default grid, but includes it once its category is selected', () => {
+            const logic = sourceCatalogLogic()
+            expect(logic.values.filteredItems.map((item) => item.name)).not.toContain('Stripe')
+
+            logic.actions.setSelectedCategory('Payments & billing')
+            expect(logic.values.filteredItems.map((item) => item.name)).toContain('Stripe')
+        })
+
+        it('excludes a popular item from the default grid, but includes it once searched by name', () => {
+            const logic = sourceCatalogLogic()
+            expect(logic.values.filteredItems.map((item) => item.name)).not.toContain('Stripe')
+
+            logic.actions.setSearch('Stripe')
+            expect(logic.values.filteredItems.map((item) => item.name)).toContain('Stripe')
+        })
     })
 })

@@ -1,6 +1,9 @@
 import uuid
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.core.cache import cache
 
 from posthog.models import Team
 
@@ -104,6 +107,63 @@ class TestWarehouseSourcesFacade(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         with self.assertRaises(ExternalDataSource.DoesNotExist):
             api.get_source(self.source.id, other_team.pk)
+
+
+class TestPopularSourceTypes(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.delete(api.POPULAR_SOURCE_TYPES_CACHE_KEY)
+
+    def _create_source(self, team_id: int, source_type: str, deleted: bool = False) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=team_id,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type=source_type,
+            deleted=deleted,
+        )
+
+    def test_ranks_source_types_by_connection_count_across_teams_excluding_deleted(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_source(self.team.pk, "Postgres")
+        self._create_source(self.team.pk, "Postgres")
+        self._create_source(other_team.pk, "Postgres")
+        self._create_source(self.team.pk, "Stripe")
+        self._create_source(self.team.pk, "Stripe", deleted=True)
+        self._create_source(other_team.pk, "Hubspot")
+
+        with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=True):
+            assert api.get_popular_source_types() == {"Postgres": 1, "Stripe": 2, "Hubspot": 3}
+
+    def test_limit_truncates_to_top_n(self) -> None:
+        self._create_source(self.team.pk, "Postgres")
+        self._create_source(self.team.pk, "Postgres")
+        self._create_source(self.team.pk, "Stripe")
+        self._create_source(self.team.pk, "Hubspot")
+
+        with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=True):
+            assert api.get_popular_source_types(limit=2) == {"Postgres": 1, "Stripe": 2}
+
+    def test_caches_the_ranking_across_calls(self) -> None:
+        self._create_source(self.team.pk, "Postgres")
+
+        with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=True):
+            with self.assertNumQueries(1):
+                first = api.get_popular_source_types()
+            with self.assertNumQueries(0):
+                second = api.get_popular_source_types()
+
+        assert first == second == {"Postgres": 1}
+
+    def test_returns_empty_without_querying_when_not_cloud(self) -> None:
+        self._create_source(self.team.pk, "Postgres")
+
+        with patch("products.warehouse_sources.backend.facade.api.is_cloud", return_value=False):
+            with self.assertNumQueries(0):
+                result = api.get_popular_source_types()
+
+        assert result == {}
 
 
 def test_hogql_reexports_are_the_model_classes() -> None:

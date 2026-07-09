@@ -67,6 +67,14 @@ export interface CatalogItem {
     url: string
     disabledReason?: string | null
     existingSource?: boolean
+    /**
+     * 1-indexed rank among the most-connected sources across all teams, or null/undefined
+     * if not in the top-ranked set (model_dump() sends unset optional fields as explicit
+     * null, not an omitted key — same as `disabledReason`). Mirrors
+     * `SourceConfig['popularityRank']`; always absent for self-managed connectors
+     * (S3/GCS/Azure/R2), which don't flow through `SourceConfig` at all.
+     */
+    popularityRank?: number | null
 }
 
 export interface CatalogCategory {
@@ -165,6 +173,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                             url: urls.dataWarehouseSourceNew(connector.name),
                             disabledReason: connector.disabledReason,
                             existingSource: connector.existingSource,
+                            popularityRank: connector.popularityRank,
                         }
                     })
 
@@ -221,9 +230,35 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 }),
         ],
 
+        // Ranked, connectable-only source list backing the "Popular sources" section. The
+        // backend already caps this to its top-N (see get_popular_source_types()), so no
+        // slicing is needed here — only a defensive coming-soon filter, in case a source
+        // that accumulated historical connections was later feature-flagged back to
+        // unreleased.
+        popularItems: [
+            (s) => [s.catalogItems],
+            (catalogItems): CatalogItem[] =>
+                catalogItems
+                    .filter(
+                        (item) =>
+                            item.popularityRank !== null &&
+                            item.popularityRank !== undefined &&
+                            item.status !== 'coming_soon'
+                    )
+                    .sort((a, b) => (a.popularityRank ?? 0) - (b.popularityRank ?? 0)),
+        ],
+
+        // The "Popular sources" section only shows on the true default view — no search,
+        // "All sources" selected — so it never displaces an explicit category/search intent.
+        showPopularSection: [
+            (s) => [s.search, s.selectedCategory, s.popularItems],
+            (search, selectedCategory, popularItems): boolean =>
+                search.trim() === '' && selectedCategory === ALL_SOURCES_CATEGORY && popularItems.length > 0,
+        ],
+
         filteredItems: [
-            (s) => [s.catalogItems, s.catalogFuse, s.search, s.selectedCategory],
-            (catalogItems, catalogFuse, search, selectedCategory): CatalogItem[] => {
+            (s) => [s.catalogItems, s.catalogFuse, s.search, s.selectedCategory, s.showPopularSection, s.popularItems],
+            (catalogItems, catalogFuse, search, selectedCategory, showPopularSection, popularItems): CatalogItem[] => {
                 const trimmed = search.trim()
                 const base = trimmed ? catalogFuse.search(trimmed).map((r) => r.item) : catalogItems
                 const filtered =
@@ -236,7 +271,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 if (trimmed) {
                     return filtered
                 }
-                return [...filtered].sort((a, b) => {
+                const sorted = [...filtered].sort((a, b) => {
                     const aComingSoon = a.status === 'coming_soon'
                     const bComingSoon = b.status === 'coming_soon'
                     if (aComingSoon !== bComingSoon) {
@@ -244,6 +279,16 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     }
                     return a.label.localeCompare(b.label)
                 })
+                // On the default/unfiltered view only, items already shown in the "Popular"
+                // section above are excluded here so nothing appears twice on one screen.
+                // Category-filtered browsing and search must still show the full set (e.g.
+                // Stripe under "Payments & billing"), which is why this is gated on
+                // showPopularSection rather than a standalone check.
+                if (showPopularSection) {
+                    const popularNames = new Set(popularItems.map((item) => item.name))
+                    return sorted.filter((item) => !popularNames.has(item.name))
+                }
+                return sorted
             },
         ],
     }),

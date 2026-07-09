@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -71,6 +72,20 @@ class TestPublicSourceConfigs(APIBaseTest):
         """SQL sources have user-defined schemas, so the catalog is empty (renders a generic note)."""
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
+
+    def test_popularity_rank_attached_to_ranked_sources_and_null_for_others(self):
+        # Ranking itself (counting, ordering, cloud-gating) is covered by
+        # products/warehouse_sources/backend/tests/test_facade.py; this only guards the wiring.
+        with patch(
+            "products.data_warehouse.backend.presentation.views.public_source_configs.get_popular_source_types",
+            return_value={"Postgres": 1, "Stripe": 2},
+        ):
+            response = self.client.get("/api/public_source_configs/")
+
+        data = response.json()
+        assert data["Postgres"]["popularityRank"] == 1
+        assert data["Stripe"]["popularityRank"] == 2
+        assert data["Hubspot"]["popularityRank"] is None
 
     def test_many_fixed_schema_sources_list_tables(self):
         """Guard the opt-in mechanism: a large share of sources expose a static table catalog.

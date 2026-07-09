@@ -6573,6 +6573,16 @@ export interface SourceConfig {
     featured?: boolean
 
     /**
+     * 1-indexed rank among the most-connected sources across all teams, or null if not in
+     * the top-ranked set (an unset optional field serializes as explicit null, same as
+     * `disabledReason`). Computed and cached ~7 days server-side (cloud only) — see
+     * get_popular_source_types() in products/warehouse_sources/backend/facade/api.py.
+     * Drives the "Popular sources" section in the new-source catalog; unrelated to
+     * `featured`, which is static and only used by the onboarding card grid.
+     */
+    popularityRank?: integer | null
+
+    /**
      * Whether the source-creation wizard should expose the per-column projection picker.
      * Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker
      * for drivers that ignore `enabled_columns` at sync time.

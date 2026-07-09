@@ -18,6 +18,11 @@ first facade serves the read consumers and the framework-free helpers.
 
 from uuid import UUID
 
+from django.core.cache import cache
+from django.db.models import Count
+
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -36,6 +41,9 @@ from products.warehouse_sources.backend.models.util import (
 
 from . import contracts
 
+POPULAR_SOURCE_TYPES_CACHE_KEY = "warehouse_sources:popular_source_types"
+POPULAR_SOURCE_TYPES_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+
 __all__ = [
     # capability functions
     "get_source",
@@ -45,6 +53,7 @@ __all__ = [
     "get_table",
     "list_tables_for_source",
     "list_jobs_for_source",
+    "get_popular_source_types",
     # framework-free helper transforms
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
@@ -152,6 +161,32 @@ def list_sources(team_id: int, *, include_deleted: bool = False) -> list[contrac
     if not include_deleted:
         qs = qs.exclude(deleted=True)
     return [_to_source(s) for s in qs]
+
+
+def _compute_popular_source_types() -> dict[str, int]:
+    counts = (
+        _ExternalDataSource.objects.filter(deleted=False)
+        .values("source_type")
+        .annotate(count=Count("id"))
+        .order_by("-count")
+    )
+    return {row["source_type"]: rank for rank, row in enumerate(counts, start=1)}
+
+
+def get_popular_source_types(limit: int = 10) -> dict[str, int]:
+    """1-indexed source_type -> rank, by connected ExternalDataSource count across all teams.
+
+    Deliberately cross-team, unlike every other function in this module — popularity is a
+    global product signal, not a per-tenant one. Cloud-only: on self-hosted/local dev "all
+    teams" is just one company's own projects, not a meaningful ranking signal. Cached ~7
+    days since this is a full-table aggregate scan with no natural per-team cache key.
+    """
+    if not is_cloud():
+        return {}
+    ranked = cache.get_or_set(
+        POPULAR_SOURCE_TYPES_CACHE_KEY, _compute_popular_source_types, timeout=POPULAR_SOURCE_TYPES_CACHE_TIMEOUT
+    )
+    return dict(list(ranked.items())[:limit])
 
 
 def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:

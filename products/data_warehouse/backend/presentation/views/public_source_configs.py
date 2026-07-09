@@ -6,19 +6,24 @@ from rest_framework.response import Response
 
 from posthog.schema import SourceConfig
 
+from products.warehouse_sources.backend.facade.api import get_popular_source_types
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 
 logger = structlog.get_logger(__name__)
+
+POPULAR_SOURCES_LIMIT = 10
 
 
 def build_source_configs() -> dict[str, dict]:
     """Build the source-config catalog returned by both the public endpoint and the wizard.
 
-    Each entry is the source's ``SourceConfig`` augmented with ``supportsColumnSelection`` and a
-    credential-free ``tables`` catalog (empty for SQL/file sources with user-defined schemas). Kept
-    in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
+    Each entry is the source's ``SourceConfig`` augmented with ``supportsColumnSelection``, a
+    credential-free ``tables`` catalog (empty for SQL/file sources with user-defined schemas), and,
+    for the most-connected sources across all teams (cloud only), a 1-indexed ``popularityRank``.
+    Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
     """
     sources = SourceRegistry.get_all_sources()
+    popular_ranks = get_popular_source_types(limit=POPULAR_SOURCES_LIMIT)
 
     results: dict[str, dict] = {}
     for source_type, source in sources.items():
@@ -30,6 +35,9 @@ def build_source_configs() -> dict[str, dict]:
         except Exception:
             logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
             config["tables"] = []
+        rank = popular_ranks.get(str(source_type))
+        if rank is not None:
+            config["popularityRank"] = rank
         results[str(source_type)] = config
 
     return results
@@ -52,7 +60,9 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         description=(
             "Returns a map of source type identifiers to their full SourceConfig. Each entry is "
             "augmented with `supportsColumnSelection` and a `tables` array (the credential-free "
-            "documented table catalog; empty for SQL/file sources with user-defined schemas)."
+            "documented table catalog; empty for SQL/file sources with user-defined schemas). "
+            "Entries among the most-connected sources across all teams also carry a 1-indexed "
+            "`popularityRank`."
         ),
     )
     def list(self, request: Request) -> Response:
