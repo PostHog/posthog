@@ -282,6 +282,7 @@ the row lists both.
 | pingdom                 | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
 | pipedrive               | HTTP                        | requests                                                        | ✅                          |
+| pipeliner               | HTTP                        | requests                                                        | ✅                          |
 | plain                   | HTTP                        | requests                                                        | ✅                          |
 | planhat                 | HTTP                        | requests                                                        | ✅                          |
 | plausible               | HTTP                        | requests                                                        | ✅                          |
@@ -644,7 +645,6 @@ doesn't conflict with concurrent PRs.
 - perk
 - persona
 - pexels
-- pipeliner
 - pivotal_tracker
 - piwik
 - planetscale

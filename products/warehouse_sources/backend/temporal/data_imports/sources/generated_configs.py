@@ -2626,7 +2626,10 @@ class PipedriveSourceConfig(config.Config):
 
 @config.config
 class PipelinerSourceConfig(config.Config):
-    pass
+    service_url: str
+    space_id: str
+    username: str
+    password: str
 
 
 @config.config
