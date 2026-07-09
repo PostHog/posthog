@@ -1,6 +1,6 @@
 //! Walks parsed rrweb serialized nodes, scrubbing text content and attributes in place.
-//! Mirrors `anonymize/dom.ts`, operating on `simd_json::BorrowedValue` (generic objects) so unknown
-//! fields survive the round-trip exactly, matching the TS in-place mutation.
+//! Operates on `simd_json::BorrowedValue` (generic objects) so unknown fields survive the
+//! round-trip exactly.
 
 use simd_json::borrowed::{Object, Value};
 

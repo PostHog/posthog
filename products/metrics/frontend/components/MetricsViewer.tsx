@@ -1,7 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -101,6 +108,7 @@ export const MetricsViewer = (): JSX.Element => {
         anomalyBadge,
         liveRefresh,
         queryResultsLoading,
+        queryError,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -260,6 +268,12 @@ export const MetricsViewer = (): JSX.Element => {
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
+                    </div>
+                ) : queryError ? (
+                    <div className="h-full flex items-center justify-center">
+                        <LemonBanner type="error" className="max-w-md">
+                            {queryError}
+                        </LemonBanner>
                     </div>
                 ) : hasResults && viewMode === 'stat' ? (
                     <MetricStatPanel

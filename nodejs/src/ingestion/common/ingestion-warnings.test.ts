@@ -26,16 +26,15 @@ describe('captureIngestionWarning()', () => {
 
     it('can read own writes', async () => {
         await captureIngestionWarning(kafkaProducer, 2, {
-            type: 'some_type',
-            // severity inside details must lose to the structured field below
+            // registered as size/error in INGESTION_WARNING_TYPES
+            type: 'message_size_too_large',
+            // severity inside details must lose to the registry-derived field
             details: {
                 foo: 'bar',
                 distinctId: 'user-1',
                 personId: '019831c9-6491-7000-8000-000000000000',
                 severity: 'from-details',
             },
-            category: 'size',
-            severity: 'error',
             pipelineStep: 'emit-event',
         })
 
@@ -47,7 +46,7 @@ describe('captureIngestionWarning()', () => {
             expect.objectContaining({
                 team_id: 2,
                 source: 'plugin-server',
-                type: 'some_type',
+                type: 'message_size_too_large',
                 details: expect.any(String),
                 timestamp: expect.any(String),
                 _timestamp: expect.any(String),
@@ -75,7 +74,7 @@ describe('captureIngestionWarning()', () => {
         expect(v2Warnings).toEqual([
             {
                 team_id: 2,
-                type: 'some_type',
+                type: 'message_size_too_large',
                 category: 'size',
                 severity: 'error',
                 pipeline_step: 'emit-event',

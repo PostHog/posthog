@@ -15526,6 +15526,16 @@ class FeatureFlagGroupType(BaseModel):
     )
     aggregation_group_type_index: int | None = None
     description: str | None = None
+    exposure_frozen: bool | None = Field(
+        default=None,
+        description=(
+            "Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition."
+        ),
+    )
+    exposure_frozen_cohort: float | None = Field(
+        default=None,
+        description=("Snapshot cohort the exposure freeze AND'd into this group's properties."),
+    )
     properties: (
         list[
             EventPropertyFilter
@@ -21628,6 +21638,7 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
+    searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -23932,11 +23943,18 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
     )
     breakdownKey: str = Field(
         ...,
-        description=("Attribute key to group by (e.g. `http.response.status_code`, `server.address`)."),
+        description=(
+            "Attribute key to group by (e.g. `http.response.status_code`,"
+            " `server.address`). For the `span` breakdown type, must be an allowlisted"
+            " top-level column (`service_name`, `status_code`)."
+        ),
     )
     breakdownType: TraceSpanBreakdownType = Field(
         ...,
-        description=("Where the key lives: span-level attributes or resource-level attributes."),
+        description=(
+            "Where the key lives: an allowlisted top-level span column, span-level"
+            " attributes, or resource-level attributes."
+        ),
     )
     compareFilter: CompareFilter | None = Field(
         default=None,
@@ -23945,6 +23963,14 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
         ),
     )
     dateRange: DateRange
+    excludeBreakdownFilter: bool | None = Field(
+        default=None,
+        description=(
+            "Drop filters targeting the breakdown key itself (including `serviceNames`"
+            " for a `service_name` breakdown) so a facet's value list stays complete"
+            " while one of its values is selected."
+        ),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansAttributeBreakdownQuery"] = "TraceSpansAttributeBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
