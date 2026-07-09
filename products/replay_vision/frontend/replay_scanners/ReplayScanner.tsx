@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { IngestionLimitBanner, ingestionLimits } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaBannerState } from '../utils/quotaProjection'
@@ -101,6 +103,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 }
             />
 
+            <IngestionLimitBanner />
             <QuotaBanner />
 
             <LemonTabs
@@ -154,8 +157,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 // Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
 function QuotaBanner(): JSX.Element | null {
     const { quota } = useValues(visionQuotaLogic)
+    const { billing } = useValues(billingLogic)
     const state = quotaBannerState(quota)
-    if (!state.kind) {
+    const { eventsLimited, recordingsLimited } = ingestionLimits(billing)
+    // The ingestion banner explains the root cause; stacking the quota warning under it is noise.
+    if (!state.kind || eventsLimited || recordingsLimited) {
         return null
     }
     return (

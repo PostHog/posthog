@@ -23,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
+import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { VisionMetrics } from './components/VisionMetrics'
@@ -214,6 +215,8 @@ export function ReplayScannersScene(): JSX.Element {
                     </>
                 }
             />
+
+            <IngestionLimitBanner />
 
             <ProductIntroduction
                 productName="Replay vision"
