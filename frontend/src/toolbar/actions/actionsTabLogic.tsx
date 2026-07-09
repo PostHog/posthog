@@ -272,7 +272,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 if (editingSelector === null) {
                     return null
                 }
-                const selector = actionForm.steps?.[editingSelector].selector
+                const selector = actionForm.steps?.[editingSelector]?.selector
                 return selector || null
             },
         ],
