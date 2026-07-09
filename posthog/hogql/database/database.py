@@ -554,8 +554,9 @@ class Database(BaseModel):
         return self.tables.has_child(table_name)
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
-        """True if access control denied this table when the HogQL database was built,
-        so callers can surface an access denied error instead of unknown table"""
+        """True if access control denied this table when the HogQL database was built.
+        Resolution raises the corresponding TableAccessDeniedError from get_table; this is for
+        callers that need the boolean without resolving (e.g. gating writes that reference tables)."""
         if isinstance(table_name, list):
             table_name = ".".join(str(part) for part in table_name)
         return table_name in self._denied_tables
@@ -575,7 +576,7 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
-            if table_name in self._denied_tables:
+            if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
