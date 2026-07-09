@@ -2086,6 +2086,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         span.set_attribute("dashboard.tile_serialize.tile_count", len(sorted_tiles))
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+            tile_results: list[tuple[int, dict, list]]
             if not parallel_serialization_enabled:
                 tile_results = [
                     (*serialize_tile_with_context(tile, order, self.context), [])
