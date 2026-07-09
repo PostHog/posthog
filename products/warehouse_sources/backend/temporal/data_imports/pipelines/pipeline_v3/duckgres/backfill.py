@@ -409,8 +409,13 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         # Delta table every tick. updated_at is the last-attempt anchor (each
         # recorded failure bumps it). Never gives up: at the cap this is one
         # attempt per ~30min forever, so it self-heals when the table recovers.
-        if state.consecutive_failures > 0 and timezone.now() < state.updated_at + timedelta(
-            seconds=_retry_backoff_seconds(state.consecutive_failures)
+        # auto_now makes updated_at nullable to the type checker only; a missing
+        # anchor means no backoff to honour, so attempt rather than skip forever.
+        last_attempt_at = state.updated_at
+        if (
+            state.consecutive_failures > 0
+            and last_attempt_at is not None
+            and timezone.now() < last_attempt_at + timedelta(seconds=_retry_backoff_seconds(state.consecutive_failures))
         ):
             continue
 

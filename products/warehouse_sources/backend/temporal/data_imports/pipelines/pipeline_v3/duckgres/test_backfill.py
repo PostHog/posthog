@@ -1,12 +1,15 @@
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from freezegun import freeze_time
 from unittest.mock import Mock
 
 from django.utils import timezone
+
+import psycopg
 
 from posthog.models import DuckgresSinkSchemaState, Organization, Team
 
@@ -246,6 +249,10 @@ class _FakeQueueConn:
         return SimpleNamespace(fetchone=lambda: row)
 
 
+def _fake_conn(results: list) -> psycopg.Connection[Any]:
+    return cast("psycopg.Connection[Any]", _FakeQueueConn(results))
+
+
 @pytest.mark.django_db
 class TestFailureStreak:
     def _team(self) -> Team:
@@ -379,7 +386,7 @@ class TestFailureStreak:
         )
         candidate.refresh_from_db()
 
-        backfill_module._reconcile_one(_FakeQueueConn([(1,), ("chunk exploded", None)]), candidate)
+        backfill_module._reconcile_one(_fake_conn([(1,), ("chunk exploded", None)]), candidate)
 
         candidate.refresh_from_db()
         assert candidate.state == _State.BACKFILLING
@@ -391,7 +398,7 @@ class TestFailureStreak:
 
         # A steady wedge stops churning the row once recorded (same error,
         # streak already at threshold, anchor stamped).
-        backfill_module._reconcile_one(_FakeQueueConn([(1,), ("chunk exploded", None)]), candidate)
+        backfill_module._reconcile_one(_fake_conn([(1,), ("chunk exploded", None)]), candidate)
         candidate.refresh_from_db()
         assert candidate.first_failed_at == streak_started_at
         assert candidate.updated_at == marked_at
@@ -402,9 +409,7 @@ class TestFailureStreak:
         DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(backfill_run_uuid="bf-run", chunk_count=5)
         candidate.refresh_from_db()
 
-        backfill_module._reconcile_one(
-            _FakeQueueConn([(0,), ("superseded", RETIRE_KIND_SUPERSEDED_BY_REPLACE)]), candidate
-        )
+        backfill_module._reconcile_one(_fake_conn([(0,), ("superseded", RETIRE_KIND_SUPERSEDED_BY_REPLACE)]), candidate)
 
         candidate.refresh_from_db()
         assert candidate.state == _State.NEEDS_RESYNC
@@ -427,7 +432,7 @@ class TestFailureStreak:
         candidate.refresh_from_db()
 
         # applied=3 (progress), no failed batch, all 5 chunk rows still present.
-        backfill_module._reconcile_one(_FakeQueueConn([(3,), None, (5,)]), candidate)
+        backfill_module._reconcile_one(_fake_conn([(3,), None, (5,)]), candidate)
 
         candidate.refresh_from_db()
         assert candidate.chunks_applied == 3
