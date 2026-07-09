@@ -117,12 +117,23 @@ def print_section(
         print(_format_columns(row, widths))
 
 
+def _collapse_whitespace(value: str) -> str:
+    """Flatten embedded newlines/tabs to a single space so a value never spans multiple printed lines.
+
+    Flag names in PostHog can hold free-form multi-paragraph descriptions (bullet lists,
+    blank lines). Left as-is, those newlines break a fixed-width column's alignment and, worse,
+    break a markdown table row's out of its `| ... |` line entirely - GFM requires each table
+    row to be exactly one line of source text.
+    """
+    return " ".join(value.split())
+
+
 def _format_columns(values: list[str], widths: list[int]) -> str:
-    return " ".join(f"{value[:width]:<{width}}" for value, width in zip(values, widths))
+    return " ".join(f"{_collapse_whitespace(value)[:width]:<{width}}" for value, width in zip(values, widths))
 
 
 def _format_markdown_row(values: list[str]) -> str:
-    escaped = [value.replace("|", "\\|") for value in values]
+    escaped = [_collapse_whitespace(value).replace("|", "\\|") for value in values]
     return "| " + " | ".join(escaped) + " |"
 
 

@@ -101,3 +101,23 @@ def test_print_flag_only_section_markdown_escapes_pipe_in_value(capsys: pytest.C
 
     output = capsys.readouterr().out
     assert "A \\| B" in output
+
+
+def test_print_flag_only_section_markdown_collapses_embedded_newlines(capsys: pytest.CaptureFixture[str]) -> None:
+    flags = {
+        "my-flag": FlagSummary(
+            key="my-flag",
+            name="So far:\n- item one\n- item two",
+            active=True,
+            archived=False,
+            max_rollout_percentage=100,
+            is_multivariate=False,
+        )
+    }
+
+    print_flag_only_section("Flags only in US", flags, markdown=True)
+
+    output = capsys.readouterr().out
+    table_lines = [line for line in output.splitlines() if line.startswith("|")]
+    assert len(table_lines) == 3
+    assert "So far: - item one - item two" in table_lines[2]
