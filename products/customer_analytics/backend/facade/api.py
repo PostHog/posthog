@@ -388,7 +388,7 @@ def update_external_account(
             if tags is not None:
                 _apply_external_tags(account, tags, tags_mode)
     except Exception as e:
-        capture_exception(e, {"account_id": str(account.id)})
+        capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
 
     account.refresh_from_db()
@@ -445,7 +445,7 @@ def set_external_account_custom_properties(
             error=contracts.ExternalAccountCustomPropertiesError.CONFLICT
         )
     except Exception as e:
-        capture_exception(e, {"external_id": external_id})
+        capture_exception(e, {"team_id": team_id, "external_id": external_id})
         return contracts.ExternalAccountCustomPropertiesResult(
             error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
         )

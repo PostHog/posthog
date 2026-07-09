@@ -1,8 +1,9 @@
 /**
  * # Chapter 5: Grouped Processing
  *
- * The `groupBy()` method partitions items by a key. It must be followed by
- * `concurrently()`, which processes each group as a separate stream.
+ * The `concurrentlyPerGroup()` method partitions items by a key and processes
+ * each group as a separate stream. Groups run concurrently; items within a
+ * group run sequentially through the provided pipeline.
  *
  * ## Ordering Guarantees
  *
@@ -12,19 +13,28 @@
  *
  * What grouping DOES guarantee:
  * - Items within the same group maintain their relative input order
- * - Using `sequentially()` inside the group ensures items are processed one
- *   at a time, preserving order within that group
+ * - Items within a group are processed one at a time, preserving order
+ *   within that group
  *
  * ## How It Works
  *
  * ```
- * .groupBy(keyFn)
- * .concurrently((groupBuilder) => groupBuilder.sequentially(...))
+ * .concurrentlyPerGroup(keyFn, (group) => group.sequentially((b) => b.pipe(...)))
  * ```
  *
- * - `groupBy()` partitions items by key
- * - `concurrently()` processes groups in parallel (groups return as they complete)
- * - `sequentially()` inside ensures within-group order is preserved
+ * - `keyFn` partitions items by key
+ * - Groups are processed in parallel (each group returns as it completes)
+ * - The callback receives a group builder whose only method is `sequentially`.
+ *   Spelling out `sequentially` makes within-group ordering visible at the call
+ *   site: items within a group flow through that pipeline one at a time, in
+ *   input order.
+ *
+ * Pass `{ maxConcurrency }` to cap how many groups process at once (the cap
+ * is on groups, not items):
+ *
+ * ```
+ * .concurrentlyPerGroup(keyFn, callback, { maxConcurrency: 4 })
+ * ```
  *
  * ## Real-World Use Cases
  *
@@ -32,7 +42,7 @@
  * - Team-scoped processing: Teams can be processed in parallel
  * - User event ordering: Events for the same user maintain order
  */
-import { GroupProcessingBuilder, newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -53,8 +63,8 @@ describe('Grouped Processing', () => {
         jest.useRealTimers()
     })
     /**
-     * The `groupBy()` method partitions items by a key function. Items with
-     * the same key are grouped together for ordered processing.
+     * The `concurrentlyPerGroup()` method partitions items by a key function.
+     * Items with the same key are grouped together for ordered processing.
      *
      * Processing flow for the example below:
      *
@@ -62,11 +72,11 @@ describe('Grouped Processing', () => {
      * Input batch:
      *   [alice:1, bob:2, alice:3, bob:4]
      *
-     * After groupBy(userId):
+     * After grouping by userId:
      *   Group "alice": [1, 3]
      *   Group "bob":   [2, 4]
      *
-     * concurrently() processes groups in parallel:
+     * Groups are processed in parallel:
      *   ┌─────────────────────────────────────┐
      *   │  Time ──────────────────────────►   │
      *   │                                     │
@@ -80,7 +90,7 @@ describe('Grouped Processing', () => {
      * Groups alice and bob process concurrently (in parallel).
      * ```
      */
-    it('groupBy() partitions items by a key function', async () => {
+    it('concurrentlyPerGroup() partitions items by a key function', async () => {
         const groupsProcessed = new Map<string, number[]>()
 
         function createProcessEventStep(): ProcessingStep<Event, Event> {
@@ -93,13 +103,11 @@ describe('Grouped Processing', () => {
             }
         }
 
-        function createGroupPipeline(groupBuilder: GroupProcessingBuilder<Event, Event>) {
-            return groupBuilder.sequentially((b) => b.pipe(createProcessEventStep()))
-        }
-
         const pipeline = newBatchPipelineBuilder<Event>()
-            .groupBy((event) => event.userId)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => event.userId,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
+            )
             .build()
 
         const events: Event[] = [
@@ -132,13 +140,11 @@ describe('Grouped Processing', () => {
             }
         }
 
-        function createGroupPipeline(groupBuilder: GroupProcessingBuilder<Event, Event>) {
-            return groupBuilder.sequentially((b) => b.pipe(createProcessEventStep()))
-        }
-
         const pipeline = newBatchPipelineBuilder<Event>()
-            .groupBy((event) => event.userId)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => event.userId,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
+            )
             .build()
 
         const events: Event[] = [
@@ -183,13 +189,11 @@ describe('Grouped Processing', () => {
             }
         }
 
-        function createGroupPipeline(groupBuilder: GroupProcessingBuilder<Event, Event>) {
-            return groupBuilder.sequentially((b) => b.pipe(createVariableDelayStep()))
-        }
-
         const pipeline = newBatchPipelineBuilder<Event>()
-            .groupBy((event) => event.userId)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => event.userId,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
+            )
             .build()
 
         const events: Event[] = [
@@ -243,7 +247,7 @@ describe('Grouped Processing', () => {
      * Input events:
      *   [token-A/user-1/login, token-B/user-1/signup, token-A/user-2/pageview, token-A/user-1/purchase]
      *
-     * After groupBy(token + distinct_id):
+     * After grouping by token + distinct_id:
      *   Group "token-A:user-1": [login, purchase]  <- same user in same project
      *   Group "token-B:user-1": [signup]           <- different project (different group)
      *   Group "token-A:user-2": [pageview]         <- different user (different group)
@@ -273,13 +277,11 @@ describe('Grouped Processing', () => {
             }
         }
 
-        function createGroupPipeline(groupBuilder: GroupProcessingBuilder<IngestionEvent, IngestionEvent>) {
-            return groupBuilder.sequentially((b) => b.pipe(createProcessEventStep()))
-        }
-
         const pipeline = newBatchPipelineBuilder<IngestionEvent>()
-            .groupBy((event) => `${event.token}:${event.distinctId}`)
-            .concurrently(createGroupPipeline)
+            .concurrentlyPerGroup(
+                (event) => `${event.token}:${event.distinctId}`,
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
+            )
             .build()
 
         const events: IngestionEvent[] = [

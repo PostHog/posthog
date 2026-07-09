@@ -433,6 +433,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -600,6 +601,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             # Wizard runs must boot the agent only after the wizard step.
             extra_state["overlap_clone_boot_enabled"] = False
 
+        # Server-generated head branch the agent is instructed to push to, so the GitHub PR
+        # webhook can bind the opened PR back to this run (webhooks.find_task_run). Kept out of
+        # TaskRun.branch, which means "branch to check out at provisioning" — not "branch the
+        # agent will create".
+        if wizard_head_branch:
+            extra_state["wizard_head_branch"] = wizard_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -689,6 +697,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -719,6 +728,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
             wizard_config=wizard_config,
+            wizard_head_branch=wizard_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
@@ -1019,6 +1029,13 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Same shape for the wizard-run webhook leg `filter(state__wizard_head_branch=...)`;
+            # only wizard runs carry the key, so the index stays tiny.
+            models.Index(
+                KeyTransform("wizard_head_branch", "state"),
+                name="task_run_wizard_branch_idx",
+                condition=models.Q(state__wizard_head_branch__isnull=False),
+            ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
@@ -1288,6 +1305,40 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def effective_rtk(self) -> bool | None:
+        """rtk posture for analytics: the launch-persisted effective value, falling
+        back to the user's explicit override for runs that never launched."""
+        state = self.state if isinstance(self.state, dict) else {}
+        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
+        return rtk if isinstance(rtk, bool) else None
+
+    def _analytics_usage_properties(self) -> dict:
+        """Token usage and rtk posture for analytics events.
+
+        The agent-server merges cumulative usage into ``state.token_usage`` as turns
+        settle.
+        """
+        props: dict = {}
+        state = self.state if isinstance(self.state, dict) else {}
+        usage = state.get("token_usage")
+        if isinstance(usage, dict):
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_tokens",
+                "cache_write_tokens",
+                "thought_tokens",
+                "total_tokens",
+                "turns",
+            ):
+                value = usage.get(key)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    props["usage_turns" if key == "turns" else key] = value
+        rtk = self.effective_rtk()
+        if rtk is not None:
+            props["rtk_enabled"] = rtk
+        return props
+
     def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
         try:
             distinct_id = (
@@ -1304,7 +1355,12 @@ class TaskRun(models.Model):
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
                 "environment": self.environment,
+                # The bare `environment` property gets clobbered by the analytics
+                # client's deployment-region super-property, so ship the run's
+                # local/cloud value under an unclobbered name too.
+                "run_environment": self.environment,
                 "mode": self.mode,
+                **self._analytics_usage_properties(),
             }
             if properties:
                 all_properties.update(properties)
@@ -1425,6 +1481,18 @@ class TaskRun(models.Model):
         backend decides grouping granularity by picking a phase id (e.g.
         `"setup"`, `"pr_create"`).
         """
+        event = self.build_progress_event(step, status, label, group, detail)
+        self.append_log([event])
+        self.publish_stream_event(event)
+
+    def build_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "sessionId": str(self.id),
             "step": step,
@@ -1434,7 +1502,7 @@ class TaskRun(models.Model):
         }
         if detail is not None:
             params["detail"] = detail
-        event = {
+        return {
             "type": "notification",
             "timestamp": django_timezone.now().isoformat(),
             "notification": {
@@ -1443,8 +1511,6 @@ class TaskRun(models.Model):
                 "params": params,
             },
         }
-        self.append_log([event])
-        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""

@@ -15,6 +15,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -36,13 +37,38 @@ def find_task_run(
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
     repository = repository.strip() if repository else None
     if branch and repository:
+        # Wizard runs are excluded here: their `branch` column holds the checkout (base)
+        # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
+        # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(branch=branch, task__repository__iexact=repository)
+            TaskRun.objects.filter(
+                branch=branch,
+                task__repository__iexact=repository,
+                state__wizard_head_branch__isnull=True,
+            )
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
         if task_run:
             return task_run
+
+        # Wizard cloud runs push to a server-generated head branch stored in run state.
+        # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
+        # terminal runs are excluded so a reopened branch can't fire events on a dead run
+        # (post-merge events for bound runs resolve via the pr_url leg above).
+        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
+            task_run = (
+                TaskRun.objects.filter(
+                    state__wizard_head_branch=branch,
+                    task__repository__iexact=repository,
+                    task__deleted=False,
+                )
+                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .select_related(*TASK_RUN_SELECT_RELATED)
+                .first()
+            )
+            if task_run:
+                return task_run
 
     return None
 
@@ -158,7 +184,20 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
+    if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
+        return
+    # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
+    # log batches at exactly this moment — and append_log's read-modify-write would race it.
+    # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
+    try:
+        for event in (
+            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
+            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
+        ):
+            task_run.publish_stream_event(event)
+        task_run.publish_stream_state_event()
+    except Exception:
+        logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:
@@ -171,26 +210,29 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed")
 
 
-def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> None:
+def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
     """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
 
-    Tolerant: a failure here must not fail the webhook (GitHub retries 5xx, and the event is
-    already handled).
+    Returns True only when this call performed the write, so callers can fire follow-on
+    side effects exactly once. Tolerant: a failure here must not fail the webhook (GitHub
+    retries 5xx, and the event is already handled).
     """
     if isinstance(task_run.output, dict) and task_run.output.get(key):
-        return
+        return False
     try:
         with transaction.atomic():
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
             output = locked.output if isinstance(locked.output, dict) else {}
             if output.get(key):
-                return
+                return False
             locked.output = {**output, key: value}
             locked.save(update_fields=["output", "updated_at"])
         # Keep the in-memory instance consistent for the rest of this request.
         task_run.output = locked.output
+        return True
     except Exception:
         logger.warning(failure_log_event, run_id=str(task_run.id), exc_info=True)
+        return False
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.

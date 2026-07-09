@@ -1,5 +1,13 @@
+import { splitInlineNodesAt } from './inlineContent'
 import { makeEmptyParagraph } from './markdown'
-import { NotebookBlockNode, NotebookListBlockNode, NotebookListItem, NotebookTextBlockNode } from './types'
+import {
+    NotebookBlockNode,
+    NotebookInlineNode,
+    NotebookListBlockNode,
+    NotebookListItem,
+    NotebookTextBlockNode,
+} from './types'
+import { getInlineText, normalizeInlineNodes } from './utils'
 
 export type RenderedListItem = NotebookListItem & {
     index: number
@@ -56,16 +64,22 @@ export function getOrderedListStart(
 
 export function normalizeListItemDepths(items: NotebookListItem[]): NotebookListItem[] {
     const minimumDepth = Math.min(...items.map((item) => Math.max(0, item.depth)))
-    if (!Number.isFinite(minimumDepth) || minimumDepth <= 0) {
-        return items.map((item) => ({ ...item, depth: Math.max(0, item.depth) }))
-    }
+    const baseDepth = Number.isFinite(minimumDepth) ? Math.max(0, minimumDepth) : 0
 
-    return items.map((item) => ({ ...item, depth: Math.max(0, item.depth - minimumDepth) }))
+    // Clamp each item to at most one level deeper than its predecessor, mirroring the parser:
+    // deleting a mid-depth item must not leave a deeper survivor orphaned across a depth jump.
+    let previousDepth = -1
+    return items.map((item) => {
+        const depth = Math.min(Math.max(0, item.depth) - baseDepth, previousDepth + 1)
+        previousDepth = depth
+        return { ...item, depth }
+    })
 }
 
 /**
- * Builds the nodes that replace a list when one of its items is unwrapped into a paragraph:
- * the items before it stay a list, its children move one depth up, and trailing items become a new list.
+ * Builds the nodes that replace a list when one of its items is unwrapped into a paragraph
+ * (or quote text when the list is quoted): the items before it stay a list, its children move
+ * one depth up, and trailing items become a new list.
  */
 export function getListItemParagraphReplacement(
     node: NotebookListBlockNode,
@@ -100,7 +114,7 @@ export function getListItemParagraphReplacement(
     const beforeListNode = makeListNode(node.items.slice(0, targetItemIndex), `before-list-${node.id}`, node.id)
     const paragraph: NotebookTextBlockNode = {
         id: beforeListNode ? makeEmptyParagraph(`unlisted-${node.id}`).id : node.id,
-        type: 'paragraph',
+        type: node.blockquote ? 'blockquote' : 'paragraph',
         children: item.children,
     }
     const childItems = node.items
@@ -117,6 +131,66 @@ export function getListItemParagraphReplacement(
     }
 
     return { replacementNodes, paragraphId: paragraph.id }
+}
+
+export type ListItemSelectionRange = {
+    firstItemIndex: number
+    firstStart: number
+    lastItemIndex: number
+    lastEnd: number
+}
+
+export type ListItemSelectionDeletion = {
+    items: NotebookListItem[]
+    caretItemIndex: number
+    caretItemId: string | undefined
+    caretOffset: number
+}
+
+/**
+ * Deletes a text selection that lives inside one list block: the first selected item keeps its
+ * text before the selection (plus the optional replacement text) and inherits the last selected
+ * item's text after it, the items in between are removed, and the caret lands where the
+ * selection started. Returns null when the range describes no change.
+ */
+export function deleteListItemSelectionRange(
+    items: NotebookListItem[],
+    range: ListItemSelectionRange,
+    replacementText: string = ''
+): ListItemSelectionDeletion | null {
+    const firstItem = items[range.firstItemIndex]
+    const lastItem = items[range.lastItemIndex]
+    if (!firstItem || !lastItem || range.lastItemIndex < range.firstItemIndex) {
+        return null
+    }
+
+    const firstTextLength = getInlineText(firstItem.children).length
+    const lastTextLength = getInlineText(lastItem.children).length
+    const firstStart = Math.max(0, Math.min(range.firstStart, firstTextLength))
+    const lastEnd = Math.max(0, Math.min(range.lastEnd, lastTextLength))
+    if (range.firstItemIndex === range.lastItemIndex && firstStart >= lastEnd && !replacementText) {
+        return null
+    }
+
+    const [beforeSelection] = splitInlineNodesAt(firstItem.children, firstStart)
+    const [, afterSelection] = splitInlineNodesAt(lastItem.children, lastEnd)
+    const insertedChildren: NotebookInlineNode[] = replacementText ? [{ type: 'text', text: replacementText }] : []
+    const mergedItem: NotebookListItem = {
+        ...firstItem,
+        children: normalizeInlineNodes([...beforeSelection, ...insertedChildren, ...afterSelection]),
+    }
+    const nextItems = normalizeListItemDepths([
+        ...items.slice(0, range.firstItemIndex),
+        mergedItem,
+        ...items.slice(range.lastItemIndex + 1),
+    ])
+
+    return {
+        items: nextItems,
+        caretItemIndex: range.firstItemIndex,
+        caretItemId: mergedItem.id,
+        caretOffset: getInlineText(beforeSelection).length + replacementText.length,
+    }
 }
 
 /** Shifts a list item and its subtree one depth step in or out, or returns null when the shift is not allowed. */

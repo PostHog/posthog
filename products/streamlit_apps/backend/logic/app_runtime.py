@@ -293,7 +293,7 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
     cache.delete(_sync_failure_key(sandbox_record))
 
 
-def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
+def sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
     """Sync DB sandbox status with the Modal sandbox state.
 
     Handles only RUNNING→STOPPED (died) and STARTING→ERROR (timed out).
@@ -495,7 +495,7 @@ class AppRuntimeService:
                 "restart_count": app.restart_count,
             }
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
 
         return {
             "status": sandbox_record.status,
@@ -514,7 +514,7 @@ class AppRuntimeService:
         if not sandbox_record or not sandbox_record.sandbox_id:
             return None
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
         if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return None
 

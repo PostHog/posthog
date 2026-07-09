@@ -29,7 +29,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -90,8 +89,6 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade.access import has_tasks_access
-
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 
 tracer = trace.get_tracer(__name__)
 
@@ -404,21 +401,6 @@ class EnterpriseExperimentsViewSet(
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 
-    # ******************************************
-    # /projects/:id/experiments/requires_flag_implementation
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
-    def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
-
-        warning = requires_flag_warning(filter, self.team)
-
-        return Response({"result": warning})
-
     @extend_schema(
         request=None,
         responses=ExperimentSerializer,
@@ -644,6 +626,27 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         frozen_experiment = service.freeze_exposure(experiment, request=request)
         return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unfreeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reopen enrollment on an exposure-frozen experiment.
+
+        Removes the snapshot-cohort condition and freeze markers from every release
+        group, restoring the flag's original targeting: new users can enroll again
+        and already-enrolled users keep their assigned variant. The snapshot cohort
+        is soft-deleted. The serialized status returns to 'running'.
+
+        Returns 400 if the experiment is not running or its exposure is not frozen.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(unfrozen_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,
