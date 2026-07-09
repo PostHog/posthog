@@ -359,11 +359,10 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
 
-    def test_ai_credits_reported_unlimited_for_non_billable_product(
-        self, authenticated_usage_client: TestClient
-    ) -> None:
-        # posthog_code is not billable; ai_credits should be unlimited and not contribute
-        # to is_rate_limited even if the resolver thinks the team is over.
+    def test_ai_credits_reported_unlimited_for_ungated_product(self, authenticated_usage_client: TestClient) -> None:
+        # posthog_code bills into its own credit bucket, not ai_credits; ai_credits
+        # should be unlimited and not contribute to is_rate_limited even if the
+        # resolver thinks the team is over.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app

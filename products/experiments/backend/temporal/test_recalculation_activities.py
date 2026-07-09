@@ -756,20 +756,16 @@ class TestMissingRecalcRow:
 
 @contextmanager
 def _record_captures():
-    """Patch ph_scoped_capture so the analytics tests can assert the exact event name + properties
-    without standing up a real PostHog client. Yields the list of captured capture(...) kwargs."""
+    """Patch the global posthoganalytics client so the analytics tests can assert the exact event
+    name + properties without sending anything. Yields the list of captured capture(...) kwargs."""
     captured: list[dict] = []
 
     def _fake_capture(*args, **kwargs) -> None:
         captured.append(kwargs)
 
-    @contextmanager
-    def _fake_scoped():
-        yield _fake_capture
-
     with patch(
-        "products.experiments.backend.temporal.recalculation_logic.ph_scoped_capture",
-        _fake_scoped,
+        "products.experiments.backend.temporal.recalculation_logic.posthoganalytics.capture",
+        _fake_capture,
     ):
         yield captured
 

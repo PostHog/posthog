@@ -155,6 +155,7 @@ export const ToolConfigSchema = z
          * the tool when the flag is on (useful for sunsetting old tools).
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         /**
          * Controls how `feature_flag` gates the tool:
          * - `'enable'` (default): tool is shown only when the flag is on.
@@ -461,6 +462,7 @@ export const QueryWrapperToolConfigSchema = z
          * See ToolConfigSchema.feature_flag for full documentation.
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         /**
          * Controls how `feature_flag` gates the tool:
          * - `'enable'` (default): tool is shown only when the flag is on.
@@ -512,6 +514,7 @@ export const CategoryConfigSchema = z
          * from the standard MCP surface in one place. See ToolConfigSchema.feature_flag.
          */
         feature_flag: z.string().optional(),
+        feature_entitlement: z.string().optional(),
         feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         feature_flag_variant: z.string().optional(),
         tools: z.record(

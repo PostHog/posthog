@@ -659,27 +659,26 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             baseline = 9
-            # Each dashboard GET that materializes at least one insight runner issues a single
-            # `PropertyAccessControl` lookup, memoized across all runners on the dashboard by
-            # `get_restricted_properties_for_team`'s per-scope cache (so it stays at +1 no
-            # matter how many insights are attached). With zero insights no runner is built and
-            # the lookup is skipped entirely.
-            property_access_control_lookup = 1
+            # Each dashboard GET that materializes at least one insight runner performs one
+            # property-access-control feature check, memoized across all runners on the dashboard
+            # by `get_restricted_properties_for_team`'s per-scope cache. It costs no Postgres
+            # queries: the runner passes its already-loaded team, so the check skips the Team
+            # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
             with self.assertNumQueries(baseline + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 11 + property_access_control_lookup once at least one insight materializes
+            # baseline + 11 + 11 once at least one insight materializes
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+            with self.assertNumQueries(baseline + 11 + 11):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 11 + property_access_control_lookup):
+        with self.assertNumQueries(baseline + 11 + 11):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -2690,6 +2689,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "transparent_background": None,
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
+            (
+                "nested_button_tile",
+                {"type": "BUTTON", "button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},
+            ),
+        ]
+    )
+    def test_create_from_template_json_can_provide_button_tile(self, _name: str, button_tile: dict) -> None:
+        template: dict = {**valid_template, "tiles": [button_tile]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.json()
+
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["button_tile"]["url"] == "/replay/home"
+        assert tiles[0]["button_tile"]["text"] == "Watch replays"
 
     def test_create_from_template_json_can_provide_query_tile(self) -> None:
         template: dict = {

@@ -84,11 +84,11 @@ describe('InlineRichMarkdownEditor', () => {
         expect(counter).toHaveClass('text-danger')
     })
 
-    it('hides character count footer when showCharacterCount is false', () => {
+    it('hides character count footer when characterCount is off', () => {
         render(
             <InlineRichMarkdownEditor
                 value="hello"
-                showCharacterCount={false}
+                controls={{ characterCount: false }}
                 extensions={[]}
                 markdownToDoc={() => ({ type: 'doc', content: [] })}
                 docToMarkdown={() => 'hello'}
@@ -214,11 +214,11 @@ describe('InlineRichMarkdownEditor', () => {
         expect(container.querySelector('.my-inline-editor')).toBeInTheDocument()
     })
 
-    it('accepts showSlashCommands without throwing', () => {
+    it('accepts slash commands without throwing', () => {
         const { container } = render(
             <InlineRichMarkdownEditor
                 value=""
-                showSlashCommands
+                controls={{ slashCommands: true }}
                 extensions={[]}
                 markdownToDoc={() => ({ type: 'doc', content: [] })}
                 docToMarkdown={() => ''}
@@ -239,8 +239,7 @@ describe('InlineRichMarkdownEditor', () => {
         const { container } = render(
             <InlineRichMarkdownEditor
                 value=""
-                showBubbleImageUpload
-                showSlashCommands
+                controls={{ imageUpload: true, slashCommands: true }}
                 extensions={[]}
                 markdownToDoc={() => ({ type: 'doc', content: [] })}
                 docToMarkdown={() => ''}

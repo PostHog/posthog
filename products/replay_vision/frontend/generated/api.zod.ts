@@ -24,6 +24,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable action name. Unique within the team.'),
     scanner: zod.uuid().describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
@@ -56,32 +62,36 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Trigger parameters. For schedule triggers: {rrule, timezone}.'),
     selection: zod
         .object({
-            scanner_type: zod
-                .string()
-                .optional()
-                .describe('Filter observations by scanner type (monitor\/classifier\/scorer\/summarizer).'),
             scanner_ids: zod
                 .array(zod.string())
                 .optional()
-                .describe('Restrict to observations produced by these scanner IDs.'),
-            verdict: zod.string().optional().describe('Filter to observations with this monitor verdict.'),
+                .describe('Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.'),
+            verdict: zod
+                .array(
+                    zod
+                        .enum(['yes', 'no', 'inconclusive'])
+                        .describe('\* `yes` - yes\n\* `no` - no\n\* `inconclusive` - inconclusive')
+                )
+                .optional()
+                .describe('Only run on monitor observations with one of these verdicts (yes\/no\/inconclusive).'),
             tags: zod
                 .array(zod.string())
                 .optional()
-                .describe('Filter to observations carrying any of these classifier tags.'),
-            min_score: zod.number().optional().describe('Lower bound (inclusive) on scorer score.'),
-            max_score: zod.number().optional().describe('Upper bound (inclusive) on scorer score.'),
-            status: zod.string().optional().describe('Filter to observations with this processing status.'),
-            window_days: zod
+                .describe('Only run on classifier observations carrying any of these tags (fixed or freeform).'),
+            min_score: zod
                 .number()
                 .optional()
-                .describe('Lookback window in days for the observations gathered at synthesis time.'),
+                .describe('Only run on scorer observations with a score at or above this value (inclusive).'),
+            max_score: zod
+                .number()
+                .optional()
+                .describe('Only run on scorer observations with a score at or below this value (inclusive).'),
         })
         .describe(
-            'Observation filter applied at synthesis time. All keys optional; this typed shape is the\nallowlist, so unknown input keys are dropped rather than persisted.'
+            'The action\'s targeting predicate (\"run this on…\") applied when gathering observations. All keys\noptional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.'
         )
         .optional()
-        .describe('Observation filter applied at synthesis time.'),
+        .describe("Targeting predicate: which of the scanner's observations this action runs on."),
     synthesis_config: zod
         .object({
             prompt_guide: zod
@@ -131,6 +141,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
@@ -163,32 +179,36 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Trigger parameters. For schedule triggers: {rrule, timezone}.'),
     selection: zod
         .object({
-            scanner_type: zod
-                .string()
-                .optional()
-                .describe('Filter observations by scanner type (monitor\/classifier\/scorer\/summarizer).'),
             scanner_ids: zod
                 .array(zod.string())
                 .optional()
-                .describe('Restrict to observations produced by these scanner IDs.'),
-            verdict: zod.string().optional().describe('Filter to observations with this monitor verdict.'),
+                .describe('Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.'),
+            verdict: zod
+                .array(
+                    zod
+                        .enum(['yes', 'no', 'inconclusive'])
+                        .describe('\* `yes` - yes\n\* `no` - no\n\* `inconclusive` - inconclusive')
+                )
+                .optional()
+                .describe('Only run on monitor observations with one of these verdicts (yes\/no\/inconclusive).'),
             tags: zod
                 .array(zod.string())
                 .optional()
-                .describe('Filter to observations carrying any of these classifier tags.'),
-            min_score: zod.number().optional().describe('Lower bound (inclusive) on scorer score.'),
-            max_score: zod.number().optional().describe('Upper bound (inclusive) on scorer score.'),
-            status: zod.string().optional().describe('Filter to observations with this processing status.'),
-            window_days: zod
+                .describe('Only run on classifier observations carrying any of these tags (fixed or freeform).'),
+            min_score: zod
                 .number()
                 .optional()
-                .describe('Lookback window in days for the observations gathered at synthesis time.'),
+                .describe('Only run on scorer observations with a score at or above this value (inclusive).'),
+            max_score: zod
+                .number()
+                .optional()
+                .describe('Only run on scorer observations with a score at or below this value (inclusive).'),
         })
         .describe(
-            'Observation filter applied at synthesis time. All keys optional; this typed shape is the\nallowlist, so unknown input keys are dropped rather than persisted.'
+            'The action\'s targeting predicate (\"run this on…\") applied when gathering observations. All keys\noptional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.'
         )
         .optional()
-        .describe('Observation filter applied at synthesis time.'),
+        .describe("Targeting predicate: which of the scanner's observations this action runs on."),
     synthesis_config: zod
         .object({
             prompt_guide: zod
@@ -218,6 +238,25 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('List of delivery destinations the synthesized summary is sent to.'),
 })
+
+/**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ */
+export const visionObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionObservationsLabelCreateBodyFeedbackMax)
+            .default(visionObservationsLabelCreateBodyFeedbackDefault)
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
+    })
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
  * CRUD for Replay Vision scanners.
@@ -394,6 +433,25 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
             .describe('ID of the session recording to apply the scanner to.'),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
+
+/**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ */
+export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionScannersObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionScannersObservationsLabelCreateBodyFeedbackMax)
+            .default(visionScannersObservationsLabelCreateBodyFeedbackDefault)
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
+    })
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.

@@ -181,6 +181,7 @@ class TaskSummaryDTO:
     repository: str | None
     created_at: datetime
     updated_at: datetime
+    origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
 
 
@@ -604,6 +605,33 @@ class SandboxEnvironmentDTO:
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    custom_image_id: UUID | None = None
+    custom_image_name: str | None = None
+    custom_image_status: str | None = None
+
+
+@dataclass(frozen=True)
+class SandboxCustomImageDTO:
+    """A user-defined custom base image for cloud task sandboxes (Modal VM runtime)."""
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    status: str
+    version: int
+    modal_image_name: str
+    error: str
+    repository: str = ""
+    private: bool = False
+    spec: dict = Field(default_factory=dict)
+    spec_yaml: str = ""
+    scan_result: dict = Field(default_factory=dict)
+    build_log: str = ""
+    builder_task_id: UUID | None = None
+    created_by: TaskUserBasicInfo | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -650,3 +678,19 @@ class TaskRunStateMetricsDTO:
     oldest_open_age_seconds: list[TaskRunGaugeRow] = Field(default_factory=list)
     created_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
     terminal_recently: list[TaskRunGaugeRow] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class PermissionResponseResult:
+    """Outcome of delivering a human permission decision to a run's sandbox agent.
+
+    ``outcome`` is one of ``sent`` (decision delivered), ``not_found`` (run doesn't exist
+    for the task/team), ``terminal`` (run already finished; ``run_status`` carries its
+    status), or ``failed`` (delivery to the sandbox failed; ``status_code``/``error``
+    carry diagnostics).
+    """
+
+    outcome: str
+    run_status: str | None = None
+    status_code: int | None = None
+    error: str | None = None
