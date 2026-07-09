@@ -87,7 +87,9 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
     const { filters, totalFiltersCount, sessionRecordings, sessionRecordingsResponseLoading, hasNext } =
         useValues(sessionRecordingsPlaylistLogic)
     const { setFilters, resetFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-    const { observationBySession, pendingId, refreshingObservations } = useValues(scannerRunTabLogic({ scannerId }))
+    const { observationBySession, pendingSessionIds, refreshingObservations } = useValues(
+        scannerRunTabLogic({ scannerId })
+    )
     const { setVisibleSessionIds, startScan } = useActions(scannerRunTabLogic({ scannerId }))
 
     // Sync the playlist's visible rows into the logic, which owns the observation lookup and polling.
@@ -127,7 +129,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 if (observation) {
                     return <ObservationStatusTag status={observation.status} />
                 }
-                if (pendingId === recording.id) {
+                if (pendingSessionIds[recording.id]) {
                     return <ObservationStatusTag status="running" />
                 }
                 return <span className="text-muted italic">Not scanned</span>
@@ -143,7 +145,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                 const settled = observation && !IN_PROGRESS_STATUSES.has(observation.status)
                 // In-flight or queued — the Status pill carries the spinner, so here we just disable the button.
                 const scanning =
-                    (observation && IN_PROGRESS_STATUSES.has(observation.status)) || pendingId === recording.id
+                    (observation && IN_PROGRESS_STATUSES.has(observation.status)) || !!pendingSessionIds[recording.id]
                 let content: JSX.Element
                 if (settled) {
                     // Observation ready → link to the result.
@@ -172,13 +174,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                                 size="small"
                                 type="secondary"
                                 icon={<IconPlay />}
-                                disabledReason={
-                                    scanning
-                                        ? 'Scan in progress…'
-                                        : pendingId && pendingId !== recording.id
-                                          ? 'Another scan is starting…'
-                                          : undefined
-                                }
+                                disabledReason={scanning ? 'Scan in progress…' : undefined}
                                 onClick={() => startScan(recording.id)}
                                 data-attr="vision-run-scan-recording"
                             >

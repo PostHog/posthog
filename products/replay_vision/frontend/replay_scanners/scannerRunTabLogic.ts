@@ -4,7 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionScannersObservationsList } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { scheduleObservationPoll } from '../logics/observationPolling'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
 import type { scannerRunTabLogicType } from './scannerRunTabLogicType'
 
@@ -14,6 +14,11 @@ export interface RowObservation {
 }
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
+
+// Safety net for the click-to-row bridge: if the trigger fails or the observation never lands, self-heal this
+// one session's pending flag so its row can't hold the spinner forever. Matches the poll grace window, so a
+// legitimately-slow scan surfaces via loadObservations before the timeout fires.
+const PENDING_BRIDGE_TIMEOUT_MS = OBSERVE_POLL_GRACE_MS
 
 export interface ScannerRunTabLogicProps {
     scannerId: string
@@ -26,17 +31,17 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
     key((props) => props.scannerId),
 
     connect((props: ScannerRunTabLogicProps) => ({
-        values: [replayScannerLogic({ id: props.scannerId }), ['triggeringOnDemandObservation']],
         actions: [
             replayScannerLogic({ id: props.scannerId }),
-            ['triggerOnDemandObservation', 'triggerOnDemandObservationSuccess', 'triggerOnDemandObservationFailure'],
+            ['triggerOnDemandObservation', 'triggerOnDemandObservationSuccess'],
         ],
     })),
 
     actions({
         setVisibleSessionIds: (sessionIds: string[]) => ({ sessionIds }),
         startScan: (sessionId: string) => ({ sessionId }),
-        setPendingId: (sessionId: string) => ({ sessionId }),
+        markPending: (sessionId: string) => ({ sessionId }),
+        clearPending: (sessionId: string) => ({ sessionId }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (bySession: Record<string, RowObservation>) => ({ bySession }),
         loadObservationsFailure: true,
@@ -56,13 +61,32 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 loadObservationsSuccess: (state, { bySession }) => ({ ...state, ...bySession }),
             },
         ],
-        // Bridges click-to-row gap: kept until the observation lands or the trigger fails, so the spinner holds.
-        pendingId: [
-            null as string | null,
+        // Bridges click-to-row gap, keyed per session so a stuck scan can't block the other rows. Each entry is
+        // kept until that session's observation lands (or its safety-net timeout fires), so the row's spinner holds.
+        pendingSessionIds: [
+            {} as Record<string, true>,
             {
-                setPendingId: (_, { sessionId }) => sessionId,
-                triggerOnDemandObservationFailure: () => null,
-                loadObservationsSuccess: (state, { bySession }) => (state && bySession[state] ? null : state),
+                markPending: (state, { sessionId }) => (state[sessionId] ? state : { ...state, [sessionId]: true }),
+                clearPending: (state, { sessionId }) => {
+                    if (!(sessionId in state)) {
+                        return state
+                    }
+                    const { [sessionId]: _drop, ...rest } = state
+                    return rest
+                },
+                // A landed observation supersedes the bridge for that session; drop every pending id now present.
+                loadObservationsSuccess: (state, { bySession }) => {
+                    const next: Record<string, true> = {}
+                    let changed = false
+                    for (const sessionId of Object.keys(state)) {
+                        if (bySession[sessionId]) {
+                            changed = true
+                        } else {
+                            next[sessionId] = true
+                        }
+                    }
+                    return changed ? next : state
+                },
             },
         ],
         // Drives the table's loading bar on foreground refetches only; background polls reload silently.
@@ -78,13 +102,13 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
 
     selectors({
         shouldPoll: [
-            (s) => [s.visibleSessionIds, s.observationBySession, s.pendingId],
+            (s) => [s.visibleSessionIds, s.observationBySession, s.pendingSessionIds],
             (
                 visibleSessionIds: string[],
                 observationBySession: Record<string, RowObservation>,
-                pendingId: string | null
+                pendingSessionIds: Record<string, true>
             ): boolean =>
-                pendingId !== null ||
+                Object.keys(pendingSessionIds).length > 0 ||
                 visibleSessionIds.some((id) => {
                     const observation = observationBySession[id]
                     return !!observation && IN_PROGRESS_STATUSES.has(observation.status)
@@ -104,11 +128,18 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
             },
 
             startScan: ({ sessionId }) => {
-                if (values.triggeringOnDemandObservation || values.pendingId) {
+                // Per-session guard: only a re-click on the same row is a no-op — other rows scan concurrently.
+                if (values.pendingSessionIds[sessionId]) {
                     return
                 }
-                actions.setPendingId(sessionId)
+                actions.markPending(sessionId)
                 actions.triggerOnDemandObservation(sessionId, true)
+                // Self-heal a stuck bridge: the shared trigger failure/success carries no session id, so lean on
+                // loadObservations to clear the common case and this keyed timeout to release the rest.
+                cache.disposables.add(() => {
+                    const id = setTimeout(() => actions.clearPending(sessionId), PENDING_BRIDGE_TIMEOUT_MS)
+                    return () => clearTimeout(id)
+                }, `pending-${sessionId}`)
             },
 
             // A successful trigger creates a pending observation server-side — refetch to pick it up.

@@ -27,6 +27,12 @@ class FailureKind(StrEnum):
     def is_retryable(self) -> bool:
         return self is FailureKind.PROVIDER_TRANSIENT
 
+    @property
+    def is_benign(self) -> bool:
+        """An expected terminal outcome caused by the model, not our code: the observation lands in FAILED with a
+        user-facing reason, so it must not be reported to error tracking as if it were a defect."""
+        return self is FailureKind.VALIDATION_FAILED
+
 
 # Shared by the model field and the API serializer so the documented vocabulary can't drift from the enums.
 ERROR_REASON_HELP_TEXT = (

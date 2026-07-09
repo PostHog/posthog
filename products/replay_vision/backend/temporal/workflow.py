@@ -137,6 +137,10 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
     {"replay_vision_upload_video_to_gemini_activity", "call_scanner_provider_activity"}
 )
 
+# Classified terminal failures that are the model's fault, not ours: the observation lands in FAILED with a
+# user-facing reason, so the workflow completes cleanly instead of re-raising. Genuine bugs (INTERNAL_ERROR) still raise.
+_EXPECTED_TERMINAL_FAILURE_KINDS = frozenset(kind.value for kind in FailureKind if kind.is_benign)
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map a start-to-close/heartbeat timeout of a provider-facing activity to `provider_transient`."""
@@ -306,6 +310,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     or FailureKind.INTERNAL_ERROR.value
                 )
                 await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
+                if failure_kind in _EXPECTED_TERMINAL_FAILURE_KINDS:
+                    # The observation is already recorded as FAILED with a user-facing reason — this is an expected
+                    # terminal outcome, not a workflow bug. Complete cleanly instead of failing the workflow; the
+                    # raise itself is already marked benign so error tracking skips it (the `finally` still cleans up).
+                    return
             raise
         finally:
             if uploaded is not None:

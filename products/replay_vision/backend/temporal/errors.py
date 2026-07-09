@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
@@ -26,8 +26,16 @@ class _KindedApplicationError(ApplicationError):
     `cause.details` after Temporal wraps the activity raise in ActivityError.
     """
 
-    def __init__(self, message: str, *, kind: StrEnum, type: str, non_retryable: bool = True) -> None:
-        super().__init__(message, str(kind), type=type, non_retryable=non_retryable)
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: StrEnum,
+        type: str,
+        non_retryable: bool = True,
+        category: ApplicationErrorCategory = ApplicationErrorCategory.UNSPECIFIED,
+    ) -> None:
+        super().__init__(message, str(kind), type=type, non_retryable=non_retryable, category=category)
         self.kind = kind
 
 
@@ -42,4 +50,12 @@ class ScannerFailureError(_KindedApplicationError):
     """A classified workflow failure. Surfaced as ObservationStatus.FAILED with the kind label on the frontend."""
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
-        super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)
+        # BENIGN so the shared Temporal interceptor skips reporting expected terminal failures to error tracking.
+        category = ApplicationErrorCategory.BENIGN if kind.is_benign else ApplicationErrorCategory.UNSPECIFIED
+        super().__init__(
+            message,
+            kind=kind,
+            type=SCANNER_FAILURE_ERROR_TYPE,
+            non_retryable=not kind.is_retryable,
+            category=category,
+        )

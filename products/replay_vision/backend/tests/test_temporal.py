@@ -18,6 +18,7 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    ApplicationErrorCategory,
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
@@ -1515,6 +1516,64 @@ async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_f
 
 
 @pytest.mark.asyncio
+async def test_apply_scanner_workflow_does_not_reraise_expected_validation_failure() -> None:
+    # A VALIDATION_FAILED is an expected terminal state (the model's output couldn't be validated): the
+    # observation is marked FAILED and the workflow completes cleanly, so it never surfaces as error-tracking noise.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.SUMMARIZER
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+        },
+        activity_errors={
+            call_scanner_provider_activity: ScannerFailureError(
+                "Required step 'summary' rejected after 2 attempts", kind=FailureKind.VALIDATION_FAILED
+            )
+        },
+    )
+
+    # Completes without raising — that is the whole point: no failed workflow, no error-tracking entry.
+    await _run_workflow(_build_inputs(session_id="sess-bad-output"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    assert mark_observation_failed_activity in called
+    assert cleanup_gemini_file_activity in called  # the finally block still tidies the uploaded file
+    assert mark_observation_succeeded_activity not in called
+
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.error_reason.startswith(FailureKind.VALIDATION_FAILED.value)
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_reraises_internal_error_for_error_tracking() -> None:
+    # An unclassified failure is a genuine bug — it must still fail the workflow so it reaches error tracking.
+    new_observation_id = uuid.uuid4()
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+        },
+        activity_errors={call_scanner_provider_activity: RuntimeError("unexpected boom")},
+    )
+
+    with pytest.raises(RuntimeError, match="unexpected boom"):
+        await _run_workflow(_build_inputs(session_id="sess-boom"), mocks)
+
+    failed_input = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_failed_activity)
+    assert failed_input.error_reason.startswith(FailureKind.INTERNAL_ERROR.value)
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None:
     # Cleanup is best-effort; a cleanup failure must not bring down an already-succeeded workflow.
     new_observation_id = uuid.uuid4()
@@ -2028,6 +2087,20 @@ class TestWorkflowErrorHelpers:
     def test_extract_failure_kind_returns_none_for_unrelated_application_error(self) -> None:
         err = ApplicationError("something broke", type="RuntimeError", non_retryable=True)
         assert _extract_kind_for_type(err, SCANNER_FAILURE_ERROR_TYPE) is None
+
+    @parameterized.expand(
+        [
+            # Only the model-caused VALIDATION_FAILED is benign; genuine-bug kinds stay reportable to error tracking.
+            (FailureKind.VALIDATION_FAILED, ApplicationErrorCategory.BENIGN),
+            (FailureKind.INTERNAL_ERROR, ApplicationErrorCategory.UNSPECIFIED),
+            (FailureKind.PROVIDER_TRANSIENT, ApplicationErrorCategory.UNSPECIFIED),
+            (FailureKind.PROVIDER_REJECTED, ApplicationErrorCategory.UNSPECIFIED),
+        ]
+    )
+    def test_scanner_failure_error_marks_only_benign_kinds_benign(
+        self, kind: FailureKind, expected_category: ApplicationErrorCategory
+    ) -> None:
+        assert ScannerFailureError("boom", kind=kind).category == expected_category
 
     def test_root_cause_message_strips_temporal_wrapper(self) -> None:
         leaf = ApplicationError("Gemini file files/abc reached state FAILED", type="RuntimeError")
