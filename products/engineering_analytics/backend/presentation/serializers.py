@@ -21,6 +21,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
+    OpenToMergeBucket,
+    PassRateBucket,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -742,6 +744,36 @@ class TimeToGreenBucketSerializer(DataclassSerializer):
         }
 
 
+class PassRateBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PassRateBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "success_rate": {
+                "help_text": "Fraction (0-1) of completed runs started in this bucket that succeeded. "
+                "Null when the bucket had no completed run (a gap, not a 0% pass rate).",
+                "allow_null": True,
+            },
+        }
+
+
+class OpenToMergeBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OpenToMergeBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to open_to_merge_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median merged_at - created_at seconds over PRs merged in this bucket, bots and "
+                "drafts excluded. Null when nothing merged in the bucket (a gap, not instant merges).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
@@ -752,6 +784,16 @@ class RepoOverviewSerializer(DataclassSerializer):
         many=True,
         help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
         "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null.",
+    )
+    success_rate_series = PassRateBucketSerializer(
+        many=True,
+        help_text="CI pass rate (completed runs that succeeded, all branches) per bucket across the window, "
+        "oldest first, bucketed by success_rate_series_granularity. Empty buckets carry null.",
+    )
+    open_to_merge_series = OpenToMergeBucketSerializer(
+        many=True,
+        help_text="Median time-to-merge (p50 open_to_merge_seconds, bots/drafts excluded) per bucket across "
+        "the window, oldest first, bucketed by open_to_merge_series_granularity. Empty buckets carry null.",
     )
 
     class Meta:
@@ -805,6 +847,12 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "time_to_green_series_granularity": {
                 "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
+            },
+            "success_rate_series_granularity": {
+                "help_text": "Bucket width of the success_rate_series trend: 'hour', 'day', or 'week'."
+            },
+            "open_to_merge_series_granularity": {
+                "help_text": "Bucket width of the open_to_merge_series trend: 'hour', 'day', or 'week'."
             },
         }
 

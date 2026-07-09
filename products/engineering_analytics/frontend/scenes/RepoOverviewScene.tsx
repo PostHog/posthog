@@ -17,7 +17,6 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
-import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
@@ -26,7 +25,7 @@ import { Section, scrollToSection } from '../components/Section'
 import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
-import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
+import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
@@ -59,45 +58,89 @@ function RepoEntityHeader({ repoFullName, right }: { repoFullName: string; right
     )
 }
 
-/** Default-branch verdict tile: a calm dot when clean, a red "N failing" that jumps to the triage table. */
-function MasterStatusTile({
+/** A right-now backlog count in the hero: number over a small label, colored only when it's a pressure. */
+function HeroStat({
+    label,
+    value,
+    tone = 'default',
+}: {
+    label: string
+    value: number | null | undefined
+    tone?: 'default' | 'danger' | 'warning'
+}): JSX.Element {
+    const pressing = value != null && value > 0
+    const color =
+        pressing && tone === 'danger'
+            ? 'text-danger'
+            : pressing && tone === 'warning'
+              ? 'text-warning-dark'
+              : 'text-primary'
+    return (
+        <div className="flex flex-col items-end">
+            <span className={cn('text-xl font-semibold leading-none tabular-nums', color)}>
+                {value == null ? '—' : humanFriendlyNumber(value)}
+            </span>
+            <span className="mt-1 text-[11px] text-tertiary whitespace-nowrap">{label}</span>
+        </div>
+    )
+}
+
+/** The page's thesis: is the pipeline healthy right now? Default-branch verdict (a calm dot when clean, a
+ *  red "N failing" that jumps to the triage table) plus the open-PR backlog pressure. Both are current-state,
+ *  not windowed — so this sits above the date filter, which governs everything below it. */
+function PipelineVerdictHero({
     failingCount,
+    failingWorkflows,
     loading,
     defaultBranch,
+    backlog,
 }: {
     failingCount: number
+    failingWorkflows: string[]
     loading: boolean
     defaultBranch: string
+    backlog: { open: number | null; failingCi: number | null; stuck: number | null }
 }): JSX.Element {
     const failing = failingCount > 0
+    const branchLabel = defaultBranch === 'main' ? 'Main' : 'Master'
     const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
     const status = loading ? 'Checking…' : failing ? `${failingCount} failing` : 'Passing'
+    const subline = loading
+        ? `Checking ${branchLabel.toLowerCase()}…`
+        : failing
+          ? failingWorkflows.slice(0, 3).join(' · ') + (failingCount > 3 ? ` · +${failingCount - 3} more` : '')
+          : `Nothing failing on ${defaultBranch} in the last 24 hours`
     return (
         <LemonCard
             hoverEffect={failing}
             onClick={failing ? () => scrollToSection('now') : undefined}
-            className="flex min-w-44 flex-1 flex-col justify-center gap-1 px-5 py-4"
+            className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5"
         >
-            <Tooltip title="Workflows failing on the default branch in the last 24 hours.">
-                <span className="self-start cursor-default text-xs text-secondary">
-                    {defaultBranch === 'main' ? 'Main' : 'Master'}
+            <div className="flex min-w-0 flex-col gap-1">
+                <span className="text-xs text-secondary">{branchLabel} · last 24 hours</span>
+                <span className="flex items-center gap-2.5">
+                    <span
+                        className="inline-block size-3 shrink-0 rounded-full"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ backgroundColor: dotColor }}
+                    />
+                    <span
+                        className={cn(
+                            'text-3xl font-bold leading-none',
+                            loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
+                        )}
+                    >
+                        {status}
+                    </span>
+                    {failing && <span className="text-base text-danger">→</span>}
                 </span>
-            </Tooltip>
-            <span className="flex items-center gap-2">
-                <span
-                    className="inline-block size-2.5 shrink-0 rounded-full"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: dotColor }}
-                />
-                <span
-                    className={cn(
-                        'text-2xl font-semibold leading-none',
-                        loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
-                    )}
-                >
-                    {status}
-                </span>
-            </span>
+                <span className="truncate text-xs text-tertiary">{subline}</span>
+            </div>
+            <div className="flex items-center gap-6">
+                <HeroStat label="Open PRs" value={backlog.open} />
+                <HeroStat label="Failing CI" value={backlog.failingCi} tone="danger" />
+                <HeroStat label="Stuck >7d" value={backlog.stuck} tone="warning" />
+            </div>
         </LemonCard>
     )
 }
@@ -231,15 +274,17 @@ export function RepoOverviewScene(): JSX.Element {
         repoActivityLoading,
         repoActivityFailed,
         attentionPrs,
-        draftCount,
         costPerMergeSeries,
         timeToGreenSeries,
+        passRateSeries,
+        openToMergeSeries,
         jobsAvailable,
         defaultBranch,
         notConnected,
         overviewFailed,
         overviewLoading,
         failingWorkflowCount,
+        masterFailures,
         masterFailuresLoading,
         prPreviewCount,
         workflowPreviewCount,
@@ -265,6 +310,8 @@ export function RepoOverviewScene(): JSX.Element {
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are sorted by run count here so the preview is the busiest few,
     // matching the table's default sort; attentionPrs is already ordered failing-first in the selector.
+    // Distinct workflow names failing on the default branch — the hero's "what's broken" subline.
+    const failingWorkflows = Array.from(new Set(masterFailures.map((group) => group.workflow_name)))
     const shownPrs = attentionPrs.slice(0, prPreviewCount)
     const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
@@ -295,98 +342,125 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {/* Repo identity, with the shared window picker (and source picker on multi-source teams) docked
-                on its right — no separate scope-bar row above the tiles. */}
-            <RepoEntityHeader
-                repoFullName={activeSource?.repo || ''}
-                right={
-                    <>
-                        {hubReloading && <Spinner className="text-secondary" />}
-                        <SourceScopeChip pickerOnly />
-                        <ScopeDateFilter />
-                    </>
-                }
+            {/* Repo identity. The scope controls used to dock here; they now sit below the verdict hero, so
+                the date filter visibly governs only the windowed surfaces beneath it. */}
+            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
+
+            {/* The thesis: is the pipeline healthy right now? Current-state, above the date filter. */}
+            <PipelineVerdictHero
+                failingCount={failingWorkflowCount}
+                failingWorkflows={failingWorkflows}
+                loading={masterFailuresLoading}
+                defaultBranch={defaultBranch}
+                backlog={{
+                    open: cards?.openPrs ?? null,
+                    failingCi: cards?.failingCi ?? null,
+                    stuck: cards?.stuck ?? null,
+                }}
             />
 
-            <div
-                className={cn(
-                    'flex flex-wrap gap-2.5 transition-opacity',
-                    overviewLoading && 'pointer-events-none opacity-60'
-                )}
-            >
-                <MasterStatusTile
-                    failingCount={failingWorkflowCount}
-                    loading={masterFailuresLoading}
-                    defaultBranch={defaultBranch}
-                />
-                <MetricTile
-                    label="Pass rate"
-                    tooltip="Workflow-level, across all branches."
-                    value={percent(overview?.success_rate)}
-                    delta={
-                        <DeltaBadge
-                            value={pointChange(overview?.success_rate, overview?.success_rate_prev)}
-                            unit="pp"
-                        />
-                    }
-                />
-                <MetricTile
-                    label="Runs"
-                    value={compactCount(overview?.run_count)}
-                    delta={<DeltaBadge value={percentChange(overview?.run_count, overview?.run_count_prev)} />}
-                />
-                <MetricTile
-                    label="CI cost"
-                    tooltip={
-                        jobsAvailable
-                            ? `Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate.`
-                            : overviewPending
-                              ? undefined
-                              : 'Available once the job-level source is synced.'
-                    }
-                    value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
-                    delta={
-                        jobsAvailable ? (
-                            <DeltaBadge
-                                value={percentChange(overview?.estimated_cost_usd, overview?.estimated_cost_usd_prev)}
-                                goodWhenDown
-                            />
-                        ) : undefined
-                    }
-                    sub={jobsAvailable || overviewPending ? undefined : 'Job-level source not synced'}
-                />
-                <MetricTile
-                    label="Median PR open→merge"
-                    tooltip="Created to merged, over PRs merged in the window. Bots and drafts excluded."
-                    value={compactHours(overview?.median_open_to_merge_seconds)}
-                    valueSuffix={compactHoursUnit(overview?.median_open_to_merge_seconds)}
-                    delta={
-                        <DeltaBadge
-                            value={
-                                overview?.median_open_to_merge_seconds != null &&
-                                overview?.median_open_to_merge_seconds_prev != null
-                                    ? (overview.median_open_to_merge_seconds -
-                                          overview.median_open_to_merge_seconds_prev) /
-                                      3600
-                                    : null
-                            }
-                            unit="h"
-                            goodWhenDown
-                        />
-                    }
-                />
-                <MetricTile
-                    label="Re-run cycles"
-                    tooltip="Runs with attempt > 1 in the window."
-                    value={compactCount(overview?.rerun_cycles)}
-                    delta={
-                        <DeltaBadge
-                            value={percentChange(overview?.rerun_cycles, overview?.rerun_cycles_prev)}
-                            goodWhenDown
-                        />
-                    }
-                />
+            {/* Now zone: current-state surfaces sit above the filter — what's broken and what's stuck right
+                now. The backlog summary is the hero's; this section is just the triage table. */}
+            <MasterFailuresSection />
+
+            <Section id="prs" title="Pull requests needing attention">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                    <PullRequestTable
+                        rows={shownPrs}
+                        loading={pullRequestsLoading}
+                        sourceId={sourceId}
+                        costLensEnabled={costLensEnabled}
+                        embedded
+                        pageSize={HUB_PREVIEW_MAX}
+                        emptyState="Nothing failing or stuck in the open backlog."
+                        dataAttr="engineering-analytics-attention-prs"
+                    />
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        <span>
+                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
+                        </span>
+                        <div className="flex items-center gap-3">
+                            {canShowMorePrs && (
+                                <LemonButton size="xsmall" onClick={showMorePrs}>
+                                    Show more
+                                </LemonButton>
+                            )}
+                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                View all →
+                            </Link>
+                        </div>
+                    </div>
+                </LemonCard>
+            </Section>
+
+            {/* The date filter divides the page: the hero and the two sections above are current-state; every
+                surface below reflects the selected window. */}
+            <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-primary pt-4">
+                <span className="text-xs font-medium text-secondary">This window</span>
+                <span className="ml-auto flex items-center gap-2">
+                    {hubReloading && <Spinner className="text-secondary" />}
+                    <SourceScopeChip pickerOnly />
+                    <ScopeDateFilter />
+                </span>
             </div>
+
+            {/* The windowed headline metrics — each a value + colored delta over a sentiment-colored sparkline
+                (the same treatment for every metric, so nothing reads as a lesser "tile"). CI cost is not
+                here: it's a window total, not a rate, so its number lives on the Workflows section below. */}
+            <Section id="trends" title="Trends" busy={overviewLoading}>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {/* CI health: share of completed runs that passed, all branches. */}
+                    <TrendCard
+                        title="Pass rate"
+                        series={passRateSeries}
+                        formatValue={(value) => percent(value)}
+                        renderTooltipValue={(value) => percent(value, 1)}
+                        loading={overviewPending}
+                        emptyText="Not enough completed CI runs in the window yet."
+                        caption="Share of completed CI runs that passed, across all branches. Higher is healthier."
+                    />
+
+                    {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
+                    <TrendCard
+                        title="PR time to green"
+                        series={timeToGreenSeries}
+                        formatValue={formatAxisMinutes}
+                        renderTooltipValue={formatAxisMinutes}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText="Not enough successful PR CI runs in the window yet."
+                        caption="Median CI time-to-green on pull requests — successful runs only, default branch excluded. Lower is faster."
+                    />
+
+                    {/* PR throughput: coarse created→merged time, bots and drafts excluded. */}
+                    <TrendCard
+                        title="Median PR open→merge"
+                        series={openToMergeSeries}
+                        formatValue={compactHoursLabel}
+                        renderTooltipValue={compactHoursLabel}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText="No PRs merged in the window yet."
+                        caption="Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused. Lower is faster."
+                    />
+
+                    {/* CI cost per merged PR. */}
+                    <TrendCard
+                        title="Cost per merged PR"
+                        series={jobsAvailable ? costPerMergeSeries : null}
+                        formatValue={compactUsd}
+                        renderTooltipValue={compactUsd}
+                        goodWhenDown
+                        loading={overviewPending}
+                        emptyText={
+                            jobsAvailable
+                                ? 'No costable jobs in the window.'
+                                : 'Cost appears once the job-level source is synced.'
+                        }
+                        caption="Estimated Depot CI cost per merged PR (trailing-window ratio). Per-workflow spend is in the Workflows section below."
+                    />
+                </div>
+            </Section>
 
             <Section
                 id="master"
@@ -423,59 +497,21 @@ export function RepoOverviewScene(): JSX.Element {
                 )}
             </Section>
 
-            <MasterFailuresSection />
-
-            <Section id="prs" title="Pull requests needing attention">
-                <div className="mb-2 flex flex-wrap gap-2 text-xs text-secondary">
-                    <span>
-                        <strong className="text-primary">{cards ? humanFriendlyNumber(cards.openPrs) : '…'}</strong>{' '}
-                        open
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-primary">{humanFriendlyNumber(draftCount)}</strong> drafts
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-danger">{cards ? humanFriendlyNumber(cards.failingCi) : '…'}</strong>{' '}
-                        failing CI
-                    </span>
-                    <span>·</span>
-                    <span>
-                        <strong className="text-warning-dark">{cards ? humanFriendlyNumber(cards.stuck) : '…'}</strong>{' '}
-                        stuck &gt;7d
-                    </span>
-                </div>
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <PullRequestTable
-                        rows={shownPrs}
-                        loading={pullRequestsLoading}
-                        sourceId={sourceId}
-                        costLensEnabled={costLensEnabled}
-                        embedded
-                        pageSize={HUB_PREVIEW_MAX}
-                        emptyState="Nothing failing or stuck in the open backlog."
-                        dataAttr="engineering-analytics-attention-prs"
-                    />
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        <span>
-                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
-                        </span>
-                        <div className="flex items-center gap-3">
-                            {canShowMorePrs && (
-                                <LemonButton size="xsmall" onClick={showMorePrs}>
-                                    Show more
-                                </LemonButton>
-                            )}
-                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
-                                View all →
-                            </Link>
-                        </div>
-                    </div>
-                </LemonCard>
-            </Section>
-
-            <Section id="workflows" title={jobsAvailable ? 'Top workflows by cost' : 'Busiest workflows'}>
+            <Section
+                id="workflows"
+                title={jobsAvailable ? 'Top workflows by cost' : 'Busiest workflows'}
+                right={
+                    jobsAvailable && overview?.estimated_cost_usd != null ? (
+                        <Tooltip
+                            title={`Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate, across all workflows in the window.`}
+                        >
+                            <span className="cursor-default text-tertiary">
+                                {compactUsd(overview.estimated_cost_usd)} total CI spend
+                            </span>
+                        </Tooltip>
+                    ) : undefined
+                }
+            >
                 <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <WorkflowHealthTable
                         rows={shownWorkflows}
@@ -514,38 +550,6 @@ export function RepoOverviewScene(): JSX.Element {
                         </div>
                     </div>
                 </LemonCard>
-            </Section>
-
-            <Section id="trends" title="Trends" busy={overviewLoading}>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                    {/* Median time-to-green on PR runs (success-only, PR-scoped; see #67398). */}
-                    <TrendCard
-                        title="PR time to green"
-                        series={timeToGreenSeries}
-                        formatValue={formatAxisMinutes}
-                        renderTooltipValue={formatAxisMinutes}
-                        goodWhenDown
-                        loading={overviewPending}
-                        emptyText="Not enough successful PR CI runs in the window yet."
-                        caption="Median CI time-to-green on pull requests — successful runs only, default branch excluded. Lower is faster."
-                    />
-
-                    {/* CI cost per merged PR. */}
-                    <TrendCard
-                        title="Cost per merged PR"
-                        series={jobsAvailable ? costPerMergeSeries : null}
-                        formatValue={compactUsd}
-                        renderTooltipValue={compactUsd}
-                        goodWhenDown
-                        loading={overviewPending}
-                        emptyText={
-                            jobsAvailable
-                                ? 'No costable jobs in the window.'
-                                : 'Cost appears once the job-level source is synced.'
-                        }
-                        caption="Estimated Depot CI cost per merged PR (trailing-window ratio). Per-workflow spend is in the Workflows section above."
-                    />
-                </div>
             </Section>
         </div>
     )

@@ -721,6 +721,33 @@ class TimeToGreenBucket:
 
 
 @dataclass(frozen=True)
+class PassRateBucket:
+    """One time bucket of the repo's CI pass rate: the fraction of completed runs (all branches) started in
+    this bucket that succeeded. ``success_rate`` is None for a bucket with no completed run (a gap, not a
+    0% pass rate); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Fraction (0-1) of completed runs started in this bucket that succeeded. None when none completed.
+    success_rate: float | None
+
+
+@dataclass(frozen=True)
+class OpenToMergeBucket:
+    """One time bucket of the repo's median time-to-merge: the p50 of ``merged_at - created_at`` over PRs
+    merged in this bucket, bots and drafts excluded (the locked cycle-time recipe). Coarse by design (draft
+    and ready time fused). ``p50_seconds`` is None for a bucket where nothing merged (a gap, not instant
+    merges); the UI carries the last known value forward rather than dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    # Median merged_at - created_at seconds over PRs merged in this bucket. None when nothing merged.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -754,6 +781,16 @@ class RepoOverview:
     time_to_green_series: list[TimeToGreenBucket]
     # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     time_to_green_series_granularity: str
+    # Pass-rate trend: fraction of completed runs (all branches) that succeeded per bucket, oldest first,
+    # bucketed by `success_rate_series_granularity`. Empty buckets carry None (no completed run).
+    success_rate_series: list[PassRateBucket]
+    # Bucket width of `success_rate_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    success_rate_series_granularity: str
+    # Time-to-merge trend: median open_to_merge_seconds over PRs merged per bucket (bots/drafts excluded),
+    # oldest first, bucketed by `open_to_merge_series_granularity`. Empty buckets carry None (nothing merged).
+    open_to_merge_series: list[OpenToMergeBucket]
+    # Bucket width of `open_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    open_to_merge_series_granularity: str
 
 
 @dataclass(frozen=True)

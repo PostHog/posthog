@@ -266,6 +266,52 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
+        // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
+        // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no
+        // bucket has a completed run, so the card shows its own empty state.
+        passRateSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.success_rate_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.success_rate != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.success_rate_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.success_rate != null) {
+                        last = bucket.success_rate
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
+        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded). Same carry-forward +
+        // trim as time-to-green: a gap means "nothing merged", not instant merges, so zero-filling would
+        // draw a false dip. Null when no bucket had a qualifying merge.
+        openToMergeSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.open_to_merge_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.open_to_merge_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = bucket.p50_seconds
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
