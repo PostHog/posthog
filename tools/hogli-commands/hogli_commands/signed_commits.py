@@ -22,7 +22,6 @@ API takes headline and body as separate fields).
 
 from __future__ import annotations
 
-import os
 import re
 import json
 import uuid
@@ -32,6 +31,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import click
+
+from hogli_commands.db_schema import _github_token
 
 # createCommitOnBranch has no documented payload cap, but large payloads time
 # out or hit the REST blob ceiling (~40 MiB); refuse well before that.
@@ -57,6 +58,7 @@ class GitError(PublishError):
 class RawDiffEntry:
     src_mode: str
     dst_mode: str
+    dst_sha: str
     status: str
     path: str
 
@@ -64,34 +66,30 @@ class RawDiffEntry:
 @dataclass(frozen=True)
 class CommitPlan:
     sha: str
-    message: str
-    changes: dict[str, list[dict[str, str]]]
-    workflow_paths: list[str]
+    headline: str
+    body: str
+    entries: list[RawDiffEntry]
 
 
-def _git(args: list[str], *, binary: bool = False) -> str | bytes:
+def _git_bytes(args: list[str], *, stdin: bytes | None = None) -> bytes:
     try:
-        result = subprocess.run(["git", *args], capture_output=True, check=True)
+        result = subprocess.run(["git", *args], input=stdin, capture_output=True, check=True)
     except FileNotFoundError as err:
         raise PublishError("git is not installed or not on PATH.") from err
     except subprocess.CalledProcessError as err:
         stderr = err.stderr.decode(errors="replace").strip()
         raise GitError(f"`git {' '.join(args)}` failed: {stderr or f'exit status {err.returncode}'}") from err
-    if binary:
-        return result.stdout
+    return result.stdout
+
+
+def _git_text(args: list[str]) -> str:
     try:
-        return result.stdout.decode().strip()
+        return _git_bytes(args).decode().strip()
     except UnicodeDecodeError as err:
         raise PublishError(
             f"`git {' '.join(args)}` produced non-UTF-8 output. Non-UTF-8 paths or "
             "commit messages cannot be represented in the GitHub API."
         ) from err
-
-
-def _git_text(args: list[str]) -> str:
-    result = _git(args)
-    assert isinstance(result, str)
-    return result
 
 
 def split_commit_message(raw: str) -> tuple[str, str]:
@@ -100,7 +98,7 @@ def split_commit_message(raw: str) -> tuple[str, str]:
 
 
 def parse_raw_diff(z_output: str) -> list[RawDiffEntry]:
-    """Parse `git diff --raw -z --no-renames` records.
+    """Parse `git diff --raw -z --no-abbrev --no-renames` records.
 
     Each record is `:<src_mode> <dst_mode> <src_sha> <dst_sha> <status>` NUL
     `<path>` NUL. With --no-renames the status is a single letter (A/M/D/T).
@@ -110,8 +108,8 @@ def parse_raw_diff(z_output: str) -> list[RawDiffEntry]:
     for meta, path in zip(tokens[::2], tokens[1::2]):
         if not meta.startswith(":"):
             continue
-        src_mode, dst_mode, _src_sha, _dst_sha, status = meta[1:].split(" ")
-        entries.append(RawDiffEntry(src_mode=src_mode, dst_mode=dst_mode, status=status, path=path))
+        src_mode, dst_mode, _src_sha, dst_sha, status = meta[1:].split(" ")
+        entries.append(RawDiffEntry(src_mode=src_mode, dst_mode=dst_mode, dst_sha=dst_sha, status=status, path=path))
     return entries
 
 
@@ -181,19 +179,9 @@ def _default_branch() -> str:
     return match.group(1)
 
 
-def _gh_token() -> str:
-    try:
-        result = subprocess.run(["gh", "auth", "token"], capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as err:
-        raise PublishError("No GitHub token available. Run `gh auth login` first.") from err
-    token = result.stdout.decode().strip()
-    if not token:
-        raise PublishError("`gh auth token` returned nothing. Run `gh auth login` first.")
-    return token
-
-
-def _gh_env(token: str) -> dict[str, str]:
-    return {**os.environ, "GH_TOKEN": token}
+def _require_gh_auth() -> None:
+    if _github_token() is None:
+        raise PublishError("No GitHub token available. Run `gh auth login` first.")
 
 
 def _token_scopes() -> set[str] | None:
@@ -218,29 +206,60 @@ def _remote_tip(branch: str) -> str | None:
 
 
 def _commit_entries(commit: str) -> list[RawDiffEntry]:
-    return parse_raw_diff(_git_text(["diff", "--raw", "-z", "--no-renames", f"{commit}^", commit]))
+    return parse_raw_diff(_git_text(["diff", "--raw", "-z", "--no-abbrev", "--no-renames", f"{commit}^", commit]))
 
 
-def _build_file_changes(entries: list[RawDiffEntry], commit: str) -> dict[str, list[dict[str, str]]]:
+def _blob_shas(entries: list[RawDiffEntry]) -> list[str]:
+    return list(dict.fromkeys(e.dst_sha for e in entries if e.status != "D"))
+
+
+def _blob_sizes(shas: list[str]) -> dict[str, int]:
+    """Byte size per blob via one `git cat-file --batch-check` call."""
+    if not shas:
+        return {}
+    out = _git_bytes(["cat-file", "--batch-check"], stdin="\n".join(shas).encode())
+    sizes: dict[str, int] = {}
+    for line in out.decode().splitlines():
+        sha, kind, *rest = line.split(" ")
+        if kind != "blob" or not rest:
+            raise GitError(f"`git cat-file --batch-check` could not resolve blob {sha}: {kind}")
+        sizes[sha] = int(rest[0])
+    return sizes
+
+
+def _read_blobs(shas: list[str]) -> dict[str, bytes]:
+    """Blob contents via one `git cat-file --batch` call."""
+    if not shas:
+        return {}
+    out = _git_bytes(["cat-file", "--batch"], stdin="\n".join(shas).encode())
+    blobs: dict[str, bytes] = {}
+    pos = 0
+    for _ in shas:
+        header_end = out.index(b"\n", pos)
+        sha, kind, *rest = out[pos:header_end].decode().split(" ")
+        if kind != "blob" or not rest:
+            raise GitError(f"`git cat-file --batch` could not resolve blob {sha}: {kind}")
+        size = int(rest[0])
+        start = header_end + 1
+        blobs[sha] = out[start : start + size]
+        pos = start + size + 1  # skip the trailing newline after the contents
+    return blobs
+
+
+def _commit_file_changes(entries: list[RawDiffEntry]) -> dict[str, list[dict[str, str]]]:
+    blobs = _read_blobs(_blob_shas(entries))
     additions: list[dict[str, str]] = []
     deletions: list[dict[str, str]] = []
     for e in entries:
         if e.status == "D":
             deletions.append({"path": e.path})
         else:
-            blob = _git(["cat-file", "blob", f"{commit}:{e.path}"], binary=True)
-            assert isinstance(blob, bytes)
-            additions.append({"path": e.path, "contents": base64.b64encode(blob).decode()})
+            additions.append({"path": e.path, "contents": base64.b64encode(blobs[e.dst_sha]).decode()})
     return {"additions": additions, "deletions": deletions}
 
 
-def _payload_size(changes: dict[str, list[dict[str, str]]]) -> int:
-    return sum(len(a["contents"]) for a in changes["additions"])
-
-
 def _commit_message(commit: str) -> str:
-    raw = _git(["show", "-s", "--format=%B", commit], binary=True)
-    assert isinstance(raw, bytes)
+    raw = _git_bytes(["show", "-s", "--format=%B", commit])
     try:
         return raw.decode().removesuffix("\n")
     except UnicodeDecodeError as err:
@@ -249,39 +268,43 @@ def _commit_message(commit: str) -> str:
         ) from err
 
 
+def _base64_size(raw_size: int) -> int:
+    return (raw_size + 2) // 3 * 4
+
+
 def _plan_commit(commit: str) -> CommitPlan:
     entries = _commit_entries(commit)
     if violations := mode_violations(entries):
         raise PublishError(f"Commit {commit[:10]} cannot be published faithfully:\n  " + "\n  ".join(violations))
     if not entries:
         raise PublishError(f"Commit {commit[:10]} is empty. The API cannot create empty commits.")
-    message = _commit_message(commit)
-    if not split_commit_message(message)[0]:
+    headline, body = split_commit_message(_commit_message(commit))
+    if not headline:
         raise PublishError(f"Commit {commit[:10]} has an empty message headline, which the API rejects.")
-    changes = _build_file_changes(entries, commit)
-    if (size := _payload_size(changes)) > MAX_PAYLOAD_BASE64_BYTES:
+    sizes = _blob_sizes(_blob_shas(entries))
+    if (size := sum(_base64_size(s) for s in sizes.values())) > MAX_PAYLOAD_BASE64_BYTES:
         raise PublishError(
             f"Commit {commit[:10]} is {size / 1024 / 1024:.0f} MB encoded, over the "
             f"{MAX_PAYLOAD_BASE64_BYTES / 1024 / 1024:.0f} MB limit. Split it into smaller commits."
         )
-    return CommitPlan(sha=commit, message=message, changes=changes, workflow_paths=workflow_paths(entries))
+    return CommitPlan(sha=commit, headline=headline, body=body, entries=entries)
 
 
-def _gh_rest(token: str, method: str, path: str, fields: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
+def _gh_rest(method: str, path: str, fields: dict[str, str]) -> subprocess.CompletedProcess[bytes]:
     args = ["gh", "api", "-X", method, path]
     for key, value in fields.items():
         args += ["-f", f"{key}={value}"]
-    return subprocess.run(args, capture_output=True, env=_gh_env(token))
+    return subprocess.run(args, capture_output=True)
 
 
-def _create_remote_branch(token: str, repo: str, branch: str, sha: str) -> None:
-    result = _gh_rest(token, "POST", f"repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
+def _create_remote_branch(repo: str, branch: str, sha: str) -> None:
+    result = _gh_rest("POST", f"repos/{repo}/git/refs", {"ref": f"refs/heads/{branch}", "sha": sha})
     if result.returncode != 0:
         raise PublishError(f"Creating remote branch {branch} failed: {result.stderr.decode().strip()}")
 
 
-def _fast_forward_remote_branch(token: str, repo: str, branch: str, sha: str) -> None:
-    result = _gh_rest(token, "PATCH", f"repos/{repo}/git/refs/heads/{branch}", {"sha": sha})
+def _fast_forward_remote_branch(repo: str, branch: str, sha: str) -> None:
+    result = _gh_rest("PATCH", f"repos/{repo}/git/refs/heads/{branch}", {"sha": sha})
     if result.returncode != 0:
         raise PublishError(
             f"Updating origin/{branch} failed (did it move during the publish?): "
@@ -290,17 +313,16 @@ def _fast_forward_remote_branch(token: str, repo: str, branch: str, sha: str) ->
         )
 
 
-def _delete_remote_branch(token: str, repo: str, branch: str) -> None:
-    _gh_rest(token, "DELETE", f"repos/{repo}/git/refs/heads/{branch}")
+def _delete_remote_branch(repo: str, branch: str) -> None:
+    _gh_rest("DELETE", f"repos/{repo}/git/refs/heads/{branch}")
 
 
 def _create_commit_on_branch(
-    token: str, repo: str, branch: str, expected_head: str, message: str, changes: dict[str, list[dict[str, str]]]
+    repo: str, branch: str, expected_head: str, plan: CommitPlan, changes: dict[str, list[dict[str, str]]]
 ) -> str:
-    headline, body = split_commit_message(message)
-    commit_message: dict[str, str] = {"headline": headline}
-    if body:
-        commit_message["body"] = body
+    commit_message: dict[str, str] = {"headline": plan.headline}
+    if plan.body:
+        commit_message["body"] = plan.body
     payload = {
         "query": _MUTATION,
         "variables": {
@@ -316,13 +338,48 @@ def _create_commit_on_branch(
         ["gh", "api", "graphql", "--input", "-"],
         input=json.dumps(payload).encode(),
         capture_output=True,
-        env=_gh_env(token),
     )
     if result.returncode != 0:
-        raise PublishError(f"createCommitOnBranch failed: {result.stderr.decode().strip()}")
+        stderr = result.stderr.decode().strip()
+        hint = (
+            ". Your token may lack workflow access: `gh auth refresh -s workflow`"
+            if "workflow" in stderr.lower()
+            else ""
+        )
+        raise PublishError(f"createCommitOnBranch failed: {stderr}{hint}")
     oid = json.loads(result.stdout)["data"]["createCommitOnBranch"]["commit"]["oid"]
     assert isinstance(oid, str)
     return oid
+
+
+def _resolve_publish_base(branch: str, head: str, tip: str | None, default_branch: str) -> str:
+    """The remote commit the replayed chain builds on: the branch tip when the
+    remote branch exists (refusing if it diverged), else the merge base."""
+    if tip is None:
+        return _git_text(["merge-base", f"origin/{default_branch}", head])
+    if subprocess.run(["git", "cat-file", "-e", f"{tip}^{{commit}}"], capture_output=True).returncode != 0:
+        _git_text(["fetch", "--no-tags", "origin", branch])
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", tip, head], capture_output=True)
+    if ancestor.returncode == 1:
+        raise PublishError(
+            f"origin/{branch} has commits you don't have locally. Sync first "
+            f"(git fetch origin {branch} && git rebase origin/{branch}), then retry."
+        )
+    if ancestor.returncode != 0:
+        raise GitError(f"`git merge-base --is-ancestor` failed: {ancestor.stderr.decode(errors='replace').strip()}")
+    return tip
+
+
+def _sync_local_branch(branch: str, head: str, new_tip: str) -> None:
+    _git_text(["fetch", "--no-tags", "origin", branch])
+    if _git_text(["rev-parse", f"{new_tip}^{{tree}}"]) != _git_text(["rev-parse", f"{head}^{{tree}}"]):
+        raise PublishError(
+            f"Published tree does not match local HEAD. Local branch left at {head[:10]}; "
+            f"inspect origin/{branch} before syncing manually."
+        )
+    # Compare-and-swap so a branch that moved locally mid-publish is never clobbered.
+    _git_text(["update-ref", f"refs/heads/{branch}", new_tip, head])
+    _git_text(["branch", f"--set-upstream-to=origin/{branch}", branch])
 
 
 @click.command(name="git:publish-signed")
@@ -353,83 +410,60 @@ def git_publish_signed(dry_run: bool) -> None:
     head = _git_text(["rev-parse", "HEAD"])
 
     tip = _remote_tip(branch)
-    if tip is not None:
-        if tip == head:
-            click.echo("Remote branch is already at HEAD. Nothing to publish.")
-            return
-        _git_text(["fetch", "--no-tags", "origin", branch])
-        ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", tip, head], capture_output=True)
-        if ancestor.returncode == 1:
-            raise PublishError(
-                f"origin/{branch} has commits you don't have locally. Sync first "
-                f"(git fetch origin {branch} && git rebase origin/{branch}), then retry."
-            )
-        if ancestor.returncode != 0:
-            raise GitError(f"`git merge-base --is-ancestor` failed: {ancestor.stderr.decode(errors='replace').strip()}")
-        base = tip
-    else:
-        base = _git_text(["merge-base", f"origin/{default_branch}", head])
+    if tip == head:
+        click.echo("Remote branch is already at HEAD. Nothing to publish.")
+        return
+    base = _resolve_publish_base(branch, head, tip, default_branch)
 
-    commits = [c for c in _git_text(["rev-list", "--reverse", f"{base}..{head}"]).splitlines() if c]
+    commits: list[str] = []
+    for row in _git_text(["rev-list", "--reverse", "--parents", f"{base}..{head}"]).splitlines():
+        sha, *parents = row.split(" ")
+        if len(parents) > 1:
+            raise PublishError(
+                "The range contains merge commits, which the GitHub API cannot create. "
+                "Rebase onto the base branch instead of merging it in, then retry."
+            )
+        commits.append(sha)
     if not commits:
         raise PublishError("No local commits to publish.")
-    if _git_text(["rev-list", "--min-parents=2", f"{base}..{head}"]):
-        raise PublishError(
-            "The range contains merge commits, which the GitHub API cannot create. "
-            "Rebase onto the base branch instead of merging it in, then retry."
-        )
 
     plans = [_plan_commit(c) for c in commits]
 
-    if any(p.workflow_paths for p in plans):
+    if any(workflow_paths(p.entries) for p in plans):
         scopes = _token_scopes()
         if scopes is not None and "workflow" not in scopes:
             raise PublishError(
                 "This range touches .github/workflows/ but your gh token lacks the "
                 "`workflow` scope. Run `gh auth refresh -s workflow`, then retry."
             )
-        if scopes is None:
-            click.secho(
-                "Warning: could not verify the token can modify .github/workflows/ "
-                "(fine-grained tokens expose no scopes). If it cannot, the publish "
-                "fails without touching your branch.",
-                fg="yellow",
-            )
 
     if dry_run:
         click.secho(f"Would publish {len(plans)} commit(s) to {repo}:{branch}", bold=True)
         for plan in plans:
-            click.echo(f"  {plan.sha[:10]} {split_commit_message(plan.message)[0]}")
+            click.echo(f"  {plan.sha[:10]} {plan.headline}")
         return
 
-    token = _gh_token()
+    _require_gh_auth()
 
     # Replay onto a scratch branch so the real branch moves all-or-nothing.
     scratch = f"hogli/publish-signed-tmp-{uuid.uuid4().hex[:12]}"
-    _create_remote_branch(token, repo, scratch, base)
+    _create_remote_branch(repo, scratch, base)
     try:
         expected = base
         for plan in plans:
-            expected = _create_commit_on_branch(token, repo, scratch, expected, plan.message, plan.changes)
-            click.echo(f"  {plan.sha[:10]} -> {expected[:10]} {split_commit_message(plan.message)[0]}")
+            changes = _commit_file_changes(plan.entries)
+            expected = _create_commit_on_branch(repo, scratch, expected, plan, changes)
+            click.echo(f"  {plan.sha[:10]} -> {expected[:10]} {plan.headline}")
         if tip is None:
-            _create_remote_branch(token, repo, branch, expected)
+            _create_remote_branch(repo, branch, expected)
         else:
-            _fast_forward_remote_branch(token, repo, branch, expected)
+            _fast_forward_remote_branch(repo, branch, expected)
     except Exception:
-        _delete_remote_branch(token, repo, scratch)
+        _delete_remote_branch(repo, scratch)
         click.secho(f"Publish failed. origin/{branch} was not changed.", fg="red")
         raise
-    _delete_remote_branch(token, repo, scratch)
+    _delete_remote_branch(repo, scratch)
 
-    _git_text(["fetch", "--no-tags", "origin", branch])
-    if _git_text(["rev-parse", f"{expected}^{{tree}}"]) != _git_text(["rev-parse", f"{head}^{{tree}}"]):
-        raise PublishError(
-            f"Published tree does not match local HEAD. Local branch left at {head[:10]}; "
-            f"inspect origin/{branch} before syncing manually."
-        )
-    # Compare-and-swap so a branch that moved locally mid-publish is never clobbered.
-    _git_text(["update-ref", f"refs/heads/{branch}", expected, head])
-    _git_text(["branch", f"--set-upstream-to=origin/{branch}", branch])
+    _sync_local_branch(branch, head, expected)
     click.secho(f"Published {len(plans)} signed commit(s) to https://github.com/{repo}/tree/{branch}", fg="green")
     click.echo("Local branch now points at the signed history (hashes were rewritten by the API).")

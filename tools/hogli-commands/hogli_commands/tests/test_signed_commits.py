@@ -10,8 +10,8 @@ from click.testing import CliRunner
 from hogli_commands.signed_commits import (
     PublishError,
     RawDiffEntry,
-    _build_file_changes,
     _commit_entries,
+    _commit_file_changes,
     _origin_repo,
     git_publish_signed,
     mode_violations,
@@ -22,7 +22,7 @@ from hogli_commands.signed_commits import (
 
 
 def _entry(src_mode: str, dst_mode: str, status: str = "M", path: str = "f.txt") -> RawDiffEntry:
-    return RawDiffEntry(src_mode=src_mode, dst_mode=dst_mode, status=status, path=path)
+    return RawDiffEntry(src_mode=src_mode, dst_mode=dst_mode, dst_sha="0" * 40, status=status, path=path)
 
 
 class TestPureHelpers:
@@ -46,10 +46,10 @@ class TestPureHelpers:
             ":100644 000000 abc 000 D\0.github/workflows/ci.yml\0"
         )
         entries = parse_raw_diff(z)
-        assert [(e.status, e.path) for e in entries] == [
-            ("M", "bin/script"),
-            ("A", "link"),
-            ("D", ".github/workflows/ci.yml"),
+        assert [(e.status, e.path, e.dst_sha) for e in entries] == [
+            ("M", "bin/script", "def"),
+            ("A", "link", "abc"),
+            ("D", ".github/workflows/ci.yml", "000"),
         ]
         assert workflow_paths(entries) == [".github/workflows/ci.yml"]
 
@@ -142,7 +142,7 @@ class TestBuildFileChanges:
         _run_git(tmp_path, "commit", "-q", "-m", "change")
         monkeypatch.chdir(tmp_path)
 
-        changes = _build_file_changes(_commit_entries("HEAD"), "HEAD")
+        changes = _commit_file_changes(_commit_entries("HEAD"))
 
         assert changes["deletions"] == [{"path": "a.txt"}]
         by_path = {a["path"]: a["contents"] for a in changes["additions"]}
