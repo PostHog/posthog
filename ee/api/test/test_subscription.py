@@ -1654,9 +1654,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.enabled is True
         assert subscription.next_delivery_date is not None
         assert subscription.next_delivery_date > timezone.now()
-        # No confirmation delivery fires on a re-enable without send_test_now; the date reset still
-        # runs so the scheduler doesn't fire a stale-dated delivery on its next tick.
-        temporal_mock.return_value.start_workflow.assert_not_called()
+        # Re-enabling infers a confirmation delivery; the date reset must still run so the
+        # scheduler doesn't fire a second, stale-dated delivery right after it.
+        temporal_mock.return_value.start_workflow.assert_called_once()
 
     @parameterized.expand(
         [
@@ -1783,8 +1783,8 @@ class TestSubscriptionTemporal(APILicensedTest):
             ("redundant_enable", True, {"enabled": True}, False),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
-            ("enable_disabled_no_send", False, {"enabled": True}, False),
-            ("enable_disabled_with_send", False, {"enabled": True, "send_test_now": True}, True),
+            ("enable_disabled_inferred_send", False, {"enabled": True}, True),
+            ("enable_disabled_with_opt_out", False, {"enabled": True, "send_test_now": False}, False),
         ]
     )
     def test_patch_workflow_trigger_for_enabled_field(

@@ -191,7 +191,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected.'
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
             ),
         summary_enabled: zod
             .boolean()
