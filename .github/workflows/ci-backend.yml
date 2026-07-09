@@ -239,6 +239,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                        # Same rationale as the backend filter's excludes above: docs-only
+                        # changes match the broad globs but exercise no legacy backend code,
+                        # so they shouldn't trigger the Django/turbo-discover path either.
+                        - '!**/*.md'
+                        - '!**/*.mdx'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to

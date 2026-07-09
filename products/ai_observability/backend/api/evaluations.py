@@ -717,10 +717,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.create(
-                    team=self.team,
-                    evaluation=instance,
-                )
+                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
