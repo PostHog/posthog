@@ -385,6 +385,7 @@ class TestRepartitionActivity:
                 ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
         schema.refresh_from_db()
+        assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
 
     def test_transient_db_error_not_recorded_as_failure(self, team):
@@ -407,4 +408,5 @@ class TestRepartitionActivity:
         assert "warehouse_repartition_started" in emitted
         assert "warehouse_repartition_failed" not in emitted
         schema.refresh_from_db()
+        assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
