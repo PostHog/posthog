@@ -5,6 +5,8 @@ import tempfile
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.db import OperationalError
+
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -348,3 +350,19 @@ class TestRepartitionActivity:
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    def test_bookkeeping_failure_does_not_fail_activity(self, team):
+        # The failure handler runs after the long S3 swap, when the Postgres connection can be stale
+        # ("server closed the connection unexpectedly"). If its own ORM bookkeeping dies, that error
+        # must be swallowed — never propagated — or the activity fails, breaking the module's promise
+        # that a repartition failure never fails the workflow. Simulate the stale connection by having
+        # the handler's `refresh_from_db` raise OperationalError and assert the activity still returns.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_keys": ["id"], "trigger_reason": "test", "attempts": 0}
+        )
+        with patch.object(
+            ExternalDataSchema, "refresh_from_db", side_effect=OperationalError("server closed the connection")
+        ):
+            # No exception escaping this call is the assertion.
+            self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))

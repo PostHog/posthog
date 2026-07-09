@@ -232,7 +232,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     except Exception as e:
         # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
         # later run, on the old layout in the meantime.
-        _handle_failure(inputs, schema, pending, trigger_reason, e)
+        _handle_failure(inputs, schema, pending, trigger_reason, e, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         return
 
@@ -262,29 +262,50 @@ def _handle_failure(
     pending: dict[str, Any] | None,
     trigger_reason: str,
     error: Exception,
+    logger: FilteringBoundLogger,
 ) -> None:
-    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS."""
-    schema.refresh_from_db(fields=["sync_type_config"])
-    pending = schema.repartition_pending or pending or {}
-    attempts = int(pending.get("attempts", 0)) + 1
+    """Record a failed attempt; give up (and clear the flag) after MAX_REPARTITION_ATTEMPTS.
 
-    props = base_event_props(schema, schema.source, inputs.job_id)
-    props.update(
-        {
-            "trigger_reason": trigger_reason,
-            "attempts": attempts,
-            "error_type": type(error).__name__,
-            "error_message": str(error)[:1000],
-        }
-    )
+    This is the swallowed-failure path, so it must be bulletproof: a repartition failure must never
+    fail the activity (the sync proceeds on the old layout instead). Two hazards handled here:
 
-    if attempts >= MAX_REPARTITION_ATTEMPTS:
-        props["final"] = True
-        schema.clear_repartition_pending()
-        schema.clear_repartition_swap()
-    else:
-        updated = {**pending, "attempts": attempts}
-        schema.set_repartition_pending(updated)
+    - A stale Postgres connection. The activity only refreshes connections once at startup, but a
+      long S3 rewrite/swap can outlive the connection ("server closed the connection unexpectedly"),
+      so the ORM work below would die with an `OperationalError`. Refresh first.
+    - Any other bookkeeping error. The whole body is wrapped so nothing — a second stale-connection
+      drop, an event-capture hiccup — can propagate out and turn a swallowed failure into a real
+      activity failure.
+    """
+    try:
+        close_old_connections()
 
-    capture_repartition_event("warehouse_repartition_failed", props)
-    capture_exception(error)
+        schema.refresh_from_db(fields=["sync_type_config"])
+        pending = schema.repartition_pending or pending or {}
+        attempts = int(pending.get("attempts", 0)) + 1
+
+        props = base_event_props(schema, schema.source, inputs.job_id)
+        props.update(
+            {
+                "trigger_reason": trigger_reason,
+                "attempts": attempts,
+                "error_type": type(error).__name__,
+                "error_message": str(error)[:1000],
+            }
+        )
+
+        if attempts >= MAX_REPARTITION_ATTEMPTS:
+            props["final"] = True
+            schema.clear_repartition_pending()
+            schema.clear_repartition_swap()
+        else:
+            updated = {**pending, "attempts": attempts}
+            schema.set_repartition_pending(updated)
+
+        capture_repartition_event("warehouse_repartition_failed", props)
+        capture_exception(error)
+    except Exception as bookkeeping_error:
+        # Bookkeeping itself failed — swallow so the activity still succeeds and the sync continues on
+        # the old layout. Capture both the original repartition failure and this secondary error.
+        logger.warning("repartition: failure bookkeeping errored, swallowing", exc_info=True)
+        capture_exception(error)
+        capture_exception(bookkeeping_error)
