@@ -413,16 +413,13 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ vendorClient: 'ClaudeCode' }).isClaudeUiHost()).toBe(false)
         })
 
-        it('returns false for Cowork (vendorClient: Cowork)', () => {
-            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(false)
+        it('returns true for Cowork (vendorClient: Cowork)', () => {
+            expect(new MCPClientProfile({ vendorClient: 'Cowork' }).isClaudeUiHost()).toBe(true)
         })
 
         it('vendor client wins over a shared Claude-User user-agent', () => {
-            // Cowork and Claude Code can share the `Claude-User` user-agent with
-            // web/desktop, but their vendor client is authoritative and excludes them.
-            expect(new MCPClientProfile({ vendorClient: 'Cowork', userAgent: 'Claude-User' }).isClaudeUiHost()).toBe(
-                false
-            )
+            // Claude Code can share the `Claude-User` user-agent with web/desktop,
+            // but its vendor client is authoritative and excludes it.
             expect(
                 new MCPClientProfile({ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }).isClaudeUiHost()
             ).toBe(false)
@@ -463,6 +460,22 @@ describe('MCPClientProfile', () => {
 
         it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
             expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
+        })
+    })
+
+    describe('isClaudeChatHost()', () => {
+        it.each([
+            // Claude web/desktop ignore the `instructions` payload → keep env-context.
+            [{ vendorClient: 'ClaudeAI' }, true],
+            // Vendor header absent → predominantly chat sessions, keep the UA fallback.
+            [{ userAgent: 'Claude-User' }, true],
+            // Cowork surfaces instructions normally → a UI host but not a chat host.
+            [{ vendorClient: 'Cowork' }, false],
+            [{ vendorClient: 'Cowork', userAgent: 'Claude-User' }, false],
+            [{ vendorClient: 'ClaudeCode', userAgent: 'Claude-User' }, false],
+            [{}, false],
+        ])('resolves %j to %s', (input, expected) => {
+            expect(new MCPClientProfile(input).isClaudeChatHost()).toBe(expected)
         })
     })
 

@@ -957,6 +957,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto */
     initial_permission_mode?: InitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
 }
 
 /**
@@ -1049,6 +1054,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -1509,6 +1519,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+    /**
+     * Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.
+     * @nullable
+     */
+    rtk_enabled?: boolean | null
     /**
      * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
      * @maxLength 120
