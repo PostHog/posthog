@@ -2,6 +2,7 @@ import asyncio
 
 from unittest.mock import ANY, AsyncMock, patch
 
+from django.conf import settings
 from django.test.testcases import TestCase
 
 import fakeredis
@@ -98,8 +99,8 @@ class TestRedis(TestCase):
                 mock_from_url.assert_any_call(
                     "redis://mocked:6379",
                     db=0,
-                    socket_timeout=20.0,
-                    socket_connect_timeout=3.0,
+                    socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                    socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
                 )
 
     def test_sync_redis_client_passes_socket_timeouts(self):
@@ -112,8 +113,8 @@ class TestRedis(TestCase):
             mock_from_url.assert_called_once_with(
                 "redis://mocked:6379",
                 db=0,
-                socket_timeout=20.0,
-                socket_connect_timeout=3.0,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
             )
 
     def test_same_loop_returns_cached_client_test_mode(self):
