@@ -328,7 +328,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     loaders(({ values }) => ({
         suggestions: {
             __default: [] as SuggestedDomain[],
-            loadSuggestions: async (_: void, breakpoint) => {
+            loadSuggestions: async (_: void, breakpoint): Promise<SuggestedDomain[]> => {
                 const query = hogql`
                     select properties.$current_url, count()
                     from events
