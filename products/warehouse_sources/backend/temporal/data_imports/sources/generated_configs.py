@@ -3550,7 +3550,8 @@ class UbidotsSourceConfig(config.Config):
 
 @config.config
 class UnleashSourceConfig(config.Config):
-    pass
+    instance_url: str
+    api_token: str
 
 
 @config.config
