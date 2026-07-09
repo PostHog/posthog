@@ -12,6 +12,7 @@ import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/S
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -458,10 +459,15 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 function DeliverySection(): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
-    const { slackIntegrations } = useValues(integrationsLogic)
+    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { integration_id } = actionForm
 
     if (!slackIntegrations?.length) {
+        // Don't flash the "add to Slack" banner (which also builds an authorize URL) while the
+        // integrations list is still loading.
+        if (integrationsLoading) {
+            return <Spinner />
+        }
         return <SlackNotConfiguredBanner />
     }
 
