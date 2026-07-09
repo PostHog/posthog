@@ -37,7 +37,6 @@ import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
-    SelfLoopGuardMode,
     getSelfLoopDepth,
     injectSelfLoopDepth,
     isPostHogIngestUrl,
@@ -57,7 +56,6 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
-    selfLoopGuardMode: SelfLoopGuardMode
 }
 
 export interface HogExecutorAsyncContext {
@@ -820,7 +818,7 @@ export class HogExecutorService {
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
         // it was only meant to protect.
-        if (this.config.selfLoopGuardMode === 'enforce' && isPostHogIngestUrl(params.url)) {
+        if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
                 if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {

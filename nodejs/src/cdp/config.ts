@@ -18,7 +18,6 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from './outputs/producers'
-import { SelfLoopGuardMode } from './services/self-loop-guard'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 
 // CdpConfig intersects ClickhouseConfig so any consumer reading
@@ -96,7 +95,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_SELF_LOOP_GUARD_MODE: SelfLoopGuardMode
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: CdpProducerName
@@ -216,9 +214,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Values: 'disabled' | 'enforce'. 'enforce' bounds true event-forwarding loops at
-        // SELF_LOOP_MAX_DEPTH hops; 'disabled' is an emergency kill switch.
-        CDP_SELF_LOOP_GUARD_MODE: 'enforce',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
