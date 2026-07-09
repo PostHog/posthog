@@ -338,11 +338,13 @@ tools:
             user's reference first.
 
 
-            Returns the full experiment object including: status (draft/running/paused/stopped — "paused" is a virtual
-            value returned when the experiment is launched but its feature flag has been deactivated), start_date and
-            end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays,
-            conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and
-            recommended_running_time), stats_config, and type (web/product).
+            Returns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped —
+            "paused" is a virtual value returned when the experiment is launched but its feature flag has been
+            deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
+            enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
+            variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
+            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type
+            (web/product).
         param_overrides:
             id:
                 cast: string-int
@@ -538,17 +540,18 @@ tools:
             the finding-experiments skill for guidance on searching by name, status, recency, or description.
 
 
-            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped, or
-            "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on
-            name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
-            "status"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics
-            summary. Use the returned ID for get/update/lifecycle tools.
+            Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
+            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and
+            free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed
+            "duration" and "status"). Returns paginated results with each experiment's status, dates, feature flag key,
+            and metrics summary. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
                     Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active),
-                    "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete"
-                    (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
+                    "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen"
+                    (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or
+                    "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
             limit:
                 cast: string-int
             offset:
@@ -562,6 +565,7 @@ tools:
                 - name
                 - description
                 - feature_flag_key
+                - feature_flag
                 - start_date
                 - end_date
                 - archived
@@ -1028,6 +1032,9 @@ tools:
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
         enabled: false
+    experiments-freeze-exposure-create:
+        operation: experiments_freeze_exposure_create
+        enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: false
@@ -1043,8 +1050,8 @@ tools:
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
-    experiments-requires-flag-implementation:
-        operation: experiments_requires_flag_implementation_retrieve
+    experiments-unfreeze-exposure-create:
+        operation: experiments_unfreeze_exposure_create
         enabled: false
     experiments-update:
         operation: experiments_update
