@@ -7,8 +7,8 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import {
     TAXONOMIC_LIST_KEY_FAMILY,
     TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
-} from 'lib/components/TaxonomicFilter/hooks/useGroupList'
-import { invalidateTaxonomicResourcesWhere } from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
+    invalidateTaxonomicResourcesWhere,
+} from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -306,6 +306,11 @@ export const cohortsModel = kea<cohortsModelType>([
                 endpoint: api.cohorts.determineDeleteEndpoint(),
                 object: cohort,
                 callback: (undo) => {
+                    if (undo) {
+                        // The delete-time invalidation above already ran; a restore needs its
+                        // own, or pickers keep serving the deleted-state cache for staleTime.
+                        invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
+                    }
                     actions.loadCohorts()
                     if (cohort.id && cohort.id !== 'new') {
                         if (undo) {

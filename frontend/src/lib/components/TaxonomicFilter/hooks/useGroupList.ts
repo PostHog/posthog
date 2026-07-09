@@ -40,15 +40,13 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { fetchTaxonomicListPage } from './fetchTaxonomicListPage'
-import { useTaxonomicResource } from './useTaxonomicResource'
+import {
+    TAXONOMIC_LIST_KEY_FAMILY,
+    TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+    useTaxonomicResource,
+} from './useTaxonomicResource'
 
 export const NO_ITEM_SELECTED = -1
-
-/** Leading element of `remoteKey` — the cached-first-page / full remote fetch. */
-export const TAXONOMIC_LIST_KEY_FAMILY = 'taxonomic-list'
-/** Leading element of `serverSearchKey` — the server-side search fallback for
- *  `clientFilterFirstPage` groups whose dataset exceeds one page. */
-export const TAXONOMIC_LIST_SEARCH_KEY_FAMILY = 'taxonomic-list-search'
 
 const EMPTY_RESULTS: TaxonomicDefinitionTypes[] = []
 const EMPTY_LIST_STORAGE: ListStorage = { results: EMPTY_RESULTS, searchQuery: '', count: 0 }

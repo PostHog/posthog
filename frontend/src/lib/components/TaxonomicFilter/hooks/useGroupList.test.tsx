@@ -135,8 +135,14 @@ describe('useGroupList', () => {
             }
             renderHook(() => useGroupList({ group: makeGroup({ ...base, ...a }), searchQuery: '' }))
             renderHook(() => useGroupList({ group: makeGroup({ ...base, ...b }), searchQuery: '' }))
-            // waitFor polls until this holds, giving a would-be second fetch every chance to fire.
+            // The exact count is deterministic: fetches fire synchronously from act-flushed
+            // effects, so both hooks' requests (or cache hits) precede waitFor's first poll.
             await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
+            if (expectedFetches === 2) {
+                // The differing params must actually reach the request, not just the cache key.
+                const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
+                expect(firstUrl).not.toEqual(secondUrl)
+            }
         })
 
         it('respects minSearchQueryLength gating', () => {
