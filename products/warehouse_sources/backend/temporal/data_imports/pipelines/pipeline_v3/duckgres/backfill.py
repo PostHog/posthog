@@ -228,7 +228,17 @@ def replan_backfill(schema_id: str) -> None:
     """
     state = DuckgresSinkSchemaState.objects.get(schema_id=schema_id)
     if state.backfill_run_uuid:
-        with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        with psycopg.connect(
+            settings.WAREHOUSE_SOURCES_DATABASE_URL,
+            autocommit=True,
+            # These run inline in the consumer fetch path: a half-open connection
+            # must fail in minutes, not the OS TCP timeout (hours).
+            connect_timeout=30,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=4,
+        ) as conn:
             retire_backfill_run(conn, run_uuid=state.backfill_run_uuid)
     DuckgresSinkSchemaState.objects.filter(id=state.id).update(
         state=DuckgresSinkSchemaState.State.PENDING_BACKFILL,
@@ -466,9 +476,27 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
     A crash after step 2 is healed by _reconcile_one (replay 3-4 from the
     stored plan); a crash before it is healed by the planning lease.
     """
-    schema = ExternalDataSchema.objects.select_related("source", "team").get(id=state.schema_id)
+    schema = (
+        ExternalDataSchema.objects.select_related("source", "team").filter(deleted=False, id=state.schema_id).first()
+    )
+    if schema is None:
+        # Soft-deleted (or vanished) schema: its chunks would be unclaimable and
+        # the row would pin a backfill slot forever. The purge sweep in
+        # _reconcile retires the run and removes the state row.
+        logger.warning("duckgres_backfill_plan_skipped_deleted_schema", schema_id=str(state.schema_id))
+        return
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
         if _has_inflight_replace_run(conn, team_id=schema.team_id, schema_id=str(state.schema_id)):
             # Planning now would pin a snapshot mid-run and pre-apply the
             # replace run's head: its post-snapshot tail would then apply into
@@ -482,7 +510,6 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
                 team_id=schema.team_id,
             )
             return
-
         plan = resolve_snapshot_plan(schema)
         snapshot_version = plan.snapshot_version
         chunks = plan.chunks
@@ -539,6 +566,37 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _purge_deleted_schema_states(conn: psycopg.Connection[Any], team_ids: list[int] | None) -> None:
+    """Drop sink state for soft-deleted schemas and retire their runs.
+
+    Schema deletion has no signal into this state machine: a deleted schema's
+    chunks become unclaimable (the eligibility gate excludes deleted schemas),
+    so a BACKFILLING row would sit forever — invisible on the failing gauges
+    (zero failures) while permanently consuming one of the global backfill
+    slots, and its chunks would be re-enqueued after every queue prune. Five
+    routine source deletions would halt all backfill planning fleet-wide.
+    Deleting the row is safe: bootstrap re-creates PENDING_BACKFILL if the
+    schema ever comes back.
+    """
+    states = DuckgresSinkSchemaState.objects.all()
+    if team_ids is not None:
+        if not team_ids:
+            return
+        states = states.filter(team_id__in=team_ids)
+    run_by_schema = dict(states.values_list("schema_id", "backfill_run_uuid"))
+    if not run_by_schema:
+        return
+    deleted_ids = list(
+        ExternalDataSchema.objects.filter(id__in=run_by_schema.keys(), deleted=True).values_list("id", flat=True)
+    )
+    for schema_id in deleted_ids:
+        run_uuid = run_by_schema[schema_id]
+        if run_uuid:
+            retire_backfill_run(conn, run_uuid=run_uuid)
+        DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).delete()
+        logger.warning("duckgres_backfill_state_purged_for_deleted_schema", schema_id=str(schema_id))
+
+
 def _reconcile(team_ids: list[int] | None) -> None:
     """Heal and progress every non-terminal state. Authoritative for PRIMED."""
     # Half-claimed rows (crash between the lease CAS and the plan CAS) carry
@@ -562,10 +620,25 @@ def _reconcile(team_ids: list[int] | None) -> None:
         needs_resync = needs_resync.filter(team_id__in=team_ids)
     rows = [s for s in backfilling if s.backfill_run_uuid]
     resync_rows = list(needs_resync)
-    if not rows and not resync_rows:
-        return
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
+        try:
+            _purge_deleted_schema_states(conn, team_ids)
+        except Exception as e:
+            logger.exception("duckgres_backfill_deleted_schema_purge_failed")
+            capture_exception(e)
+        if not rows and not resync_rows:
+            return
         for state in rows:
             try:
                 _reconcile_one(conn, state)
