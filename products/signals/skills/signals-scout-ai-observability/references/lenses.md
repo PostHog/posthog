@@ -106,7 +106,7 @@ lens**, not on every run:
   treat it as a bonus, not a dependency, and fall back to sampling the raw failing rows via
   `query-llm-trace` when it's unavailable.
 - **Discipline.** Pass-rate regressions **also auto-flow to the inbox** via the enabled
-  `llm_analytics:evaluation` signal source — so only emit when you've localized something
+  `llm_analytics:evaluation` signal source — so only report when you've localized something
   the auto-flow won't (a specific eval + a specific failure pattern + a cause); otherwise
   hold + remember. A known-flaky eval (steady % noise) is `noise:` with a floor.
 
@@ -125,7 +125,7 @@ LLM/Hog jobs that can silently break.
   lens has already surfaced (ProviderMismatchError, disabled-key) — those are this surface
   failing _reactively_; this lens is how you'd catch it _proactively_.
 - **Discipline.** These are config objects — a deliberately-disabled tagger is not a
-  defect. Emit only when something meant to be running is silently failing or scoring
+  defect. Report only when something meant to be running is silently failing or scoring
   nothing.
 
 ## Clusters — read `posthog:exploring-llm-clusters`
@@ -152,5 +152,5 @@ LLM/Hog jobs that can silently break.
 
 Not a standalone metric — a correlate. When the cost, latency, eval, or tool lens flags a
 change, check `llma-prompt-list` for a version bump (`updated_at` / `version`) in the same
-window. A prompt change is a more direct cause than a generic `activity-log-list` deploy
+window. A prompt change is a more direct cause than a generic `advanced-activity-logs-list` deploy
 and sharpens the finding.

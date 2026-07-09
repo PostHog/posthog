@@ -119,6 +119,12 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+// GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
+// by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
+// instead of renaming keeps every existing dashboard and alert on the v1 events working. The
+// redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+const LEGACY_ONBOARDING_EVENT_PROPS = { version: 1, flow_variant: 'legacy' } as const
+
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
     const multiplier = unitToDays[metric.retention_window_unit]
@@ -212,6 +218,22 @@ export function getEventPropertiesForMetric(
     }
 }
 
+/**
+ * The GET projection still echoes flag config into `parameters` (retired in a later cleanup phase).
+ * Keep those flag keys out of telemetry so events carry only experiment-own metadata.
+ */
+function experimentOwnParameters(parameters: Experiment['parameters']): Experiment['parameters'] {
+    const {
+        feature_flag_variants,
+        rollout_percentage,
+        aggregation_group_type_index,
+        feature_flag_payloads,
+        ensure_experience_continuity,
+        ...own
+    } = (parameters ?? {}) as Record<string, unknown>
+    return own as Experiment['parameters']
+}
+
 export function getEventPropertiesForExperiment(experiment: Experiment): object {
     const allMetrics = [
         ...experiment.metrics,
@@ -226,7 +248,7 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
         id: experiment.id,
         name: experiment.name,
         type: experiment.type,
-        parameters: experiment.parameters,
+        parameters: experimentOwnParameters(experiment.parameters),
         metrics: allMetrics.map((m) => getEventPropertiesForMetric(m)),
         secondary_metrics: allSecondaryMetrics.map((m) => getEventPropertiesForMetric(m)),
         metrics_count: allMetrics.length,
@@ -529,6 +551,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
+        reportDashboardMovedToFolder: (props: {
+            fromDepth: number
+            toDepth: number
+            fromUnfiled: boolean
+            toUnfiled: boolean
+        }) => props,
+        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
+        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
+        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -728,40 +759,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_id: string
                 metric_kind: string
                 execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
-        }),
-        reportExperimentMetricError: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId: number | null | undefined,
-            queryId: string | null,
-            context: {
-                duration_ms: number
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                error_type:
-                    | 'timeout'
-                    | 'out_of_memory'
-                    | 'server_error'
-                    | 'network_error'
-                    | 'not_found'
-                    | 'authentication'
-                    | 'authorization'
-                    | 'validation_error'
-                    | 'unknown'
-                error_code: string | null
-                error_message: string | null
-                error_detail: string | null
-                status_code: number | null
             }
         ) => ({
             experimentId,
@@ -1001,8 +998,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
-        // Setup wizard sync (CLI ↔ app) funnel. Fired from the onboarding install step's
-        // progress tracker; guards for "once per session" live in that logic.
+        // Setup wizard sync (CLI ↔ app) funnel. Fired from the Installation layer
+        // (installationProgressLogic); guards for "once per session" live in that logic.
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -1016,18 +1013,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
-        }) => props,
-        reportWizardSyncDismissed: (props: {
-            workflowId: string
-            skillId?: string
-            outcome: string
-            elapsedSeconds: number
-        }) => props,
-        reportWizardSyncProgressExpanded: (props: {
-            workflowId?: string
-            skillId?: string
-            displayState: string
-            progressPct: number
         }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
@@ -1522,6 +1507,28 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
+            // Coarse fields only — never folder/dashboard names (customer-controlled).
+            posthog.capture('dashboard moved to folder', {
+                from_depth: fromDepth,
+                to_depth: toDepth,
+                moved_from_unfiled: fromUnfiled,
+                moved_to_unfiled: toUnfiled,
+            })
+        },
+        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
+            // Length + count only, never the query text (can contain sensitive names).
+            posthog.capture('dashboard list searched', {
+                search_length: searchLength,
+                results_count: resultsCount,
+            })
+        },
+        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
+            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
+        },
+        reportDashboardMoveInitiated: async ({ method, count }) => {
+            posthog.capture('dashboard move initiated', { method, count })
+        },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
                 dashboard_id: dashboardId,
@@ -1715,7 +1722,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: experiment.id,
                 name: experiment.name,
                 type: experiment.type,
-                parameters: experiment.parameters,
+                parameters: experimentOwnParameters(experiment.parameters),
                 ...metadata,
             })
         },
@@ -1872,15 +1879,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 ...getEventPropertiesForMetric(metric),
                 metric,
-                ...context,
-            })
-        },
-        reportExperimentMetricError: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric error', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
                 ...context,
             })
         },
@@ -2288,6 +2286,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingStarted: ({ entrypoint }) => {
             posthog.capture('onboarding started', {
                 entry_point: entrypoint,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
@@ -2296,23 +2295,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
             posthog.capture('onboarding use case selected', {
                 use_case: useCase,
                 recommended_products: recommendedProducts,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportOnboardingUseCaseSkipped: () => {
@@ -2348,6 +2351,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
                 selected,
                 recommendation_source: recommendationSource,
+                ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
         reportSDKSelected: ({ sdk }) => {
@@ -2378,22 +2382,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 task_count: taskCount,
                 completed_task_count: completedTaskCount,
                 elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncDismissed: ({ workflowId, skillId, outcome, elapsedSeconds }) => {
-            posthog.capture('setup wizard sync dismissed', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                outcome,
-                elapsed_seconds: elapsedSeconds,
-            })
-        },
-        reportWizardSyncProgressExpanded: ({ workflowId, skillId, displayState, progressPct }) => {
-            posthog.capture('setup wizard sync progress expanded', {
-                workflow_id: workflowId,
-                skill_id: skillId,
-                display_state: displayState,
-                progress_pct: progressPct,
             })
         },
         // command bar

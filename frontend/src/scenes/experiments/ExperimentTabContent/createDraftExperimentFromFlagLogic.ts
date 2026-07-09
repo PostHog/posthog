@@ -7,13 +7,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { Experiment, MultivariateFlagVariant } from '~/types'
+import type { Experiment } from '~/types'
 
 import type { createDraftExperimentFromFlagLogicType } from './createDraftExperimentFromFlagLogicType'
 
 export interface CreateDraftExperimentFromFlagLogicProps {
     featureFlagKey: string
-    featureFlagVariants: MultivariateFlagVariant[]
 }
 
 export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromFlagLogicType>([
@@ -63,18 +62,13 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
                 return
             }
 
+            // No flag config in the payload: the flag already exists, so the experiment links
+            // to it as-is (its variants carry over) and explicit config would be rejected.
             const payload = {
                 name,
                 description: values.experimentDescription.trim() || '',
                 type: 'product',
                 feature_flag_key: props.featureFlagKey,
-                parameters: {
-                    feature_flag_variants: props.featureFlagVariants.map((v) => ({
-                        key: v.key,
-                        rollout_percentage: v.rollout_percentage,
-                    })),
-                    rollout_percentage: 100,
-                },
                 exposure_criteria: {
                     filterTestAccounts: true,
                 },

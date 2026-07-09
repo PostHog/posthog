@@ -6,6 +6,8 @@ import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enfor
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
+import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createApplyEventFiltersStep } from '~/ingestion/common/steps/event-filters-steps'
 import {
@@ -23,8 +25,6 @@ import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-p
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { processPersonlessDistinctIdsBatchStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep'
-import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
@@ -112,12 +112,14 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatchWithRetry(
+            .pipeBatch(
                 processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
                 {
-                    tries: 5,
-                    sleepMs: 100,
-                    name: 'personless_distinct_ids',
+                    retry: {
+                        tries: 5,
+                        sleepMs: 100,
+                        name: 'personless_distinct_ids',
+                    },
                 }
             )
             // Prefetch hog functions for all teams in the batch

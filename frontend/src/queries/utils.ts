@@ -66,6 +66,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionQuery,
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
@@ -78,7 +79,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -318,6 +319,10 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
     return node?.kind === NodeKind.TracesQuery
 }
 
+export function isSessionQuery(node?: Record<string, any> | null): node is SessionQuery {
+    return node?.kind === NodeKind.SessionQuery
+}
+
 export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
     return node?.kind === NodeKind.WebVitalsQuery
 }
@@ -439,8 +444,11 @@ export function shouldQueryBeAsync(query: Node): boolean {
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         isTracesQuery(query) ||
-        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
-        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
+        isSessionQuery(query) ||
+        (isDataTableNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source))) ||
+        (isDataVisualizationNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source)))
     )
 }
 
@@ -498,6 +506,51 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
         return query.trendsFilter?.display
     }
     return undefined
+}
+
+// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
+// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
+const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
+    ChartDisplayType.Auto,
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+    ChartDisplayType.ActionsStackedBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.Metric,
+    ChartDisplayType.BoxPlot,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.TwoDimensionalHeatmap,
+])
+
+/**
+ * Whether an insight's viz paints to a <canvas>. Canvas viz redraws on every resize frame, so a dashboard tile
+ * throttles its redraws while resizing; DOM/SVG viz (tables, bold numbers, world maps, retention, paths) is cheap
+ * and stays fully live. Unrecognised node types default to true so we never regress resize perf for unknown viz.
+ */
+export function queryVizRendersToCanvas(query?: Node | null): boolean {
+    if (isDataTableNode(query)) {
+        return false
+    }
+    if (isDataVisualizationNode(query)) {
+        return !!query.display && CANVAS_CHART_DISPLAY_TYPES.has(query.display)
+    }
+    if (isInsightVizNode(query)) {
+        const source = query.source
+        if (isRetentionQuery(source) || isPathsQuery(source)) {
+            return false
+        }
+        if (isFunnelsQuery(source)) {
+            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
+            const vizType = source.funnelsFilter?.funnelVizType
+            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert
+        }
+        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto)
+    }
+    return true
 }
 
 export const getFormula = (query: InsightQueryNode | null): string | undefined => {

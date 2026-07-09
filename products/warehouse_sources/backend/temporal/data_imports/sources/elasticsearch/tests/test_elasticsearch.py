@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     PAGE_SIZE,
     ElasticsearchAuth,
@@ -107,6 +109,16 @@ class TestListIndices:
         )
 
         assert list_indices("https://es.example.com", ElasticsearchAuth(api_key="k")) == ["accounts", "orders"]
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_json_response_raises_clear_error(self, mock_session):
+        mock_session.return_value.headers = {}
+        response = _response(None)
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+        mock_session.return_value.get.return_value = response
+
+        with pytest.raises(ValueError, match="non-JSON response"):
+            list_indices("https://es.example.com", ElasticsearchAuth(api_key="k"))
 
 
 class TestGetRows:

@@ -1,4 +1,4 @@
-import { CyclotronJobInputSchemaType } from '~/types'
+import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 
 import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
 
@@ -215,6 +215,43 @@ describe('CyclotronJobInputsValidation', () => {
             })
         })
 
+        describe('native_email To field (object form)', () => {
+            // native_email stores `to` as { name, email }, unlike the legacy `email` type which stores a bare string.
+            const nativeEmailInput = (
+                to: unknown,
+                templating: 'hog' | 'liquid' = 'liquid'
+            ): Record<string, CyclotronJobInputType> => ({
+                email: {
+                    templating,
+                    value: { html: '<p>Hi</p>', subject: 'Subject', from: { integrationId: 1 }, to },
+                },
+            })
+            const schema: CyclotronJobInputSchemaType[] = [{ key: 'email', type: 'native_email', label: 'Email' }]
+
+            // Dot notation on a $-prefixed, hyphenated survey key is invalid Liquid — the natural first attempt.
+            it.each([
+                [
+                    'a malformed Liquid template',
+                    '{{ event.properties.$survey_response_1c0454ff-1138 }}',
+                    'Liquid template error',
+                ],
+                ['an empty address', '', 'To is required'],
+            ])('errors when to.email is %s', (_desc, email, expectedError) => {
+                const result = CyclotronJobInputsValidation.validate(nativeEmailInput({ name: '', email }), schema)
+                expect(result.valid).toBe(false)
+                expect(result.errors.email).toContain(expectedError)
+            })
+
+            it('passes a valid bracket-notation Liquid template in to.email', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    nativeEmailInput({ name: '', email: "{{ event.properties['$survey_response_1c0454ff-1138'] }}" }),
+                    schema
+                )
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+        })
+
         describe('templating validation', () => {
             it('should validate liquid templates and return error on parse failure', () => {
                 const inputs = { template: { value: '{% invalid %}', templating: 'liquid' as const } }
@@ -385,6 +422,24 @@ describe('CyclotronJobInputsValidation', () => {
                     expected: W.liquidSyntaxInHogField,
                 },
                 {
+                    name: 'hog field, liquid pipe filter without a global reference',
+                    value: '{{ user.name | upcase }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'hog field, liquid pipe filter embedded in literal text',
+                    value: 'Cart abandoned by {{ email | default: "someone" }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'hog field, liquid tag syntax',
+                    value: '{% if abandoned %}Reminder{% endif %}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
                     name: 'liquid field, hog single-brace syntax referencing a global',
                     value: '{person.properties.email}',
                     templating: 'liquid',
@@ -424,6 +479,18 @@ describe('CyclotronJobInputsValidation', () => {
                 {
                     name: 'plain literal / static value',
                     value: 'example@posthog.com',
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'hog field, hog OR operator inside single braces',
+                    value: "{person.properties.email || 'unknown'}",
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'hog field, pipe in literal text outside braces',
+                    value: 'status | pending',
                     templating: 'hog',
                     expected: undefined,
                 },

@@ -57,6 +57,7 @@ Endpoint
 EnterpriseEventDefinition
 EnterprisePropertyDefinition
 ErrorTrackingAssignmentRule
+ErrorTrackingBypassRule
 ErrorTrackingGroupingRule
 ErrorTrackingIssue
 ErrorTrackingIssueFingerprintV2
@@ -133,7 +134,9 @@ QuickFilter
 QuickFilterContext
 Reminder
 ReplayObservation
+ReplayObservationLabel
 ReplayScanner
+ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem

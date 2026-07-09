@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
@@ -60,6 +61,9 @@ DEPRECATED_ATTRS = (
     "event_properties",
     "event_properties_with_usage",
     "event_properties_numerical",
+    # Replaced by the `revenue_analytics_config` extension; only the raw-SQL Postgres->ClickHouse
+    # ETL still reads the column, and that bypasses this manager.
+    "revenue_tracking_config",
 )
 
 # Django requires a list of tuples for choices
@@ -634,12 +638,14 @@ class Team(UUIDTClassicModel):
 
     def clean(self) -> None:
         super().clean()
-        # test_account_filters is blank=True (so ModelForms accept empty input) but NOT NULL.
-        # A blank form field cleans to None, and clean_fields skips it (blank + empty value),
-        # so None would otherwise slip past validation and fail on save with a NOT NULL error.
-        # Normalize the empty case back to the field's default empty list.
+        # test_account_filters is blank=True so ModelForms accept empty input, but that also lets the
+        # default inline form accept any non-list JSON ({}, "oops") and the NOT NULL column reject a
+        # blank input that cleaned to None. Enforce the same contract as TeamAdminForm on every
+        # ModelForm path: empty -> [], anything non-list -> error.
         if self.test_account_filters is None:
             self.test_account_filters = []
+        elif not isinstance(self.test_account_filters, list):
+            raise ValidationError({"test_account_filters": "test_account_filters must be a JSON list (e.g. `[]`)."})
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id

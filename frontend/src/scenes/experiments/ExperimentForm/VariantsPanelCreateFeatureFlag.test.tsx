@@ -9,8 +9,21 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
+import type { FeatureFlagMultivariateVariantSchemaApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import { NEW_EXPERIMENT } from '../constants'
 import { VariantsPanelCreateFeatureFlag } from './VariantsPanelCreateFeatureFlag'
+
+// Draft flag config in the flag's own input shape, the source the panel reads and writes.
+const flagConfig = (
+    variants: FeatureFlagMultivariateVariantSchemaApi[],
+    rolloutPercentage?: number
+): Experiment['feature_flag_config'] => ({
+    filters: {
+        multivariate: { variants },
+        ...(rolloutPercentage != null ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] } : {}),
+    },
+})
 
 // Mock JSONEditorInput since it uses Monaco editor which doesn't work in Jest
 jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
@@ -32,12 +45,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         ...NEW_EXPERIMENT,
         name: 'Test Experiment',
         feature_flag_key: 'test-experiment',
-        parameters: {
-            feature_flag_variants: [
-                { key: 'control', rollout_percentage: 50 },
-                { key: 'test', rollout_percentage: 50 },
-            ],
-        },
+        feature_flag_config: flagConfig([
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'test', rollout_percentage: 50 },
+        ]),
     }
 
     const renderComponent = (experiment: Experiment): RenderResult => {
@@ -103,7 +114,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders add variant button', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByRole('button', { name: /add variant/i })).toBeInTheDocument()
+            expect(screen.getByText(/add variant/i)).toBeInTheDocument()
         })
 
         it('renders experience continuity checkbox', () => {
@@ -118,52 +129,47 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('adds a new variant when clicking add button', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
-            expect(mockOnChange).toHaveBeenCalledWith({
-                parameters: expect.objectContaining({
-                    feature_flag_variants: expect.arrayContaining([
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: expect.arrayContaining([
                         expect.objectContaining({ key: 'control' }),
                         expect.objectContaining({ key: 'test' }),
                         expect.objectContaining({ key: 'test-2' }),
                     ]),
-                }),
-            })
+                })
+            )
         })
 
         it('redistributes percentages equally when adding variant', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
-            expect(mockOnChange).toHaveBeenCalledWith({
-                parameters: expect.objectContaining({
-                    feature_flag_variants: expect.arrayContaining([
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: expect.arrayContaining([
                         expect.objectContaining({ rollout_percentage: expect.any(Number) }),
                     ]),
-                }),
-            })
+                })
+            )
 
             // Check that percentages sum to 100
             const call = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-            const sum = call.parameters.feature_flag_variants.reduce(
-                (acc: number, v: any) => acc + v.rollout_percentage,
-                0
-            )
+            const sum = call.variants.reduce((acc: number, v: any) => acc + v.rollout_percentage, 0)
             expect(sum).toBe(100)
         })
 
         it('updates variant key when typing', async () => {
             const experimentWithEmptyVariantKey = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: '', rollout_percentage: 50 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 50 },
+                    { key: '', rollout_percentage: 50 },
+                ]),
             }
 
             renderComponent(experimentWithEmptyVariantKey)
@@ -173,7 +179,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             // Verify onChange was called with variant updates
             expect(mockOnChange).toHaveBeenCalled()
-            const hasVariantUpdate = mockOnChange.mock.calls.some((call) => call[0].parameters?.feature_flag_variants)
+            const hasVariantUpdate = mockOnChange.mock.calls.some((call) => call[0].variants)
             expect(hasVariantUpdate).toBe(true)
         })
 
@@ -181,7 +187,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const { container } = renderComponent(defaultExperiment)
 
             // Click pencil button to enable custom split editing
-            await userEvent.click(screen.getByRole('button', { name: /customize split/i }))
+            await userEvent.click(screen.getByLabelText(/customize split/i))
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
@@ -197,11 +203,9 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1]
             expect(lastCall[0]).toEqual(
                 expect.objectContaining({
-                    parameters: expect.objectContaining({
-                        feature_flag_variants: expect.arrayContaining([
-                            expect.objectContaining({ key: 'control', rollout_percentage: 70 }),
-                        ]),
-                    }),
+                    variants: expect.arrayContaining([
+                        expect.objectContaining({ key: 'control', rollout_percentage: 70 }),
+                    ]),
                 })
             )
         })
@@ -209,12 +213,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('shows error when percentages do not sum to 100', () => {
             const invalidExperiment = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 40 },
-                        { key: 'test', rollout_percentage: 40 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 40 },
+                    { key: 'test', rollout_percentage: 40 },
+                ]),
             }
 
             renderComponent(invalidExperiment)
@@ -225,13 +227,11 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('removes variant when clicking delete button', async () => {
             const experimentWithThreeVariants = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 33 },
-                        { key: 'test', rollout_percentage: 33 },
-                        { key: 'test-2', rollout_percentage: 34 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 33 },
+                    { key: 'test', rollout_percentage: 33 },
+                    { key: 'test-2', rollout_percentage: 34 },
+                ]),
             }
 
             const { container } = renderComponent(experimentWithThreeVariants)
@@ -241,26 +241,24 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             // Click the first delete button (which is for the second variant, since control has no delete button)
             await userEvent.click(deleteButtons[0] as Element)
 
-            expect(mockOnChange).toHaveBeenCalledWith({
-                parameters: expect.objectContaining({
-                    feature_flag_variants: expect.arrayContaining([
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: expect.arrayContaining([
                         expect.objectContaining({ key: 'control' }),
                         expect.objectContaining({ key: 'test-2' }),
                     ]),
-                }),
-            })
+                })
+            )
         })
 
         it('does not show delete button for control variant', () => {
             const experimentWithThreeVariants = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 33 },
-                        { key: 'test', rollout_percentage: 33 },
-                        { key: 'test-2', rollout_percentage: 34 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 33 },
+                    { key: 'test', rollout_percentage: 33 },
+                    { key: 'test-2', rollout_percentage: 34 },
+                ]),
             }
 
             const { container } = render(
@@ -280,12 +278,10 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('redistributes percentages equally when clicking balance button', async () => {
             const unevenExperiment = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 20 },
-                        { key: 'test', rollout_percentage: 80 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 20 },
+                    { key: 'test', rollout_percentage: 80 },
+                ]),
             }
 
             renderComponent(unevenExperiment)
@@ -293,14 +289,14 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const balanceButton = screen.getByTestId('distribute-variants-equally')
             await userEvent.click(balanceButton)
 
-            expect(mockOnChange).toHaveBeenCalledWith({
-                parameters: expect.objectContaining({
-                    feature_flag_variants: [
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    variants: [
                         expect.objectContaining({ key: 'control', rollout_percentage: 50 }),
                         expect.objectContaining({ key: 'test', rollout_percentage: 50 }),
                     ],
-                }),
-            })
+                })
+            )
         })
 
         it.each([
@@ -313,7 +309,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             async ({ inputValue, expectedControl, expectedTest }) => {
                 const { container } = renderComponent(defaultExperiment)
 
-                const customizeButton = screen.getByRole('button', { name: /customize split/i })
+                const customizeButton = screen.getByLabelText(/customize split/i)
                 await userEvent.click(customizeButton)
 
                 const percentageInputs = container.querySelectorAll(
@@ -324,7 +320,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
                 await fireEvent.change(percentageInputs[0] as Element, { target: { value: inputValue } })
 
                 const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-                expect(lastCall.parameters.feature_flag_variants).toEqual([
+                expect(lastCall.variants).toEqual([
                     expect.objectContaining({ key: 'control', rollout_percentage: expectedControl }),
                     expect.objectContaining({ key: 'test', rollout_percentage: expectedTest }),
                 ])
@@ -334,18 +330,16 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('does not auto-balance other variants when there are more than 2', async () => {
             const threeVariantExperiment = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 34 },
-                        { key: 'test', rollout_percentage: 33 },
-                        { key: 'test-2', rollout_percentage: 33 },
-                    ],
-                },
+                feature_flag_config: flagConfig([
+                    { key: 'control', rollout_percentage: 34 },
+                    { key: 'test', rollout_percentage: 33 },
+                    { key: 'test-2', rollout_percentage: 33 },
+                ]),
             }
 
             const { container } = renderComponent(threeVariantExperiment)
 
-            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            const customizeButton = screen.getByLabelText(/customize split/i)
             await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
@@ -356,7 +350,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             await fireEvent.change(percentageInputs[0] as Element, { target: { value: '10' } })
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-            expect(lastCall.parameters.feature_flag_variants).toEqual([
+            expect(lastCall.variants).toEqual([
                 expect.objectContaining({ key: 'control', rollout_percentage: 10 }),
                 expect.objectContaining({ key: 'test', rollout_percentage: 33 }),
                 expect.objectContaining({ key: 'test-2', rollout_percentage: 33 }),
@@ -371,11 +365,11 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const checkbox = screen.getByRole('checkbox')
             await userEvent.click(checkbox)
 
-            expect(mockOnChange).toHaveBeenCalledWith({
-                parameters: expect.objectContaining({
+            expect(mockOnChange).toHaveBeenCalledWith(
+                expect.objectContaining({
                     ensure_experience_continuity: true,
-                }),
-            })
+                })
+            )
         })
 
         it('defaults to unchecked', () => {
@@ -395,13 +389,16 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             expect(slider).toHaveAttribute('aria-valuenow', '100')
         })
 
-        it('renders rollout percentage from experiment parameters', () => {
+        it('renders rollout percentage from the draft flag config', () => {
             const experimentWithRollout = {
                 ...defaultExperiment,
-                parameters: {
-                    ...defaultExperiment.parameters,
-                    rollout_percentage: 75,
-                },
+                feature_flag_config: flagConfig(
+                    [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                    75
+                ),
             }
 
             renderComponent(experimentWithRollout)
@@ -421,7 +418,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             await fireEvent.change(rolloutInput, { target: { value: '50' } })
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-            expect(lastCall.parameters).toEqual(
+            expect(lastCall).toEqual(
                 expect.objectContaining({
                     rollout_percentage: 50,
                 })
@@ -431,28 +428,34 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('preserves rollout_percentage when variants are modified', async () => {
             const experimentWithRollout = {
                 ...defaultExperiment,
-                parameters: {
-                    ...defaultExperiment.parameters,
-                    rollout_percentage: 75,
-                },
+                feature_flag_config: flagConfig(
+                    [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                    75
+                ),
             }
 
             renderComponent(experimentWithRollout)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-            expect(lastCall.parameters.rollout_percentage).toBe(75)
+            expect(lastCall.rollout_percentage).toBe(75)
         })
 
         it('preserves rollout_percentage when experience continuity is toggled', async () => {
             const experimentWithRollout = {
                 ...defaultExperiment,
-                parameters: {
-                    ...defaultExperiment.parameters,
-                    rollout_percentage: 60,
-                },
+                feature_flag_config: flagConfig(
+                    [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                    60
+                ),
             }
 
             renderComponent(experimentWithRollout)
@@ -461,7 +464,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             await userEvent.click(checkbox)
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
-            expect(lastCall.parameters.rollout_percentage).toBe(60)
+            expect(lastCall.rollout_percentage).toBe(60)
         })
     })
 
@@ -502,10 +505,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             ({ variants, rolloutPercentage, expectedSlotWidths, expectedLabels }) => {
                 const experiment = {
                     ...defaultExperiment,
-                    parameters: {
-                        feature_flag_variants: variants,
-                        rollout_percentage: rolloutPercentage,
-                    },
+                    feature_flag_config: flagConfig(variants, rolloutPercentage),
                 }
 
                 const { container } = renderComponent(experiment)
@@ -524,14 +524,15 @@ describe('VariantsPanelCreateFeatureFlag', () => {
     })
 
     describe('edge cases', () => {
-        it('handles experiment without parameters', () => {
-            const experimentWithoutParams = {
+        it('handles experiment without draft flag config', () => {
+            const experimentWithoutConfig = {
                 ...NEW_EXPERIMENT,
                 name: 'Test',
                 feature_flag_key: '',
+                feature_flag_config: undefined,
             }
 
-            renderComponent(experimentWithoutParams)
+            renderComponent(experimentWithoutConfig)
 
             // Should render with default variants
             expect(screen.getByDisplayValue('control')).toBeInTheDocument()
@@ -546,14 +547,12 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             const experimentWithMaxVariants = {
                 ...defaultExperiment,
-                parameters: {
-                    feature_flag_variants: maxVariants,
-                },
+                feature_flag_config: flagConfig(maxVariants),
             }
 
             renderComponent(experimentWithMaxVariants)
 
-            const addButton = screen.queryByRole('button', { name: /add variant/i })
+            const addButton = screen.queryByText(/add variant/i)
             expect(addButton).not.toBeInTheDocument()
         })
     })

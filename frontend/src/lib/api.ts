@@ -18,7 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import { SignalNode } from 'scenes/debug/signals/types'
 import {
     SignalReport,
     SignalReportArtefact,
@@ -165,7 +164,6 @@ import {
     LLMPrompt,
     LLMPromptPublic,
     LLMPromptResolveResponse,
-    LineageGraph,
     LinearTeamType,
     LinkType,
     LinkedInAdsAccountType,
@@ -176,8 +174,8 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlag,
     OrganizationFeatureFlagKeysResponse,
-    OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
@@ -253,7 +251,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    ClaudeTaskRunCreateSchemaApi,
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -749,19 +750,6 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
-    }
-
-    // # Metrics
-    public metrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.environmentsDetail(projectId).addPathComponent('metrics')
-    }
-
-    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1846,15 +1834,6 @@ export class ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
     }
 
-    public upstream(modelId: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId)
-            .addPathComponent('lineage')
-            .addPathComponent('get_upstream')
-            .withQueryString({
-                model_id: modelId,
-            })
-    }
-
     // ActivityLog
     public activityLog(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('activity_log')
@@ -2610,7 +2589,7 @@ const api = {
         async get(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             featureFlagKey: FeatureFlagType['key']
-        ): Promise<OrganizationFeatureFlags> {
+        ): Promise<OrganizationFeatureFlag[]> {
             return await new ApiRequest().organizationFeatureFlags(orgId, featureFlagKey).get()
         },
         async copy(
@@ -2646,7 +2625,7 @@ const api = {
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
-        async list(params?: string): Promise<PaginatedResponse<ActionType>> {
+        async list(params?: string): Promise<CountedPaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
         async listMatchingPluginConfigs(
@@ -2858,6 +2837,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -2903,29 +2885,6 @@ const api = {
             filename: string
         }> {
             return new ApiRequest().logsExport().create({ data: { query, columns } })
-        },
-    },
-
-    metrics: {
-        async hasMetrics(): Promise<boolean> {
-            return new ApiRequest()
-                .metricsHasMetrics()
-                .get()
-                .then((response) => Boolean(response.hasMetrics))
-        },
-        async values({
-            search,
-            limit,
-            signal,
-        }: {
-            search?: string
-            limit?: number
-            signal?: AbortSignal
-        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
-            return new ApiRequest()
-                .metricsValues()
-                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
-                .get({ signal })
         },
     },
 
@@ -3013,6 +2972,9 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true (default) buckets root spans only (a distribution of traces); false buckets
+                // every matching span — pair with a span name filter for operation-scoped pages.
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -4919,6 +4881,44 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async sqlV2Run(
+            notebookId: NotebookType['short_id'],
+            data: { node_id: string; code: string; refs?: Record<string, string> }
+        ): Promise<{ run_id: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
+        },
+        async sqlV2RunResult(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{
+            status: 'running' | 'done' | 'failed'
+            result: {
+                columns?: string[]
+                types?: [string, string][]
+                row_count?: number
+                first_page?: (string | number | null)[][]
+                has_more?: boolean
+            } | null
+            error: string | null
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
+        },
+        async sqlV2RunPage(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            params: { offset: number; limit: number }
+        ): Promise<{
+            columns: string[]
+            types: [string, string][]
+            rows: (string | number | null)[][]
+            has_more: boolean
+        }> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`sql_v2/runs/${runId}/page`)
+                .withQueryString(params)
+                .get()
+        },
         async markdownSave(
             notebookId: NotebookType['short_id'],
             data: {
@@ -5161,9 +5161,6 @@ const api = {
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
         },
-        async getReportSignals(reportId: string): Promise<{ report: SignalReport | null; signals: SignalNode[] }> {
-            return await new ApiRequest().signalReport(reportId).withAction('signals').get()
-        },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
         },
@@ -5255,6 +5252,9 @@ const api = {
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
             },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
+            },
         },
     },
 
@@ -5318,7 +5318,7 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id'], data?: { branch?: string | null }): Promise<Task> {
+        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
             return await new ApiRequest()
                 .task(id)
                 .withAction('run')
@@ -5793,10 +5793,21 @@ const api = {
         }> {
             return await new ApiRequest().dataModelingNodes().withAction('dag_ids').get()
         },
-        async lineage(
-            nodeId: DataModelingNode['id']
-        ): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
-            return await new ApiRequest().dataModelingNode(nodeId).withAction('lineage').get()
+        async lineage({
+            nodeId,
+            savedQueryId,
+        }: {
+            nodeId?: DataModelingNode['id']
+            savedQueryId?: string
+        }): Promise<{ nodes: DataModelingNode[]; edges: DataModelingEdge[] }> {
+            const params: Record<string, string> = {}
+            if (nodeId) {
+                params.node_id = nodeId
+            }
+            if (savedQueryId) {
+                params.saved_query_id = savedQueryId
+            }
+            return await new ApiRequest().dataModelingNodes().withAction('lineage').withQueryString(params).get()
         },
     },
 
@@ -6104,11 +6115,6 @@ const api = {
         },
         async user(userId: UserType['uuid']): Promise<QueryTabState> {
             return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
-        },
-    },
-    upstream: {
-        async get(modelId: string): Promise<LineageGraph> {
-            return await new ApiRequest().upstream(modelId).get()
         },
     },
     insightVariables: {
@@ -7060,6 +7066,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
@@ -7091,7 +7104,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },

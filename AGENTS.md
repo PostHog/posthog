@@ -1,5 +1,9 @@
 # PostHog Development Guide
 
+## General guidelines
+
+- Avoid em-dashes like the plague
+
 ## Codebase Structure
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
@@ -28,18 +32,20 @@
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
+- Dev experience feedback: `hogli devex:feedback "<message>"` sends feedback about repo tooling — hogli, the dev stack, tests, CI, migrations, this setup — straight to the devex team as a `hogli_feedback` event (add `-c bug|idea|praise|question`).
+  **Agents must use it too**: when a hogli command or dev workflow is broken, slow, or confusing, run it — e.g. `hogli devex:feedback -c bug "migrations:run failed with <error>"`. Agent-sent feedback is tagged as such, and it's the fastest signal the devex team gets, so use it liberally rather than suffering friction silently.
 
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- Check docs for any content that may need updating, you can find these at `docs/`
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update the matching doc under `docs/` **in the same PR** — treat a stale doc as part of the breakage, not a follow-up.
 
 ### Commit types
 
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
-- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
+- Scope convention: use `aio` for AI observability changes (for example, `feat(aio): ...`)
 
 ### Format
 
@@ -59,9 +65,9 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
-Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
-Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
+
+**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -71,9 +77,25 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 
 ### Pushing to remote
 
-Don't open GitHub issues or pull requests without human instruction.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+#### Stacked PRs
+
+Restacking force-pushes every branch, and each push triggers a full CI fan-out.
+Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
+The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
+Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
+
+- Keep stacks shallow; merge the base before extending.
+- Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
+- When a restack must push many branches, stagger them instead of force-pushing all at once.
+
+#### Pre-push checks — ci:preflight
+
+A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
+If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Public open source repo guidance
 
@@ -100,7 +122,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines — least privilege, secrets & service-to-service auth (don't add new `INTERNAL_API_SECRET` callers), SQL, HogQL, and semgrep.
 
 ## Architecture guidelines
 
@@ -118,6 +140,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - **PostHog does not enable `ATOMIC_REQUESTS` — there is no implicit per-request transaction.** Each database operation runs in autocommit mode unless explicitly wrapped. Use `with transaction.atomic():` around the specific writes that must succeed or fail together. Do not wrap an entire view method atomically — keep the block as narrow as possible around the related writes. Avoid performing irreversible side effects (sending emails, calling external APIs, enqueuing Celery tasks) inside an atomic block: if the transaction rolls back, those side effects have already happened. Schedule such side effects after the commit, or use `transaction.on_commit()` for Celery task dispatch.
 - **Prefer SeaweedFS over MinIO for object storage — we are working to remove MinIO from the stack.** SeaweedFS (the `seaweedfs` service, S3 API on `:8333`) is the direction of travel for S3-compatible object storage and already backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings, default endpoint `http://seaweedfs:8333`). MinIO (the `objectstorage` service, S3 API on `:19000`) still backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), but it is being phased out. Do not introduce new dependencies on MinIO: don't add new docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container or hardcode `objectstorage:19000`. Both stores are S3-compatible, so code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable as MinIO is retired. When a new local-dev feature needs an S3-compatible store, point it at SeaweedFS.
 - **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
+- **Outbound calls to a third-party API that need rate-limiting or egress telemetry belong in `posthog/egress/` — add a `<domain>/` incarnation (GitHub is the reference) and route callers through its gated, recorded transport, never hand-rolled `requests`. See `posthog/egress/README.md`.**
 
 ## Code Style
 

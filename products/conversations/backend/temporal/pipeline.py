@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
+from uuid import uuid5
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -20,6 +21,7 @@ from products.conversations.backend.temporal.ai_reply.activities.review_reply im
 from products.conversations.backend.temporal.ai_reply.activities.safety_filter import support_safety_filter_activity
 from products.conversations.backend.temporal.ai_reply.activities.validate import support_validate_activity
 from products.conversations.backend.temporal.ai_reply.constants import (
+    AI_REPLY_TRACE_NAMESPACE,
     MAX_ATTEMPTS,
     MAX_SAFETY_REVIEWED_CHARS,
     SCORE_THRESHOLD,
@@ -85,6 +87,7 @@ class SupportReplyWorkflow:
     async def run(self, input: SupportReplyInput) -> str:
         team_id = input.team_id
         ticket_id = input.ticket_id
+        trace_id = str(uuid5(AI_REPLY_TRACE_NAMESPACE, f"support-reply:{team_id}:{ticket_id}"))
         wf_info = workflow.info()
         _triage_base: dict[str, Any] = {
             "schema_version": 1,
@@ -146,12 +149,15 @@ class SupportReplyWorkflow:
 
         # --- Outcome tracking: set before each return, recorded in finally ---
         outcome: dict[str, Any] = {}
+        draft_task_run_ids: list[str] = []
         try:
             # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
             # draft work. Mirrored from the signals product's safety_filter_activity pattern.
             safety_output = await workflow.execute_activity(
                 support_safety_filter_activity,
-                SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
+                SafetyFilterInput(
+                    team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
+                ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -167,7 +173,9 @@ class SupportReplyWorkflow:
             # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
             classify_output = await workflow.execute_activity(
                 support_classify_activity,
-                ClassifyInput(team_id=input.team_id, ticket_context=reviewed_context),
+                ClassifyInput(
+                    team_id=input.team_id, ticket_context=reviewed_context, trace_id=trace_id, ticket_id=ticket_id
+                ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -181,6 +189,9 @@ class SupportReplyWorkflow:
 
             ticket_type = classify_output.ticket_type
             needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
+            # Whether this reply would be auto-sent to the (untrusted) author on its channel.
+            # Keeps customer-data read scopes off any auto-publishable draft (see draft.py).
+            auto_publishable = ticket_type in ctx_output.auto_publish_ticket_types
 
             missing: list[str] = []
             prior_citations: list[str] = []
@@ -203,6 +214,8 @@ class SupportReplyWorkflow:
                         missing=missing,
                         ticket_type=ticket_type,
                         seed_queries=classify_output.seed_queries,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -238,13 +251,16 @@ class SupportReplyWorkflow:
                         prior_missing=missing,
                         always_on_context=ctx_output.always_on_context,
                         ticket_type=ticket_type,
-                        # Only widen scopes when the classifier flagged diagnostics AND the team
-                        # opted in — the toggle is the human consent gate for project-wide reads.
                         needs_diagnostics=needs_diagnostics,
+                        diagnostics_allowed=ctx_output.diagnostics_allowed,
+                        auto_publishable=auto_publishable,
                     ),
-                    start_to_close_timeout=timedelta(minutes=15),
+                    start_to_close_timeout=timedelta(minutes=20),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+
+                if draft_output.task_run_id:
+                    draft_task_run_ids.append(draft_output.task_run_id)
 
                 # Validate
                 validate_output = await workflow.execute_activity(
@@ -257,6 +273,8 @@ class SupportReplyWorkflow:
                         chunk_ids=retrieve_output.chunk_ids,
                         sources=draft_output.sources,
                         ticket_type=ticket_type,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -283,6 +301,8 @@ class SupportReplyWorkflow:
                             reply=draft_output.reply,
                             sources=draft_output.sources,
                             ticket_type=ticket_type,
+                            trace_id=trace_id,
+                            ticket_id=ticket_id,
                         ),
                         start_to_close_timeout=timedelta(minutes=2),
                         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -345,6 +365,8 @@ class SupportReplyWorkflow:
                         reply=best_reply,
                         sources=best_sources,
                         ticket_type=ticket_type,
+                        trace_id=trace_id,
+                        ticket_id=ticket_id,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -411,5 +433,7 @@ class SupportReplyWorkflow:
                         **outcome,
                         "status": "done",
                         "finished_at": workflow.now().isoformat(),
+                        "ai_trace_id": trace_id,
+                        "draft_task_run_ids": draft_task_run_ids,
                     }
                 )

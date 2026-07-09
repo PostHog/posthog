@@ -3,8 +3,8 @@
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
-`memory-create`, `memory-delete`, and `project-profile-get` — over the standard
-PostHog MCP plumbing.
+`memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
+the standard PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -20,7 +20,11 @@ token is already pinned to the team.
 from __future__ import annotations
 
 import uuid
+import dataclasses
 from dataclasses import dataclass
+from datetime import timedelta
+
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -30,6 +34,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -42,6 +47,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
+from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -50,17 +56,15 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
+from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
     ensure_scout_category,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import (
-    HARNESS_SEEDED_BY,
-    canonical_skill_names,
-    sync_canonical_skills,
-)
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.lazy_seed import scout_skill_origin, sync_canonical_skills
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -69,6 +73,8 @@ from products.signals.backend.scout_harness.serializers import (
     EmitReportRequestSerializer,
     EmitReportResponseSerializer,
     EvidenceEntrySerializer,
+    FleetFindingsSummaryQuerySerializer,
+    FleetFindingsSummarySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
@@ -76,6 +82,8 @@ from products.signals.backend.scout_harness.serializers import (
     RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
+    ScoutMemberSerializer,
+    ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
@@ -84,11 +92,21 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutEmissionSerializer,
+    SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import (
+    DAILY_BUDGET_WINDOW,
+    _canonicalize_team_config_keys,
+    _default_team_config,
+    _parse_enrollment,
+    _read_flag_payload,
+    _resolve_enrolled,
+    _resolve_max_runs_per_day,
+    _runs_today_by_team,
+    _team_configs,
     resolve_sync_seed_inputs,
     resolve_team_metadata,
     withheld_skills_for_team,
@@ -101,7 +119,12 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
+from products.signals.backend.scout_harness.tools.runs import (
+    DEFAULT_FINDINGS_WINDOW_HOURS,
+    fleet_findings_summary,
+    get_run,
+    search_recent_runs,
+)
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
     forget,
@@ -109,8 +132,8 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     search_scratchpad,
 )
 from products.signals.backend.scout_report import InvalidScoutReportError
-from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +187,71 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+class Conflict(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "A run for this scout is already in progress."
+    default_code = "conflict"
+
+
+def _scout_run_in_flight(team_id: int, skill_name: str) -> bool:
+    """Whether a *live* run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
+
+    Mirrors the runner's authoritative single-flight (`scout_harness/runner._has_running_run`)
+    so the manual-trigger endpoint can fail fast with a 409 instead of dispatching a workflow
+    that the runner would only skip. Status flows from the linked `TaskRun`; covers a run
+    started by either the coordinator or a prior manual trigger.
+
+    A run older than `STALE_RUN_CUTOFF_S` is an orphan left by a crashed worker (Temporal kills
+    the activity at the hard ceiling, so it cannot still be executing) — it is deliberately NOT
+    counted as in-flight here. Otherwise this fail-fast 409 would short-circuit before the
+    workflow's runner reaches its `_self_heal_stale_runs` reap, wedging the lane until a
+    scheduled tick happens to reap it — which never comes for a disabled scout, whose only run
+    path is this endpoint. Treating the orphan as free lets the dispatched run reap it and proceed.
+    """
+    live_cutoff = timezone.now() - timedelta(seconds=STALE_RUN_CUTOFF_S)
+    return (
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            team_id=team_id,
+            skill_name=skill_name,
+            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+            task_run__created_at__gte=live_cutoff,
+        )
+        .exists()
+    )
+
+
+def _reject_if_manual_run_suppressed(team_id: int) -> None:
+    """Apply the fleet-level gates the scheduled coordinator enforces, so a manual trigger can't
+    run a scout the scheduled path would deliberately suppress.
+
+    Reads the `signals-scout` flag payload once (the same snapshot the coordinator plans off):
+
+    - **Enrollment kill switch.** A project in `skip_team_ids`, or one not enrolled at all, never
+      runs scheduled scouts — so its manual trigger is forbidden too (403). Without this, any
+      caller with `signal_scout:write` could run a scout on a project an operator has explicitly
+      drained or held back via the flag.
+    - **Daily run budget.** `max_runs_per_day` (per-team override → fleet default → code constant)
+      bounds dispatches per rolling 24h. Manual runs land the same `SignalScoutRun` rows the
+      coordinator counts, so they share the tally: once the budget is spent the trigger is
+      throttled (429) until the window rolls, instead of letting repeated manual runs blow past
+      the per-team daily cap the scheduled path enforces.
+
+    `team_id` is the canonical (parent) project id, matching how the coordinator plans; team
+    config keys are canonicalized the same way so a child-env override still lines up.
+    """
+    payload = _read_flag_payload()
+    if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
+        raise exceptions.PermissionDenied(detail="Signals scouts are not enabled for this project.")
+
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
+    if per_day is not None:
+        runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
+        if runs_today >= per_day:
+            raise exceptions.Throttled(detail="This project has reached its daily scout run budget. Try again later.")
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -237,6 +325,13 @@ def _resolve_emission_report_links(
     source_id_to_report_id: dict[str, str] = {}
     if source_ids:
         try:
+            # Deferred: keeps the heavy Signals Temporal workflow/activity graph (dragged in by the
+            # `products.signals.backend.temporal` package aggregator) off the route-load path — this
+            # viewset is imported by routes.py just to register routes.
+            from products.signals.backend.temporal.signal_queries import (
+                fetch_report_ids_for_source_ids,  # noqa: PLC0415
+            )
+
             source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
         except Exception:
             logger.exception("scout_emission_reports_lookup_failed", team_id=team_id, **log_context)
@@ -326,6 +421,38 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=limit,
         )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+
+    @validated_request(
+        query_serializer=FleetFindingsSummaryQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=FleetFindingsSummarySerializer,
+                description="Fleet-wide tally of recently emitted findings.",
+            ),
+        },
+        summary="Summarise recently emitted findings across the fleet",
+        description=(
+            "Return a cheap fleet-wide tally of the findings the scout troop emitted in the recent window — "
+            "the total count, the number of distinct scouts behind them, and the latest emission time. "
+            "Backs the 'Scout findings' callout so it renders from one query instead of the client paging "
+            "through the whole runs window. Counts only runs that emitted at least one finding "
+            "(`emitted_count > 0`) within the last `window_hours` (default 72), capped to the most recent "
+            "120 emitted runs so the count matches what the findings list renders. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_findings_summary",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="findings/summary",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def findings_summary(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        window_hours = validated.get("window_hours") or DEFAULT_FINDINGS_WINDOW_HOURS
+        summary = fleet_findings_summary(team_id=_canonical_team_id(self), window_hours=window_hours)
+        return Response(FleetFindingsSummarySerializer(summary.as_dict()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -636,6 +763,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -754,6 +882,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
                     "safety_explanation": result.safety_explanation,
+                    "remediation": result.remediation,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1087,6 +1216,66 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
 
 
+class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project member roster for reviewer routing — sandbox-only.
+
+    `scope_object = "signal_scout_internal"` makes this a strictly scout-run-only surface: the object is
+    in `INTERNAL_API_SCOPE_OBJECTS`, so session auth, personal API keys, and the `*` consent wildcard are
+    all rejected (`posthog/permissions.py`), and only a harness sandbox OAuth token — which carries
+    `signal_scout_internal:write`, satisfying the default `list` action's `signal_scout_internal:read`
+    requirement (write implies read) — can reach it. The roster is member PII (emails, names, GitHub
+    logins), and this gate keeps it off every user-grantable credential and out of a customer's public MCP
+    catalog — the same internal-vs-external boundary as `emit-signal`, the other internal-scope scout tool.
+    The narrower `signal_scout_report` scope (report-channel scouts only) would tighten this to the tool's
+    sole consumer, but that scope is transient — a temporary split kept only while emit-signal and
+    emit-report coexist — so a durable tool stays on `signal_scout_internal` rather than coupling to a scope
+    slated for removal. The residual exposure (a baseline scout reading its own team's roster) is bounded to
+    the single-team sandbox token.
+
+    The roster is resolved server-side (a plain ORM read via `Team.all_users_with_access()`, not a DRF
+    request through the OAuth permission layer), which is why the org-nested `org-members-list` tool —
+    stripped from a scoped-team token's catalog and 403'd by the org-nested permission gate — can't serve
+    this and a project-nested tool can. Scoping through `all_users_with_access()` (not the whole org) keeps
+    a scout on a private project from enumerating members who lack access to it.
+    """
+
+    serializer_class = ScoutMemberSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout_internal"
+    # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
+    # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors
+    # `SignalScoutMetadataViewSet`.
+    queryset = SignalScoutConfig.objects.unscoped()
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ScoutMembersQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutMemberSerializer(many=True),
+                description="The project's members, each with their routing identity.",
+            ),
+        },
+        summary="List project members for reviewer routing",
+        description=(
+            "Return the people who can review work on this project — one row per member with access to it, "
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
+            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
+            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
+            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
+            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
+            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_members_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        canonical_team = self.team.parent_team or self.team
+        members = list_project_members(canonical_team, search=validated.get("search") or None)
+        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
+
+
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
     """Raise when enabling this scout would push the team past the per-team enabled cap.
 
@@ -1115,23 +1304,7 @@ class _ScoutSkillInfo:
     """
 
     description: str
-    origin: str  # "canonical" | "custom" — see `_scout_origin`.
-
-
-def _scout_origin(skill_name: str, metadata: dict | None) -> str:
-    """Classify a scout by who owns its skill row.
-
-    A scout is `canonical` when the harness seeded its skill row (tagged
-    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
-    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
-    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
-    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
-    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
-    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
-    list would.
-    """
-    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
-    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
+    origin: str  # "canonical" | "custom" — see `lazy_seed.scout_skill_origin`.
 
 
 def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSkillInfo]:
@@ -1149,21 +1322,23 @@ def _skill_info_for(team_id: int, skill_names: list[str]) -> dict[str, _ScoutSki
         "name", "description", "metadata"
     )
     return {
-        name: _ScoutSkillInfo(description=description or "", origin=_scout_origin(name, metadata))
+        name: _ScoutSkillInfo(description=description or "", origin=scout_skill_origin(name, metadata))
         for name, description, metadata in rows
     }
 
 
 class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """Per-scout config: list, register, and tune each scout's schedule, enablement, and
-    emit posture.
+    """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
+    and emit posture.
 
     `list` is read (`signal_scout:read`) and side-effect free — the MCP tool is annotated
-    `readOnly`, so it must never write. `create` and `partial_update` are user-grantable
-    writes (`signal_scout:write`) — config changes drive spend, so enablement is
+    `readOnly`, so it must never write. `create`, `partial_update`, and `destroy` are
+    user-grantable writes (`signal_scout:write`) — config changes drive spend, so enablement is
     activity-logged and `enabled_by` records who flipped it on. `create` exists so a freshly
     authored `signals-scout-*` skill can be configured immediately instead of waiting for the
-    coordinator tick to auto-register a row.
+    coordinator tick to auto-register a row. `destroy` removes a row outright — the cleanup path
+    for an orphaned config whose skill was archived/deleted, which `partial_update` can only make
+    inert (`enabled=false`), not remove.
     """
 
     serializer_class = SignalScoutConfigSerializer
@@ -1318,6 +1493,138 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=SignalScoutManualRunSerializer,
+                description="A run was dispatched. It executes asynchronously; poll the scout's runs for the result.",
+            ),
+            403: OpenApiResponse(description="Signals scouts are not enabled for this project."),
+            404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
+            409: OpenApiResponse(description="A run for this scout is already in progress."),
+            429: OpenApiResponse(
+                description="The project is over its Signals credits quota or daily scout run budget; try again later."
+            ),
+        },
+        summary="Run a scout now",
+        description=(
+            "Dispatch one on-demand run of this scout immediately, regardless of its schedule. "
+            "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
+            "The run executes asynchronously on the worker and inherits every guard the scheduled "
+            "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
+            "if the project is over its Signals credits quota or daily run budget (429) or a run for "
+            "this scout is already in progress (409). A manual run counts against the same daily run "
+            "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
+            "project's daily allowance. A manual run does not change the scout's schedule or "
+            "`last_run_at`. A disabled scout can still be run this way (to test before enabling). "
+            "Returns immediately with the workflow id — poll the scout's runs for the result."
+        ),
+        operation_id="signals_scout_config_run",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="run",
+        # Running a scout drives spend, so this is a write — same scope as enabling a config.
+        required_scopes=["signal_scout:write"],
+    )
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        skill_name = config.skill_name
+        # A withheld scout is invisible across the whole config API (it's excluded from list), so a
+        # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
+        # against the canonical team, matching `list`/`sync`.
+        if skill_name in withheld_skills_for_team(team_id):
+            raise exceptions.NotFound()
+
+        # A config can outlive its skill (the list serializer tolerates a missing skill). Dispatching
+        # for one would 202 + hand back a workflow id, but the runner's `load_skill_for_run` raises
+        # `SkillNotFoundError` before any run row exists — so polling never shows a result. Reject up
+        # front, mirroring `create`'s latest-non-deleted-skill check. The config is effectively dead
+        # without its skill, so this is a 404 alongside the withheld branch above.
+        if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
+            raise exceptions.NotFound()
+
+        # Honor the fleet-level controls the scheduled coordinator enforces before it would ever
+        # dispatch this scout: the enrollment kill switch (`skip_team_ids` / not-enrolled → 403) and
+        # the per-team daily run budget (`max_runs_per_day` → 429). Without these, a manual trigger
+        # would bypass a rollout/kill-switch the operator set in the flag, and let repeated runs
+        # exceed the daily cap the scheduled path respects.
+        _reject_if_manual_run_suppressed(team_id)
+
+        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
+        # re-checked authoritatively downstream (quota in the run activity, single-flight in the
+        # runner and at the Temporal server), but rejecting here avoids dispatching a workflow that
+        # would only be skipped, and turns the common cases into clean 429/409 responses.
+        api_token = Team.objects.only("api_token").get(pk=team_id).api_token
+        if is_team_signals_quota_limited(api_token):
+            raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
+        if _scout_run_in_flight(team_id, skill_name):
+            raise Conflict()
+
+        # Deferred: keeps the heavy Signals Temporal workflow/activity graph (dragged in by the
+        # `products.signals.backend.temporal` package aggregator) off the route-load path — this viewset
+        # is imported by routes.py just to register routes, so a module-level import would make every
+        # API/schema route load pay the full graph.
+        from products.signals.backend.temporal.agentic.scout_scheduler import (
+            start_manual_signals_scout_run,  # noqa: PLC0415
+        )
+
+        try:
+            workflow_id = start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
+        except WorkflowAlreadyStartedError:
+            # A run for this scout was dispatched between the in-flight check and the start call —
+            # the Temporal server's id-conflict policy single-flights it. Surface the same 409.
+            raise Conflict()
+
+        logger.info(
+            "signals_scout: manual run dispatched",
+            team_id=team_id,
+            skill_name=skill_name,
+            workflow_id=workflow_id,
+            user_id=request.user.pk,
+        )
+        return Response(
+            SignalScoutManualRunSerializer(
+                {"skill_name": skill_name, "workflow_id": workflow_id, "started": True}
+            ).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Config deleted."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Delete a scout config",
+        description=(
+            "Delete one scout config by its `id`, removing the per-(team, skill) schedule/emit row "
+            "outright. The point is cleaning up an orphaned config whose `signals-scout-*` skill was "
+            "archived or deleted — it lingers in `list` with an empty `description`, never runs (the "
+            "coordinator skips it and the skill can't load), but can't otherwise be removed over the "
+            "API. Deletion is activity-logged. Note: if the skill still exists, the coordinator "
+            "re-creates a default-schedule config on its next tick — to retire a live scout, archive "
+            "its skill (or set `enabled=false` to make it inert) rather than deleting the config."
+        ),
+        operation_id="signals_scout_config_destroy",
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
+        # config changes drive spend and are activity-logged, removals included.
+        config.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,

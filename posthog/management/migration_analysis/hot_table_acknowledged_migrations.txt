@@ -18,4 +18,4 @@
 # posthog.1234_team_some_genuinely_core_field
 posthog.1244_team_event_retention_months
 # blank=True is form-level only; the AlterField renders to `-- (no-op)`, so it takes no lock.
-posthog.1246_alter_team_test_account_filters
+posthog.1249_alter_team_test_account_filters

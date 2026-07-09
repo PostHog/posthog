@@ -2,13 +2,16 @@ import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { connectedAppsLogic, ConnectedApp } from './connectedAppsLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function sortScopesWriteFirst(scopes: string[]): string[] {
     return [...scopes].sort((a, b) => {
@@ -131,7 +134,7 @@ export function ConnectedApps(): JSX.Element {
             ]}
             emptyState={
                 <div className="flex items-center gap-4 py-4">
-                    <DetectiveHog className="w-16 h-16" />
+                    <HedgehogMagnifyingGlass className="w-16 h-16" />
                     <div>
                         <div className="flex items-center gap-2 font-semibold">
                             <IconKey className="text-xl text-secondary" />

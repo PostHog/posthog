@@ -33,6 +33,17 @@ import {
     PersonsOutput,
 } from './outputs'
 
+// Mirrors the merge condition in PersonMergeService.handleIdentifyOrAlias: an event asks for a person
+// merge when it's $create_alias/$merge_dangerously with an `alias`, or $identify with $anon_distinct_id.
+// Kept in the metrics layer so counting merge-intent events doesn't reach into person processing logic.
+function isMergeIntentEvent(event: PluginEvent): boolean {
+    const properties = event.properties ?? {}
+    if (['$create_alias', '$merge_dangerously'].includes(event.event) && properties['alias']) {
+        return true
+    }
+    return event.event === '$identify' && '$anon_distinct_id' in properties
+}
+
 export interface EventSubpipelineInput {
     message: Message
     event: PluginEvent
@@ -89,20 +100,52 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                     }),
                     (result) => (isDropResult(result) ? 1 : 0)
                 ),
-            ])
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'hog_transform_event' } }
         )
         .pipe(createNormalizeEventStep())
-        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS))
+        .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
+            retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
+        })
         .pipe(
             topHog(createProcessPersonsStep(options, outputs), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,
+                    partition: String(input.message.partition),
                 })),
-            ])
+                sum(
+                    'merge_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (isMergeIntentEvent(input.normalizedEvent) ? 1 : 0)
+                ),
+                sum(
+                    'group_identify_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (input.normalizedEvent.event === '$groupidentify' ? 1 : 0)
+                ),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
         )
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
+        .pipe(
+            topHog(createProcessGroupsStep(teamManager, groupTypeManager, options), [
+                timer('process_groups_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.preparedEvent.distinctId,
+                    partition: String(input.message.partition),
+                })),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
+        )
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(
@@ -133,7 +176,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                         (input) => input.eventsToEmit.length
                     ),
                 ]
-            )
+            ),
+            { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
         )
         .pipe(createRecordIngestionLagStep())
 }

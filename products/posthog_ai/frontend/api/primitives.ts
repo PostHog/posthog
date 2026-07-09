@@ -19,6 +19,31 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
+// Self-sizing textarea (native field-sizing with a react-textarea-autosize fallback) — the input
+// element behind Composer.Textarea, for surfaces that need the bare control (e.g. message editing).
+export { AutosizeTextArea } from '../components/AutosizeTextArea'
+export type { AutosizeTextAreaProps } from '../components/AutosizeTextArea'
+
+// Controlled model + reasoning-effort pickers for a composer footer.
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
+export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
+// Welcome header (logomark + headline + subheadline) and its overridable default headlines.
+export { Welcome } from '../components/welcome/Welcome'
+export type { WelcomeProps } from '../components/welcome/Welcome'
+export { DEFAULT_HEADLINES, pickHeadline } from '../components/welcome/welcomeDefaults'
+
+// Suggestions compound (the "Try PostHog AI for…" button row + in-input dropdown) and its default content.
+export { Suggestions } from '../components/suggestions/Suggestions'
+export type {
+    SuggestionItem,
+    SuggestionGroup,
+    SuggestionsRootProps,
+    SuggestionsButtonsProps,
+    SuggestionsDropdownProps,
+} from '../components/suggestions/Suggestions'
+export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsDefaults'
+
 // `Thread` is the Radix-style compound (Root + Message/Markdown/Reasoning/Failure/Activity/ToolCall
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
@@ -43,6 +68,10 @@ export {
 } from '../components/ActivityPrimitives'
 export type { ActivityStatus } from '../components/ActivityPrimitives'
 export { RunActivity } from '../components/RunActivity'
+export { RunAlertActivity } from '../components/RunAlertActivity'
+
+export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
+export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'

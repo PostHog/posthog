@@ -723,6 +723,26 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated[0]["type"] == "posthog_ticket_tags"
         assert validated[0]["key"] == "tags"
 
+    def test_customer_analytics_account_properties_compiles_dict_values_to_bytecode(self):
+        # Without the opt-in into transpilation, the dict values ship without bytecode and the
+        # Node runtime sets the literal placeholder string instead of the interpolated value.
+        inputs_schema = [{"key": "properties", "type": "customer_analytics_account_properties", "required": True}]
+        inputs = {"properties": {"value": {"Plan tier": "{event.properties.plan}", "MRR": "5000"}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["properties"].get("bytecode") is not None
+
+    def test_customer_analytics_account_relationships_validates_assignment_dict(self):
+        # Guards the type's registration in InputsSchemaItemSerializer's ChoiceField —
+        # without it, publishing a workflow with the relationships node 400s.
+        inputs_schema = [{"key": "relationships", "type": "customer_analytics_account_relationships", "required": True}]
+        inputs = {"relationships": {"value": {"0197f9f0-1111-0000-0000-000000000000": {"type": "user", "id": 42}}}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+
+        assert validated["relationships"].get("bytecode") is not None
+
     @parameterized.expand(
         [
             # Reproduces the original user report: a mixed literal prefix plus a workflow variable.

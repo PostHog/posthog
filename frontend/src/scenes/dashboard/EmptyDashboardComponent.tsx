@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
 import { IconPlus } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -25,6 +26,8 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
@@ -165,7 +168,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             titleOverride="So empty. So much potential."
             description={BASE_TEXT}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChartHog}
             hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}

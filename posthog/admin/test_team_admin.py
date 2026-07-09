@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
-from django.forms import modelform_factory
+from django.forms import ModelForm, modelform_factory
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -24,6 +24,7 @@ from posthog.llm.gateway_internal_client import (
     Wallet,
 )
 from posthog.models import Organization
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
 
@@ -484,6 +485,115 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
             with self.assertRaises(PermissionDenied):
                 self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
 
+    def test_add_credit_records_activity_log_with_actor(self) -> None:
+        request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})
+        result = CreditResult(
+            team_id=self.team.id, entry_id="entry-42", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
+        )
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.activity == "credit_added"
+        assert entry.item_id == "entry-42"
+        assert entry.user == self.user
+        assert entry.was_impersonated is False
+        context = (entry.detail or {}).get("context", {})
+        assert context.get("amount_usd") == "25.000000"
+        assert context.get("reason") == "goodwill"
+        assert context.get("balance_usd") == "35.000000"
+
+    def test_add_credit_impersonated_session_is_captured_and_displayed(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.is_impersonated", return_value=True):
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.was_impersonated is True
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "(impersonated)" in rendered
+
+    def test_add_credit_duplicate_backfills_missing_audit(self) -> None:
+        # A replay whose original audit was lost after the money moved backfills it.
+        request = self._post({"amount_usd": "5", "reason": "x"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        entry = ActivityLog.objects.get(scope="AIGatewayCredit", team_id=self.team.id)
+        assert entry.item_id == "e1"
+        # The backfill path is where actor capture matters most, so pin it here too.
+        assert entry.user == self.user
+        assert entry.was_impersonated is False
+        assert (entry.detail or {}).get("context", {}).get("reason") == "x"
+
+    def test_add_credit_audit_is_idempotent_per_entry(self) -> None:
+        # Two submits resolving to the same ledger entry record exactly one audit row.
+        result_first = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False
+        )
+        result_replay = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True
+        )
+        for result in (result_first, result_replay):
+            request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert ActivityLog.objects.filter(scope="AIGatewayCredit", team_id=self.team.id, item_id="e1").count() == 1
+
+    def test_add_credit_dedup_check_is_team_scoped(self) -> None:
+        # A shared entry_id across teams must not make one team's credit skip the audit write.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        for team in (self.team, other_team):
+            request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+            result = CreditResult(team_id=team.id, entry_id="shared", amount_usd="5", balance_usd="5", duplicate=False)
+            with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+                self.admin.add_ai_gateway_credit_view(request, str(team.pk))
+        assert ActivityLog.objects.filter(scope="AIGatewayCredit", item_id="shared").count() == 2
+
+    def test_add_credit_survives_audit_write_failure(self) -> None:
+        # The credit already moved money, so an audit-write failure must not error the request.
+        request = self._post({"amount_usd": "5", "reason": "x", "form_nonce": "n1"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            with patch("posthog.admin.admins.team_admin.log_activity", side_effect=Exception("boom")):
+                response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+    def test_credit_history_renders_recorded_top_ups(self) -> None:
+        request = self._post({"amount_usd": "25.00", "reason": "goodwill", "form_nonce": "n1"})
+        result = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
+        )
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert self.user.email in rendered
+        assert "25.000000" in rendered
+        assert "goodwill" in rendered
+
+    def test_credit_history_empty_state(self) -> None:
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "no top-ups recorded" in rendered
+
+    def test_credit_history_scoped_to_team(self) -> None:
+        # Another team's top-ups must not render on this team's page.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ActivityLog.objects.create(
+            organization_id=other_team.organization_id,
+            team_id=other_team.id,
+            scope="AIGatewayCredit",
+            activity="credit_added",
+            item_id="other-1",
+            detail={"context": {"amount_usd": "99", "reason": "other-team-secret", "balance_usd": "99"}},
+        )
+        rendered = str(self.admin.ai_gateway_credit_history(self.team))
+        assert "other-team-secret" not in rendered
+        assert "no top-ups recorded" in rendered
+
 
 class TestTeamAdminFormOverspendAllowance(BaseTest):
     def _form(self, value, instance=None):
@@ -517,7 +627,7 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
 
 
 class TestTeamInlineForm(BaseTest):
-    def _inline_form(self):
+    def _inline_form(self) -> ModelForm:
         request = RequestFactory().get("/")
         request.user = self.user
         formset_class = TeamInline(Organization, AdminSite()).get_formset(request)
@@ -530,15 +640,22 @@ class TestTeamInlineForm(BaseTest):
         # blocking the org save for any team whose filters were cleared.
         assert self._inline_form().fields["test_account_filters"].required is False
 
-    @parameterized.expand([("explicit_empty_list", "[]"), ("blank_input", "")])
-    def test_empty_test_account_filters_normalizes_to_list(self, _name: str, raw: str) -> None:
+    def test_blank_test_account_filters_normalizes_to_empty_list(self) -> None:
         # blank=True makes the field optional, but the column is NOT NULL and a blank input
-        # cleans to None. Without model-level normalization that None passes form validation
-        # and then errors on save. Both an explicit `[]` and an empty input must round-trip
-        # to `[]`, never None.
+        # cleans to None. Without Team.clean() normalizing None the value passes form
+        # validation and then errors on save; it must round-trip to `[]`, never None.
         form_class = modelform_factory(Team, fields=["test_account_filters"])
-        form = form_class(data={"test_account_filters": raw}, instance=self.team)
+        form = form_class(data={"test_account_filters": ""}, instance=self.team)
         assert form.is_valid(), form.errors
         form.save()
         self.team.refresh_from_db()
         assert self.team.test_account_filters == []
+
+    @parameterized.expand([("object", "{}"), ("nested_object", '{"key": "email"}'), ("string", '"oops"')])
+    def test_non_list_test_account_filters_is_rejected(self, _name: str, raw: str) -> None:
+        # blank=True also lets the default inline form accept any valid non-list JSON, which would
+        # otherwise be assigned straight onto the model. Team.clean() must reject it as TeamAdminForm does.
+        form_class = modelform_factory(Team, fields=["test_account_filters"])
+        form = form_class(data={"test_account_filters": raw}, instance=self.team)
+        assert not form.is_valid()
+        assert "test_account_filters" in form.errors

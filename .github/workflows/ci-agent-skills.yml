@@ -14,10 +14,6 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     changes:
         permissions:
@@ -58,6 +54,9 @@ jobs:
         if: needs.changes.outputs.skills == 'true'
         permissions:
             contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -72,6 +71,7 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -107,6 +107,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
@@ -170,6 +171,9 @@ jobs:
         if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && needs.current-master.outputs.is-current == 'true'
         permissions:
             contents: write
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -184,6 +188,7 @@ jobs:
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -216,6 +221,7 @@ jobs:
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
               run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data

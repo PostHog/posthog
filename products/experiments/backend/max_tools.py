@@ -152,24 +152,12 @@ class CreateExperimentTool(MaxTool):
                     f"Feature flag '{feature_flag_key}' is already used by experiment '{existing_experiment_with_flag.name}'"
                 )
 
-            feature_flag_variants = [
-                {
-                    "key": variant["key"],
-                    "name": variant.get("name", variant["key"]),
-                    "rollout_percentage": variant["rollout_percentage"],
-                }
-                for variant in variants
-            ]
-
             service = ExperimentService(team=self._team, user=self._user)
             return service.create_experiment(
                 name=name,
                 feature_flag_key=feature_flag_key,
                 description=description or "",
                 type=type,
-                parameters={
-                    "feature_flag_variants": feature_flag_variants,
-                },
                 running_time_calculation={
                     "minimum_detectable_effect": 30,
                 },
@@ -312,7 +300,7 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        data_service = ExperimentSummaryDataService(self._team)
+        data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
             summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)

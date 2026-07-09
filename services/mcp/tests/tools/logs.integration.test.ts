@@ -235,6 +235,27 @@ describe('Logs', { concurrent: false }, () => {
         })
     })
 
+    describe('logs-facet-values-create tool', () => {
+        const facetTool = GENERATED_TOOLS['logs-facet-values-create']!()
+
+        it.each([
+            { name: 'column facet', query: { facetField: 'service_name' as const } },
+            { name: 'resource-attribute facet', query: { facetResourceAttribute: 'k8s.namespace.name' } },
+        ])('should return per-value counts for a $name', async ({ query }) => {
+            const result = await facetTool.handler(context, {
+                query: { ...query, dateRange: { date_from: '-24h' } },
+            })
+            const facetData = parseToolResponse(result)
+
+            expect(facetData).toHaveProperty('results')
+            expect(Array.isArray(facetData.results)).toBe(true)
+            for (const facet of facetData.results) {
+                expect(facet.value).not.toBeUndefined()
+                expect(typeof facet.count).toBe('number')
+            }
+        })
+    })
+
     describe('Logs workflow', () => {
         it('should support attribute discovery and query workflow', async () => {
             const attributesTool = GENERATED_TOOLS['logs-attributes-list']!()

@@ -105,6 +105,7 @@ __all__ = [
     "mark_primed",
     "replan_backfill",
     "run_backfill_planner",
+    "sink_eligible_schema_ids",
 ]
 
 
@@ -148,6 +149,53 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
     return [str(sid) for sid in schemas.values_list("id", flat=True) if str(sid) not in primed_ids]
 
 
+def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
+    """Schema ids whose (team, source_type) is on warehouse-pipelines-v3.
+
+    The sink claims batches ONLY for these schemas, keeping consumption in
+    lockstep with the v3 routing flag — the same gate that decides which source
+    types the v3 pipeline produces for and which schemas get primed here. The
+    shared queue can hold batches for non-v3 source types (a source_type that
+    was v3 during an earlier flag window, or the flag-independent CDC writer);
+    without this gate the team-scoped claim applies them anyway, and replace-head
+    batches (full_refresh / first-ever incremental) even bypass the unprimed
+    block. Enabling a source_type later lets its schemas bootstrap, prime, and
+    begin live application through the normal path.
+
+    Evaluated per (team_id, source_type) with a local cache — the same gate
+    ``_bootstrap_state_rows`` uses to decide priming, so consumption and priming
+    never disagree. Raises on app-DB errors so the caller keeps its previous
+    cached set; a transient blip must not silently empty the allow-list.
+
+    Prod only: the consumer calls this with a concrete team list. Dev mode
+    (no team filter) is left ungated by the caller.
+    """
+    close_old_connections()
+    if not team_ids:
+        return []
+
+    # Lazy import: create_job_model pulls in temporalio.activity + the data
+    # warehouse facade, kept off the planner module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    schemas = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id__in=team_ids)
+        .values("id", "team_id", "source__source_type")
+    )
+    v3_enabled: dict[tuple[int, str], bool] = {}
+    eligible: list[str] = []
+    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+        key = (schema["team_id"], schema["source__source_type"])
+        if key not in v3_enabled:
+            v3_enabled[key] = is_pipeline_v3_enabled(schema["team_id"], schema["source__source_type"])
+        if v3_enabled[key]:
+            eligible.append(str(schema["id"]))
+    return eligible
+
+
 def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
     """Fast path called by the processor right after the swap commits.
 
@@ -173,7 +221,17 @@ def replan_backfill(schema_id: str) -> None:
     """
     state = DuckgresSinkSchemaState.objects.get(schema_id=schema_id)
     if state.backfill_run_uuid:
-        with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        with psycopg.connect(
+            settings.WAREHOUSE_SOURCES_DATABASE_URL,
+            autocommit=True,
+            # These run inline in the consumer fetch path: a half-open connection
+            # must fail in minutes, not the OS TCP timeout (hours).
+            connect_timeout=30,
+            keepalives=1,
+            keepalives_idle=60,
+            keepalives_interval=15,
+            keepalives_count=4,
+        ) as conn:
             retire_backfill_run(conn, run_uuid=state.backfill_run_uuid)
     DuckgresSinkSchemaState.objects.filter(id=state.id).update(
         state=DuckgresSinkSchemaState.State.PENDING_BACKFILL,
@@ -358,9 +416,27 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
     A crash after step 2 is healed by _reconcile_one (replay 3-4 from the
     stored plan); a crash before it is healed by the planning lease.
     """
-    schema = ExternalDataSchema.objects.select_related("source", "team").get(id=state.schema_id)
+    schema = (
+        ExternalDataSchema.objects.select_related("source", "team").filter(deleted=False, id=state.schema_id).first()
+    )
+    if schema is None:
+        # Soft-deleted (or vanished) schema: its chunks would be unclaimable and
+        # the row would pin a backfill slot forever. The purge sweep in
+        # _reconcile retires the run and removes the state row.
+        logger.warning("duckgres_backfill_plan_skipped_deleted_schema", schema_id=str(state.schema_id))
+        return
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
         plan = resolve_snapshot_plan(schema)
         snapshot_version = plan.snapshot_version
         chunks = plan.chunks
@@ -417,6 +493,37 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _purge_deleted_schema_states(conn: psycopg.Connection[Any], team_ids: list[int] | None) -> None:
+    """Drop sink state for soft-deleted schemas and retire their runs.
+
+    Schema deletion has no signal into this state machine: a deleted schema's
+    chunks become unclaimable (the eligibility gate excludes deleted schemas),
+    so a BACKFILLING row would sit forever — invisible on the failing gauges
+    (zero failures) while permanently consuming one of the global backfill
+    slots, and its chunks would be re-enqueued after every queue prune. Five
+    routine source deletions would halt all backfill planning fleet-wide.
+    Deleting the row is safe: bootstrap re-creates PENDING_BACKFILL if the
+    schema ever comes back.
+    """
+    states = DuckgresSinkSchemaState.objects.all()
+    if team_ids is not None:
+        if not team_ids:
+            return
+        states = states.filter(team_id__in=team_ids)
+    run_by_schema = dict(states.values_list("schema_id", "backfill_run_uuid"))
+    if not run_by_schema:
+        return
+    deleted_ids = list(
+        ExternalDataSchema.objects.filter(id__in=run_by_schema.keys(), deleted=True).values_list("id", flat=True)
+    )
+    for schema_id in deleted_ids:
+        run_uuid = run_by_schema[schema_id]
+        if run_uuid:
+            retire_backfill_run(conn, run_uuid=run_uuid)
+        DuckgresSinkSchemaState.objects.filter(schema_id=schema_id).delete()
+        logger.warning("duckgres_backfill_state_purged_for_deleted_schema", schema_id=str(schema_id))
+
+
 def _reconcile(team_ids: list[int] | None) -> None:
     """Heal and progress every non-terminal state. Authoritative for PRIMED."""
     # Half-claimed rows (crash between the lease CAS and the plan CAS) carry
@@ -440,10 +547,25 @@ def _reconcile(team_ids: list[int] | None) -> None:
         needs_resync = needs_resync.filter(team_id__in=team_ids)
     rows = [s for s in backfilling if s.backfill_run_uuid]
     resync_rows = list(needs_resync)
-    if not rows and not resync_rows:
-        return
 
-    with psycopg.connect(settings.WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+    with psycopg.connect(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        autocommit=True,
+        # These run inline in the consumer fetch path: a half-open connection
+        # must fail in minutes, not the OS TCP timeout (hours).
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
+    ) as conn:
+        try:
+            _purge_deleted_schema_states(conn, team_ids)
+        except Exception as e:
+            logger.exception("duckgres_backfill_deleted_schema_purge_failed")
+            capture_exception(e)
+        if not rows and not resync_rows:
+            return
         for state in rows:
             try:
                 _reconcile_one(conn, state)

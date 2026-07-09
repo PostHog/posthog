@@ -5,11 +5,11 @@ import { IconCode } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
-import { ScopeAccessRow } from 'scenes/settings/shared/ScopeAccessRow'
 import { urls } from 'scenes/urls'
 
 import { CLI_SCOPE_PRESETS, cliAuthorizeLogic } from './cliAuthorizeLogic'
@@ -41,7 +41,7 @@ export function CLIAuthorize(): JSX.Element {
         useActions(cliAuthorizeLogic)
 
     return (
-        <BridgePage view="login" hedgehog={false}>
+        <BridgePage view="login">
             {isSuccess ? (
                 <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>
