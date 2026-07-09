@@ -1,6 +1,6 @@
 import { Pool } from 'pg'
 
-import { EMPTY_USAGE_TOTAL, EncryptedFields, PgRevisionStore } from '@posthog/agent-shared'
+import { AgentSpecSchema, EMPTY_USAGE_TOTAL, EncryptedFields, PgRevisionStore } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
 
 import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
@@ -50,33 +50,43 @@ describe('makeEncryptedEnvResolver', () => {
         encryption = new EncryptedFields(KEY)
     })
 
-    async function seedApp(encryptedEnv: string | null): Promise<string> {
+    // Seed an application + a revision carrying `encrypted_env`. Secrets live on
+    // the REVISION now, so the resolver reads them off `session.revision_id`.
+    // Returns the revision id to stamp onto the session under test.
+    async function seedRevision(encryptedEnv: string | null): Promise<string> {
         const app = await revisions.createApplication({
             team_id: 1,
             slug: 'a',
             name: 'A',
             description: '',
+        })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'test/x' }),
             encrypted_env: encryptedEnv,
         })
-        return app.id
+        return rev.id
     }
 
-    it('returns {} when no encrypted_env is set on the application', async () => {
-        const appId = await seedApp(null)
+    it('returns {} when no encrypted_env is set on the revision', async () => {
+        const revId = await seedRevision(null)
         const resolve = makeEncryptedEnvResolver({ revisions, encryption })
-        expect(await resolve(freshSession({ application_id: appId }))).toEqual({})
+        expect(await resolve(freshSession({ revision_id: revId }))).toEqual({})
     })
 
-    it('returns {} when the application is unknown (revision_store returns null)', async () => {
+    it('returns {} when the revision is unknown (revision_store returns null)', async () => {
         const resolve = makeEncryptedEnvResolver({ revisions, encryption })
-        expect(await resolve(freshSession({ application_id: '00000000-0000-4000-8000-000000000666' }))).toEqual({})
+        expect(await resolve(freshSession({ revision_id: '00000000-0000-4000-8000-000000000666' }))).toEqual({})
     })
 
-    it('decrypts a JSON env block into a string-only map', async () => {
+    it("decrypts the revision's JSON env block into a string-only map", async () => {
         const ct = encryption.encrypt(JSON.stringify({ STRIPE_KEY: 'sk_test_x', PORT: 8080 }))
-        const appId = await seedApp(ct)
+        const revId = await seedRevision(ct)
         const resolve = makeEncryptedEnvResolver({ revisions, encryption })
-        expect(await resolve(freshSession({ application_id: appId }))).toEqual({
+        expect(await resolve(freshSession({ revision_id: revId }))).toEqual({
             STRIPE_KEY: 'sk_test_x',
             PORT: '8080',
         })
@@ -85,8 +95,8 @@ describe('makeEncryptedEnvResolver', () => {
     it('returns {} (not throw) when decryption fails — keeps the session alive', async () => {
         const otherKey = new EncryptedFields('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
         const ct = otherKey.encrypt(JSON.stringify({ X: 'y' }))
-        const appId = await seedApp(ct)
+        const revId = await seedRevision(ct)
         const resolve = makeEncryptedEnvResolver({ revisions, encryption })
-        expect(await resolve(freshSession({ application_id: appId }))).toEqual({})
+        expect(await resolve(freshSession({ revision_id: revId }))).toEqual({})
     })
 })

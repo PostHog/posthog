@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { BuildJsHtmlSnippetConfig, buildJsHtmlSnippet } from './js-snippet-builder'
 

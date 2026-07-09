@@ -4,15 +4,16 @@ use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
-    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, SplitPersonRequest, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonlessDistinctIdsBatchForTeamRequest,
+    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
+    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
+    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
+    TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1261,6 +1262,82 @@ async fn test_delete_persons_batch_for_team_invalid_batch_size(#[case] batch_siz
     ctx.cleanup().await.ok();
 }
 
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team() {
+    let ctx = ServiceTestContext::new().await;
+    ctx.insert_personless_distinct_id("svc_personless_1")
+        .await
+        .unwrap();
+    ctx.insert_personless_distinct_id("svc_personless_2")
+        .await
+        .unwrap();
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 1,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 1);
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 100,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 1);
+
+    let response = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size: 100,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+    assert_eq!(response.into_inner().deleted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::zero(0)]
+#[case::negative(-1)]
+#[case::exceeds_max(50001)]
+#[tokio::test]
+async fn test_delete_personless_distinct_ids_batch_for_team_invalid_batch_size(
+    #[case] batch_size: i64,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    let result = ctx
+        .service
+        .delete_personless_distinct_ids_batch_for_team(Request::new(
+            DeletePersonlessDistinctIdsBatchForTeamRequest {
+                team_id: ctx.team_id,
+                batch_size,
+            },
+        ))
+        .await;
+
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+    assert!(status.message().contains("batch_size"));
+
+    ctx.cleanup().await.ok();
+}
+
 #[rstest]
 #[case::exceeds_max((0..251).map(|i| format!("did_{i}")).collect(), "Maximum")]
 #[case::duplicates(vec!["dup@example.com".to_string(), "dup@example.com".to_string()], "Duplicate")]
@@ -1287,6 +1364,89 @@ async fn test_split_person_invalid_request(
         "Expected message containing {expected_message:?}, got: {}",
         status.message()
     );
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Undelete repair: reset version tests
+// ============================================================
+
+#[tokio::test]
+async fn test_set_person_distinct_id_version_floor() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_repair_did", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .set_person_distinct_id_version_floor(Request::new(
+            SetPersonDistinctIdVersionFloorRequest {
+                team_id: ctx.team_id,
+                distinct_id: "svc_repair_did".to_string(),
+                min_version: 150,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+
+    let returned = response
+        .into_inner()
+        .person
+        .expect("person should be present");
+    assert_eq!(returned.id, person.id);
+    assert_eq!(returned.uuid, person.uuid.to_string());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_distinct_id_version_floor_missing() {
+    let ctx = ServiceTestContext::new().await;
+
+    let response = ctx
+        .service
+        .set_person_distinct_id_version_floor(Request::new(
+            SetPersonDistinctIdVersionFloorRequest {
+                team_id: ctx.team_id,
+                distinct_id: "svc_missing_did".to_string(),
+                min_version: 10,
+            },
+        ))
+        .await
+        .expect("RPC failed");
+
+    assert!(response.into_inner().person.is_none());
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_set_person_version_floor() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_rv_did", None).await.unwrap();
+
+    let response = ctx
+        .service
+        .set_person_version_floor(Request::new(SetPersonVersionFloorRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            min_version: 50,
+        }))
+        .await
+        .expect("RPC failed");
+    assert!(response.into_inner().updated);
+
+    // Lower min_version is a guarded no-op.
+    let response = ctx
+        .service
+        .set_person_version_floor(Request::new(SetPersonVersionFloorRequest {
+            team_id: ctx.team_id,
+            person_id: person.id,
+            min_version: 10,
+        }))
+        .await
+        .expect("RPC failed");
+    assert!(!response.into_inner().updated);
 
     ctx.cleanup().await.ok();
 }

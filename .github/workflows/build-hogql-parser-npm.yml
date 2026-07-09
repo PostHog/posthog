@@ -56,12 +56,21 @@ jobs:
                   if [[ "$IS_FORK" == 'true' ]]; then
                     message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
                   fi
-                  # Post once, then edit in place on subsequent pushes
-                  existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*npm.*version stayed the same")) | .id' | tail -1)
-                  if [[ -n "$existing" ]]; then
-                    gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                    BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-npm warn "version bump needed"
                   else
-                    gh pr comment "$PR_NUMBER" --body "$message_body"
+                    echo "Skipping hogql-parser-npm section — script not present on this checkout"
+                  fi
+
+            # Version was bumped — mark any reminder from an earlier push resolved.
+            - name: Clear version reminder
+              if: steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NEW_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
+              run: |
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                    node .github/scripts/post-reminder-section.mjs hogql-parser-npm --clear "version bumped to $NEW_VERSION"
                   fi
 
     build-wasm:
@@ -135,11 +144,13 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: 'pnpm'
 
             - name: Install uv
               id: setup-uv

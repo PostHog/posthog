@@ -104,9 +104,11 @@ export function FeatureFlagFiltersSection({
                                 dropdownMatchSelectWidth={false}
                                 size="small"
                                 onChange={(status) => {
-                                    const { active, ...restFilters } = filters || {}
+                                    const { active, archived, ...restFilters } = filters || {}
                                     if (status === 'all') {
                                         setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
+                                    } else if (status === 'ARCHIVED') {
+                                        setFeatureFlagsFilters({ ...restFilters, archived: 'true', page: 1 }, true)
                                     } else {
                                         setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
                                     }
@@ -124,8 +126,13 @@ export function FeatureFlagFiltersSection({
                                         value: 'STALE',
                                         'data-attr': 'feature-flag-select-status-stale',
                                     },
+                                    {
+                                        label: 'Archived',
+                                        value: 'ARCHIVED',
+                                        'data-attr': 'feature-flag-select-status-archived',
+                                    },
                                 ]}
-                                value={filters.active ?? 'all'}
+                                value={filters.archived === 'true' ? 'ARCHIVED' : (filters.active ?? 'all')}
                                 data-attr="feature-flag-select-status"
                             />
                         </>
@@ -162,6 +169,20 @@ export function FeatureFlagFiltersSection({
                                     setFeatureFlagsFilters({ tags: tags.length > 0 ? tags : undefined, page: 1 })
                                 }}
                                 data-attr="feature-flag-select-tags"
+                            />
+                            <span className="ml-1">
+                                <b>Exclude tags</b>
+                            </span>
+                            <TagSelect
+                                defaultLabel="No tags"
+                                value={filters.excluded_tags || []}
+                                onChange={(excludedTags) => {
+                                    setFeatureFlagsFilters({
+                                        excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
+                                        page: 1,
+                                    })
+                                }}
+                                data-attr="feature-flag-select-excluded-tags"
                             />
                         </>
                     )}

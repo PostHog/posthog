@@ -1,14 +1,35 @@
+import { render, waitFor } from '@testing-library/react'
+import { createElement } from 'react'
+
 import { getListItemRefKey } from './listModel'
 import { parseMarkdownNotebook } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
 import {
     getFocusedBlockCaretPosition,
     mapRemoteCaretPositionThroughDocumentChange,
+    RemoteCaretOverlay,
     resolveRemoteCaretLayout,
 } from './remoteCarets'
 import { NotebookBlockNode, NotebookDocument } from './types'
 
 describe('remoteCarets', () => {
+    const originalResizeObserver = global.ResizeObserver
+
+    class ResizeObserverMock {
+        observe(): void {}
+        disconnect(): void {}
+    }
+
+    beforeEach(() => {
+        ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver | undefined }).ResizeObserver =
+            ResizeObserverMock as unknown as typeof ResizeObserver
+    })
+
+    afterEach(() => {
+        ;(global as typeof globalThis & { ResizeObserver: typeof ResizeObserver | undefined }).ResizeObserver =
+            originalResizeObserver
+    })
+
     const paragraph = (id: string, text: string): NotebookBlockNode => ({
         id,
         type: 'paragraph',
@@ -104,6 +125,35 @@ describe('remoteCarets', () => {
         const element = makeElement('rendered query text', { top: 300, left: 16 })
         const layout = resolveRemoteCaretLayout({ nodeIndex: 0, offset: 4 }, nodes, { c1: element }, {}, container)
         expect(layout).toMatchObject({ top: 300, left: 16, width: 100, height: 20 })
+    })
+
+    it('renders AI thinking dots after the remote caret label', async () => {
+        const nodes = [paragraph('p1', 'hello')]
+        const element = makeElement('hello', { top: 20, left: 12 })
+        const containerElement = makeElement('', { top: 0, left: 0 })
+        const { container: renderedContainer } = render(
+            createElement(RemoteCaretOverlay, {
+                carets: [
+                    {
+                        clientId: 'notebook-agent:ai',
+                        userName: 'AI',
+                        color: 'green',
+                        position: { nodeIndex: 0 },
+                        isAI: true,
+                        isAIThinking: true,
+                    },
+                ],
+                nodes,
+                blockRefs: { current: { p1: element } },
+                listItemRefs: { current: {} },
+                containerRef: { current: containerElement },
+            })
+        )
+
+        await waitFor(() =>
+            expect(renderedContainer.querySelectorAll('.MarkdownNotebook__remote-caret-ai-dots span')).toHaveLength(3)
+        )
+        expect(renderedContainer.querySelector('.MarkdownNotebook__remote-caret-flag')?.textContent).toEqual('AI...')
     })
 
     describe('mapRemoteCaretPositionThroughDocumentChange', () => {

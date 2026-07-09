@@ -43,18 +43,31 @@
             ],
             "description": "Column name used to track sync progress."
         },
+        "incremental_field_lookback_seconds": {
+            "anyOf": [
+                {
+                    "maximum": 5184000,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days)."
+        },
         "incremental_field_type": {
             "anyOf": [
                 {
-                    "description": "* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid",
-                    "enum": ["integer", "numeric", "datetime", "date", "timestamp", "objectid"],
+                    "description": "* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid",
+                    "enum": ["integer", "numeric", "datetime", "date", "timestamp", "objectid", "xid"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid"
+            "description": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid"
         },
         "primary_key_columns": {
             "anyOf": [
@@ -140,15 +153,15 @@
         "sync_type": {
             "anyOf": [
                 {
-                    "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc",
-                    "enum": ["full_refresh", "incremental", "append", "webhook", "cdc"],
+                    "description": "* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+                    "enum": ["full_refresh", "incremental", "append", "webhook", "cdc", "xmin"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc"
+            "description": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin"
         }
     },
     "required": ["id"],

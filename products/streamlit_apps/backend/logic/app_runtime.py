@@ -29,8 +29,8 @@ from products.streamlit_apps.backend.models import (
     StreamlitAppVersion,
 )
 from products.streamlit_apps.backend.tasks import reset_streamlit_app_restart_count_if_stable
-from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import SandboxBase, SandboxConfig, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.sandbox import SandboxBase, SandboxConfig, SandboxTemplate, get_sandbox_class
 
 logger = structlog.get_logger(__name__)
 
@@ -293,7 +293,7 @@ def _clear_sync_failures(sandbox_record: StreamlitAppSandbox) -> None:
     cache.delete(_sync_failure_key(sandbox_record))
 
 
-def _sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
+def sync_sandbox_status(sandbox_record: StreamlitAppSandbox) -> StreamlitAppSandbox:
     """Sync DB sandbox status with the Modal sandbox state.
 
     Handles only RUNNING→STOPPED (died) and STARTING→ERROR (timed out).
@@ -393,11 +393,8 @@ class AppRuntimeService:
 
                 modal_image_id = sandbox.create_snapshot()
 
-                snapshot = SandboxSnapshot.objects.create(
-                    external_id=modal_image_id,
-                    status=SandboxSnapshot.Status.COMPLETE,
-                )
-                version.snapshot_id = str(snapshot.id)
+                snapshot_id = tasks_facade.create_completed_sandbox_snapshot(external_id=modal_image_id)
+                version.snapshot_id = str(snapshot_id)
                 version.snapshot_created_at = timezone.now()
                 version.save(update_fields=["snapshot_id", "snapshot_created_at"])
 
@@ -498,7 +495,7 @@ class AppRuntimeService:
                 "restart_count": app.restart_count,
             }
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
 
         return {
             "status": sandbox_record.status,
@@ -517,7 +514,7 @@ class AppRuntimeService:
         if not sandbox_record or not sandbox_record.sandbox_id:
             return None
 
-        sandbox_record = _sync_sandbox_status(sandbox_record)
+        sandbox_record = sync_sandbox_status(sandbox_record)
         if sandbox_record.status != StreamlitAppSandbox.Status.RUNNING:
             return None
 

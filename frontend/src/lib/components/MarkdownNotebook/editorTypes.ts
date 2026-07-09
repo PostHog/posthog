@@ -7,6 +7,7 @@ import {
 
 import {
     NotebookCodeBlockNode,
+    NotebookComponentProps,
     NotebookInlineNode,
     NotebookListBlockNode,
     NotebookTextBlockNode,
@@ -42,6 +43,12 @@ export type InsertCommand = {
     closeOnRun?: boolean
     disabled?: boolean
     run: (targetNodeId: string) => void
+}
+
+/** Insertion primitives handed to caller-supplied insert commands so they can add blocks without
+ * reaching into the editor's internals. The caller owns the command's label, icon, and behavior. */
+export type MarkdownNotebookInsertMenuApi = {
+    insertComponent: (targetNodeId: string, tagName: string, props: NotebookComponentProps) => void
 }
 
 export type InsertMenuState = {

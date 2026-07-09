@@ -307,6 +307,20 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
+    def test_event_fetching_defaults_off(self):
+        runner = ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(),
+                orderBy="last_seen",  # pyright: ignore[reportArgumentType]
+                volumeResolution=1,
+            ),
+        )
+        self.assertFalse(runner.query.withFirstEvent)
+        self.assertFalse(runner.query.withLastEvent)
+        self.assertTrue(runner.query.withAggregations)
+
     @freeze_time("2022-01-10T12:11:00")
     def test_missing_date_from_defaults_to_seven_days(self):
         # A missing date_from must default to a bounded 7-day window, not all-time.

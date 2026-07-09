@@ -2650,6 +2650,12 @@ class TestIsNonRetryableError(BaseTest):
             ("no_such_column", 16, "No such column"),
             ("timeout", 159, "Timeout exceeded"),
             ("too_many_queries", 202, "Too many simultaneous queries"),
+            # The read cap is deterministic for a given window: a retry re-scans
+            # the same data only to fail the same way.
+            ("too_many_rows_or_bytes", 307, "Limit for rows or bytes to read exceeded"),
+            # An OOM won't succeed on an immediate retry — retrying just re-pressures the
+            # cluster. Fail fast so the caller can react (e.g. cap the team's window).
+            ("memory_limit", 241, "Memory limit exceeded"),
         ]
     )
     def test_clickhouse_non_retryable_error_codes(self, name, code, message):
@@ -2659,7 +2665,7 @@ class TestIsNonRetryableError(BaseTest):
 
     @parameterized.expand(
         [
-            ("memory_limit", 241, "Memory limit exceeded"),
+            ("network_error", 210, "Network error"),
         ]
     )
     def test_clickhouse_retryable_error_codes(self, name, code, message):
@@ -2749,3 +2755,108 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
 
         assert mock_execute.call_count == 1
         assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+
+class TestMaxWindowDaysCap(BaseTest):
+    def test_parse_carries_max_window_days(self):
+        assert parse_ttl_schedule(3600, max_window_days=2).max_window_days == 2
+        assert parse_ttl_schedule({"default": 3600}, "UTC", max_window_days=1).max_window_days == 1
+        assert parse_ttl_schedule(3600).max_window_days is None
+
+    def test_cap_splits_merged_range_at_any_age(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
+        # an OLD 7-day range (uniform default TTL) must still split into 7 one-day jobs
+        ranges = [(datetime(2020, 1, 1, tzinfo=UTC), datetime(2020, 1, 8, tzinfo=UTC))]
+        result = split_ranges_by_ttl(ranges, schedule)
+        assert len(result) == 7
+        assert all((end - start) == timedelta(days=1) for start, end, _ in result)
+        assert result[0][0] == datetime(2020, 1, 1, tzinfo=UTC)
+        assert result[-1][1] == datetime(2020, 1, 8, tzinfo=UTC)
+        for prev, nxt in zip(result, result[1:]):
+            assert prev[1] == nxt[0]
+
+    def test_no_cap_merges_whole_range(self):
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=None)
+        ranges = [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC))]
+        assert split_ranges_by_ttl(ranges, schedule) == [
+            (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC), 3600)
+        ]
+
+
+class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
+    def _query_info(self) -> QueryInfo:
+        s = parse_select(
+            """
+            SELECT toStartOfDay(timestamp) as time_window_start, [] as breakdown_value,
+                   uniqExactState(person_id) as uniq_exact_state
+            FROM events WHERE event = '$pageview' GROUP BY time_window_start
+            """
+        )
+        assert isinstance(s, ast.SelectQuery)
+        return QueryInfo(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+    def test_surfaces_memory_exceeded_on_oom(self):
+        def oom_insert(_t, _j) -> None:
+            raise ServerException(message="Memory limit (total) exceeded", code=241)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=oom_insert,
+        )
+        assert result.ready is False
+        assert result.memory_exceeded is True
+
+    def test_oom_is_not_retried(self):
+        calls: list = []
+
+        def oom_insert(_t, job) -> None:
+            calls.append(job.id)
+            raise ServerException(message="Memory limit (total) exceeded", code=241)
+
+        LazyComputationExecutor(max_retries=1).execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=oom_insert,
+        )
+        # 241 is non-retryable → exactly one attempt, no second OOM
+        assert len(calls) == 1
+
+    def test_memory_exceeded_false_for_non_oom(self):
+        def syntax_insert(_t, _j) -> None:
+            raise ServerException(message="Syntax error", code=62)
+
+        result = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 2, tzinfo=UTC),
+            run_insert=syntax_insert,
+        )
+        assert result.ready is False
+        assert result.memory_exceeded is False
+
+    def test_bails_mid_loop_when_budget_exhausted(self):
+        # max_window_days=1 over a 7-day range → 7 one-day inline inserts; a spent wait
+        # budget must stop the loop before running the whole set back-to-back.
+        calls: list = []
+
+        def slow_insert(_t, job) -> None:
+            calls.append(job.id)
+            time_mod.sleep(0.02)
+
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
+        result = LazyComputationExecutor(wait_timeout_seconds=0.01, ttl_schedule=schedule).execute(
+            team=self.team,
+            query_info=self._query_info(),
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 8, tzinfo=UTC),
+            run_insert=slow_insert,
+        )
+        assert result.ready is False
+        assert any("Timeout" in e for e in result.errors)
+        assert 1 <= len(calls) < 7

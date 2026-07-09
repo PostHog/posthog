@@ -66,6 +66,14 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
 
+    def test_new_user_starts_unverified(self):
+        # Partner-asserted email ownership is not trusted: the user must prove they own
+        # the inbox before any session is issued (see agentic_login).
+        payload = self._account_request_payload()
+        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        user = User.objects.get(email="newuser@example.com")
+        assert user.is_email_verified is False
+
     def test_new_user_auth_code_cached_with_issued_at(self):
         payload = self._account_request_payload()
         res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
@@ -382,6 +390,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert pending["email"] == "existing@example.com"
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
+        assert pending["consent_required"] is True
 
     def test_pkce_partner_within_ceiling_creates_pending_auth(self):
         self.pkce_partner.scopes = ["query:read", "insight:read"]

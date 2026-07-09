@@ -29,7 +29,9 @@ export default meta
 
 type Story = StoryObj<{}>
 
-const renderFunnel = (results: FunnelResult): ReactElement => <FunnelVisualizer query={FUNNELS_QUERY} results={results} />
+const renderFunnel = (results: FunnelResult): ReactElement => (
+    <FunnelVisualizer query={FUNNELS_QUERY} results={results} />
+)
 
 export const ThreeStep: Story = {
     render: () =>
@@ -50,4 +52,16 @@ export const SteepDropoff: Story = {
             { name: 'Purchased', count: 96, order: 3 },
         ]),
     name: 'Steep drop-off',
+}
+
+// Steps that share an event name must still render one bar each. The band scale dedupes its domain,
+// so positioning by name would collapse both `$pageview` steps onto a single slot — this guards the
+// index-keyed band + tick formatter that keeps them distinct.
+export const DuplicateStepNames: Story = {
+    render: () =>
+        renderFunnel([
+            { name: '$pageview', count: 10, order: 0 },
+            { name: '$pageview', count: 2, order: 1 },
+        ]),
+    name: 'Duplicate step names',
 }

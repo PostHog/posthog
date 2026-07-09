@@ -19,9 +19,12 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.common.worker import create_worker
 
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-from products.tasks.backend.services.local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
-from products.tasks.backend.temporal import (
+from products.tasks.backend.facade.agents import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    CustomPromptSandboxContext,
+    LocalSkillsCache,
+)
+from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
@@ -199,8 +202,15 @@ def _django_live_server(_sandboxed_eval_database_access):
     """
     from pytest_django.live_server_helper import LiveServer
 
-    server = LiveServer(f"localhost:{DJANGO_LIVE_PORT}")
-    logger.info("Django live server started at %s", server.url)
+    # Bind on all interfaces so the sandbox Docker container can reach the server
+    # via ``host.docker.internal`` (the docker bridge gateway). The socket binds
+    # at thread start using this host; we then re-point ``thread.host`` at
+    # localhost purely so ``server.url`` advertises a loopback address to
+    # host-side clients (MCP server, LLM gateway) — the already-bound 0.0.0.0
+    # socket still accepts both loopback and bridge connections.
+    server = LiveServer(f"0.0.0.0:{DJANGO_LIVE_PORT}")
+    server.thread.host = "127.0.0.1"
+    logger.info("Django live server started at %s (bound on 0.0.0.0)", server.url)
 
     yield server
 
@@ -295,6 +305,10 @@ def _sandbox_settings(
     with (
         override_settings(
             DEBUG=True,  # Required for sandbox URL validation to allow http://localhost
+            # The sandbox container reaches the Django live server with a
+            # ``Host: host.docker.internal`` header; allow it (test-only) so the
+            # agent's event-ingest stream isn't rejected with an invalid-host 400.
+            ALLOWED_HOSTS=["*"],
             SANDBOX_PROVIDER="docker",
             SANDBOX_API_URL=docker_api_url,
             SANDBOX_LLM_GATEWAY_URL=docker_llm_gateway_url,
@@ -539,7 +553,10 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         # Force flag-gated behavior on for evals via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
         # `mcp-render-ui` gates the render_ui umbrella tool — see eval_render_ui.py.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-render-ui": True}),
+        # `mcp-sql-schema-discovery` routes warehouse/system-table schema discovery
+        # through `system.information_schema.*` SQL instead of read-data-warehouse-schema
+        # — see eval_system_table_search.py.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-render-ui": True, "mcp-sql-schema-discovery": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)
@@ -575,7 +592,10 @@ class SandboxedDemoData:
         self.agent_model = agent_model
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
-        from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
+        from django.apps import apps
+
+        CodeInvite = apps.get_model("tasks", "CodeInvite")
+        CodeInviteRedemption = apps.get_model("tasks", "CodeInviteRedemption")
 
         org, team, user = copy_demo_data_to_new_team(self.master_team_id, self._django_db_blocker, label=case_label)
         create_core_memory(team, self._django_db_blocker)

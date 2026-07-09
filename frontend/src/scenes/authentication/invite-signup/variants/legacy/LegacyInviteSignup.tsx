@@ -125,7 +125,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" hedgehog message="Oops!" footer={<SupportModalButton />}>
+        <BridgePage view="signup-error" footer={<SupportModalButton />}>
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -140,12 +140,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <BridgePage
-            view="accept-invite"
-            hedgehog
-            message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
-            footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
-        >
+        <BridgePage view="accept-invite" footer={<SupportModalButton name={user?.first_name} email={user?.email} />}>
             <div className="deprecated-space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
@@ -231,13 +226,6 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     return (
         <BridgePage
             view="invites-signup"
-            hedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
             leftContainerContent={
                 <div className="mb-8 text-secondary">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
@@ -430,7 +418,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     )
 }
 
-export function LegacyInviteSignup(): JSX.Element {
+function InviteSignup(): JSX.Element {
     const { invite, inviteLoading } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 
@@ -450,3 +438,5 @@ export function LegacyInviteSignup(): JSX.Element {
         </div>
     )
 }
+
+export { InviteSignup as LegacyInviteSignup }

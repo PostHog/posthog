@@ -6,11 +6,13 @@ import {
     IconArchive,
     IconCopy,
     IconEye,
+    IconLock,
     IconPause,
     IconPlay,
     IconPlusSmall,
     IconRefresh,
     IconTrash,
+    IconUnlock,
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -40,9 +42,17 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
-import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
+import {
+    canArchiveExperiment,
+    canFreezeExposure,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+    confirmFreezeExposure,
+    confirmUnfreezeExposure,
+    hasFrozenExposureStamps,
+} from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
@@ -63,6 +73,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         isExperimentLaunched,
         isExperimentStopped,
         isCreatingExperimentDashboard,
+        freezeExposureLoading,
+        unfreezeExposureLoading,
         showDebugPanel,
     } = useValues(experimentLogic)
     const {
@@ -71,6 +83,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
         createExposureCohort,
         createExperimentDashboard,
         resetRunningExperiment,
+        freezeExposure,
+        unfreezeExposure,
         toggleDebugPanel,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
@@ -97,8 +111,10 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const exposureCohortId = experiment?.exposure_cohort
     const showRunningState = isExperimentRunning && !isExperimentStopped && !!experiment.feature_flag
     const paused = isExperimentPaused(experiment)
+    const showFreezeExposure = canFreezeExposure(experiment)
 
-    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleArchive = (): void =>
+        confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
     const handleDelete = (): void =>
         confirmDeleteExperiment({
             projectId: currentProjectId,
@@ -120,9 +136,16 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
                         </p>
-                        <p>
-                            The <b>feature flag remains untouched</b>, so variants stay visible to users.
-                        </p>
+                        {hasFrozenExposureStamps(experiment) ? (
+                            <p>
+                                The <b>exposure freeze is removed</b>: the flag serves its original release conditions
+                                again and the snapshot cohort is deleted. Everything else on the flag stays untouched.
+                            </p>
+                        ) : (
+                            <p>
+                                The <b>feature flag remains untouched</b>, so variants stay visible to users.
+                            </p>
+                        )}
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
@@ -278,15 +301,41 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
                                 Resume experiment
                             </SceneMenuBarItem>
                         ) : (
-                            <SceneMenuBarItem
-                                opensFloatingUi
-                                variant="destructive"
-                                onClick={() => openPauseExperimentModal()}
-                                data-attr={`${RESOURCE_TYPE}-menubar-pause`}
-                            >
-                                <IconPause />
-                                Pause experiment
-                            </SceneMenuBarItem>
+                            <>
+                                {showFreezeExposure && (
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={() => confirmFreezeExposure(freezeExposure)}
+                                        disabled={freezeExposureLoading}
+                                        tooltip={freezeExposureLoading ? 'Freezing exposure…' : undefined}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-freeze-exposure`}
+                                    >
+                                        <IconLock />
+                                        Freeze exposure
+                                    </SceneMenuBarItem>
+                                )}
+                                {isExperimentExposureFrozen(experiment) && (
+                                    <SceneMenuBarItem
+                                        opensFloatingUi
+                                        onClick={() => confirmUnfreezeExposure(unfreezeExposure)}
+                                        disabled={unfreezeExposureLoading}
+                                        tooltip={unfreezeExposureLoading ? 'Unfreezing exposure…' : undefined}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-unfreeze-exposure`}
+                                    >
+                                        <IconUnlock />
+                                        Unfreeze exposure
+                                    </SceneMenuBarItem>
+                                )}
+                                <SceneMenuBarItem
+                                    opensFloatingUi
+                                    variant="destructive"
+                                    onClick={() => openPauseExperimentModal()}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-pause`}
+                                >
+                                    <IconPause />
+                                    Pause experiment
+                                </SceneMenuBarItem>
+                            </>
                         ))}
                 </SceneMenuBarMenu>
                 {showStaffMenu && (

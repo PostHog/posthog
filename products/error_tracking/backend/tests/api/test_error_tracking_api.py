@@ -13,6 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -47,6 +48,28 @@ class TestErrorTracking(APIBaseTest):
         for fingerprint in fingerprints:
             ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
+
+    def test_external_reference_create_returns_provider_config_validation_error(self):
+        issue = self.create_issue()
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.JIRA.value,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/external_references/",
+            data={
+                "issue": str(issue.id),
+                "integration_id": integration.id,
+                "config": {"title": "Checkout TypeError", "description": ""},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Missing required config fields for jira: project_key."
 
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -109,6 +132,29 @@ class TestErrorTracking(APIBaseTest):
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
+
+    @parameterized.expand(["user", "role"])
+    def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):
+        # The frontend resolves the assignee by strict-comparing the numeric member id with
+        # `assignee.id`; if retrieve serializes the user id as a string the issue renders as
+        # "Unassigned" despite being assigned. User ids must stay integers, role ids strings.
+        issue = self.create_issue(["fingerprint"])
+        expected_id: int | str
+        expected_python_type: type
+        if assignee_type == "user":
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, user=self.user)
+            expected_id, expected_python_type = self.user.id, int
+        else:
+            role = Role.objects.create(name="Eng role", organization=self.organization)
+            ErrorTrackingIssueAssignment.objects.create(issue=issue, role=role)
+            expected_id, expected_python_type = str(role.id), str
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+
+        assert response.status_code == 200
+        assignee = response.json()["assignee"]
+        assert assignee == {"id": expected_id, "type": assignee_type}
+        assert isinstance(assignee["id"], expected_python_type)
 
     @freeze_time("2025-01-01")
     def test_issue_update(self):
@@ -215,6 +261,20 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_one", version=0).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
+
+    def test_issue_merge_returns_not_found_when_source_issue_is_stale(self):
+        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
+        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+            data={"ids": [issue_two.id]},
+        )
+
+        assert response.status_code == 404
+        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
 
     def test_issue_merge_requires_ids(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
@@ -494,7 +554,7 @@ class TestErrorTracking(APIBaseTest):
         symbol_set.refresh_from_db()
         self.assertEqual(symbol_set.storage_ptr, "symbolsets/source_1")
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.object_storage.get_presigned_url")
+    @patch("products.error_tracking.backend.logic.symbol_sets.object_storage.get_presigned_url")
     def test_download_symbol_set(self, patched_get_presigned_url: Mock) -> None:
         patched_get_presigned_url.return_value = "https://example.com/source.map"
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -617,8 +677,8 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.error_tracking.backend.presentation.views.issues.dispatch_issue_assigned_realtime")
-    @patch("products.error_tracking.backend.presentation.views.issues.send_error_tracking_issue_assigned")
+    @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
     def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):
         issue = self.create_issue()
         other_user = User.objects.create_and_join(self.organization, "other@test.com", "password")
@@ -1036,7 +1096,7 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_one.id).content_hash == "hash_one"
         assert ErrorTrackingSymbolSet.objects.get(id=symbol_set_two.id).content_hash == "hash_two"
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture")
     def test_bulk_finish_upload_rejects_unknown_symbol_set_ids(self, patched_capture: Mock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
@@ -1055,7 +1115,7 @@ class TestErrorTracking(APIBaseTest):
             "failure_code": "symbol_set_not_found",
         }
 
-    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
+    @patch("products.error_tracking.backend.logic.symbol_sets.posthoganalytics.capture")
     @patch("posthog.storage.object_storage.head_object")
     def test_bulk_finish_upload_preserves_pending_symbol_set_when_file_is_not_found(
         self, patched_object_storage, patched_capture: Mock
@@ -1292,10 +1352,11 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         issue_one = self._create_issue(fingerprints=["fp_one"])
         issue_two = self._create_issue(fingerprints=["fp_two"])
 
-        self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
-            data={"ids": [str(issue_two.id)]},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+                data={"ids": [str(issue_two.id)]},
+            )
 
         rows = self._get_issue_state_rows()
         assert len(rows) == 2
@@ -1305,11 +1366,12 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
     def test_split_syncs(self):
         issue = self._create_issue(fingerprints=["fp_keep", "fp_split"])
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
-            data={"fingerprints": [{"fingerprint": "fp_split", "name": "Split issue"}]},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
+                data={"fingerprints": [{"fingerprint": "fp_split", "name": "Split issue"}]},
+                format="json",
+            )
         new_issue_id = response.json()["new_issue_ids"][0]
 
         rows = self._get_issue_state_rows()

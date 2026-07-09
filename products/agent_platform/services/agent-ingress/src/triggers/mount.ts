@@ -76,10 +76,7 @@ async function runGuardedRoute(
                 res.status(404).json({ error: `no_${type}_trigger` })
                 return
             }
-            const signingSecret = await deps.signingSecretResolver.resolve(
-                SLACK_SIGNING_SECRET_KEY,
-                resolved.application
-            )
+            const signingSecret = await deps.signingSecretResolver.resolve(SLACK_SIGNING_SECRET_KEY, resolved.revision)
             if (!signingSecret) {
                 res.status(500).json({ error: 'signing_secret_unresolved' })
                 return
@@ -101,7 +98,13 @@ async function runGuardedRoute(
                 ...base,
                 authConfig,
                 authorize: () =>
-                    authorize(req, resolved.application, authConfig, deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER),
+                    authorize(
+                        req,
+                        resolved.application,
+                        resolved.revision,
+                        authConfig,
+                        deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
+                    ),
             }
             break
         }
@@ -114,6 +117,7 @@ async function runGuardedRoute(
             const auth = await authorize(
                 req,
                 resolved.application,
+                resolved.revision,
                 authConfig,
                 deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
             )

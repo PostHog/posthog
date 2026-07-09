@@ -154,3 +154,35 @@ class TestProvisioningUpdateService(ProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 400
+
+    def test_update_service_rejects_config_owned_by_other_partner(self):
+        # The base team is in the caller's scope, but its provisioning config
+        # belongs to a different partner. The caller must not be able to mutate it.
+        from posthog.models.oauth import OAuthApplication
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_update_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"application": other_partner, "service_id": "analytics"}
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/update_service",
+            data={"service_id": "free"},
+            token=token,
+        )
+        assert res.status_code == 403, res.content
+
+        config = TeamProvisioningConfig.objects.get(team=self.team)
+        assert config.application_id == other_partner.id
+        assert config.service_id == "analytics"

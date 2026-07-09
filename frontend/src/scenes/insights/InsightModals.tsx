@@ -6,8 +6,8 @@ import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlert
 import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -18,6 +18,7 @@ import { EndpointQueryNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
+import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
 import { insightModalsLogic } from './insightModalsLogic'
 
@@ -90,7 +91,9 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { query } = useValues(insightDataLogic(insightProps))
     const { push } = useActions(router)
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
 
     return (
         <>
@@ -102,6 +105,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
                     insightId={insight.id as number}
                     insightShortId={insight.short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                 />
             )}
 

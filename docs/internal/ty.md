@@ -19,7 +19,7 @@ uv run ty check posthog ee         # Check directories
 
 - Extremely fast (~10-100x faster than mypy)
 - Alpha software — expect edge cases
-- Runs in CI only (non-blocking) to gather feedback
+- Runs in CI (informational, non-blocking) and as a lint-staged pre-commit check to gather feedback
 - Uses GitHub problem matcher to show warnings inline
 
 **mypy** remains the **authoritative type checker**:

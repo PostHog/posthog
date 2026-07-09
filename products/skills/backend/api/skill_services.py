@@ -104,14 +104,23 @@ def get_skill_by_name_from_db(
     skill_name: str,
     version: int | None = None,
     version_id: str | None = None,
+    *,
+    include_archived: bool = False,
 ) -> LLMSkill | None:
     queryset = get_active_skill_queryset(team).filter(name=skill_name)
 
     if version_id is not None:
-        queryset = queryset.filter(id=version_id)
+        # `include_archived` honours a pin to one immutable version row even after
+        # the skill was archived (soft-deleted across all versions) — so a frozen
+        # agent's fork can still re-freeze against the exact version it shipped.
+        rows = (
+            LLMSkill.objects.filter(team=team, name=skill_name, id=version_id)
+            if include_archived
+            else queryset.filter(id=version_id)
+        )
         if version is not None:
-            queryset = queryset.filter(version=version)
-        return queryset.order_by("created_at", "id").first()
+            rows = rows.filter(version=version)
+        return rows.order_by("created_at", "id").first()
 
     if version is None:
         return queryset.filter(is_latest=True).order_by("-version", "-created_at", "-id").first()
@@ -236,6 +245,9 @@ def publish_skill_version(
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
             metadata=_carry_forward(metadata, current_latest.metadata),
+            # Categorization is a property of the skill, not the version — carry it forward so editing
+            # a scout (or any categorized skill) doesn't drop it out of its tab.
+            category=current_latest.category,
             version=current_latest.version + 1,
             is_latest=True,
             created_by=user,
@@ -399,6 +411,14 @@ def duplicate_skill(
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
 
+        # A duplicate is a brand-new, user-authored skill under a new name, so it does not inherit the
+        # source's provenance or classification: drop the harness seed marker, and leave `category`
+        # at its default empty (the copy isn't a registered scout — it would only become one if named
+        # `signals-scout-*` and picked up by scout registration). This keeps non-runnable rows out of
+        # the Scouts tab and avoids mislabeling a fork as canonical.
+        duplicated_metadata = dict(source_latest.metadata or {})
+        duplicated_metadata.pop("seeded_by", None)
+
         try:
             new_skill = LLMSkill.objects.create(
                 team=team,
@@ -408,7 +428,7 @@ def duplicate_skill(
                 license=source_latest.license,
                 compatibility=source_latest.compatibility,
                 allowed_tools=source_latest.allowed_tools,
-                metadata=source_latest.metadata,
+                metadata=duplicated_metadata,
                 version=1,
                 is_latest=True,
                 created_by=user,
@@ -460,6 +480,7 @@ def _create_next_version_with_files(
         compatibility=current_latest.compatibility,
         allowed_tools=current_latest.allowed_tools,
         metadata=current_latest.metadata,
+        category=current_latest.category,
         version=current_latest.version + 1,
         is_latest=True,
         created_by=user,

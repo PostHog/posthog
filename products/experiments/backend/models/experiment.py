@@ -1,7 +1,8 @@
 from typing import TYPE_CHECKING, Any
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -13,6 +14,22 @@ from posthog.models.utils import RootTeamMixin, UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+# Structured key stamped on each feature-flag release group when an experiment's exposure is frozen.
+# Frozen-exposure state is derived from this key, not stored on the experiment — the same spirit as
+# is_paused being derived from feature_flag.active rather than persisted. Unknown group keys pass
+# through flag validation and are ignored by the Rust flag matcher, so this is additive metadata;
+# that pass-through contract is pinned by test_flag_update_after_freeze_preserves_frozen_state.
+EXPOSURE_FROZEN_GROUP_KEY = "exposure_frozen"
+
+# Companion key recording which snapshot cohort the freeze AND-ed into the group, so unfreezing
+# can remove exactly that condition even if users added their own cohort conditions meanwhile.
+EXPOSURE_FROZEN_COHORT_KEY = "exposure_frozen_cohort"
+
+# Human-readable note prepended to each release group's `description` when freezing. Purely
+# informational — the description stays user-editable prose and carries no state.
+EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."
 
 
 class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -53,6 +70,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     archived = models.BooleanField(default=False)
+    # Whether archiving this experiment also auto-archived its linked feature flag,
+    # so unarchiving only undoes an archive the experiment itself performed.
+    feature_flag_auto_archived = models.BooleanField(default=False, db_default=False)
     deleted = models.BooleanField(default=False, null=True)
     type = models.CharField(max_length=40, choices=ExperimentType, null=True, blank=True, default="product")
     variants = models.JSONField(default=dict, null=True, blank=True)
@@ -74,6 +94,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # recommended_sample_size, exposure_estimate_config. Canonical home for these keys,
     # which historically lived in `parameters`.
     running_time_calculation = models.JSONField(default=dict, null=True, blank=True)
+
+    # Variant keys dropped from statistical analysis. Canonical home for what historically
+    # lived in `parameters.excluded_variants`. `null`/empty both mean "no exclusions".
+    excluded_variants = ArrayField(models.TextField(), null=True, blank=True)
 
     only_count_matured_users = models.BooleanField(default=False)
 
@@ -136,6 +160,24 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
 
     @property
+    def is_exposure_frozen(self) -> bool:
+        # Frozen exposure is not stored on the experiment — it is the running state with the linked flag's
+        # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
+        # structured key stamped on each group when the cohort condition was AND'd in — the same predicate
+        # the experiments list endpoint uses.
+        if not self.is_running or self.feature_flag_id is None:
+            return False
+        # Paused takes precedence: a deactivated flag serves no one, so reporting "frozen" would
+        # misdescribe the experiment and hide the pause/resume lifecycle (Resume only renders for
+        # paused). The group stamps survive, so resuming lands back in the frozen state.
+        if not self.feature_flag.active:
+            return False
+        # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
+        # surfaces as the experiment reverting to "running".
+        groups = (self.feature_flag.filters or {}).get("groups", [])
+        return bool(groups) and all(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
+
+    @property
     def computed_status(self) -> "Experiment.Status":
         if self.is_stopped:
             return Experiment.Status.STOPPED
@@ -145,8 +187,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def status_label(self) -> str:
-        """Public status string (draft/running/paused/stopped) — single source for the API
+        """Public status string (draft/running/paused/exposure_frozen/stopped) — single source for the API
         serializer and dashboard widgets."""
+        if self.is_exposure_frozen:
+            return "exposure_frozen"
         if self.is_paused:
             return "paused"
         return self.status or self.computed_status.value
@@ -167,6 +211,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
+            "saved_metrics_count": self.saved_metrics.count(),
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
@@ -194,6 +239,27 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             },
             should_delete=False,  # always keep in FileSystem
         )
+
+
+def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+    """Single source of truth for the `has_experiment` predicate: a flag has a linked
+    experiment iff a non-deleted Experiment row references it. The Rust flags service
+    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
+    keep the two in lockstep.
+
+    Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
+    """
+    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+
+
+def live_experiment_exists() -> Exists:
+    """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
+    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+
+
+def flag_has_live_experiment(feature_flag_id: int) -> bool:
+    """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
+    return _live_experiments_for_flag(feature_flag_id).exists()
 
 
 def holdout_filters_for_flag(holdout_id: int | None, filters: list | None) -> dict:
@@ -369,6 +435,11 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     class Trigger(models.TextChoices):
         MANUAL = "manual", "Manual"
+        COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
+        AUTO_REFRESH = "auto_refresh", "Auto Refresh"
+        CONFIG_CHANGE = "config_change", "Config Change"
+        # Deprecated: never emitted, retained for old rows.
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"

@@ -183,7 +183,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.notebooks.backend.api.notebook.submit_steps")
+    @patch("products.notebooks.backend.presentation.views.notebook.submit_steps")
     def test_collab_save_returns_410_when_steps_expired(self, mock_submit):
         notebook = self._create_notebook(SAMPLE_DOC)
 
@@ -236,7 +236,7 @@ class TestNotebookCollabSaveAPI(APIBaseTest):
     def test_collab_save_rejected_stale_logs_attempted_content(self):
         notebook = self._create_notebook(SAMPLE_DOC)
 
-        with patch("products.notebooks.backend.api.notebook.submit_steps") as mock_submit:
+        with patch("products.notebooks.backend.presentation.views.notebook.submit_steps") as mock_submit:
             mock_submit.return_value = SubmitResult(status="stale", version=5, steps_since=None)
             self._collab_save(
                 notebook,
@@ -341,7 +341,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "text/event-stream"
-        assert response["Cache-Control"] == "no-cache"
+        assert response["Cache-Control"] == "no-cache, no-transform"
         assert response["X-Accel-Buffering"] == "no"
 
         body = self._consume_stream(response)
@@ -395,7 +395,10 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
         assert "event: step" not in body
         assert ": keepalive" in body
 
-    @patch("products.notebooks.backend.api.notebook.transaction.on_commit", side_effect=lambda callback: callback())
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
+        side_effect=lambda callback: callback(),
+    )
     def test_stream_delivers_update_event_after_full_doc_patch(self, _mock_on_commit):
         notebook = self._create_notebook()
         response = self.client.patch(
@@ -653,7 +656,10 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert nb.version == version + 1
         assert nb.content == _markdown_doc("base text plus A")
 
-    @patch("products.notebooks.backend.api.notebook.transaction.on_commit", side_effect=lambda callback: callback())
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.transaction.on_commit",
+        side_effect=lambda callback: callback(),
+    )
     def test_markdown_save_conflict_replays_legacy_patch_diff(self, _mock_on_commit):
         from products.notebooks.backend.markdown_collab import apply_utf16_text_changes
 

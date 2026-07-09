@@ -70,38 +70,13 @@ const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     evaluation_runtime: undefined,
 }
 
-type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
-
-export function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
-    if (!experiment) {
-        return ExperimentStatus.Draft
-    }
-
-    if (experiment.status) {
-        return experiment.status
-    }
-
-    // Fallback for stale fixtures and older mocked data without API-supplied status.
-    if (experiment.end_date) {
-        return ExperimentStatus.Stopped
-    }
-    if (experiment.start_date) {
-        return ExperimentStatus.Running
-    }
-    return ExperimentStatus.Draft
-}
-
-export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.Paused
-}
-
-export function isLaunched(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
-}
-
-export function hasEnded(experiment: ExperimentStatusInput): boolean {
-    return getExperimentStatus(experiment) === ExperimentStatus.Stopped
-}
+export {
+    getExperimentStatus,
+    hasEnded,
+    isExperimentExposureFrozen,
+    isExperimentPaused,
+    isLaunched,
+} from './experimentStatus'
 
 export function isSingleVariantShipped(experiment: Experiment): boolean {
     const filters = experiment.feature_flag?.filters
@@ -135,6 +110,8 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
             return 'Running'
         case ExperimentStatus.Paused:
             return 'Paused'
+        case ExperimentStatus.ExposureFrozen:
+            return 'Exposure frozen'
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
@@ -148,6 +125,8 @@ export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType
             return 'success'
         case ExperimentStatus.Paused:
             return 'warning'
+        case ExperimentStatus.ExposureFrozen:
+            return 'highlight'
         case ExperimentStatus.Stopped:
             return 'completion'
     }
@@ -281,8 +260,10 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         offset: values.paramsFromFilters.offset,
                     }
                 },
-                archiveExperiment: async (id: number) => {
-                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
+                archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
+                        disable_feature_flag: disableFeatureFlag,
+                    })
                     lemonToast.info('Experiment archived')
                     return {
                         ...values.experiments,
@@ -468,7 +449,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
         shouldShowEmptyState: [
             (s) => [s.experimentsLoading, s.experiments, s.filters],
             (experimentsLoading, experiments, filters): boolean => {
-                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
+                return (
+                    !experimentsLoading &&
+                    (experiments.results?.length ?? 0) === 0 &&
+                    objectsEqual(filters, DEFAULT_FILTERS)
+                )
             },
         ],
         pagination: [

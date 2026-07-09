@@ -1,5 +1,5 @@
-import { OnboardingDataWarehouseSourcesStep } from 'scenes/onboarding/data-warehouse/OnboardingDataWarehouseSourcesStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { OnboardingDataWarehouseSourcesStep } from 'scenes/onboarding/legacy/data-warehouse/OnboardingDataWarehouseSourcesStep'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

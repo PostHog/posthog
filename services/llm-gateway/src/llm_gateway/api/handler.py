@@ -26,6 +26,7 @@ from llm_gateway.request_context import (
     get_posthog_properties,
     get_request_id,
     set_auth_user,
+    set_effort,
     set_request_context,
     set_time_to_first_token,
 )
@@ -34,17 +35,84 @@ from llm_gateway.streaming.sse import format_sse_stream
 logger = structlog.get_logger(__name__)
 
 
+def _clean_effort(value: Any) -> str | None:
+    if isinstance(value, str) and (stripped := value.strip()):
+        return stripped
+    return None
+
+
+def effort_from_output_config(request_data: dict[str, Any]) -> str | None:
+    """Anthropic Messages: ``output_config: {"effort": "..."}``."""
+    output_config = request_data.get("output_config")
+    return _clean_effort(output_config.get("effort")) if isinstance(output_config, dict) else None
+
+
+def effort_from_reasoning_effort(request_data: dict[str, Any]) -> str | None:
+    """OpenAI chat completions: top-level ``reasoning_effort``."""
+    return _clean_effort(request_data.get("reasoning_effort"))
+
+
+def effort_from_reasoning(request_data: dict[str, Any]) -> str | None:
+    """OpenAI Responses: ``reasoning: {"effort": "..."}``."""
+    reasoning = request_data.get("reasoning")
+    return _clean_effort(reasoning.get("effort")) if isinstance(reasoning, dict) else None
+
+
+def no_effort(request_data: dict[str, Any]) -> str | None:
+    """Endpoints with no reasoning-effort parameter (e.g. transcription)."""
+    return None
+
+
 @dataclass
 class ProviderConfig:
     name: str
     endpoint_name: str
+    # Where reasoning effort lives varies per API surface. Required (no default) so a new
+    # provider can't be added without deciding; see the effort_from_* functions above.
+    extract_effort: Callable[[dict[str, Any]], str | None]
 
 
-ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
-BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages")
-OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
-OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
-OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+ANTHROPIC_CONFIG = ProviderConfig(
+    name="anthropic",
+    endpoint_name="anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+BEDROCK_CONFIG = ProviderConfig(
+    name="bedrock",
+    endpoint_name="bedrock_messages",
+    extract_effort=effort_from_output_config,
+)
+OPENAI_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    extract_effort=effort_from_reasoning,
+)
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="audio_transcriptions",
+    extract_effort=no_effort,
+)
+# Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_responses",
+    extract_effort=effort_from_reasoning,
+)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",
@@ -62,17 +130,26 @@ def normalize_litellm_model_name(model: str, provider: str) -> str:
     return f"{provider}/{model}"
 
 
-# Google providers require litellm[google], which we don't install. Reject these
-# at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
-# Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
-# that litellm will route to vertex/gemini — most commonly anything starting with
-# "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
-# registry when brand new.
-_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini"})
+# Block model prefixes that would route to a provider we don't call via the generic path:
+# - Google needs litellm[google] (not installed) — would crash in vertex_llm_base with ImportError.
+# - Native `cloudflare/...` bypasses per-call credential injection and the CLOUDFLARE_ALLOWED_MODELS
+#   allowlist the `@cf/...` path enforces — reject so callers can't smuggle models onto gateway creds.
+# Matches explicit prefixes (gemini/, vertex_ai/) and bare gemini- names litellm routes to vertex/gemini,
+# which may not be in the cost registry yet when brand new.
+_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini", "cloudflare"})
 _UNSUPPORTED_MODEL_PREFIXES = (
     *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
     "gemini-",
 )
+
+
+class ProviderError(HTTPException):
+    """An HTTPException raised from the upstream provider call itself, as opposed to gateway-local
+    validation (unsupported model, bad headers, timeouts). Lets downstream handlers tell a genuine
+    provider failure apart from a gateway 400 that merely echoes caller-controlled input — e.g. the
+    Anthropic billing-block detector must not key off an unsupported-model message containing the
+    caller's model name. Subclasses HTTPException so it serializes to the client identically.
+    """
 
 
 def _raise_unsupported_model(model: str) -> None:
@@ -98,18 +175,15 @@ def _raise_if_unsupported_model(model: str) -> None:
         _raise_unsupported_model(model)
 
 
-# Parameters that control LLM client routing/authentication.
-# These must never be accepted from user input to prevent request
-# redirection and API key exfiltration.
+# LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
     {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
 )
 
 
 def _sanitize_request_value(value: Any) -> Any:
-    # Recursively strip forbidden params from nested dicts and lists.
-    # litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
-    # to the upstream provider, so a shallow filter is insufficient.
+    # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
+    # to the provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
         return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
     if isinstance(value, list):
@@ -144,6 +218,11 @@ async def handle_llm_request(
         )
     )
     set_auth_user(user)
+
+    # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
+    # time_to_first_token). Set unconditionally so a stale value can't leak if the context
+    # is reused.
+    set_effort(provider_config.extract_effort(request_data))
 
     structlog.contextvars.bind_contextvars(
         user_id=user.user_id,
@@ -204,7 +283,7 @@ async def handle_llm_request(
             provider_error_type=getattr(e, "type", None),
             provider_error_code=getattr(e, "code", None),
         )
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {
@@ -286,7 +365,7 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        raise HTTPException(
+        raise ProviderError(
             status_code=status_code,
             detail={
                 "error": {

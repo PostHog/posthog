@@ -26,6 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.actions.backend.models.action import Action
@@ -129,13 +130,13 @@ class GoalExplanation:
         return asdict(self)
 
 
-async def list_conversion_goals(team: Team) -> ConversionGoalsListResponse:
+async def list_conversion_goals(team: Team, *, user: User | None = None) -> ConversionGoalsListResponse:
     """Return one summary entry per configured conversion goal."""
     goals_raw, attribution_window, attribution_mode = await _read_team_goal_config(team)
     alias_map = await _build_team_alias_map(team)
 
     results = await asyncio.gather(
-        *(_summarize_goal(team, goal, alias_map, attribution_window) for goal in goals_raw),
+        *(_summarize_goal(team, goal, alias_map, attribution_window, user=user) for goal in goals_raw),
         return_exceptions=True,
     )
     # Degrade a failing goal to a misconfigured entry instead of failing the whole list.
@@ -305,6 +306,8 @@ async def _summarize_goal(
     goal: dict,
     alias_map: dict[str, NativeIntegration],
     attribution_window_days: int,
+    *,
+    user: User | None = None,
 ) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
     name = goal.get("conversion_goal_name") or goal.get("name") or goal_id
@@ -326,7 +329,7 @@ async def _summarize_goal(
 
     if kind_raw == "EventsNode":
         target_label = goal.get("event") or "(all events)"
-        total, integrated, without_utm, unmatched_with_utm = await _count_event_goal(team, goal, alias_map)
+        total, integrated, without_utm, unmatched_with_utm = await _count_event_goal(team, goal, alias_map, user=user)
         return _summary_with_split(
             goal_id,
             name,
@@ -358,7 +361,9 @@ async def _summarize_goal(
                 misconfig_reason=action_error or f"Action {goal_id} no longer exists",
             )
         target_label = f"Action: {action.name}"
-        total, integrated, without_utm, unmatched_with_utm = await _count_action_goal(team, action, alias_map)
+        total, integrated, without_utm, unmatched_with_utm = await _count_action_goal(
+            team, action, alias_map, user=user
+        )
         return _summary_with_split(
             goal_id,
             name,
@@ -375,7 +380,7 @@ async def _summarize_goal(
     if kind_raw == "DataWarehouseNode":
         table_name = goal.get("table_name") or "(unknown table)"
         target_label = f"{table_name}"
-        last_30d_count, dw_misconfig = await _count_dw_goal(team, goal)
+        last_30d_count, dw_misconfig = await _count_dw_goal(team, goal, user=user)
         return ConversionGoalSummary(
             id=goal_id,
             name=name,
@@ -455,7 +460,7 @@ def _resolve_action(team: Team, goal_id: str) -> tuple[Action | None, str | None
 
 @database_sync_to_async
 def _count_event_goal(
-    team: Team, goal: dict[str, Any], alias_map: dict[str, NativeIntegration]
+    team: Team, goal: dict[str, Any], alias_map: dict[str, NativeIntegration], user: User | None = None
 ) -> tuple[int, int, int, int]:
     """For EventsNode: count last 30d events matching the goal, split by utm_source match.
 
@@ -471,12 +476,12 @@ def _count_event_goal(
         if event_name
         else ast.Constant(value=True)  # `goal["event"]` is None — "match any event"
     )
-    return _execute_count_with_split(team, where, {"since": ast.Constant(value=since)}, alias_map)
+    return _execute_count_with_split(team, where, {"since": ast.Constant(value=since)}, alias_map, user=user)
 
 
 @database_sync_to_async
 def _count_action_goal(
-    team: Team, action: Action, alias_map: dict[str, NativeIntegration]
+    team: Team, action: Action, alias_map: dict[str, NativeIntegration], user: User | None = None
 ) -> tuple[int, int, int, int]:
     """For ActionsNode: count last 30d events matching the action's full definition
     (`action_to_expr`, same as the dashboard), split by utm_source.
@@ -487,11 +492,17 @@ def _count_action_goal(
     if not action.steps:
         return 0, 0, 0, 0
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-    return _execute_count_with_split(team, action_to_expr(action), {"since": ast.Constant(value=since)}, alias_map)
+    return _execute_count_with_split(
+        team, action_to_expr(action), {"since": ast.Constant(value=since)}, alias_map, user=user
+    )
 
 
 def _execute_count_with_split(
-    team: Team, where: ast.Expr, placeholders: dict[str, ast.Expr], alias_map: dict[str, NativeIntegration]
+    team: Team,
+    where: ast.Expr,
+    placeholders: dict[str, ast.Expr],
+    alias_map: dict[str, NativeIntegration],
+    user: User | None = None,
 ) -> tuple[int, int, int, int]:
     """Returns (total, integrated, without_utm, unmatched_with_utm).
 
@@ -525,7 +536,7 @@ def _execute_count_with_split(
         "aliases": ast.Tuple(exprs=[ast.Constant(value=key) for key in alias_map]),
     }
     with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
-        result = execute_hogql_query(hogql, team, placeholders=query_placeholders)
+        result = execute_hogql_query(hogql, team, placeholders=query_placeholders, user=user)
     rows = result.results or []
     if not rows:
         return 0, 0, 0, 0
@@ -534,7 +545,7 @@ def _execute_count_with_split(
 
 
 @database_sync_to_async
-def _count_dw_goal(team: Team, goal: dict[str, Any]) -> tuple[int, str | None]:
+def _count_dw_goal(team: Team, goal: dict[str, Any], user: User | None = None) -> tuple[int, str | None]:
     """For DataWarehouseNode: a row count against the configured table.
 
     Returns (count, misconfig_reason). `table_name`/`timestamp_field` come from
@@ -565,7 +576,7 @@ def _count_dw_goal(team: Team, goal: dict[str, Any]) -> tuple[int, str | None]:
     )
     try:
         with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
-            result = execute_hogql_query(query, team)
+            result = execute_hogql_query(query, team, user=user)
     except Exception as exc:
         logger.warning(
             "marketing_analytics.dw_goal_query_failed",

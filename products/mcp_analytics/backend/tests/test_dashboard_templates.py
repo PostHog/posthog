@@ -47,7 +47,7 @@ def test_mcp_analytics_default_template_includes_users_and_sessions() -> None:
             "name": "$mcp_initialize",
             "custom_name": "sessions",
             "math": "hogql",
-            "math_hogql": "count(DISTINCT properties.$mcp_session_id)",
+            "math_hogql": "count(DISTINCT properties.$session_id)",
         },
     ]
 

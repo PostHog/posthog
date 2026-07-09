@@ -1,7 +1,7 @@
 import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2 } from '~/common/redis/redis-v2'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 /**
  * Distributed token-bucket rate limiter for "claim up to N" semantics, backed

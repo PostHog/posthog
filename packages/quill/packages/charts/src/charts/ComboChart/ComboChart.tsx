@@ -1,15 +1,25 @@
 import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo } from 'react'
 
-import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from '../../core/bar-layout'
+import {
+    applyOuterStackCaps,
+    bandCenter,
+    buildBarLayers,
+    computeBarAtIndex,
+    groupedBarCenter,
+} from '../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    LINE_STROKE_WIDTH,
+    drawAxes,
+    resolveAxisLineColor,
     drawBarHighlight,
     drawBars,
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
+    type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
@@ -18,7 +28,9 @@ import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
+    computePercentStackData,
     computeStackData,
     computeTopStackedKeyByAxis,
     resolveYScaleForSeries,
@@ -40,7 +52,7 @@ import type {
     SeriesType,
     TooltipContext,
 } from '../../core/types'
-import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID } from '../../core/types'
+import { DEFAULT_SERIES_TYPE, DEFAULT_Y_AXIS_ID, resolveAxisLines } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { resolveBarsAtCursor } from '../BarChart/utils/bars-under-cursor'
 
@@ -80,11 +92,18 @@ function ComboChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
+        showAxisLines = false,
         barLayout = 'stacked',
         barCornerRadius = DEFAULT_BAR_CORNER_RADIUS,
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
+        valueDomain,
+        curve,
+        yAxes: configYAxes,
     } = config ?? {}
+    const smooth = curve === 'monotone'
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -94,21 +113,23 @@ function ComboChartInner<Meta = unknown>({
     // Stack only bar series together. Lines/areas are explicitly excluded so a line doesn't get a
     // bottom-of-stack offset and bars don't widen the line's drawn baseline.
     const barStackedData = useMemo<Map<string, StackedBand> | undefined>(() => {
-        if (barLayout !== 'stacked') {
+        if (barLayout !== 'stacked' && barLayout !== 'percent') {
             return undefined
         }
         const barSeries = series.filter((s) => seriesTypeOf(s) === 'bar')
         if (barSeries.length === 0) {
             return undefined
         }
-        return computeStackData(barSeries, labels)
+        return barLayout === 'percent'
+            ? computePercentStackData(barSeries, labels)
+            : computeStackData(barSeries, labels)
     }, [barLayout, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
     // skipped so lines/areas don't take part in bar stacking. Shares BarChart's helper.
     const topStackedKeyByAxis = useMemo<Map<string, string>>(
         () =>
-            barLayout !== 'stacked'
+            barLayout !== 'stacked' && barLayout !== 'percent'
                 ? new Map()
                 : computeTopStackedKeyByAxis(series, { skip: (s) => seriesTypeOf(s) !== 'bar' }),
         [barLayout, series, seriesTypeOf]
@@ -121,6 +142,8 @@ function ComboChartInner<Meta = unknown>({
                 barLayout,
                 seriesTypeOf,
                 barStackedData,
+                valueDomain,
+                axes: configYAxes,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -153,7 +176,7 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData]
+        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes]
     )
 
     const drawStatic = useCallback(
@@ -173,13 +196,23 @@ function ComboChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
+            // nor lines paint over the baseline where they meet the axis.
+            const axisLineStyle = axisLines.x || axisLines.y
             if (showGrid) {
-                const categoryTicks = computeVisibleXLabels(
-                    drawLabels,
-                    (label) => bandCenter(comboScales, label),
-                    xTickFormatter
-                ).map((entry) => entry.x)
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
+                // In the axis-line style only the value-axis grid guides reading; category lines
+                // through the band gaps are noise (line charts never draw them either).
+                const categoryTicks = axisLineStyle
+                    ? []
+                    : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
+                          (entry) => entry.x
+                      )
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !axisLineStyle,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -194,6 +227,14 @@ function ComboChartInner<Meta = unknown>({
                 stackedData: barStackedData,
                 topStackedKeyByAxis,
             })
+            // Stacked cap rounding is re-resolved per band from the laid-out rects, so breakdown
+            // and diverging stacks round their actual outer segments.
+            applyOuterStackCaps(
+                barLayers.flatMap((layer) => layer.bars.map((bar) => ({ bar, yAxisId: layer.series.yAxisId }))),
+                comboScales,
+                false,
+                barLayout
+            )
             for (const { series: s, bars } of barLayers) {
                 drawBars(baseDrawCtx, s, bars, barCornerRadius)
             }
@@ -211,9 +252,34 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
+                clipLeftEdge: axisLines.y,
             })
+
+            if (axisLineStyle) {
+                const hasRightAxis = Object.values(comboScales.yAxes).some((axis) => axis.position === 'right')
+                drawAxes(baseDrawCtx, {
+                    axisColor: resolveAxisLineColor(theme),
+                    xLine: axisLines.x,
+                    yLine: axisLines.y,
+                    rightAxis: hasRightAxis,
+                })
+            }
         },
-        [seriesTypeOf, showGrid, xTickFormatter, barLayout, barStackedData, topStackedKeyByAxis, barCornerRadius]
+        [
+            seriesTypeOf,
+            showGrid,
+            axisLines,
+            xTickFormatter,
+            barLayout,
+            barStackedData,
+            topStackedKeyByAxis,
+            barCornerRadius,
+            smooth,
+        ]
     )
 
     const drawHover = useCallback(
@@ -254,6 +320,7 @@ function ComboChartInner<Meta = unknown>({
                   }).hits
                 : null
 
+            const hoveredBars: { series: ResolvedSeries; bar: BarRect }[] = []
             for (const s of barSeries) {
                 if (barHits && !barHits.has(s.key)) {
                     continue
@@ -272,6 +339,16 @@ function ComboChartInner<Meta = unknown>({
                 if (!bar) {
                     continue
                 }
+                hoveredBars.push({ series: s, bar })
+            }
+            // Match the static layer's per-band cap resolution so highlights round the same corners.
+            applyOuterStackCaps(
+                hoveredBars.map((h) => ({ bar: h.bar, yAxisId: h.series.yAxisId })),
+                comboScales,
+                false,
+                barLayout
+            )
+            for (const { series: s, bar } of hoveredBars) {
                 const barColor = barColorAt(s, bar.dataIndex)
                 const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
                 drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
@@ -300,12 +377,26 @@ function ComboChartInner<Meta = unknown>({
     // still yields correct line values.
     const resolveValue = useMemo(() => buildSegmentResolveValue(barStackedData), [barStackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(barStackedData), [barStackedData])
+
+    // Mirrors BarChart: flag the axis context as percent (drives ValueLabels' 0-1 fraction
+    // handling) and default the y-tick formatter to a percentage unless the caller overrides it.
+    const chartConfig = useMemo<ComboChartConfig>(() => {
+        const base = { ...config, isPercent: barLayout === 'percent' }
+        if (barLayout !== 'percent' || config?.yTickFormatter) {
+            return base
+        }
+        return {
+            ...base,
+            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
+        }
+    }, [config, barLayout])
 
     return (
         <Chart
             series={series}
             labels={labels}
-            config={config}
+            config={chartConfig}
             theme={theme}
             createScales={createScales}
             drawStatic={drawStatic}
@@ -316,6 +407,7 @@ function ComboChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>

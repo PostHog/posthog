@@ -15,6 +15,7 @@ const baseRow = {
     state: 'live',
     bundle_uri: 's3://x/',
     bundle_sha256: null,
+    encrypted_env: null,
 }
 
 describe('safeRowToRev', () => {
@@ -22,7 +23,7 @@ describe('safeRowToRev', () => {
     // before `prompt`/`name` were required is rejected by the current schema
     // and skipped (null), never thrown.
     it.each<[string, unknown, boolean]>([
-        ['valid spec', { model: 'claude-sonnet-4-6' }, false],
+        ['valid spec', { model: 'anthropic/claude-sonnet-4-6' }, false],
         [
             'cron trigger missing the now-required prompt',
             { triggers: [{ type: 'cron', config: { name: 'sweep', schedule: '0 9 * * *', timezone: 'UTC' } }] },
@@ -47,18 +48,20 @@ describe('safeRowToRev', () => {
         // A genuine bug in rowToRev — not schema drift — must surface loudly, not
         // be logged as spec_unparseable and dropped. A null created_at throws a
         // TypeError on .toISOString(), which is not a ZodError.
-        expect(() => safeRowToRev({ ...baseRow, created_at: null as unknown as Date, spec: { model: 'x' } })).toThrow()
+        expect(() =>
+            safeRowToRev({ ...baseRow, created_at: null as unknown as Date, spec: { model: 'test/x' } })
+        ).toThrow()
     })
 
     it('a mixed batch keeps the good rows and drops the bad ones', () => {
         const rows = [
-            { ...baseRow, id: 'a', spec: { model: 'x' } },
+            { ...baseRow, id: 'a', spec: { model: 'test/x' } },
             {
                 ...baseRow,
                 id: 'b',
                 spec: { triggers: [{ type: 'cron', config: { name: 'n', schedule: '* * * * *' } }] },
             },
-            { ...baseRow, id: 'c', spec: { model: 'y' } },
+            { ...baseRow, id: 'c', spec: { model: 'test/y' } },
         ]
         const kept = rows.map(safeRowToRev).filter((r): r is NonNullable<typeof r> => r !== null)
         expect(kept.map((r) => r.id)).toEqual(['a', 'c'])

@@ -13,31 +13,776 @@ export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsCreateBodyNameMax),
-    description: zod.string().max(experimentHoldoutsCreateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyNameMax)
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsCreateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('\* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('\* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentHoldoutsUpdateBodyNameMax = 400
 
 export const experimentHoldoutsUpdateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsUpdateBodyNameMax),
-    description: zod.string().max(experimentHoldoutsUpdateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsUpdateBodyNameMax)
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('\* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('\* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
 
-export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(experimentHoldoutsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().max(experimentHoldoutsPartialUpdateBodyDescriptionMax).nullish(),
-    filters: zod.unknown().optional(),
-})
+export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name for the holdout group.'),
+        description: zod
+            .string()
+            .max(experimentHoldoutsPartialUpdateBodyDescriptionMax)
+            .nullish()
+            .describe('Optional description of what this holdout reserves and why.'),
+        filters: zod
+            .array(
+                zod.object({
+                    properties: zod
+                        .array(
+                            zod.union([
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    value: zod
+                                        .unknown()
+                                        .describe(
+                                            'Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.'
+                                        ),
+                                    operator: zod
+                                        .enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                        ])
+                                        .describe(
+                                            '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        )
+                                        .describe(
+                                            'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_set', 'is_not_set'])
+                                        .describe('\* `is_set` - is_set\n\* `is_not_set` - is_not_set')
+                                        .describe(
+                                            'Existence operator.\n\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .optional()
+                                        .describe(
+                                            'Optional value. Runtime behavior determines whether this is ignored.'
+                                        ),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['is_date_exact', 'is_date_before', 'is_date_after'])
+                                        .describe(
+                                            '\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after'
+                                        )
+                                        .describe(
+                                            'Date comparison operator.\n\n\* `is_date_exact` - is_date_exact\n\* `is_date_after` - is_date_after\n\* `is_date_before` - is_date_before'
+                                        ),
+                                    value: zod
+                                        .string()
+                                        .describe('Date value in ISO format or relative date expression.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum([
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                        ])
+                                        .describe(
+                                            '\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        )
+                                        .describe(
+                                            'Semantic version comparison operator.\n\n\* `semver_gt` - semver_gt\n\* `semver_gte` - semver_gte\n\* `semver_lt` - semver_lt\n\* `semver_lte` - semver_lte\n\* `semver_eq` - semver_eq\n\* `semver_neq` - semver_neq\n\* `semver_tilde` - semver_tilde\n\* `semver_caret` - semver_caret\n\* `semver_wildcard` - semver_wildcard'
+                                        ),
+                                    value: zod.string().describe('Semantic version string.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort', 'person', 'group'])
+                                        .describe('\* `cohort` - cohort\n\* `person` - person\n\* `group` - group')
+                                        .optional()
+                                        .describe(
+                                            "Property filter type. Common values are 'person' and 'cohort'.\n\n\* `cohort` - cohort\n\* `person` - person\n\* `group` - group"
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['icontains_multi', 'not_icontains_multi'])
+                                        .describe(
+                                            '\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        )
+                                        .describe(
+                                            'Multi-contains operator.\n\n\* `icontains_multi` - icontains_multi\n\* `not_icontains_multi` - not_icontains_multi'
+                                        ),
+                                    value: zod.array(zod.string()).describe('List of strings to evaluate against.'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['cohort'])
+                                        .describe('\* `cohort` - cohort')
+                                        .describe(
+                                            'Cohort property type required for in\/not_in operators.\n\n\* `cohort` - cohort'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['in', 'not_in'])
+                                        .describe('\* `in` - in\n\* `not_in` - not_in')
+                                        .describe(
+                                            'Membership operator for cohort properties.\n\n\* `in` - in\n\* `not_in` - not_in'
+                                        ),
+                                    value: zod
+                                        .unknown()
+                                        .describe('Cohort comparison value (single or list, depending on usage).'),
+                                }),
+                                zod.object({
+                                    key: zod.string().describe('Property key used in this feature flag condition.'),
+                                    type: zod
+                                        .enum(['flag'])
+                                        .describe('\* `flag` - flag')
+                                        .describe(
+                                            'Flag property type required for flag dependency checks.\n\n\* `flag` - flag'
+                                        ),
+                                    cohort_name: zod
+                                        .string()
+                                        .nullish()
+                                        .describe('Resolved cohort name for cohort-type filters.'),
+                                    group_type_index: zod
+                                        .number()
+                                        .nullish()
+                                        .describe('Group type index when using group-based filters.'),
+                                    operator: zod
+                                        .enum(['flag_evaluates_to'])
+                                        .describe('\* `flag_evaluates_to` - flag_evaluates_to')
+                                        .describe(
+                                            'Operator for feature flag dependency evaluation.\n\n\* `flag_evaluates_to` - flag_evaluates_to'
+                                        ),
+                                    value: zod.unknown().describe('Value to compare flag evaluation against.'),
+                                }),
+                            ])
+                        )
+                        .optional()
+                        .describe('Property conditions for this release condition group.'),
+                    rollout_percentage: zod
+                        .number()
+                        .optional()
+                        .describe('Rollout percentage for this release condition group.'),
+                    variant: zod.string().nullish().describe('Variant key override for multivariate flags.'),
+                    aggregation_group_type_index: zod
+                        .number()
+                        .nullish()
+                        .describe('Group type index for this condition set. None means person-level aggregation.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the \*\*exclusion\*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person\/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+            ),
+    })
+    .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
 export const experimentSavedMetricsCreateBodyNameMax = 400
 
@@ -121,22 +866,42 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
+ */
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
+        ),
+})
 
 /**
  * Copy an experiment into another project in the same organization as a new draft.
@@ -148,22 +913,22 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsCreateExposureCohortForExperimentCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -193,6 +958,10 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  *
  * Returns 400 if the experiment is not running.
  */
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
+export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -207,7 +976,17 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsEndCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
 })
 
 /**
@@ -224,23 +1003,32 @@ export const experimentsMetricsRecalculationCreateBodyTriggerDefault = `manual`
 export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
     .object({
         trigger: zod
-            .enum(['manual', 'experiment_launch', 'experiment_stop', 'experiment_update'])
+            .enum([
+                'manual',
+                'cold_run',
+                'stale_refresh',
+                'auto_refresh',
+                'config_change',
+                'experiment_launch',
+                'experiment_stop',
+                'experiment_update',
+            ])
             .describe(
-                '\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                '\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - manual\n\* `experiment_launch` - experiment_launch\n\* `experiment_stop` - experiment_stop\n\* `experiment_update` - experiment_update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -268,6 +1056,9 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  * Returns 400 if the experiment is in draft state, the variant_key is not found
  * on the flag, or the experiment has no linked feature flag.
  */
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
+export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -284,7 +1075,17 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()

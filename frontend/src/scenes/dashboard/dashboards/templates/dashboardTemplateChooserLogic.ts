@@ -18,8 +18,10 @@ function availabilityContextsKey(contexts: DashboardTemplateProps['availabilityC
     return [...contexts].sort().join(',')
 }
 
-function isTeamTemplate(template: DashboardTemplateType): boolean {
-    return template.scope === 'team'
+// Customer-authored templates (team- or organization-scoped) as opposed to PostHog's official/global ones.
+// Both share the chooser's "Team templates" bucket; org-scoped cards are tagged "Organization" in the UI.
+function isCustomerTemplate(template: DashboardTemplateType): boolean {
+    return template.scope === 'team' || template.scope === 'organization'
 }
 
 function filterTemplatesByAvailability(
@@ -92,20 +94,20 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
         teamTemplates: [
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
             (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
-                filterTemplatesByAvailability(raw, availabilityContexts).filter(isTeamTemplate),
+                filterTemplatesByAvailability(raw, availabilityContexts).filter(isCustomerTemplate),
         ],
         featuredTemplates: [
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
             (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
                 filterTemplatesByAvailability(raw, availabilityContexts)
-                    .filter((t) => !isTeamTemplate(t))
+                    .filter((t) => !isCustomerTemplate(t))
                     .filter((t) => t.is_featured === true),
         ],
         nonFeaturedOfficial: [
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
             (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) =>
                 filterTemplatesByAvailability(raw, availabilityContexts)
-                    .filter((t) => !isTeamTemplate(t))
+                    .filter((t) => !isCustomerTemplate(t))
                     .filter((t) => t.is_featured !== true),
         ],
         hasActiveFilter: [(s) => [s.templateFilter], (filterText: string) => filterText.trim().length > 0],
@@ -121,7 +123,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
             (s) => [s.allTemplates, (_, props) => props.availabilityContexts],
             (raw: DashboardTemplateType[], availabilityContexts: DashboardTemplateProps['availabilityContexts']) => {
                 const official = filterTemplatesByAvailability(raw, availabilityContexts).filter(
-                    (t) => !isTeamTemplate(t)
+                    (t) => !isCustomerTemplate(t)
                 )
                 const nonFeatured = official.filter((t) => t.is_featured !== true)
                 const featured = official.filter((t) => t.is_featured === true)
@@ -139,7 +141,7 @@ export const dashboardTemplateChooserLogic = kea<dashboardTemplateChooserLogicTy
                     return true
                 }
                 const official = filterTemplatesByAvailability(raw, availabilityContexts).filter(
-                    (t) => !isTeamTemplate(t)
+                    (t) => !isCustomerTemplate(t)
                 )
                 const nonFeatured = official.filter((t) => t.is_featured !== true)
                 const featured = official.filter((t) => t.is_featured === true)

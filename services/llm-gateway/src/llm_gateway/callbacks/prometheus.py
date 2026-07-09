@@ -15,6 +15,7 @@ from llm_gateway.metrics.prometheus import (
     TOKENS_OUTPUT,
     TOKENS_REASONING,
 )
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import get_auth_user, get_product
 
 
@@ -31,8 +32,9 @@ class PrometheusCallback(InstrumentedCallback):
         usage_object = metadata.get("usage_object", {}) or {}
         cost_breakdown = standard_logging_object.get("cost_breakdown", {}) or {}
 
-        provider = standard_logging_object.get("custom_llm_provider", "unknown")
-        model = standard_logging_object.get("model", "unknown")
+        litellm_provider = standard_logging_object.get("custom_llm_provider", "unknown")
+        litellm_model = standard_logging_object.get("model", "unknown")
+        provider, model = normalize_metric_labels(litellm_model, litellm_provider)
         product = get_product()
         is_streaming = standard_logging_object.get("stream", False)
 

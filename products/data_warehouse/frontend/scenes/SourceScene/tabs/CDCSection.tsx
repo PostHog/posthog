@@ -13,7 +13,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -26,6 +26,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanizeBytes } from 'lib/utils/numbers'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
+
+import { externalDataSourcesRepairCdcCreate } from 'products/warehouse_sources/frontend/generated/api'
 
 import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -226,6 +228,38 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
         })
     }
 
+    const onRepair = (): void => {
+        confirmThen({
+            title: 'Repair CDC',
+            description: (
+                <div className="space-y-2">
+                    <p className="m-0">
+                        PostHog will recreate the replication resources on your database and fully re-sync every CDC
+                        schema from a fresh snapshot.
+                    </p>
+                    <p className="m-0 text-sm">
+                        Changes made since the slot was lost cannot be recovered — tables will match the current source
+                        state once the re-sync completes.
+                    </p>
+                </div>
+            ),
+            primaryText: 'Repair and re-sync',
+            onConfirm: async () => {
+                setBusy(true)
+                try {
+                    await externalDataSourcesRepairCdcCreate(String(ApiConfig.getCurrentTeamId()), source.id)
+                    lemonToast.success('CDC repaired — schemas are re-syncing')
+                    loadSource()
+                    loadCdcStatus()
+                } catch (e: any) {
+                    lemonToast.error(e?.message ?? "Couldn't repair CDC")
+                } finally {
+                    setBusy(false)
+                }
+            },
+        })
+    }
+
     const onDisable = (): void => {
         confirmThen({
             title: 'Disable CDC',
@@ -328,10 +362,46 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                 ) : null}
                 {status && (status.slot_exists === false || status.publication_exists === false) && (
                     <LemonBanner type="error" className="mt-2">
-                        {status.slot_exists === false
-                            ? 'The replication slot is missing on your database — CDC syncs will fail until it is recreated. Disable and re-enable CDC to recreate it.'
-                            : 'The publication is missing on your database — recreate it (self-managed) or disable and re-enable CDC (PostHog-managed).'}
+                        <div className="space-y-2">
+                            <p className="m-0">
+                                {status.slot_exists === false
+                                    ? 'The replication slot is missing on your database — CDC syncs will fail until it is recreated. Repairing recreates it and re-syncs every CDC schema from a fresh snapshot.'
+                                    : 'The publication is missing on your database — recreate it (self-managed) or repair CDC (PostHog-managed).'}
+                            </p>
+                            {(status.slot_exists === false || cdc.management_mode === 'posthog') && (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.ExternalDataSource}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={source.user_access_level}
+                                >
+                                    <LemonButton type="secondary" size="small" onClick={onRepair} loading={busy}>
+                                        Repair CDC
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )}
+                        </div>
                     </LemonBanner>
+                )}
+                {status?.publication_exists && (
+                    <div className="mt-3">
+                        <div className="text-secondary text-xs mb-1">
+                            Replicated tables {status.published_tables ? `(${status.published_tables.length})` : ''}
+                        </div>
+                        {status.published_tables && status.published_tables.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                                {status.published_tables.map((table: string) => (
+                                    <LemonTag key={table} type="muted">
+                                        <code className="text-xs">{table}</code>
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-secondary m-0">
+                                No tables are in the publication yet — pick CDC as the sync type on the Schemas tab to
+                                add one.
+                            </p>
+                        )}
+                    </div>
                 )}
             </div>
 

@@ -7,7 +7,7 @@ import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/Lemo
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils/strings'
 
-import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import { experimentPickerLogic } from './experimentPickerLogic'
 
@@ -22,7 +22,7 @@ export type ExperimentPickerSelectProps = {
     dataAttr?: string
 }
 
-function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): JSX.Element {
+function ExperimentOptionLabel({ experiment }: { experiment: ExperimentBasicApi }): JSX.Element {
     const creator = experiment.created_by
     const creatorName = creator ? fullName(creator) || creator.email : null
     return (
@@ -62,7 +62,7 @@ export function ExperimentPickerSelect({
     }, [value, ensureSelectedLoaded])
 
     const options = useMemo((): LemonInputSelectOption[] => {
-        const byId = new Map<number, ExperimentApi>()
+        const byId = new Map<number, ExperimentBasicApi>()
         if (selectedExperiment) {
             byId.set(selectedExperiment.id, selectedExperiment)
         }

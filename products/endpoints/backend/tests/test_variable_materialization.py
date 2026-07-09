@@ -2,27 +2,115 @@ from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import DataWarehouseNode, TrendsQuery
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 
 from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
+    MaterializableVariable,
+    MaterializationNotSupportedError,
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
     _topological_order,
     analyze_variables_for_materialization,
+    build_endpoint_hogql,
     transform_query_for_materialization,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 pytestmark = [pytest.mark.django_db]
 
 
 class TestVariableAnalysis(APIBaseTest):
     """Test variable analysis for materialization eligibility."""
+
+    def test_materialization_transform_compiles_warehouse_table_without_user_context(self):
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="web_vitals_mv",
+            columns={"page": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/web-vitals/*.parquet",
+        )
+        query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT count() FROM web_vitals_mv WHERE page = {variables.page}",
+            "variables": {
+                "page-variable": {
+                    "variableId": "page-variable",
+                    "code_name": "page",
+                    "value": "/pricing",
+                }
+            },
+        }
+
+        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
+            materialized_query = build_endpoint_hogql(query, self.team, bypass_warehouse_access_control=True)
+
+        assert materialized_query["variables"] == {}
+        assert "{variables" not in materialized_query["query"]
+        assert table.name in materialized_query["query"]
+        assert "page" in materialized_query["query"]
+
+    def test_materialization_transform_respects_user_warehouse_access_control(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="denied_web_vitals_mv",
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+            },
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/denied-web-vitals/*.parquet",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        query = TrendsQuery(
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="timestamp",
+                )
+            ]
+        ).model_dump()
+
+        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=True):
+            with pytest.raises(QueryError, match=f"You don't have access to table `{table.name}`"):
+                build_endpoint_hogql(query, self.team, user=self.user)
+
+            materialized_query = build_endpoint_hogql(query, self.team, bypass_warehouse_access_control=True)
+
+        assert table.name in materialized_query["query"]
 
     def test_simple_variable_detection(self):
         query = {
@@ -227,18 +315,59 @@ class TestVariableAnalysis(APIBaseTest):
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
-    def test_variable_in_or_condition_blocked(self):
-        query = {
-            "kind": "HogQLQuery",
-            "query": "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
-            "variables": {"var-1": {"code_name": "event_name", "value": "$identify"}},
-        }
+    @parameterized.expand(
+        [
+            # Variable inside an OR can't be lifted into a single materialized key column.
+            (
+                "or_condition",
+                "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
+                {"var-1": {"code_name": "event_name", "value": "$identify"}},
+                False,
+                "OR conditions",
+                0,
+            ),
+            # Reproduction of a real failure: same variable across two OR branches, two
+            # different columns, one branch using ILIKE.
+            (
+                "or_with_multiple_columns",
+                "SELECT count() FROM events\n"
+                "WHERE (event = '$pageview' AND properties.$current_url ILIKE CONCAT('%/refer?p_ref=', {variables.playeruuid}, '%'))\n"
+                "   OR (event = 'referral-impression' AND properties.referrer_uuid = {variables.playeruuid})",
+                {"var-1": {"code_name": "playeruuid", "value": "191e674e"}},
+                False,
+                "OR conditions",
+                0,
+            ),
+            # Same variable, two AND'd branches, but two different columns — no single bucket key.
+            (
+                "multiple_columns",
+                "SELECT count() FROM events WHERE properties.a = {variables.v} AND properties.b = {variables.v}",
+                {"var-1": {"code_name": "v", "value": "x"}},
+                False,
+                "multiple columns",
+                0,
+            ),
+            # An OR that doesn't contain the variable must not trip the OR guard.
+            (
+                "or_without_variable_allowed",
+                "SELECT count() FROM events WHERE event = {variables.event_name} AND (properties.a = '1' OR properties.b = '2')",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+                True,
+                "OK",
+                1,
+            ),
+        ]
+    )
+    def test_or_and_multi_column_variable_analysis(
+        self, _name, query_str, variables, expected_can_materialize, expected_reason, expected_var_count
+    ):
+        query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        assert can_materialize is expected_can_materialize
+        assert expected_reason in reason
+        assert len(var_infos) == expected_var_count
 
     def test_variable_with_parentheses(self):
         query = {
@@ -1015,7 +1144,11 @@ class TestQueryTransformation(APIBaseTest):
         assert "{variables" not in transformed_query
         assert transformed_query.count("AS profile_id") == 1
 
-    def test_transform_variable_alias_collision_with_different_expression(self):
+    def test_alias_collision_with_different_expression_rejected_preflight(self):
+        # A variable code_name colliding with a SELECT alias for a *different* expression
+        # can't be materialized (the table would need two columns named profile_id).
+        # Pre-flight must reject it so enabling is never attempted — otherwise the transform
+        # fails at enable time with a generic server error.
         query = {
             "kind": "HogQLQuery",
             "query": (
@@ -1029,9 +1162,38 @@ class TestQueryTransformation(APIBaseTest):
             },
         }
 
-        _, _, var_infos = analyze_variables_for_materialization(query)
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        with pytest.raises(ValueError, match="conflicts with an existing SELECT alias"):
+        assert can_materialize is False
+        assert "conflicts with an existing SELECT alias" in reason
+        assert var_infos == []
+
+    def test_transform_alias_collision_raises_not_supported(self):
+        # Backstop: if the transform is reached directly (bypassing pre-flight) on a colliding
+        # query, it raises MaterializationNotSupportedError (a 400), not a bare ValueError (a 500).
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.card_id AS profile_id, count() AS tap_count "
+                "FROM events "
+                "WHERE properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        var_infos = [
+            MaterializableVariable(
+                variable_id="var-1",
+                code_name="profile_id",
+                column_chain=["properties", "profile_id"],
+                column_expression="properties.profile_id",
+            )
+        ]
+
+        with pytest.raises(MaterializationNotSupportedError, match="conflicts with an existing SELECT alias"):
             transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_order_by(self):
@@ -1229,10 +1391,18 @@ class TestQueryTransformation(APIBaseTest):
             },
         }
 
-        _, _, var_infos = analyze_variables_for_materialization(query)
-        assert len(var_infos) >= 1
+        # Analysis now rejects OR up-front, so feed the transform a hand-built var_info to
+        # confirm the transform itself still guards against OR as a backstop.
+        var_infos = [
+            MaterializableVariable(
+                variable_id="var-123",
+                code_name="event_name",
+                column_chain=["event"],
+                column_expression="event",
+            )
+        ]
 
-        with pytest.raises(ValueError, match="OR conditions not supported"):
+        with pytest.raises(MaterializationNotSupportedError, match="OR conditions not supported"):
             transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_specific_columns_in_select(self):
@@ -1721,7 +1891,7 @@ class TestMaterializedReadPath(APIBaseTest):
 
     def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
         """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
-        from products.endpoints.backend.services.strategies import apply_where_filter
+        from products.endpoints.backend.logic.strategies import apply_where_filter
 
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
         _, _, var_infos = analyze_variables_for_materialization(hogql_query)
@@ -1831,9 +2001,9 @@ class TestCTEVariableAnalysis(APIBaseTest):
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        assert can_materialize is False
+        assert "OR conditions" in reason
+        assert var_infos == []
 
     def test_two_ctes_one_variable_each_different_vars_allowed(self):
         query = {

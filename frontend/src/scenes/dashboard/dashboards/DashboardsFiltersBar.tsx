@@ -4,7 +4,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
@@ -15,6 +15,8 @@ interface DashboardsFiltersBarProps {
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
     const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+
+    const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
 
     const debouncedSetSearch = useDebouncedCallback((value: string) => {
         setSearch(value)
@@ -160,13 +162,10 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                     )}
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                        />
-                    </div>
+                    <MemberSelectMultiplePopover
+                        value={createdByIds}
+                        onChange={(ids) => setFilters({ createdBy: ids.length > 0 ? ids : 'All users' })}
+                    />
                 )}
                 {extraActions}
             </div>

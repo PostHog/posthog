@@ -562,6 +562,33 @@ export interface PatchedHogFlowApi {
     readonly schedules?: readonly HogFlowScheduleApi[]
 }
 
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Asset kind. Currently always 'email'. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** The recipient email address. */
+    recipient: string
+    /** The email subject line. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent'. */
+    status: string
+    /** When the email was sent. */
+    sent_at: string
+}
+
 /**
  * * `waiting` - Waiting
  * * `queued` - Queued
@@ -726,6 +753,74 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `running` - running
+ * * `succeeded` - succeeded
+ * * `failed` - failed
+ */
+export type HogInvocationRerunFilterStatusEnumApi =
+    (typeof HogInvocationRerunFilterStatusEnumApi)[keyof typeof HogInvocationRerunFilterStatusEnumApi]
+
+export const HogInvocationRerunFilterStatusEnumApi = {
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+} as const
+
+/**
+ * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+ */
+export interface HogInvocationRerunFilterApi {
+    /** Inclusive lower bound on `scheduled_at` (UTC). */
+    window_start: string
+    /** Exclusive upper bound on `scheduled_at` (UTC). */
+    window_end: string
+    /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+    status?: HogInvocationRerunFilterStatusEnumApi[]
+    /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+    error_kind?: string[]
+    /**
+     * Skip invocations that have already been attempted this many times or more.
+     * @minimum 1
+     * @maximum 255
+     */
+    max_attempts?: number
+    /**
+     * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+     * @minimum 1
+     * @maximum 10000
+     */
+    max_count?: number
+    /**
+     * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+     * @maxItems 10000
+     */
+    invocation_ids?: string[]
+}
+
+/**
+ * Rerun invocations of a hog function or hog flow from their stored payloads.
+ */
+export interface HogInvocationRerunRequestApi {
+    /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+    filter: HogInvocationRerunFilterApi
+}
+
+/**
+ * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+ * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+ * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+ * Use `rerun_job_id` to look up progress on the wrapper job later.
+ */
+export interface HogInvocationRerunResponseApi {
+    /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+    rerun_job_id: string
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    queued_count: number
+    /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+    skipped_count: number
+}
+
 export interface PatchedHogFlowScheduleApi {
     readonly id?: string
     /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
@@ -783,6 +878,8 @@ export interface BlastRadiusApi {
     affected: number
     /** Total number of users */
     total: number
+    /** Maximum allowed audience size for batch triggers for this team. */
+    limit: number
 }
 
 export type HogFlowTemplatesListParams = {
@@ -856,6 +953,66 @@ export const HogFlowsListStatus = {
     Archived: 'archived',
     Draft: 'draft',
 } as const
+
+export type HogFlowsAssetsRetrieveParams = {
+    /**
+     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
+     * @minLength 1
+     */
+    action_id?: string
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return assets sent to this distinct_id.
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
+     */
+    parent_run_id?: string
+    /**
+     * Case-insensitive substring match on recipient email or subject.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFlowsAssetContentRetrieveParams = {
+    /**
+     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
+     */
+    action_id?: string
+    /**
+     * The workflow run the email was sent in.
+     * @minLength 1
+     */
+    invocation_id: string
+}
 
 export type HogFlowsInvocationResultsRetrieveParams = {
     /**

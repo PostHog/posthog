@@ -2916,6 +2916,162 @@ mod tests {
         );
     }
 
+    fn flag_with_group(
+        team_id: TeamId,
+        group: FlagPropertyGroup,
+        multivariate: MultivariateFlagOptions,
+    ) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            key: "freeze-flag".mock_into(),
+            filters: FlagFilters {
+                groups: vec![group],
+                multivariate: Some(multivariate),
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        )
+    }
+
+    async fn evaluate_flag(
+        context: &TestContext,
+        team_id: TeamId,
+        cohort_cache: &Arc<CohortCacheManager>,
+        distinct_id: &str,
+        flag: &FeatureFlag,
+    ) -> FeatureFlagMatch {
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.to_string(),
+            None,
+            team_id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        );
+        matcher
+            .prepare_flag_evaluation_state(&[flag])
+            .await
+            .unwrap();
+        matcher.get_match(flag, None, None, None, &None).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_frozen_exposure_flag_keeps_enrolled_variant_and_excludes_new_user() {
+        // Correctness proof for the experiments "freeze exposure" action against the real matcher.
+        // Freezing AND-s a static-cohort condition into every existing multivariate release group
+        // (products/experiments/backend/experiment_service.py::_transform_filters_for_frozen_exposure).
+        // The user-facing guarantee: an already-exposed user (in the snapshot cohort) keeps matching
+        // AND keeps the exact same variant, while a brand-new user (not in the cohort) no longer matches.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Exposure snapshot".to_string()),
+                json!({}),
+                true,
+            )
+            .await
+            .unwrap();
+
+        // The enrolled user is in the snapshot cohort; the new user is not.
+        let enrolled_id = "enrolled_user".to_string();
+        let new_id = "new_user".to_string();
+        for distinct_id in [&enrolled_id, &new_id] {
+            context
+                .insert_person(team.id, distinct_id.clone(), None)
+                .await
+                .unwrap();
+        }
+        let enrolled_person_id = context
+            .get_person_id_by_distinct_id(team.id, &enrolled_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, enrolled_person_id)
+            .await
+            .unwrap();
+
+        // Both flags share this 50/50 split; freezing must not perturb it.
+        let multivariate = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    name: Some("Control".to_string()),
+                    key: "control".to_string(),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    name: Some("Test".to_string()),
+                    key: "test".to_string(),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        };
+
+        // Open flag: one catch-all group at 100%, everyone matches.
+        let open_group = FlagPropertyGroup {
+            properties: Some(vec![]),
+            rollout_percentage: Some(100.0),
+            variant: None,
+            ..Default::default()
+        };
+
+        // Frozen flag: the freeze transform appends the snapshot-cohort condition to that same group
+        // (mirroring _transform_filters_for_frozen_exposure) and leaves everything else untouched.
+        let mut frozen_group = open_group.clone();
+        frozen_group
+            .properties
+            .get_or_insert_with(Vec::new)
+            .push(PropertyFilter {
+                key: "id".to_string(),
+                value: Some(json!(cohort.id)),
+                operator: Some(OperatorType::In),
+                prop_type: PropertyType::Cohort,
+                group_type_index: None,
+                negation: Some(false),
+                compiled_regex: None,
+                extra: Default::default(),
+            });
+
+        let open_flag = flag_with_group(team.id, open_group, multivariate.clone());
+        let frozen_flag = flag_with_group(team.id, frozen_group, multivariate);
+
+        // Variants each user receives while the flag is still open to everyone.
+        let enrolled_open =
+            evaluate_flag(&context, team.id, &cohort_cache, &enrolled_id, &open_flag).await;
+        let new_open = evaluate_flag(&context, team.id, &cohort_cache, &new_id, &open_flag).await;
+        assert!(enrolled_open.matches && enrolled_open.variant.is_some());
+        assert!(new_open.matches);
+
+        // After freezing: the enrolled user still matches and keeps the exact same variant...
+        let enrolled_frozen =
+            evaluate_flag(&context, team.id, &cohort_cache, &enrolled_id, &frozen_flag).await;
+        assert!(enrolled_frozen.matches, "enrolled user should still match");
+        assert_eq!(
+            enrolled_frozen.variant, enrolled_open.variant,
+            "enrolled user's variant must be unchanged by freezing"
+        );
+
+        // ...and the brand-new user no longer matches — enrollment is frozen.
+        let new_frozen =
+            evaluate_flag(&context, team.id, &cohort_cache, &new_id, &frozen_flag).await;
+        assert!(
+            !new_frozen.matches,
+            "new user should be excluded after freeze"
+        );
+    }
+
     #[tokio::test]
     async fn test_static_cohort_matching_user_not_in_cohort() {
         let context = TestContext::new(None).await;
@@ -4354,6 +4510,7 @@ mod tests {
             team_id: team.id,
             name: Some("Beta feature".to_string()),
             key: "beta-feature".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: None,
@@ -5673,6 +5830,7 @@ mod tests {
             team_id: team.id,
             name: Some("Test Order Flag".to_string()),
             key: "test_order_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![
                     FlagPropertyGroup {

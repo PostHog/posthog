@@ -33,6 +33,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
+    EvaluationRuntime,
 } from './maxTypes'
 import {
     actionToMaxContextPayload,
@@ -111,7 +112,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
             id: string
             name?: string | null
             description?: string | null
-            evaluation_type: 'hog' | 'llm_judge'
+            evaluation_type: EvaluationRuntime
             hog_source?: string | null
         }) => ({ data }),
         removeContextInsight: (id: string | number) => ({ id }),
@@ -227,7 +228,7 @@ export const maxContextLogic = kea<maxContextLogicType>([
                             id: string
                             name?: string | null
                             description?: string | null
-                            evaluation_type: 'hog' | 'llm_judge'
+                            evaluation_type: EvaluationRuntime
                             hog_source?: string | null
                         }
                     }

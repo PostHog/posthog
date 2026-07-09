@@ -1,6 +1,13 @@
 {
     "products": [
         {
+            "path": "AI gateway",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "ai_gateway",
+            "intents": ["ai_gateway"]
+        },
+        {
             "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
@@ -113,7 +120,7 @@
             "intents": ["endpoints"]
         },
         {
-            "path": "CI analytics",
+            "path": "Engineering analytics",
             "category": "Unreleased",
             "iconType": null,
             "type": "engineering_analytics",
@@ -139,6 +146,13 @@
             "iconType": null,
             "type": "feature_flag",
             "intents": ["feature_flags", "experiments", "early_access_features"]
+        },
+        {
+            "path": "Identity matching",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["marketing_analytics"]
         },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
@@ -296,8 +310,14 @@
             "type": null,
             "intents": []
         },
-        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
         { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Managed migrations",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Event definitions",
             "category": "Schema",

@@ -1,6 +1,6 @@
-import { logger } from '~/utils/logger'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { logger } from '~/common/utils/logger'
 
-import { HogFlowAction } from '../../../schema/hogflow'
 import { CyclotronJobInvocationHogFunction } from '../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 
@@ -15,9 +15,17 @@ export class RecipientPreferencesService {
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<boolean> {
-        return (
-            this.isSubjectToRecipientPreferences(action) && (await this.isRecipientOptedOutOfAction(invocation, action))
-        )
+        if (!this.isSubjectToRecipientPreferences(action)) {
+            return false
+        }
+
+        // Transactional messages are not eligible for opt-outs, so they send regardless of
+        // whether the recipient has opted out of this category or of all marketing messaging.
+        if (action.config.message_category_type === 'transactional') {
+            return false
+        }
+
+        return await this.isRecipientOptedOutOfAction(invocation, action)
     }
 
     private isSubjectToRecipientPreferences(action: HogFlowAction): action is MessageAction {

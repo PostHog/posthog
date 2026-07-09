@@ -8,11 +8,7 @@ import logging
 import subprocess
 from dataclasses import dataclass
 
-from products.tasks.backend.services.custom_prompt_internals import (
-    CustomPromptSandboxContext,
-    create_task_and_trigger,
-    poll_for_turn,
-)
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, create_task_and_trigger, poll_for_turn
 
 from .config import AgentArtifacts, SandboxedEvalCase
 

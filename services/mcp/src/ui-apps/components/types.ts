@@ -80,6 +80,21 @@ export interface LifecycleQuery {
     }
 }
 
+export interface StickinessQuery {
+    kind: 'StickinessQuery'
+    /** Interval unit the X-axis counts (`day`, `week`, …) — labels the buckets ("N days"). */
+    interval?: string
+    series?: Array<{
+        event?: string
+        name?: string
+        custom_name?: string
+    }>
+    stickinessFilter?: {
+        display?: string
+        showValuesOnSeries?: boolean
+    }
+}
+
 export interface HogQLQuery {
     kind: 'HogQLQuery'
     query: string
@@ -111,6 +126,16 @@ export interface LifecycleResultItem extends TrendsResultItem {
 }
 
 export type LifecycleResult = LifecycleResultItem[]
+
+/**
+ * Stickiness rows share the trends shape, but `count` (the total distinct users for the series)
+ * is always present and is the denominator for the percentage-of-users Y-axis the chart renders.
+ */
+export interface StickinessResultItem extends TrendsResultItem {
+    count: number
+}
+
+export type StickinessResult = StickinessResultItem[]
 
 export interface FunnelStep {
     name?: string
@@ -233,6 +258,11 @@ export interface FunnelVisualizerProps {
 export interface LifecycleVisualizerProps {
     query: LifecycleQuery | undefined
     results: LifecycleResult
+}
+
+export interface StickinessVisualizerProps {
+    query: StickinessQuery | undefined
+    results: StickinessResult
 }
 
 export interface TableVisualizerProps {

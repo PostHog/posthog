@@ -176,7 +176,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 if (resource === 'project') {
                     return `api/projects/${currentProjectId}/access_controls`
                 }
-                return `api/projects/${currentProjectId}/${resource}s/${resource_id}/access_controls`
+                // Resources whose API route doesn't match the naive `${resource}s` pluralization
+                const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
+                    warehouse_view: 'warehouse_saved_queries',
+                    early_access_feature: 'early_access_feature',
+                }
+                const route = resourceToRoute[resource] ?? `${resource}s`
+                return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`
             },
         ],
 

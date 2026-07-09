@@ -14,7 +14,7 @@ import { DeleteObjectCommand, S3Client } from '@aws-sdk/client-s3'
  *   pnpm --filter @posthog/agent-janitor exec tsx \
  *     scripts/restore-bundle.ts --rev <revision-id> --from <example-dir> [--freeze]
  *
- * Example dirs live in services/agent-tests/src/examples/ (agent-concierge,
+ * Example dirs live in services/agent-tests/src/examples/ (agent-builder,
  * sre-slack-bot). Pass the absolute or repo-relative path.
  *
  * To find revision ids:

@@ -7,6 +7,7 @@ import { LemonButton, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
@@ -14,6 +15,8 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyCollectionLimitSummary, getSurveyDisplayConditionsSummary } from 'scenes/surveys/utils'
 
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     ExporterFormat,
     Survey,
     SurveyQuestionBranchingType,
@@ -190,6 +193,12 @@ export function SurveyExportPanel(): JSX.Element {
     const { survey, dataTableQuery } = useValues(surveyLogic)
     const { startExport } = useActions(exportsLogic)
 
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     const handleExport = (format: ExporterFormat): void => {
         if (!dataTableQuery) {
             return
@@ -211,10 +220,12 @@ export function SurveyExportPanel(): JSX.Element {
                         {
                             label: 'Export as CSV',
                             onClick: () => handleExport(ExporterFormat.CSV),
+                            disabledReason: exportAccessControlDisabledReason ?? undefined,
                         },
                         {
                             label: 'Export as Excel',
                             onClick: () => handleExport(ExporterFormat.XLSX),
+                            disabledReason: exportAccessControlDisabledReason ?? undefined,
                         },
                     ]}
                 >

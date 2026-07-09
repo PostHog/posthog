@@ -20,7 +20,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -67,7 +68,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -114,7 +116,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -163,7 +166,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -212,7 +216,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -261,7 +266,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -308,7 +314,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -355,7 +362,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -402,7 +410,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -449,7 +458,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -498,7 +508,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -547,7 +558,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalIn(s.session_id,
                                                                                                                                                                                                                      (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -596,7 +608,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id
@@ -643,7 +656,8 @@
          plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('today', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('today', 6, 'UTC')) AS ongoing,
-         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score,
+         coalesce(max(s.surfacing_score), 0.36) AS surfacing_score
   FROM session_replay_events AS s
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(s.min_first_timestamp, toDateTime64('2021-01-18 00:00:00.000000', 6, 'UTC')), lessOrEquals(s.min_first_timestamp, toDateTime64('today', 6, 'UTC')), globalNotIn(s.session_id,
                                                                                                                                                                                                                         (SELECT nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id

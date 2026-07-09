@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/tasks/frontend/types'
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { inboxTaskKickoffLogicType } from './inboxTaskKickoffLogicType'
 import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalReportTaskRelationship } from './types'
@@ -15,6 +15,11 @@ import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalRep
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
 // NOT a live chat surface. The created task carries the SignalReport linkage so the
 // backend's agent pipeline can pick it up.
+
+// Report artefacts are paginated newest-first (default page size 100); `repo_selection` is
+// written early in a research run, so a generous limit keeps it on the fetched page even for
+// reports with many findings.
+const REPO_SELECTION_ARTEFACT_FETCH_LIMIT = 1000
 
 function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
@@ -42,15 +47,34 @@ async function createReportTask(
     report: SignalReport,
     relationship: SignalReportTaskRelationship,
     prompt: string,
-    fallbackTitle: string
+    fallbackTitle: string,
+    requireRepository = false
 ): Promise<void> {
-    // Pick a default repository (mirrors desktop resolving lastUsedCloudRepository → first repo).
+    // Use the repository the signals pipeline already selected for this report (its
+    // `repo_selection` artefact), matching the desktop app and the auto-start flow. Never fall
+    // back to an arbitrary project repo — `repositories[0]` previously leaked whichever repo
+    // sorted first (e.g. a personal repo) and pinned the task to the wrong codebase.
+    // Artefacts are paginated newest-first and `repo_selection` is written early in the run, so
+    // fetch a high limit to keep it on the page even for reports with many findings.
     let repository: string | undefined
     try {
-        const { repositories } = await api.tasks.repositories()
-        repository = repositories[0]
-    } catch {
+        const { results } = await api.signalReports.artefacts(report.id, { limit: REPO_SELECTION_ARTEFACT_FETCH_LIMIT })
+        const selected = results.find((a) => a.type === 'repo_selection')?.content?.repository
+        repository = typeof selected === 'string' && selected ? selected : undefined
+    } catch (e) {
+        // A genuine fetch failure must not masquerade as "no repository selected" — when a repo
+        // is required, surface the real error so the user retries instead of waiting on analysis.
+        if (requireRepository) {
+            throw e
+        }
         repository = undefined
+    }
+
+    // Opening a PR needs a concrete target repo. If selection hasn't resolved one (e.g. a
+    // pending-input report), fail with a clear message instead of creating a task pinned to no
+    // repository that can never open a PR. Discuss doesn't require a repo.
+    if (requireRepository && !repository) {
+        throw new Error('No repository has been selected for this report yet — try again once analysis finishes.')
     }
 
     const task = await api.tasks.create({
@@ -113,7 +137,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix'
+                    'Implement report fix',
+                    true
                 )
                 actions.createPrSuccess()
             } catch (error: any) {

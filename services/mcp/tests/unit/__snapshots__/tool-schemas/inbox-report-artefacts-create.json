@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artefact_type": {
+            "description": "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status.",
+            "type": "string"
+        },
+        "content": {
+            "description": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema."
+        },
+        "report_id": {
+            "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "type": "string"
+        }
+    },
+    "required": ["report_id", "artefact_type", "content"],
+    "type": "object"
+}

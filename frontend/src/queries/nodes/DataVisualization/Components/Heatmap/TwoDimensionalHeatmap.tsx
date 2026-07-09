@@ -62,7 +62,9 @@ const buildHeatmapData = (
 ): HeatmapData => {
     const xValues: string[] = []
     const yValues: string[] = []
-    const cellValues: Record<string, Record<string, number | null>> = {}
+    // Prototype-less: row labels are attacker-controlled and used as keys, so a `__proto__`
+    // label on a plain object would write through to Object.prototype (prototype pollution).
+    const cellValues: Record<string, Record<string, number | null>> = Object.create(null)
     const numericValues: number[] = []
     let duplicateCellCount = 0
 
@@ -101,7 +103,7 @@ const buildHeatmapData = (
         }
 
         if (!cellValues[yLabel]) {
-            cellValues[yLabel] = {}
+            cellValues[yLabel] = Object.create(null)
         }
 
         const cellKey = `${yLabel}||${xLabel}`

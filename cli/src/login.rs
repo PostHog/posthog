@@ -33,12 +33,18 @@ struct PollResponse {
     status: String,
     personal_api_key: Option<String>,
     project_id: Option<String>,
+    scopes: Option<Vec<String>>,
 }
 
 // The `agent-cli` use case grants the full MCP / `posthog-cli api` scope set
 // (a superset of schema + error_tracking + endpoints), so a freshly logged-in
 // CLI can run the agent interface without re-authorizing.
 const DEFAULT_LOGIN_USE_CASES: &[&str] = &["agent-cli"];
+const NEXT_COMMAND_AGENT_CLI: &str = "posthog-cli api tools";
+const NEXT_COMMAND_ERROR_TRACKING: &str = "posthog-cli sourcemap --help";
+const NEXT_COMMAND_SCHEMA: &str = "posthog-cli exp schema pull";
+const NEXT_COMMAND_ENDPOINTS: &str = "posthog-cli exp endpoints list";
+const NEXT_COMMAND_DEFAULT: &str = "posthog-cli --help";
 
 pub fn login(host_override: Option<String>) -> Result<()> {
     if !io::stdout().is_terminal() {
@@ -118,6 +124,7 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
         device_data.interval,
         device_data.expires_in,
     )?;
+    let authorized_scopes = poll_response.scopes.clone().unwrap_or_default();
 
     info!("✓ Successfully authenticated!");
 
@@ -132,7 +139,12 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
 
     info!("Token saved to: {}", provider.report_location());
 
-    complete_login(&provider, "interactive_login")
+    complete_login(
+        &provider,
+        "interactive_login",
+        &authorized_scopes,
+        &use_cases,
+    )
 }
 
 fn request_device_code(host: &str) -> Result<DeviceCodeResponse, Error> {
@@ -252,17 +264,80 @@ fn poll_for_authorization(
     ))
 }
 
-fn complete_login(provider: &HomeDirProvider, command_name: &str) -> Result<(), Error> {
+fn has_scope_action(scopes: &[String], object: &str) -> bool {
+    scopes.iter().any(|scope| {
+        scope == "*" || scope == &format!("{object}:read") || scope == &format!("{object}:write")
+    })
+}
+
+fn use_cases_include(use_cases: &[&str], candidates: &[&str]) -> bool {
+    use_cases
+        .iter()
+        .any(|use_case| candidates.contains(use_case))
+}
+
+fn recommended_next_command(scopes: &[String], use_cases: &[&str]) -> &'static str {
+    if !scopes.is_empty() {
+        if has_scope_action(scopes, "user")
+            && has_scope_action(scopes, "project")
+            && has_scope_action(scopes, "query")
+        {
+            return NEXT_COMMAND_AGENT_CLI;
+        }
+
+        if has_scope_action(scopes, "error_tracking") {
+            return NEXT_COMMAND_ERROR_TRACKING;
+        }
+
+        if has_scope_action(scopes, "event_definition")
+            && has_scope_action(scopes, "property_definition")
+        {
+            return NEXT_COMMAND_SCHEMA;
+        }
+
+        if has_scope_action(scopes, "endpoint") {
+            return NEXT_COMMAND_ENDPOINTS;
+        }
+
+        return NEXT_COMMAND_DEFAULT;
+    }
+
+    if use_cases_include(use_cases, &["agent-cli", "agent"]) {
+        return NEXT_COMMAND_AGENT_CLI;
+    }
+
+    if use_cases_include(use_cases, &["error_tracking", "error-tracking"]) {
+        return NEXT_COMMAND_ERROR_TRACKING;
+    }
+
+    if use_cases_include(use_cases, &["schema"]) {
+        return NEXT_COMMAND_SCHEMA;
+    }
+
+    if use_cases_include(use_cases, &["endpoints"]) {
+        return NEXT_COMMAND_ENDPOINTS;
+    }
+
+    NEXT_COMMAND_DEFAULT
+}
+
+fn complete_login(
+    provider: &HomeDirProvider,
+    command_name: &str,
+    scopes: &[String],
+    use_cases: &[&str],
+) -> Result<(), Error> {
     // Login is the only command that doesn't have a context coming in - because it modifies the context
     init_context(None, false, None, None)?;
     context().capture_command_invoked(command_name);
+    let next_command = recommended_next_command(scopes, use_cases);
 
     println!();
     println!("🎉 Authentication complete!");
     println!("Credentials saved to: {}", provider.report_location());
     println!();
     println!("You can now use the CLI:");
-    println!("  posthog-cli schema pull");
+    println!("  {next_command}");
     println!();
 
     Ok(())
@@ -295,7 +370,7 @@ fn manual_login() -> Result<(), Error> {
 
     info!("Token saved to: {}", provider.report_location());
 
-    complete_login(&provider, "manual_login")
+    complete_login(&provider, "manual_login", &[], &[])
 }
 
 #[cfg(test)]
@@ -307,5 +382,47 @@ mod tests {
         // The agent-cli use case is what grants the CLI the full `posthog-cli api`
         // scope set; narrowing it here would silently break agent commands.
         assert_eq!(DEFAULT_LOGIN_USE_CASES, &["agent-cli"]);
+    }
+
+    #[test]
+    fn recommends_api_tools_for_agent_cli_use_case() {
+        assert_eq!(
+            recommended_next_command(&[], &["agent-cli"]),
+            NEXT_COMMAND_AGENT_CLI
+        );
+    }
+
+    #[test]
+    fn recommends_api_tools_for_agent_capable_scopes() {
+        let scopes = vec![
+            "user:read".to_string(),
+            "project:read".to_string(),
+            "query:read".to_string(),
+        ];
+
+        assert_eq!(
+            recommended_next_command(&scopes, &["error_tracking"]),
+            NEXT_COMMAND_AGENT_CLI
+        );
+    }
+
+    #[test]
+    fn recommends_sourcemap_for_error_tracking_scopes() {
+        let scopes = vec!["error_tracking:write".to_string()];
+
+        assert_eq!(
+            recommended_next_command(&scopes, &["agent-cli"]),
+            NEXT_COMMAND_ERROR_TRACKING
+        );
+    }
+
+    #[test]
+    fn recommends_schema_for_schema_scopes() {
+        let scopes = vec![
+            "event_definition:read".to_string(),
+            "property_definition:read".to_string(),
+        ];
+
+        assert_eq!(recommended_next_command(&scopes, &[]), NEXT_COMMAND_SCHEMA);
     }
 }

@@ -18,7 +18,7 @@ describe('loadAgentIngressConfig', () => {
 
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentIngressConfig({})
-        expect(cfg.port).toBe(8080)
+        expect(cfg.port).toBe(3030) // dev default (vitest runs NODE_ENV=test)
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
         // Dev default — backs the preview-token gate + posthog_internal mode locally.

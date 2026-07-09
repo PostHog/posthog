@@ -13,26 +13,39 @@ Endpoint:
 from __future__ import annotations
 
 import re
+import hmac
+import json
+import time
+import hashlib
 import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponseBase, HttpResponseRedirect
 
+import requests
 import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    WebhookSignatureAuthentication,
+)
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
@@ -48,6 +61,8 @@ SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
+# The most calendar days a MAX_WINDOW_DAYS window can touch: partial days at both edges.
+BY_DAY_MAX_ROWS = MAX_WINDOW_DAYS + 1
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
 
 MIN_LIMIT = 1
@@ -203,6 +218,14 @@ class _ModelBreakdownRowSerializer(serializers.Serializer):
     output_tokens = serializers.IntegerField(help_text="Sum of `$ai_output_tokens` for this model.")
 
 
+class _DayBreakdownRowSerializer(serializers.Serializer):
+    day = serializers.DateField(help_text="UTC calendar day the events fall on (`toDate(timestamp)`).")
+    event_count = serializers.IntegerField(
+        help_text="Number of $ai_generation + $ai_embedding events on this day for the scoped product."
+    )
+    cost_usd = serializers.FloatField(help_text="Total cost in USD on this day for the scoped product.")
+
+
 class _TopTraceRowSerializer(serializers.Serializer):
     trace_id = serializers.CharField(
         allow_null=True,
@@ -270,6 +293,23 @@ class _ModelBreakdownSerializer(serializers.Serializer):
     )
 
 
+class _DayBreakdownSerializer(serializers.Serializer):
+    items = _DayBreakdownRowSerializer(
+        many=True,
+        help_text=(
+            "One row per UTC day that has events, ordered by day ascending. Days with no events are "
+            "omitted — zero-fill client-side when rendering a continuous series."
+        ),
+    )
+    truncated = serializers.BooleanField(
+        help_text=(
+            "Effectively always false: `by_day` ignores `limit` because truncating a time series by "
+            f"cost would be meaningless, and the {MAX_WINDOW_DAYS}-day window cap already bounds the "
+            "series length."
+        )
+    )
+
+
 class _TopTracesSerializer(serializers.Serializer):
     items = _TopTraceRowSerializer(many=True, help_text="Rows of top traces by cost, ordered by cost descending.")
     truncated = serializers.BooleanField(
@@ -286,6 +326,9 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     )
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
+    by_day = _DayBreakdownSerializer(
+        help_text="Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`."
+    )
     top_traces = _TopTracesSerializer(
         help_text=(
             "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
@@ -529,34 +572,118 @@ def _fetch_by_model(
     return _truncate(rows, limit)
 
 
-class PersonalSpendViewSet(viewsets.ViewSet):
-    """
-    Returns the requesting user's personal LLM spend analysis across PostHog products.
+def _fetch_by_day(
+    team: Team,
+    email: str,
+    from_dt: datetime.datetime,
+    to_dt: datetime.datetime,
+    product: str,
+) -> dict[str, Any]:
+    query = parse_select(
+        """
+        SELECT
+            toDate(timestamp) AS day,
+            count() AS event_count,
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
+        FROM events
+        WHERE {event_in}
+            AND {product_filter}
+            AND {email_filter}
+            AND {timestamp_filter}
+        GROUP BY day
+        ORDER BY day ASC
+        LIMIT {limit}
+        """
+    )
+    result = execute_hogql_query(
+        query=query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            # Not the request `limit`: truncating a time series by cost makes no sense, and the
+            # window cap already bounds the row count. +1 is the truncation probe row.
+            "limit": ast.Constant(value=BY_DAY_MAX_ROWS + 1),
+        },
+        team=team,
+        # HogQL wraps `timestamp` in the team's configurable timezone by default, which would
+        # shift the day buckets; days here are documented as UTC, so pin them.
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
+        query_type="PersonalSpendByDay",
+    )
+    rows = [
+        {
+            "day": row[0],
+            "event_count": int(row[1] or 0),
+            "cost_usd": float(row[2] or 0.0),
+        }
+        for row in (result.results or [])
+    ]
+    return _truncate(rows, BY_DAY_MAX_ROWS)
 
-    Queries are run server-side against PostHog's internal analytics team
-    (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
-    authenticated user's email (read off the events row via person-on-events) —
-    callers cannot pivot to other users' data. Authorization model is "any
-    authenticated PostHog user may read their own spend" via `user:read` (the
-    same scope that covers `/api/users/@me/`). Queries the shared `events`
-    table directly -- same pattern as the LLM Analytics "Users" tab and every
-    other person-property filter on AI events. We don't route through
-    `execute_with_ai_events_fallback` because the satellite `ai_events`
-    cluster's Distributed `person` shim doesn't declare materialized columns
-    like `pmat_email`, and the helper's fallback only catches empty results,
-    not the unresolved-identifier exception that would fire there. The
-    `events`-table WHERE clauses lead with the sort-key columns (`team_id`,
-    `event`, `timestamp`) so the scan narrows before the person join fires,
-    and the HogQL printer uses `pmat_email` on the main cluster's `person`
-    when registered -- so this path should be comparable to what the
-    satellite would have served. The endpoint is cached for 5 minutes per
-    user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
-    and scopes tool / model / trace breakdowns to a single `ai_product`; see
-    `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
-    returns the full cross-product breakdown. The endpoint is only registered
-    on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
-    URL; EU deploys receive a 302 to the US URL.
-    """
+
+def _compute_spend_analysis(
+    *,
+    email: str,
+    date_from: str,
+    date_to: str | None,
+    product: str,
+    limit: int,
+    refresh: bool,
+) -> dict[str, Any]:
+    """Cached, email-scoped spend analysis shared by the US viewset and the
+    cross-region receiver. Expects already-validated params."""
+    from_dt, to_dt = _resolve_window(date_from, date_to)
+
+    cache_key = _cache_key(email, date_from, date_to, product, limit)
+
+    if not refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    team_id = _internal_team_id()
+    try:
+        team = Team.objects.get(pk=team_id)
+    except Team.DoesNotExist:
+        logger.exception("personal_spend.team_missing", team_id=team_id)
+        raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
+
+    # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
+    # in the existing per-product Prometheus + cost-attribution dashboards alongside the
+    # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
+        summary = _fetch_summary(team, email, from_dt, to_dt, product)
+        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+        scoped = summary["scoped_cost_usd"] or 0.0
+        # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
+        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
+        # present headline percentages directly without reconciling sums.
+        for row in by_tool["items"]:
+            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+
+        payload = {
+            "summary": summary,
+            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+            "by_tool": by_tool,
+            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+            "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
+            # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
+            # existing consumers don't crash while they remove the rendering. Drop the field
+            # entirely once no consumer reads it.
+            "top_traces": {"items": [], "truncated": False},
+        }
+
+    response_data = PersonalSpendAnalysisResponseSerializer(payload).data
+    cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
+    return response_data
+
+
+class _PersonalSpendUserViewSet(viewsets.ViewSet):
+    """Base with the auth surface shared by the US viewset and the EU proxy so
+    the regions stay indistinguishable to clients. The US internal receiver
+    relies on this EU-side throttling as its only rate limit."""
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
@@ -570,13 +697,44 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
     # the same way they do for every other `user`-scoped endpoint.
     scope_object = "user"
+    throttle_classes = [PersonalSpendBurstThrottle, PersonalSpendSustainedThrottle, PersonalSpendDailyThrottle]
 
-    def get_throttles(self):
-        return [
-            PersonalSpendBurstThrottle(),
-            PersonalSpendSustainedThrottle(),
-            PersonalSpendDailyThrottle(),
-        ]
+    def _require_email(self, request: Request) -> str:
+        email = cast(User, request.user).email
+        if not email:
+            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
+        return email
+
+
+class PersonalSpendViewSet(_PersonalSpendUserViewSet):
+    """
+    Returns the requesting user's personal LLM spend analysis across PostHog products.
+
+    Queries are run server-side against PostHog's internal analytics team
+    (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
+    authenticated user's email (read off the events row via person-on-events) —
+    callers cannot pivot to other users' data. Authorization model is "any
+    authenticated PostHog user may read their own spend" via `user:read` (the
+    same scope that covers `/api/users/@me/`). Queries the shared `events`
+    table directly -- same pattern as the LLM Analytics "Users" tab and every
+    other person-property filter on AI events. We don't route through
+    `query_ai_events` because the satellite `ai_events`
+    cluster's Distributed `person` shim doesn't declare materialized columns
+    like `pmat_email`, and the helper's fallback only catches empty results,
+    not the unresolved-identifier exception that would fire there. The
+    `events`-table WHERE clauses lead with the sort-key columns (`team_id`,
+    `event`, `timestamp`) so the scan narrows before the person join fires,
+    and the HogQL printer uses `pmat_email` on the main cluster's `person`
+    when registered -- so this path should be comparable to what the
+    satellite would have served. The endpoint is cached for 5 minutes per
+    user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
+    and scopes tool / model / trace breakdowns to a single `ai_product`; see
+    `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
+    returns the full cross-product breakdown. The endpoint is only registered
+    on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
+    URL; EU deploys serve it via `PersonalSpendEUProxyViewSet` (or a 302 to
+    the US URL while the cross-region secret is unprovisioned).
+    """
 
     @extend_schema(
         operation_id="llm_analytics_personal_spend_list",
@@ -593,69 +751,20 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
             "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
-            "query param is required and scopes the tool / model / trace breakdowns to a single "
+            "query param is required and scopes the tool / model / day / trace breakdowns to a single "
             f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
-            "always returned for cross-product visibility. Use `refresh=true` to bypass the "
-            "5-minute response cache."
+            "always returned for cross-product visibility. `by_day` returns a day-ascending spend "
+            "series for the scoped product. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["AI observability"],
     )
     def list(self, request: Request) -> Response:
-        user = cast(User, request.user)
-        email = user.email
-        if not email:
-            raise exceptions.PermissionDenied("User has no email on record; cannot scope spend analysis.")
+        email = self._require_email(request)
 
         params = _SpendQueryParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        date_from = params.validated_data["date_from"]
-        date_to = params.validated_data["date_to"]
-        product = params.validated_data["product"]
-        limit = params.validated_data["limit"]
-        refresh = params.validated_data["refresh"]
 
-        from_dt, to_dt = _resolve_window(date_from, date_to)
-
-        cache_key = _cache_key(email, date_from, date_to, product, limit)
-
-        if not refresh:
-            cached = cache.get(cache_key)
-            if cached is not None:
-                return Response(cached, status=status.HTTP_200_OK)
-
-        team_id = _internal_team_id()
-        try:
-            team = Team.objects.get(pk=team_id)
-        except Team.DoesNotExist:
-            logger.exception("personal_spend.team_missing", team_id=team_id)
-            raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
-
-        # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
-        # in the existing per-product Prometheus + cost-attribution dashboards alongside the
-        # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
-        with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-            summary = _fetch_summary(team, email, from_dt, to_dt, product)
-            by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
-            scoped = summary["scoped_cost_usd"] or 0.0
-            # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-            # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-            # present headline percentages directly without reconciling sums.
-            for row in by_tool["items"]:
-                row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
-
-            payload = {
-                "summary": summary,
-                "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
-                "by_tool": by_tool,
-                "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-                # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
-                # existing consumers don't crash while they remove the rendering. Drop the field
-                # entirely once no consumer reads it.
-                "top_traces": {"items": [], "truncated": False},
-            }
-
-        response_data = PersonalSpendAnalysisResponseSerializer(payload).data
-        cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
+        response_data = _compute_spend_analysis(email=email, **params.validated_data)
         return Response(response_data, status=status.HTTP_200_OK)
 
 
@@ -670,6 +779,9 @@ def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
     spend analysis only runs there. Returning a 302 makes the new home discoverable
     instead of serving a silent 404. Callers still need a US-valid auth token.
 
+    Now only the fallback path of `PersonalSpendEUProxyViewSet`, used while
+    `PERSONAL_SPEND_CROSS_REGION_SECRET` is not provisioned.
+
     The target host is hardcoded — only an allowlist of known params is forwarded
     (re-encoded via `urlencode`) so a malicious caller cannot smuggle extra path or
     fragment characters into the redirect target.
@@ -679,3 +791,157 @@ def personal_spend_eu_redirect(request: HttpRequest) -> HttpResponseRedirect:
     if safe_params:
         target = f"{target}?{urlencode(safe_params)}"
     return HttpResponseRedirect(target)
+
+
+# EU → US cross-region proxy: spend data only lives on US Cloud and EU
+# credentials are not valid there, so the EU deployment authenticates the
+# caller itself and asserts the verified email to a US-side internal endpoint
+# over an HMAC-signed server-to-server call (same pattern as the Slack app's
+# cross-region probe in products/slack_app/backend/api.py).
+
+CROSS_REGION_SIGNATURE_HEADER = "X-PostHog-Spend-Signature"
+CROSS_REGION_TIMESTAMP_HEADER = "X-PostHog-Spend-Timestamp"
+# Fast connect failure; cold spend runs take a few seconds of ClickHouse time.
+CROSS_REGION_TIMEOUT_SECONDS = (3, 15)
+_CROSS_REGION_INTERNAL_PATH = "/api/llm_analytics/internal/spend/"
+
+
+def _cross_region_target_url() -> str:
+    # Under DEBUG a single instance plays both regions (Slack proxy's dev topology).
+    if settings.DEBUG:
+        return f"{settings.SITE_URL}{_CROSS_REGION_INTERNAL_PATH}"
+    return f"https://us.posthog.com{_CROSS_REGION_INTERNAL_PATH}"
+
+
+def sign_cross_region_spend_request(body: bytes, secret: str, *, timestamp: int | None = None) -> tuple[str, str]:
+    """HMAC-SHA256 hexdigest over `v0:{ts}:{body}`; the sending half of
+    `PersonalSpendCrossRegionAuthentication`. Returns (signature, timestamp)."""
+    ts = str(int(time.time()) if timestamp is None else timestamp)
+    hmac_input = f"v0:{ts}:{body.decode('utf-8')}"
+    digest = hmac.new(secret.encode("utf-8"), hmac_input.encode("utf-8"), digestmod=hashlib.sha256).hexdigest()
+    return digest, ts
+
+
+class PersonalSpendCrossRegionAuthentication(WebhookSignatureAuthentication):
+    """HMAC verification for the EU→US personal-spend proxy. The base class
+    fails closed on missing headers, unset secret, stale timestamp, or digest
+    mismatch; the asserted identity lives in the signed body, not `request.user`."""
+
+    def get_signature_header(self) -> str:
+        return CROSS_REGION_SIGNATURE_HEADER
+
+    def get_timestamp_header(self) -> str:
+        return CROSS_REGION_TIMESTAMP_HEADER
+
+    def build_hmac_input(self, timestamp: str, body: str) -> str:
+        return f"v0:{timestamp}:{body}"
+
+    def get_signing_secret(self, request: Request) -> str | None:
+        return settings.PERSONAL_SPEND_CROSS_REGION_SECRET or None
+
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
+        try:
+            return super().authenticate(request)
+        except UnicodeDecodeError:
+            # The base class decodes the raw body before verifying; garbage
+            # bytes must be an auth failure, not a 500.
+            raise exceptions.AuthenticationFailed("Invalid request body encoding.")
+
+
+class _InternalSpendRequestSerializer(_SpendQueryParamsSerializer):
+    """The EU proxy's payload: the standard query params plus the EU-verified email."""
+
+    email = serializers.EmailField(required=True, allow_blank=False)
+
+
+class PersonalSpendInternalViewSet(viewsets.ViewSet):
+    """US-side receiver for the EU personal-spend proxy (US + dev/test only).
+    The asserted `email` is trusted because the body is HMAC-signed with the
+    region-shared secret; the EU side authenticates and throttles the user
+    before the hop, so no throttles here."""
+
+    authentication_classes = [PersonalSpendCrossRegionAuthentication]
+    permission_classes = []
+    throttle_classes = []
+
+    @extend_schema(exclude=True)
+    def create(self, request: Request) -> Response:
+        params = _InternalSpendRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+
+        return Response(_compute_spend_analysis(**params.validated_data), status=status.HTTP_200_OK)
+
+
+class _CrossRegionUpstreamError(exceptions.APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "Spend analysis is temporarily unavailable."
+    default_code = "cross_region_upstream_unavailable"
+
+
+class PersonalSpendEUProxyViewSet(_PersonalSpendUserViewSet):
+    """EU `/api/llm_analytics/@me/spend/`: authenticates locally, fetches from
+    US server-side. Falls back to the 302 redirect while the secret is unset."""
+
+    @extend_schema(
+        operation_id="llm_analytics_personal_spend_eu_list",
+        parameters=[_SpendQueryParamsSerializer],
+        responses={200: PersonalSpendAnalysisResponseSerializer},
+        description="EU mirror of the personal spend endpoint — proxies to PostHog Cloud US, where the data lives.",
+        tags=["AI observability"],
+    )
+    def list(self, request: Request) -> HttpResponseBase:
+        secret = settings.PERSONAL_SPEND_CROSS_REGION_SECRET
+        if not secret:
+            return personal_spend_eu_redirect(request._request)
+
+        email = self._require_email(request)
+
+        # Validate in-region so bad requests 400 without paying for the hop.
+        params = _SpendQueryParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        data = params.validated_data
+
+        # Same cache as the US compute path, so repeat loads skip the cross-region hop.
+        cache_key = _cache_key(email, data["date_from"], data["date_to"], data["product"], data["limit"])
+        if not data["refresh"]:
+            cached = cache.get(cache_key)
+            if cached is not None:
+                return Response(cached, status=status.HTTP_200_OK)
+
+        body = json.dumps({**data, "email": email}).encode("utf-8")
+        signature, ts = sign_cross_region_spend_request(body, secret)
+        try:
+            upstream = requests.post(
+                _cross_region_target_url(),
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    CROSS_REGION_SIGNATURE_HEADER: signature,
+                    CROSS_REGION_TIMESTAMP_HEADER: ts,
+                },
+                timeout=CROSS_REGION_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as exc:
+            logger.exception("personal_spend.cross_region_proxy_failed", error=str(exc))
+            raise _CrossRegionUpstreamError()
+
+        if upstream.status_code == status.HTTP_200_OK:
+            try:
+                payload = upstream.json()
+            except ValueError:
+                logger.exception("personal_spend.cross_region_proxy_bad_json")
+                raise _CrossRegionUpstreamError()
+            cache.set(cache_key, payload, timeout=CACHE_TIMEOUT_SECONDS)
+            return Response(payload, status=status.HTTP_200_OK)
+
+        # Relay caller-attributable upstream errors; anything else (including a
+        # 401 secret mismatch between regions) is a 502.
+        if upstream.status_code in (status.HTTP_400_BAD_REQUEST, status.HTTP_429_TOO_MANY_REQUESTS):
+            try:
+                detail = upstream.json()
+            except ValueError:
+                detail = {"detail": f"Upstream error {upstream.status_code}"}
+            return Response(detail, status=upstream.status_code)
+
+        logger.error("personal_spend.cross_region_proxy_non_success", status_code=upstream.status_code)
+        raise _CrossRegionUpstreamError()

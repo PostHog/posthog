@@ -8,8 +8,9 @@ The agent is small on purpose:
 - One chat trigger (no auth — easy to drive locally).
 - Three native tools, only `@posthog/memory-write` is
   `requires_approval: true`.
-- Approver scope is `team_admins`, `allow_edit: true` so the console
-  drawer surfaces the JSON editor.
+- Approval `type` is `agent` (the agent's owners / team admins decide
+  in the console), `allow_edit: true` so the console drawer surfaces the
+  JSON editor.
 - One skill explaining the gate to the model.
 
 ## What it demonstrates
@@ -48,7 +49,7 @@ spec match) or branches a new draft and re-promotes.
 
 You can also point Claude at this directory via the MCP — the spec is
 real, the bundle files are real, and they'll round-trip through the
-authoring API the same way the concierge fixture does.
+authoring API the same way the Agent Builder fixture does.
 
 ## Driving the demo
 

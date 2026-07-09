@@ -6,13 +6,11 @@ from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -27,7 +25,7 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_organization_from_view
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -92,8 +90,6 @@ from .skill_services import (
 
 logger = structlog.get_logger(__name__)
 
-LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
-
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
@@ -137,25 +133,6 @@ def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
     }
 
 
-class LLMSkillFeatureFlagPermission(BasePermission):
-    def has_permission(self, request, view) -> bool:
-        user = cast(User, request.user)
-        organization = get_organization_from_view(view)
-        org_id = str(organization.id)
-        distinct_id = user.distinct_id or str(user.uuid)
-
-        return bool(
-            posthoganalytics.feature_enabled(
-                LLM_SKILL_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-
-
 ALLOWED_LIST_ORDERINGS = frozenset(
     {
         "name",
@@ -184,7 +161,7 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [LLMSkillFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
@@ -300,6 +277,11 @@ class LLMSkillViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Presence of the param — even as an empty string — is a filter: `?category=` returns only
+        # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
+        if "category" in request.query_params:
+            queryset = queryset.filter(category=params.get("category") or "")
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")

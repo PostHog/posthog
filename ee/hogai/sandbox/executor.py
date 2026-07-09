@@ -16,15 +16,15 @@ from rest_framework import exceptions
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
 
+from posthog.api.streaming import sse_streaming_response
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from products.tasks.backend.temporal.client import execute_task_processing_workflow
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.streams import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
+from products.tasks.backend.facade.temporal import ProcessTaskWorkflow, execute_task_processing_workflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
@@ -77,9 +77,8 @@ def handle_sandbox_message(
         run_id = mapping["run_id"]
         start_id = _get_latest_stream_id(run_id)
 
-        try:
-            task_run = TaskRun.objects.select_related("task").get(id=run_id, team=team)
-        except TaskRun.DoesNotExist:
+        task_run = tasks_facade.get_task_run(run_id, team_id=team.id)
+        if task_run is None:
             raise exceptions.ValidationError("Sandbox session no longer exists.")
 
         if task_run.is_terminal:
@@ -87,8 +86,8 @@ def handle_sandbox_message(
             if not snapshot_ext_id:
                 raise exceptions.ValidationError("Sandbox session has ended and no snapshot is available.")
 
-            task = task_run.task
-            new_run = task.create_run(
+            new_run = tasks_facade.create_run(
+                task_run.task_id,
                 mode="interactive",
                 extra_state={
                     "snapshot_external_id": snapshot_ext_id,
@@ -101,12 +100,12 @@ def handle_sandbox_message(
             conversation.sandbox_run_id = new_run.id
             conversation.save(update_fields=["sandbox_run_id"])
 
-            set_sandbox_mapping(conversation_id, str(task.id), run_id)
+            set_sandbox_mapping(conversation_id, str(task_run.task_id), run_id)
 
             execute_task_processing_workflow(
-                task_id=str(task.id),
+                task_id=str(task_run.task_id),
                 run_id=run_id,
-                team_id=task.team_id,
+                team_id=task_run.team_id,
                 user_id=user.pk,
                 create_pr=False,
             )
@@ -143,11 +142,11 @@ def handle_sandbox_message(
         # First message: create task + run
         # TODO(@tatoalo): hardcoding repo for now, already built repo selection wiring
         try:
-            task = Task.create_and_run(
+            created = tasks_facade.create_and_run_task(
                 team=team,
                 title=content[:80],
                 description=content,
-                origin_product=Task.OriginProduct.USER_CREATED,
+                origin_product=tasks_facade.TaskOriginProduct.USER_CREATED,
                 user_id=user.pk,
                 repository="posthog/posthog",
                 create_pr=False,
@@ -157,15 +156,14 @@ def handle_sandbox_message(
         except ValueError:
             raise exceptions.ValidationError("Failed to create sandbox task.")
 
-        task_run_or_none = task.latest_run
-        if not task_run_or_none:
+        if created.latest_run is None:
             raise exceptions.ValidationError("Failed to create sandbox task run.")
-        task_run = task_run_or_none
+        task_run = created.latest_run
 
         run_id = str(task_run.id)
-        set_sandbox_mapping(conversation_id, str(task.id), run_id)
+        set_sandbox_mapping(conversation_id, str(created.task_id), run_id)
 
-        conversation.sandbox_task_id = task.id
+        conversation.sandbox_task_id = created.task_id
         conversation.sandbox_run_id = task_run.id
         conversation.save(update_fields=["sandbox_task_id", "sandbox_run_id"])
 
@@ -189,13 +187,11 @@ def _make_streaming_response(
     async_generator_factory: Callable[[], AsyncGenerator[bytes]],
 ) -> StreamingHttpResponse:
     """Create a StreamingHttpResponse that works under both ASGI and WSGI."""
-    return StreamingHttpResponse(
-        (
-            async_generator_factory()
-            if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(async_generator_factory)
-        ),
-        content_type="text/event-stream",
+    return sse_streaming_response(
+        async_generator_factory()
+        if settings.SERVER_GATEWAY_INTERFACE == "ASGI"
+        else async_to_sync(async_generator_factory),
+        endpoint="sandbox_execute",
     )
 
 

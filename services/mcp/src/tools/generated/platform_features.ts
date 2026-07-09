@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    ActivityLogListQueryParams,
     AdvancedActivityLogsListQueryParams,
     ApprovalPoliciesListQueryParams,
     ApprovalPoliciesRetrieveParams,
@@ -12,8 +11,8 @@ import {
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
-    EnvironmentsPromotedProductIntentRetrieveParams,
     ListQueryParams,
+    MembersGithubLoginRetrieveParams,
     MembersListQueryParams,
     RetrieveParams,
     RolesListQueryParams,
@@ -24,59 +23,8 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
-import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const ActivityLogListSchema = ActivityLogListQueryParams.extend({
-    page_size: z
-        .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
-        .optional(),
-    page: z.preprocess(castStringToInt, ActivityLogListQueryParams.shape['page']).optional(),
-})
-
-const activityLogList = (): ToolBase<
-    typeof ActivityLogListSchema,
-    WithPostHogUrl<Schemas.PaginatedActivityLogList>
-> => ({
-    name: 'activity-log-list',
-    schema: ActivityLogListSchema,
-    handler: async (context: Context, params: z.infer<typeof ActivityLogListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedActivityLogList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/activity_log/`,
-            query: {
-                item_id: params.item_id,
-                page: params.page,
-                page_size: params.page_size,
-                scope: params.scope,
-                scopes: params.scopes,
-                user: params.user,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'user.id',
-                    'user.first_name',
-                    'user.last_name',
-                    'user.email',
-                    'activity',
-                    'scope',
-                    'item_id',
-                    'detail.name',
-                    'detail.short_id',
-                    'detail.type',
-                    'created_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/activity')
-    },
-})
 
 const AdvancedActivityLogsFiltersSchema = z.object({})
 
@@ -298,6 +246,28 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
     },
 })
 
+const OrgMemberGetGithubLoginSchema = MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
+    user__uuid: MembersGithubLoginRetrieveParams.shape['user__uuid'].describe(
+        'The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me" for the current user.'
+    ),
+})
+
+const orgMemberGetGithubLogin = (): ToolBase<
+    typeof OrgMemberGetGithubLoginSchema,
+    Schemas.OrganizationMemberGithubLogin
+> => ({
+    name: 'org-member-get-github-login',
+    schema: OrgMemberGetGithubLoginSchema,
+    handler: async (context: Context, params: z.infer<typeof OrgMemberGetGithubLoginSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.OrganizationMemberGithubLogin>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/${encodeURIComponent(String(params.user__uuid))}/github_login/`,
+        })
+        return result
+    },
+})
+
 const OrgMembersListSchema = MembersListQueryParams
 
 const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.PaginatedOrganizationMemberList> => ({
@@ -377,24 +347,6 @@ const organizationsList = (): ToolBase<
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/')
-    },
-})
-
-const PromotedProductIntentGetSchema = EnvironmentsPromotedProductIntentRetrieveParams.omit({ project_id: true })
-
-const promotedProductIntentGet = (): ToolBase<
-    typeof PromotedProductIntentGetSchema,
-    Schemas.PromotedProductIntent
-> => ({
-    name: 'promoted-product-intent-get',
-    schema: PromotedProductIntentGetSchema,
-    handler: async (context: Context, params: z.infer<typeof PromotedProductIntentGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PromotedProductIntent>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/environments/${encodeURIComponent(String(params.id))}/promoted_product_intent/`,
-        })
-        return result
     },
 })
 
@@ -500,7 +452,6 @@ const userHomeSettingsUpdate = (): ToolBase<typeof UserHomeSettingsUpdateSchema,
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'activity-log-list': activityLogList,
     'advanced-activity-logs-filters': advancedActivityLogsFilters,
     'advanced-activity-logs-list': advancedActivityLogsList,
     'approval-policies-list': approvalPoliciesList,
@@ -511,10 +462,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-get': commentGet,
     'comment-thread': commentThread,
     'comments-list': commentsList,
+    'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
-    'promoted-product-intent-get': promotedProductIntentGet,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,

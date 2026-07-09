@@ -1,4 +1,6 @@
+import copy
 import json
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.contrib.auth.base_user import AbstractBaseUser
@@ -27,6 +29,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.experiments.backend.models.experiment import live_experiment_exists
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -42,6 +45,61 @@ if TYPE_CHECKING:
 
 def default_filters() -> dict:
     return {"groups": []}
+
+
+def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """Shape a scheduled-change payload into the serializer data applying it would produce.
+
+    Single source of truth for both the creation-time approval gate
+    (``products.approvals.backend.scheduled_changes.scheduled_change_serializer_data``) and the
+    apply-time dispatcher (``FeatureFlag.scheduled_changes_dispatcher``), so the change the gate
+    evaluates is exactly the change the applier makes — previously two hand-kept-in-sync copies,
+    and the deep-copy-before-mutating fix had to be patched into both separately.
+
+    Returns ``{"active": ...}`` / ``{"filters": ...}`` for a recognized payload, or ``None`` when
+    the payload is malformed (missing ``operation``/``value``) or its operation is unrecognized.
+    Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
+    dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
+    stays in the dispatcher.
+    """
+    operation = payload.get("operation")
+    if operation is None or "value" not in payload:
+        return None
+    value = payload["value"]
+
+    if operation == "update_status":
+        return {"active": value}
+
+    current_filters = flag.get_filters()
+
+    if operation == "add_release_condition":
+        new_groups = value.get("groups", []) if isinstance(value, dict) else []
+        return {
+            "filters": {
+                **current_filters,
+                "groups": current_filters.get("groups", []) + new_groups,
+            }
+        }
+
+    if operation == "update_variants":
+        if not isinstance(value, dict):
+            return None
+        new_variants = value.get("variants", [])
+        new_payloads = value.get("payloads", {})
+        # Deep-copy before mutating: current_filters is flag.filters (a live reference), so assigning
+        # into its nested multivariate dict would mutate the flag's pre-change state in place and
+        # defeat the approval gate's old-vs-new comparison.
+        updated_multivariate = copy.deepcopy(current_filters.get("multivariate", {}))
+        updated_multivariate["variants"] = new_variants
+        return {
+            "filters": {
+                **current_filters,
+                "multivariate": updated_multivariate,
+                "payloads": new_payloads,
+            }
+        }
+
+    return None
 
 
 class FeatureFlagManager(RootTeamManager):
@@ -70,6 +128,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     updated_at = models.DateTimeField(null=True, auto_now=True)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
+    # Archived flags are "done for good" (e.g. a finished experiment's flag): hidden from
+    # the flag list by default but kept so linked experiments/surveys retain their data.
+    # An archived flag must be disabled — enforced at the DB level by the
+    # `archived_flag_must_be_disabled` check constraint below, so writers that bypass the
+    # serializer (e.g. the experiment service) can't persist an archived-but-still-serving flag.
+    archived = models.BooleanField(default=False, db_default=False)
 
     version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(
@@ -128,6 +192,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
 
+    # Cache projection: whether the flag backs an experiment. Annotated via a bulk
+    # Exists query (or read from cache) to avoid a per-flag experiment lookup.
+    _has_experiment: Optional[bool] = None
+
     last_called_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -138,7 +206,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="unique key for team"),
+            # An archived flag must be disabled — keeps an archived flag from ever serving traffic,
+            # regardless of which code path wrote it.
+            models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
+        ]
         db_table = "posthog_featureflag"
 
     def __str__(self):
@@ -347,6 +420,15 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             return self.conditions
 
         if not all(property.type == "person" for property in cohort.properties.flat):
+            # Cohorts containing non-person property types (e.g. behavioral, person_metadata)
+            # are deliberately not inlined into flag groups. They flow to SDKs as cohort
+            # references; modern SDKs raise InconclusiveMatchError on unknown property types
+            # and fall back to /flags/, where the Rust matcher handles them.
+            #
+            # Note: do NOT route person_metadata through the legacy posthog/queries/base.py
+            # paths (`property_to_Q` / `match_property`). Those don't recognize the type;
+            # `match_property` in particular dispatches purely on `key` and would silently
+            # produce a wrong-but-not-erroring result.
             return self.conditions
 
         if any(property.negation for property in cohort.properties.flat):
@@ -418,6 +500,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         using_database: str = "default",
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
+        stop_traversal_at_static: bool = False,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -451,6 +534,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                                     cohort,
                                     using_database=using_database,
                                     seen_cohorts_cache=seen_cohorts_cache,
+                                    stop_traversal_at_static=stop_traversal_at_static,
                                 )
                             ]
                         )
@@ -488,33 +572,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             "project_id": self.team.project_id,
         }
 
-        serializer_data = {}
-
-        if payload["operation"] == "add_release_condition":
-            current_filters = self.get_filters()
-            current_groups = current_filters.get("groups", [])
-            new_groups = payload["value"].get("groups", [])
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "groups": current_groups + new_groups,
-            }
-        elif payload["operation"] == "update_status":
-            serializer_data["active"] = payload["value"]
-        elif payload["operation"] == "update_variants":
-            current_filters = self.get_filters()
+        # Apply-time-only validation for variant changes, before shaping the payload. The gate skips
+        # these because an invalid change can't be approved into applying anyway; here they surface
+        # as errors at fire time.
+        if payload["operation"] == "update_variants":
             variant_data = payload["value"]
-
             new_variants = variant_data.get("variants", [])
             new_payloads = variant_data.get("payloads", {})
 
-            # Validate variant rollout percentages before proceeding
             if new_variants:
                 total_rollout = sum(variant.get("rollout_percentage", 0) for variant in new_variants)
                 if total_rollout != 100:
                     raise ValueError(f"Invalid variant rollout percentages: sum is {total_rollout}, must be 100")
 
-            # Validate payload keys match variant keys
             variant_keys = {v.get("key") for v in new_variants}
             payload_keys = set(new_payloads.keys()) if new_payloads else set()
 
@@ -524,15 +594,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                 invalid_keys = payload_keys - variant_keys
                 raise ValueError(f"Payload keys {invalid_keys} don't match variant keys {variant_keys}")
 
-            updated_multivariate = current_filters.get("multivariate", {})
-            updated_multivariate["variants"] = new_variants
-
-            serializer_data["filters"] = {
-                **current_filters,
-                "multivariate": updated_multivariate,
-                "payloads": new_payloads,
-            }
-        else:
+        # Shape the payload through the shared builder the approval gate also uses, so the applied
+        # change is exactly the one the gate evaluated.
+        serializer_data = build_scheduled_change_serializer_data(self, payload)
+        if serializer_data is None:
             raise Exception(f"Unrecognized operation: {payload['operation']}")
 
         serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
@@ -647,7 +712,8 @@ def get_feature_flags(
             "flag_evaluation_contexts__evaluation_context__name",
             filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
-        )
+        ),
+        has_experiment_agg=live_experiment_exists(),
     )
 
     all_feature_flags = list(qs)
@@ -662,6 +728,7 @@ def get_feature_flags(
         except AttributeError:
             # evaluation_tag_names_agg field missing from aggregation query
             _flag._evaluation_tag_names = None
+        _flag._has_experiment = _flag.has_experiment_agg
 
     return all_feature_flags
 
@@ -676,9 +743,9 @@ def serialize_feature_flags(flags: list[FeatureFlag]) -> list[dict[str, Any]]:
     Returns:
         List of serialized flag dictionaries
     """
-    from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+    from products.feature_flags.backend.api.feature_flag import EvaluationFeatureFlagSerializer
 
-    serialized_data = MinimalFeatureFlagSerializer(flags, many=True).data
+    serialized_data = EvaluationFeatureFlagSerializer(flags, many=True).data
     return list(serialized_data)
 
 
@@ -707,19 +774,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
     if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            flags = []
-            for flag_data in parsed_data:
-                # Extract evaluation contexts before creating the model instance since
-                # it's not a DB field. Accept both old and new key names for cache
-                # entries written before or after the rename.
-                contexts_list = flag_data.pop("evaluation_contexts", None)
-                if contexts_list is None:
-                    contexts_list = flag_data.pop("evaluation_tags", None)
-                else:
-                    flag_data.pop("evaluation_tags", None)  # discard legacy key if present
-                flag = FeatureFlag(**flag_data)
-                flag._evaluation_tag_names = contexts_list
-                flags.append(flag)
+            flags = [_feature_flag_from_cache_entry(entry) for entry in parsed_data]
             # Filter to only return active flags. The cache includes inactive flags
             # for dependency resolution (used by the Rust service), but Python callers
             # expect only active flags for backward compatibility.
@@ -730,6 +785,40 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
             return None
 
     return None
+
+
+@lru_cache(maxsize=1)
+def _feature_flag_model_field_names() -> frozenset[str]:
+    """Names accepted by the FeatureFlag constructor (concrete fields only), used to
+    separate real model fields from serializer-only extras in cached payloads. The
+    field set is constant for the process, so it's computed once and cached."""
+    names: set[str] = set()
+    for field in FeatureFlag._meta.concrete_fields:
+        names.add(field.name)
+        names.add(field.attname)  # FK attnames like `team_id`
+    return frozenset(names)
+
+
+def _feature_flag_from_cache_entry(entry: dict[str, Any]) -> FeatureFlag:
+    """Reconstruct a FeatureFlag from one cached payload entry.
+
+    The cache payload comes from EvaluationFeatureFlagSerializer, which emits
+    SerializerMethodFields (e.g. `evaluation_contexts`, `has_experiment`) that are not
+    model fields. Keep only real model fields so unknown extras are ignored rather than
+    crashing the FeatureFlag(**...) constructor; known extras are then assigned onto the
+    instance.
+    """
+    model_field_names = _feature_flag_model_field_names()
+    model_fields = {key: value for key, value in entry.items() if key in model_field_names}
+
+    flag = FeatureFlag(**model_fields)
+    # Evaluation contexts are derived data, not a DB field. Accept both the current
+    # `evaluation_contexts` key and the legacy `evaluation_tags` key for entries
+    # written before the rename.
+    flag._evaluation_tag_names = entry.get("evaluation_contexts", entry.get("evaluation_tags"))
+    # Preserve has_experiment so a cache-read flag answers without a per-flag experiment query.
+    flag._has_experiment = entry.get("has_experiment")
+    return flag
 
 
 class FeatureFlagDashboards(models.Model):

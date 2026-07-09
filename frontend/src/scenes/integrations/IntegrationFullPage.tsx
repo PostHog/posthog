@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconCheckCircle, IconWarning } from '@posthog/icons'
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTextArea, Link, Spinner } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
@@ -65,6 +67,13 @@ function ConnectView({
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // Connecting an integration requires project membership (enforced again in the backend);
+    // editing or removing one still requires admin. Users with no project access fall back to
+    // the request-access flow below.
+    const restrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Member,
+    })
 
     const onConnectClick = (): void => {
         reportIntegrationConnectClicked(definition.slug, definition.kind)
@@ -79,10 +88,14 @@ function ConnectView({
 
             <div className="text-center text-sm">{definition.description}</div>
 
-            {/* onClickCapture fires before the connect button triggers its OAuth redirect */}
-            <div onClickCapture={onConnectClick}>
-                <SettingsSection next={urls.integration(definition.slug)} />
-            </div>
+            {restrictionReason ? (
+                <RequestAccessSection definition={definition} />
+            ) : (
+                // onClickCapture fires before the connect button triggers its OAuth redirect
+                <div onClickCapture={onConnectClick}>
+                    <SettingsSection next={urls.integration(definition.slug)} />
+                </div>
+            )}
 
             {definition.docsUrl ? (
                 <Link to={definition.docsUrl} target="_blank" className="text-sm">
@@ -90,6 +103,45 @@ function ConnectView({
                 </Link>
             ) : null}
         </>
+    )
+}
+
+function RequestAccessSection({ definition }: { definition: IntegrationDefinition }): JSX.Element {
+    const { accessRequestReason, accessRequestLoading, requestedAccessKinds } = useValues(integrationsLogic)
+    const { setAccessRequestReason, requestIntegrationAccess } = useActions(integrationsLogic)
+
+    if (requestedAccessKinds.includes(definition.kind)) {
+        return (
+            <LemonBanner type="success" className="w-full">
+                Request sent. Your project admins have been notified and can connect {definition.name}.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-3 w-full">
+            <LemonBanner type="info" className="w-full">
+                Connecting {definition.name} requires admin access. Tell your project admins why you need it and we'll
+                email them.
+            </LemonBanner>
+            <LemonTextArea
+                value={accessRequestReason}
+                onChange={setAccessRequestReason}
+                placeholder={`Why does your team need ${definition.name}?`}
+                minRows={3}
+                maxLength={2000}
+            />
+            <LemonButton
+                type="primary"
+                fullWidth
+                center
+                loading={accessRequestLoading}
+                disabledReason={!accessRequestReason.trim() ? 'Add a short note for your admins' : undefined}
+                onClick={() => requestIntegrationAccess({ kind: definition.kind })}
+            >
+                Request {definition.name}
+            </LemonButton>
+        </div>
     )
 }
 

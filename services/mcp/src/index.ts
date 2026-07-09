@@ -1,3 +1,4 @@
+import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
@@ -269,7 +270,7 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, mcpVendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient,
@@ -296,7 +297,7 @@ const handleRequest = async (
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
-    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    // client-detection logic in `resolveMode` when unset. See `parseMcpMode`.
     const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
 
     const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }

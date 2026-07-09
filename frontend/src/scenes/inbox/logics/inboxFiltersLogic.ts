@@ -1,9 +1,9 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority, SignalReportStatus } from '../types'
+import { INBOX_SCOPE_FOR_YOU, InboxScope, SignalReportPriority } from '../types'
 import type { inboxFiltersLogicType } from './inboxFiltersLogicType'
 
 /** A teammate who can be scoped to / suggested as a reviewer. Matches the `available_reviewers` API row. */
@@ -13,31 +13,19 @@ export interface InboxReviewerOption {
     email: string
 }
 
-/**
- * Status set always sent to the list API: every in-flight pipeline status.
- * Mirrors desktop `INBOX_PIPELINE_STATUS_FILTER`. There is no user-facing status
- * filter (desktop dropped it in filter-store v2); status is a fixed request
- * constant, and tab membership does the rest of the partitioning client-side.
- */
-export const INBOX_PIPELINE_STATUS_FILTERS: SignalReportStatus[] = [
-    SignalReportStatus.POTENTIAL,
-    SignalReportStatus.CANDIDATE,
-    SignalReportStatus.IN_PROGRESS,
-    SignalReportStatus.READY,
-    SignalReportStatus.PENDING_INPUT,
-    SignalReportStatus.FAILED,
-]
-
 export type InboxSortField = 'priority' | 'created_at' | 'updated_at'
 export type InboxSortDirection = 'asc' | 'desc'
 
 /**
- * Build the `ordering` query param. Mirrors desktop `buildSignalReportListOrdering`:
- * 1. Status rank (semantic server-side rank, always applied)
- * 2. Toolbar-selected field (priority, updated_at, created_at)
- * 3. `-updated_at` as a recency tiebreak, so reports tied on status + field
- *    surface most-recently-updated first instead of in arbitrary order.
- *    (Skipped when the selected field is already `updated_at`.)
+ * Build the `ordering` query param. The list is a flat list (no status section
+ * headers), so the toolbar-selected field must lead — otherwise an explicit sort
+ * like "Newest first" only reorders reports *within* each status bucket and the
+ * genuinely newest reports never reach the top:
+ * 1. Toolbar-selected field (priority, updated_at, created_at) with direction
+ * 2. Status rank (semantic server-side rank) as a secondary key, so reports tied
+ *    on the selected field surface in pipeline-status order
+ * 3. `-updated_at` as a final recency tiebreak (skipped when the selected field
+ *    is already `updated_at`).
  *
  * Reviewer scope is NOT an ordering tiebreak. A `-is_suggested_reviewer` sort
  * floats the current user's own reports to the top of the single loaded page,
@@ -47,7 +35,7 @@ export type InboxSortDirection = 'asc' | 'desc'
  */
 export function buildSignalReportListOrdering(field: InboxSortField, direction: InboxSortDirection): string {
     const fieldKey = direction === 'desc' ? `-${field}` : field
-    return field === 'updated_at' ? `status,${fieldKey}` : `status,${fieldKey},-updated_at`
+    return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
 
 /**
@@ -142,6 +130,16 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     state.includes(priority) ? state.filter((p) => p !== priority) : [...state, priority],
                 clearFilters: () => [],
             },
+        ],
+    }),
+
+    selectors({
+        // Whether any list-narrowing filter is active. Scope and sort are excluded: they don't hide
+        // reports the way search/source/priority do, and `clearFilters` leaves them untouched.
+        hasActiveFilters: [
+            (s) => [s.searchQuery, s.sourceProductFilter, s.priorityFilter],
+            (searchQuery, sourceProductFilter, priorityFilter): boolean =>
+                searchQuery.trim().length > 0 || sourceProductFilter.length > 0 || priorityFilter.length > 0,
         ],
     }),
 

@@ -2,6 +2,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+# Hard cap on AI report query-plan steps — the contract the schema validator, planner prompt, and
+# synthesis result budget all key off. Named once here so they can't silently drift apart.
+MAX_QUERY_PLAN_STEPS = 25
+
 
 class QueryPlanStep(BaseModel):
     description: str = Field(..., max_length=500, description="One-sentence rationale for running this query.")
@@ -15,7 +19,7 @@ class QueryPlan(BaseModel):
         max_length=500,
         description="Plain-English summary of what the report will tell the user.",
     )
-    steps: list[QueryPlanStep] = Field(..., min_length=1, max_length=3)
+    steps: list[QueryPlanStep] = Field(..., min_length=1, max_length=MAX_QUERY_PLAN_STEPS)
 
 
 class EnrichedPromptSpec(BaseModel):
@@ -27,7 +31,7 @@ class EnrichedPromptSpec(BaseModel):
 class HogQLFix(BaseModel):
     fixed_hogql: str = Field(
         ...,
-        description="A single, flat HogQL SELECT statement that addresses the original step intent.",
+        description="A HogQL SELECT statement (flat, or with a single FROM-subquery) that addresses the original step intent.",
     )
 
 

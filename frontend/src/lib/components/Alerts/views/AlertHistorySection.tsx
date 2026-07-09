@@ -21,8 +21,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { formatDate } from 'lib/utils/datetime'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../alertLogic'
+import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 
 const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: string; tooltip: string }> = {
@@ -138,6 +140,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     const { selectAlertHistoryView, alertHistoryTablePageForward, alertHistoryTablePageBackward } = useActions(logic)
 
     const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
+    const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {
         const columns: LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] = [
@@ -176,6 +179,27 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
                 render: (_value, check) => <InvestigationCell check={check} />,
             })
         }
+        if (isAnyRowSqlAlert) {
+            columns.push({
+                title: 'Breaching rows',
+                render: (_value, check) => {
+                    const meta = check.triggered_metadata as {
+                        breaching_rows?: { label: string; value: number }[]
+                        breaching_row_count?: number
+                    } | null
+                    const rows = meta?.breaching_rows
+                    if (!rows?.length) {
+                        return '—'
+                    }
+                    const shown = rows
+                        .slice(0, 3)
+                        .map((row) => `${row.label} (${humanFriendlyNumber(row.value)})`)
+                        .join(', ')
+                    const total = meta?.breaching_row_count ?? rows.length
+                    return total > 3 ? `${shown} +${total - 3} more` : shown
+                },
+            })
+        }
         columns.push({
             title: 'Targets notified',
             key: 'targets_notified',
@@ -183,7 +207,7 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
             render: (_value, check) => (check.targets_notified ? 'Yes' : 'No'),
         })
         return columns
-    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled])
+    }, [alertHistoryIsAnomalyDetection, investigationAgentEnabled, isAnyRowSqlAlert])
 
     if (!alert) {
         return null

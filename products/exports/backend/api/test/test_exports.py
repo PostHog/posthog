@@ -123,6 +123,7 @@ class TestExports(APIBaseTest):
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
+            "user_access_level": "manager",
         }
 
         mock_exporter_task.assert_called_once()
@@ -162,6 +163,7 @@ class TestExports(APIBaseTest):
             "insight": None,
             "export_context": None,
             "expires_after": expected_expiry,
+            "user_access_level": "manager",
         }
 
         mock_exporter_task.assert_called_once()
@@ -216,6 +218,7 @@ class TestExports(APIBaseTest):
                 .replace(hour=0, minute=0, second=0, microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z"),
+                "user_access_level": "manager",
             },
         )
 
@@ -1526,3 +1529,99 @@ class TestExportAssetCounters(APIBaseTest):
             )
             == expected_failure
         )
+
+
+class TestExportsResourceAccessControl(APIBaseTest):
+    """Resource- and object-level access control for the exports feature."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "export-member@posthog.com", "password")
+        self.dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
+        self.client.force_login(self.member)
+
+    def _set_export_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="export", team=self.team, access_level=access_level)
+
+    def test_member_with_none_resource_access_cannot_list_exports(self) -> None:
+        self._set_export_resource_level("none")
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_member_with_viewer_resource_access_can_list_but_not_create(self) -> None:
+        self._set_export_resource_level("viewer")
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "dashboard": self.dashboard.id},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_member_with_editor_resource_access_can_create(self, _mock_workflow) -> None:
+        self._set_export_resource_level("editor")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "dashboard": self.dashboard.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creator_sees_highest_user_access_level(self) -> None:
+        self._set_export_resource_level("editor")
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.member
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The member created this export, so they have the highest level for it.
+        self.assertEqual(response.json()["user_access_level"], "manager")
+
+    def test_non_creator_sees_resource_level_user_access_level(self) -> None:
+        # Session-recording exports are retrievable by non-creators, so this exercises the
+        # non-creator branch of the serializer field (which resolves to the resource level).
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        SessionRecording.objects.create(team=self.team, session_id="export-rbac-session")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "export-rbac-session"},
+            created_by=self.user,
+        )
+        self._set_export_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_access_controls_endpoint_route_exists(self) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/projects/{self.team.id}/exports/{asset.id}/access_controls")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_manager_member_cannot_modify_object_access_controls(self) -> None:
+        # A session-recording export the member can retrieve (non-creator path), with the member
+        # granted editor (so the request passes resource-level write checks) but not manager.
+        from posthog.session_recordings.models.session_recording import SessionRecording
+
+        SessionRecording.objects.create(team=self.team, session_id="export-acl-session")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="video/mp4",
+            export_context={"session_recording_id": "export-acl-session"},
+            created_by=self.user,
+        )
+        self._set_export_resource_level("editor")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/exports/{asset.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        # Modifying an object's access controls requires manager access to that object.
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

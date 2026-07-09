@@ -9,6 +9,11 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    // @posthog/brand is ESM-only (ships .mjs); let Sucrase transpile it so its import/export parses.
+    '@posthog/brand',
+    // @shadcn/react ships ESM-only; @posthog/quill-primitives chat components re-export its
+    // message-scroller, pulling it into frontend test module graphs via the quill barrel.
+    '@shadcn/react',
     '@react-hook',
     '@medv',
     'monaco-editor',
@@ -76,7 +81,13 @@ const esmModules = [
     'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return ['<rootDir>/src', '<rootDir>/../products', '<rootDir>/../packages/quill/packages/charts/src']
+    return [
+        '<rootDir>/src',
+        '<rootDir>/bin',
+        '<rootDir>/../products',
+        '<rootDir>/../packages/quill/packages/charts/src',
+        '<rootDir>/../packages/quill/packages/components/src',
+    ]
 }
 
 const config: Config = {
@@ -164,6 +175,10 @@ const config: Config = {
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
+        // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
+        // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
+        // so mock them to the styleMock string instead of executing them.
+        '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',
@@ -176,9 +191,9 @@ const config: Config = {
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
         '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^remark-breaks$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
-        '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-annotation': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
         'chartjs-plugin-datalabels': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
@@ -193,9 +208,14 @@ const config: Config = {
         '^common/(.*)$': '<rootDir>/../common/$1',
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
+        '^@posthog/quill$': '<rootDir>/../packages/quill/packages/quill/src/index.ts',
+        '^@posthog/quill-blocks$': '<rootDir>/../packages/quill/packages/blocks/src/index.ts',
         '^@posthog/quill-charts$': '<rootDir>/../packages/quill/packages/charts/src/index.ts',
         '^@posthog/quill-charts/testing$': '<rootDir>/../packages/quill/packages/charts/src/testing/index.ts',
         '^@posthog/quill-charts/story-helpers$': '<rootDir>/../packages/quill/packages/charts/src/story-helpers.tsx',
+        '^@posthog/quill-components$': '<rootDir>/../packages/quill/packages/components/src/index.ts',
+        '^@posthog/quill-primitives$': '<rootDir>/../packages/quill/packages/primitives/src/index.ts',
+        '^@posthog/quill-tokens$': '<rootDir>/../packages/quill/packages/tokens/src/index.ts',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
@@ -217,8 +237,8 @@ const config: Config = {
     // Run tests from one or more projects
     // projects: undefined,
 
-    // Use this configuration option to add custom reporters to Jest
-    // reporters: undefined,
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
+    reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
 
     // Automatically reset mock state between every test
     // resetMocks: false,

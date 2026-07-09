@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -311,6 +312,40 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async_client = AsyncMock()
         mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
         return mock_async_client
+
+    def test_async_delivery_builds_message_off_event_loop(self, MockSlackIntegration: MagicMock) -> None:
+        # Regression: `_prepare_slack_message` reads lazily-loaded ORM relations
+        # (e.g. integration.team.organization), so it must be built in a worker thread,
+        # never directly on the event loop where Django raises SynchronousOnlyOperation.
+        mock_async_client = self._setup_async_mock(MockSlackIntegration)
+        mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        real_prepare = _prepare_slack_message
+        ran_on_event_loop: list[bool] = []
+
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            try:
+                asyncio.get_running_loop()
+                ran_on_event_loop.append(True)
+            except RuntimeError:
+                ran_on_event_loop.append(False)
+            return real_prepare(*args, **kwargs)
+
+        # The build runs in a worker thread whose connection can't see this test's
+        # transaction, so every relation it reads must already be cached: assets via
+        # select_related, subscription/integration via the cached setUp instances.
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        with patch("ee.tasks.subscriptions.slack_subscriptions._prepare_slack_message", side_effect=_spy):
+            result = asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
+                )
+            )
+
+        assert ran_on_event_loop == [False]
+        assert result.is_complete_success
+        mock_async_client.chat_postMessage.assert_awaited()
 
     def test_async_delivery_all_message_success(self, MockSlackIntegration: MagicMock) -> None:
         mock_async_client = self._setup_async_mock(MockSlackIntegration)

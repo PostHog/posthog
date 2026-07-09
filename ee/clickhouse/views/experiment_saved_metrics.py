@@ -1,6 +1,7 @@
+from django.db.models import QuerySet
 from django.db.models.functions import Lower
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import filters, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -9,7 +10,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.metric_utils import refresh_action_names_in_metric
+from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 from ee.api.rbac.access_control import AccessControlViewSetMixin
@@ -137,13 +138,49 @@ class ExperimentSavedMetricSerializer(
         return ExperimentSavedMetricService(team=self.context["get_team"](), user=request.user)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="event",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to shared metrics whose query references this event name. Matches events "
+                "used directly in metric queries as well as events behind any actions those metrics reference. "
+                "Use this for reuse discovery (find a metric by what it measures); distinct from 'search', "
+                "which matches the metric's own name/description/tags.",
+            ),
+        ],
+    ),
+)
 @extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment_saved_metric"
     queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).distinct()
     serializer_class = ExperimentSavedMetricSerializer
     filter_backends = [filters.SearchFilter]
+    # `search` matches the metric's own name/description/tags, while `event` looks in metrics
     search_fields = ["name", "description", "tagged_items__tag__name"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # `?event=` matches metrics whose query references the event directly (EventsNode) or via an action's
+        # step events (ActionsNode resolved live) — mirrors the experiments-list filter. Scoped to `list` so it
+        # never narrows a detail/update/destroy lookup. Rows are read team-scoped (safely_get_queryset runs
+        # before the mixin's team filter), then matched in Python since event references live deep in the JSON.
+        if self.action != "list":
+            return queryset
+        event = self.request.query_params.get("event")
+        if event:
+            # One group per saved metric: (pk, [its query]). `.order_by()` drops the class-level
+            # ordering for this internal fetch — the result is matched in Python, so ordering is
+            # irrelevant, and it avoids a needless sort (and the DISTINCT+ORDER BY column injection).
+            groups = [
+                (pk, [query] if query else [])
+                for pk, query in queryset.filter(team_id=self.team.pk).order_by().values_list("pk", "query")
+            ]
+            queryset = queryset.filter(pk__in=filter_metric_group_ids_by_event(groups, event, self.team))
+        return queryset
 
     def perform_destroy(self, instance: ExperimentSavedMetric) -> None:
         service = ExperimentSavedMetricService(team=self.team, user=self.request.user)

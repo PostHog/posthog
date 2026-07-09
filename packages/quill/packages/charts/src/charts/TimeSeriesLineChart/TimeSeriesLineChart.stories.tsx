@@ -48,6 +48,72 @@ export const Basic: Story = {
     },
 }
 
+/** Two series on independent y-axes: revenue (currency, left) and conversion rate (percentage,
+ *  right), each formatting its own ticks. Pass `yAxis` as an array — one entry per axis. */
+export const DualYAxis: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'revenue', label: 'Revenue', color: '', data: [1100, 1300, 1250, 1700, 1500, 1900, 1800] },
+            {
+                key: 'conversion',
+                label: 'Conversion',
+                color: '',
+                data: [0.022, 0.028, 0.025, 0.034, 0.031, 0.038, 0.036],
+                yAxisId: 'right',
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Revenue', format: 'currency', currency: 'USD', showGrid: true },
+                            { id: 'right', position: 'right', label: 'Conversion', format: 'percentage_scaled' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
+/** Mixed scale types across axes: a linear count on the left and a log-scaled latency series on
+ *  the right, each with its own formatter. */
+export const DualYAxisMixedScales: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'requests', label: 'Requests', color: '', data: [120, 180, 150, 210, 170, 240, 220] },
+            {
+                key: 'latency',
+                label: 'p99 latency',
+                color: '',
+                data: [12, 80, 35, 600, 90, 1400, 300],
+                yAxisId: 'right',
+            },
+        ]
+        return (
+            <Stage>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{
+                        yAxis: [
+                            { id: 'left', label: 'Requests', format: 'short', showGrid: true },
+                            { id: 'right', position: 'right', label: 'p99 latency', scale: 'log', suffix: 'ms' },
+                        ],
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const DragToZoom: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -145,6 +211,26 @@ export const YAxisFormats: Story = {
             <YFormatCell title="currency" series={CURRENCY_SERIES} config={{ format: 'currency', currency: 'USD' }} />
             <YFormatCell title="duration (s)" series={DURATION_SERIES} config={{ format: 'duration' }} />
             <YFormatCell title="duration_ms" series={DURATION_MS_SERIES} config={{ format: 'duration_ms' }} />
+        </div>
+    ),
+}
+
+/** Offset, all-positive series: clamping leaves a tall empty gutter below the data; floating zooms
+ *  onto the band so the day-to-day variation is legible. */
+const OFFSET_SERIES: Series[] = [{ key: 'latency', label: 'p95 latency', data: [820, 860, 840, 905, 880, 930, 910] }]
+
+/** `startAtZero` controls the baseline: the default (left) clamps a non-negative axis to 0; setting
+ *  it `false` (right) floats the axis to the data range. */
+export const StartAtZero: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, auto)', gap: 24 }}>
+            <YFormatCell title="default (clamped to 0)" series={OFFSET_SERIES} config={{ suffix: ' ms' }} />
+            <YFormatCell
+                title="startAtZero: false (floated)"
+                series={OFFSET_SERIES}
+                config={{ suffix: ' ms', startAtZero: false }}
+            />
         </div>
     ),
 }

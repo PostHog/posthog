@@ -14,6 +14,7 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models.integration import Integration
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.tests.api.conftest import (
@@ -357,6 +358,50 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
+@pytest.mark.parametrize(
+    "destination_type,integration_kind,config",
+    [
+        ("AwsS3", Integration.IntegrationKind.AWS_S3, {"bucket_name": "b", "region": "us-east-1", "prefix": "p/"}),
+        (
+            "Databricks",
+            Integration.IntegrationKind.DATABRICKS,
+            {"http_path": "p", "catalog": "c", "schema": "s", "table_name": "t"},
+        ),
+    ],
+)
+def test_cannot_create_batch_export_with_integration_from_another_team(
+    client: HttpClient, temporal, organization, team, user, destination_type, integration_kind, config
+):
+    """The team-scoped `integration` field rejects an integration owned by another team (IDOR).
+
+    This is common to every integration-backed destination — a foreign id reads as "does not exist"
+    at field resolution, before any destination-specific validation runs.
+    """
+    other_team = create_team(organization)
+    foreign_integration = Integration.objects.create(
+        team=other_team,
+        kind=integration_kind,
+        integration_id="foreign",
+        config={},
+        sensitive_config={},
+        created_by=user,
+    )
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {"type": destination_type, "config": config, "integration": foreign_integration.id},
+        },
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == "destination__integration"
+    assert response.json()["code"] == "does_not_exist"
+
+
 def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
     client: HttpClient, temporal, organization, team, user
 ):
@@ -657,6 +702,15 @@ _S3_FILTER_TEST_CONFIG = {
             status.HTTP_400_BAD_REQUEST,
             "not 'filters'. Trigger a backfill",
         ),
+        # A list of bare strings (not objects) would pass decoding into the DB but crash the
+        # workflow at input-decode time — reject it at write time instead.
+        (["$pageview"], status.HTTP_400_BAD_REQUEST, "must be an object"),
+        ([{"key": "$browser", "operator": "exact"}], status.HTTP_400_BAD_REQUEST, "must have a 'type'"),
+        (
+            [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}],
+            status.HTTP_201_CREATED,
+            None,
+        ),
     ],
 )
 def test_creating_batch_export_with_filters(
@@ -708,38 +762,41 @@ def test_creating_batch_export_with_filters(
         "localhost",
     ],
 )
-def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
+def test_create_redshift_batch_export_fails_with_invalid_host(
     client: HttpClient, temporal, organization, team, user, host
 ):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'.
 
-    for type in ("Redshift", "Postgres"):
-        destination_data = {
-            "type": type,
-            "config": {
-                "user": "user",
-                "password": "my-password",
-                "database": "my-db",
-                "host": host,
-                "schema": "public",
-                "table_name": "my_events",
-            },
-        }
+    Postgres host validation is covered separately in test_create_postgres.py, where the host
+    comes from the linked Integration rather than from inline config.
+    """
 
-        batch_export_data = {
-            "name": "my-production-destination",
-            "destination": destination_data,
-            "interval": "hour",
-        }
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": host,
+            "schema": "public",
+            "table_name": "my_events",
+        },
+    }
 
-        client.force_login(user)
+    batch_export_data = {
+        "name": "my-production-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
 
-        with override_settings(TEST=0, DEBUG=0):
-            response = create_batch_export(
-                client,
-                team.pk,
-                batch_export_data,
-            )
+    client.force_login(user)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert f"Invalid host: '{host}'" in response.json()["detail"]
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid host: '{host}'" in response.json()["detail"]

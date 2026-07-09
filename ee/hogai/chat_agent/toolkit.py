@@ -7,7 +7,7 @@ from django.conf import settings
 from langchain_core.runnables import RunnableConfig
 
 from products.skills.backend.tools.skills import GetLLMSkillFileTool, GetLLMSkillTool, ListLLMSkillsTool
-from products.tasks.backend.max_tools import (
+from products.tasks.backend.facade.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
     GetTaskRunTool,

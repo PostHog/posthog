@@ -1,6 +1,7 @@
 import '../Nodes/NotebookNodeBacklink'
 import '../Nodes/NotebookNodeCohort'
 import '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
+import '../Nodes/NotebookNodeSQLV2'
 import '../Nodes/NotebookNodeDuckSQL'
 import '../Nodes/NotebookNodeEarlyAccessFeature'
 import '../Nodes/NotebookNodeEmbed'
@@ -31,18 +32,12 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
-import { BindLogic, useActions, useMountedLogic } from 'kea'
-import {
-    type CSSProperties,
-    type PointerEvent as ReactPointerEvent,
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-} from 'react'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
 
-import { IconComment, IconSparkles } from '@posthog/icons'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconComment, IconImage } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -55,22 +50,70 @@ import {
     NotebookComponentRegistry,
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
-import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
-import { NotebookAIChat, getNotebookAIChatTitle } from './MarkdownNotebookAIChat'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
+
+const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
+
+const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
+    [NotebookNodeType.Cohort]: ['id'],
+    [NotebookNodeType.Experiment]: ['id'],
+    [NotebookNodeType.Group]: ['groupTypeIndex'],
+}
+
+const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<string, string>>> = {
+    [NotebookNodeType.Cohort]: {
+        id: 'Cohort ID',
+    },
+    [NotebookNodeType.EarlyAccessFeature]: {
+        id: 'Early access feature ID',
+    },
+    [NotebookNodeType.Experiment]: {
+        id: 'Experiment ID',
+    },
+    [NotebookNodeType.FeatureFlag]: {
+        id: 'Feature flag ID or key',
+    },
+    [NotebookNodeType.FeatureFlagCodeExample]: {
+        id: 'Feature flag ID or key',
+    },
+    [NotebookNodeType.Group]: {
+        groupTypeIndex: 'Group type index',
+        id: 'Group key',
+    },
+    [NotebookNodeType.Person]: {
+        distinctId: 'Distinct ID',
+        id: 'Person UUID',
+    },
+    [NotebookNodeType.Survey]: {
+        id: 'Survey ID',
+    },
+    [NotebookNodeType.ZendeskTickets]: {
+        groupKey: 'Group key',
+        personId: 'Person UUID',
+    },
+}
 
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
     Python: NotebookNodeType.Python,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
+    SQLV2: NotebookNodeType.SQLV2,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -109,40 +152,53 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
-    { tagName: 'Python', category: 'Code', exclusiveEditPanel: true },
+    { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
-    { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings', exclusiveEditPanel: true },
-    { tagName: 'Experiment', category: 'Experiment', exclusiveEditPanel: true },
+    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
+    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
+    {
+        tagName: 'SQLV2',
+        category: 'SQL',
+        label: 'SQL (v2)',
+        insertCommand: {
+            aliases: ['data', 'sql'],
+            // New cells get a durable nodeId up front: parsed markdown block ids are content
+            // fingerprints, so without a persisted id every prop change (running the cell
+            // writes runId/result) would orphan the cell's run history and cross-cell refs.
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2), nodeId: uuid() }),
+        },
+    },
+    { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
+    { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
     { tagName: 'Embed', category: 'Media', EditComponent: EmbedEdit },
     { tagName: 'Latex', category: 'Media', label: 'LaTeX', EditComponent: LatexEdit },
-    { tagName: 'FeatureFlag', category: 'PostHog', label: 'Feature flag', exclusiveEditPanel: true },
-    { tagName: 'Survey', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'Person', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Group', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Cohort', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Map', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Recording', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'Backlink', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'ReplayTimestamp', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'PersonFeed', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'PersonProperties', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'GroupProperties', category: 'Data', exclusiveEditPanel: true },
-    { tagName: 'TaskCreate', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'LLMTrace', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'Issues', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'UsageMetrics', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'ZendeskTickets', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'RelatedGroups', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'CustomerJourney', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'SupportTickets', category: 'PostHog', exclusiveEditPanel: true },
-    { tagName: 'EarlyAccessFeature', category: 'PostHog', label: 'Early access feature', exclusiveEditPanel: true },
+    { tagName: 'FeatureFlag', category: 'PostHog', label: 'Feature flag' },
+    { tagName: 'Survey', category: 'PostHog' },
+    { tagName: 'Person', category: 'Data' },
+    { tagName: 'Group', category: 'Data' },
+    { tagName: 'Cohort', category: 'Data' },
+    { tagName: 'Map', category: 'Data' },
+    { tagName: 'Recording', category: 'Data' },
+    { tagName: 'Backlink', category: 'PostHog' },
+    { tagName: 'ReplayTimestamp', category: 'PostHog' },
+    { tagName: 'PersonFeed', category: 'Data' },
+    { tagName: 'PersonProperties', category: 'Data' },
+    { tagName: 'GroupProperties', category: 'Data' },
+    { tagName: 'TaskCreate', category: 'PostHog' },
+    { tagName: 'LLMTrace', category: 'PostHog' },
+    { tagName: 'Issues', category: 'PostHog' },
+    { tagName: 'UsageMetrics', category: 'PostHog' },
+    { tagName: 'ZendeskTickets', category: 'PostHog' },
+    { tagName: 'RelatedGroups', category: 'PostHog' },
+    { tagName: 'CustomerJourney', category: 'PostHog' },
+    { tagName: 'SupportTickets', category: 'PostHog' },
+    { tagName: 'EarlyAccessFeature', category: 'PostHog', label: 'Early access feature' },
     {
         tagName: 'FeatureFlagCodeExample',
         category: 'PostHog',
         label: 'Feature flag code example',
-        exclusiveEditPanel: true,
     },
 ]
 
@@ -167,18 +223,6 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
         }
     }),
     {
-        tagName: 'Chat',
-        label: 'AI chat',
-        category: 'AI',
-        icon: <IconSparkles />,
-        defaultProps: { id: '' },
-        ViewComponent: NotebookAIChat,
-        EditComponent: NotebookAIChat,
-        exclusiveEditPanel: true,
-        hideModeActions: true,
-        getTitle: getNotebookAIChatTitle,
-    },
-    {
         // Overrides the default registry's authorial-note definition: the note flavor
         // (`text`, stored as `<!-- … -->`) renders through CommentBlock before the registry
         // is consulted, so this ViewComponent only ever sees the discussion flavor
@@ -202,6 +246,30 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
     },
 ])
 
+// Node tags that only appear in the markdown insert menu when their feature flag is on.
+// Only insertion is gated — rendering of already-inserted nodes is never gated.
+export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
+    const hiddenTags: string[] = []
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        hiddenTags.push('SQLV2')
+    }
+
+    if (hiddenTags.length === 0) {
+        return NOTEBOOK_MARKDOWN_REGISTRY
+    }
+
+    // Dropping insertCommand hides the node from the insert menu (it filters falsy
+    // insertCommand), while the ViewComponent stays so existing nodes still render.
+    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
+    for (const tagName of hiddenTags) {
+        const definition = components[tagName]
+        if (definition) {
+            components[tagName] = { ...definition, insertCommand: undefined }
+        }
+    }
+    return { components }
+}
+
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
     nodeType: NotebookNodeType | undefined,
@@ -216,7 +284,8 @@ export function getMarkdownNotebookNodeTitle(
     }
 
     if (nodeType === NotebookNodeType.Query) {
-        return getQueryTitle(attributes.query) ?? fallback
+        // No fallback label: an unnamed/SQL query stays empty so the title field reads as "Add a title"
+        return getQueryTitle(attributes.query)
     }
     if (nodeType === NotebookNodeType.Embed) {
         return getUnknownStringProp(attributes.src) ?? fallback
@@ -234,7 +303,8 @@ export function getMarkdownNotebookNodeTitle(
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
-        return summarizeTitle(getUnknownStringProp(attributes.code)) ?? fallback
+        // Never suggest the code/SQL body itself as a title — fall back to the language label
+        return fallback
     }
 
     return (
@@ -271,7 +341,8 @@ export function getQueryTitle(queryValue: unknown): string | null {
         return getNotebookStringProp(query.name) ?? getNotebookStringProp(query.shortId) ?? 'Saved insight'
     }
     if (sourceKind === 'HogQLQuery') {
-        return summarizeTitle(getNotebookStringProp(source?.query)) ?? 'SQL query'
+        // Leave SQL queries untitled initially — never suggest the SQL body or a generic label
+        return null
     }
     if (sourceKind === 'TrendsQuery') {
         return source ? (getSeriesTitle(source) ?? 'Trend') : 'Trend'
@@ -282,8 +353,12 @@ export function getQueryTitle(queryValue: unknown): string | null {
     if (sourceKind === 'EventsQuery') {
         return 'Events'
     }
+    if (sourceKind === 'ActorsQuery') {
+        return 'People'
+    }
 
-    return queryKind ?? sourceKind
+    // Don't suggest raw schema kinds (e.g. "DataTableNode") as a title
+    return null
 }
 
 export function getSeriesTitle(query: Record<string, NotebookPropValue>): string | null {
@@ -315,7 +390,63 @@ export function RealNotebookNodeView(props: NotebookComponentRenderProps): JSX.E
 }
 
 export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.Element {
+    const notebookNodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[props.node.tagName]
+    const options = notebookNodeType ? KNOWN_NODES[notebookNodeType] : null
+
+    if (!options || !notebookNodeType) {
+        return <div className="MarkdownNotebook__component-preview">Unsupported notebook node.</div>
+    }
+
+    if (!options.Settings) {
+        return <RealNotebookNodeAttributeEdit {...props} notebookNodeType={notebookNodeType} options={options} />
+    }
+
     return <RealNotebookNodeComponent {...props} forceEditing editOnly />
+}
+
+export function RealNotebookNodeAttributeEdit({
+    node,
+    updateProps,
+    notebookNodeType,
+    options,
+}: NotebookComponentRenderProps & {
+    notebookNodeType: NotebookNodeType
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element {
+    const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
+    const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
+
+    if (!attributeKeys.length) {
+        return (
+            <div className="MarkdownNotebook__component-form text-secondary text-sm">
+                No editable filters for this block.
+            </div>
+        )
+    }
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            {attributeKeys.map((key, index) => {
+                const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
+                return (
+                    <label key={key} className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold text-secondary">{label}</span>
+                        <LemonInput
+                            aria-label={label}
+                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
+                            onChange={(value) =>
+                                updateProps({
+                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
+                                })
+                            }
+                            placeholder={label}
+                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
+                        />
+                    </label>
+                )
+            })}
+        </div>
+    )
 }
 
 export function RealNotebookNodeComponent({
@@ -393,21 +524,11 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
-    const { setEditingNodeEditing } = useActions(notebookLogic)
-
-    useEffect(() => {
-        if (!forceEditing) {
-            return
-        }
-
-        setEditingNodeEditing(attributes.nodeId, true)
-        return () => setEditingNodeEditing(attributes.nodeId, false)
-    }, [attributes.nodeId, forceEditing, setEditingNodeEditing])
 
     const Component = options.Component
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
-    const showContent = !editOnly || !Settings
+    const showContent = !editOnly
     const isNotebookEditable = (notebookMode ?? mode) === 'edit'
     const isResizeable =
         isNotebookEditable &&
@@ -415,6 +536,14 @@ export function MountedRealNotebookNodeComponent({
     const contentStyle: CSSProperties | undefined =
         isResizeable || attributes.height
             ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+            : undefined
+    // Nodes that declare their own minHeight (e.g. LaTeX) size to their content instead of the 8rem default
+    const nodeStyle: CSSProperties | undefined =
+        options.minHeight !== undefined
+            ? ({
+                  '--markdown-notebook-real-node-min-height':
+                      typeof options.minHeight === 'number' ? `${options.minHeight}px` : options.minHeight,
+              } as CSSProperties)
             : undefined
 
     // Native CSS resize writes to style.height; the new height is persisted on mouseup so the
@@ -471,7 +600,7 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node">
+                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />
@@ -506,9 +635,41 @@ export function MountedRealNotebookNodeComponent({
 export function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
     const src = typeof node.props.src === 'string' ? node.props.src : ''
     const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+    const formRef = useRef<HTMLDivElement | null>(null)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            updateProps({ src: url, ...(alt ? {} : { alt: fileName }) })
+            posthog.capture('notebook image uploaded', { name: fileName })
+        },
+        onError: (detail) => {
+            posthog.capture('notebook image upload failed', { error: detail })
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
-        <div className="MarkdownNotebook__component-form">
+        <div className="MarkdownNotebook__component-form" ref={formRef}>
+            <LemonFileInput
+                accept="image/*"
+                multiple={false}
+                value={filesToUpload}
+                onChange={setFilesToUpload}
+                loading={uploading}
+                showUploadedFiles={false}
+                alternativeDropTargetRef={formRef}
+                callToAction={
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={uploading ? <Spinner className="text-lg" textColored /> : <IconImage />}
+                        disabledReason={objectStorageAvailable ? undefined : 'Enable object storage to upload images'}
+                        tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload an image' : null}
+                    >
+                        Upload image
+                    </LemonButton>
+                }
+            />
             <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}
@@ -603,10 +764,58 @@ export function getDefaultPropsForNodeType(nodeType: NotebookNodeType | undefine
     return getDefaultProps(nodeType ? KNOWN_NODES[nodeType] : null)
 }
 
+export function getEditableNodeAttributeKeys(
+    options: CreatePostHogWidgetNodeOptions<any>,
+    attributes: Partial<NotebookNodeAttributes<any>>
+): string[] {
+    return Object.keys(options.attributes).filter((key) => {
+        if (INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS.has(key)) {
+            return false
+        }
+
+        const value = attributes[key]
+        return value === undefined || value === null || ['boolean', 'number', 'string'].includes(typeof value)
+    })
+}
+
+export function getMarkdownNodeAttributeLabel(notebookNodeType: NotebookNodeType, key: string): string {
+    return MARKDOWN_NODE_ATTRIBUTE_LABELS[notebookNodeType]?.[key] ?? splitTagName(key)
+}
+
+export function getPrimitiveNotebookPropInputValue(value: NotebookPropValue | undefined): string {
+    if (value === undefined || value === null) {
+        return ''
+    }
+    return typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string' ? String(value) : ''
+}
+
+export function getSerializableAttributeInputValue(
+    notebookNodeType: NotebookNodeType,
+    key: string,
+    value: string
+): NotebookPropValue | undefined {
+    const trimmedValue = value.trim()
+    if (!trimmedValue) {
+        return undefined
+    }
+
+    if (NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS[notebookNodeType]?.includes(key)) {
+        const numericValue = Number(trimmedValue)
+        return Number.isFinite(numericValue) ? numericValue : trimmedValue
+    }
+
+    return trimmedValue
+}
+
 export function getSerializableProps(attributes: Partial<NotebookNodeAttributes<any>>): NotebookComponentProps {
     return Object.entries(attributes).reduce<NotebookComponentProps>((props, [key, value]) => {
-        if (value !== undefined && isNotebookPropValue(value)) {
-            props[key] = value as NotebookPropValue
+        // Normalize before validating, mirroring the legacy notebook flow(via useSyncedAttributes).
+        // Otherwise isNotebookPropValue rejects an object with a single nested `undefined` property and—
+        // it gets ignored. e.g. a person-property filter's absent `label`/`group_type_index` inside
+        // `query.source.properties` — fails isNotebookPropValue and the whole `query` prop is dropped
+        const normalized = toSerializablePropValue(value)
+        if (normalized !== undefined && isNotebookPropValue(normalized)) {
+            props[key] = normalized
         }
         return props
     }, {})

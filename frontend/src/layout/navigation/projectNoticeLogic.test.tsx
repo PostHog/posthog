@@ -30,7 +30,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
             })
             initKeaTests()
@@ -69,6 +69,86 @@ describe('projectNoticeLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadRecords'])
+
+            logic.unmount()
+        })
+    })
+
+    describe('unauthenticated session', () => {
+        let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+        let originalAppContext: AppContext | undefined
+
+        beforeEach(() => {
+            originalAppContext = window.POSTHOG_APP_CONTEXT
+            // Simulate a missing/expired session — userLogic boots to a null user.
+            window.POSTHOG_APP_CONTEXT = {
+                ...originalAppContext,
+                current_user: null,
+            } as unknown as AppContext
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            // Inside the first-7-days nudge window, so only the auth guard can hold the fetch back.
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            getDateSpy.mockRestore()
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+        })
+
+        it('does not load proxy records when the user is unauthenticated', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadRecords'])
+            expect(logic.values.proxyRecords).toBeNull()
+
+            logic.unmount()
+        })
+    })
+
+    describe('proxy records 401 handling', () => {
+        let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    // Function form so the [status, body] tuple is honored — a static array value
+                    // would be served as a 200 JSON body instead of a 401.
+                    '/api/organizations/:organization_id/proxy_records': () => [401, {}],
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            getDateSpy.mockRestore()
+        })
+
+        it('swallows a 401 instead of surfacing a load failure', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadRecords', 'loadRecordsSuccess'])
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadRecordsFailure'])
+            expect(logic.values.proxyRecords).toBeNull()
 
             logic.unmount()
         })
@@ -182,7 +262,7 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
                 post: {
                     '/api/users/request_email_verification/': [200, { success: true }],

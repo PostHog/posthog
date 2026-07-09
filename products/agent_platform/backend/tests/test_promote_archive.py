@@ -16,14 +16,12 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from ..models import AgentApplication, AgentRevision
+from ..models import AgentApplication, AgentIdentityCredential, AgentRevision, AgentUser
 
 
 class TestPromoteArchive(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -83,3 +81,43 @@ class TestPromoteArchive(APIBaseTest):
         self.application.refresh_from_db()
         self.assertEqual(revision.state, "archived")
         self.assertIsNone(self.application.live_revision_id)
+
+    def test_destroy_revokes_linked_credentials(self) -> None:
+        """Archiving the application (soft-delete) revokes its users' active
+        identity credentials — archive is terminal, so a retired agent holds no
+        live bearers. Already-revoked rows are left as-is (only `active` flips)."""
+        user = AgentUser.all_teams.create(
+            team_id=self.team.id,
+            application_id=self.application.id,
+            principal_kind="slack",
+            principal_id="U123",
+        )
+        active = AgentIdentityCredential.all_teams.create(
+            team_id=self.team.id,
+            application_id=self.application.id,
+            agent_user_id=user.id,
+            provider="posthog",
+            encrypted_credentials="ciphertext",
+            state="active",
+        )
+        already_revoked = AgentIdentityCredential.all_teams.create(
+            team_id=self.team.id,
+            application_id=self.application.id,
+            agent_user_id=user.id,
+            provider="github",
+            encrypted_credentials="ciphertext",
+            state="revoked",
+        )
+
+        resp = self.client.delete(f"/api/projects/{self.team.id}/agent_applications/{self.application.id}/")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT, resp.content)
+
+        self.application.refresh_from_db()
+        self.assertTrue(self.application.archived)
+
+        active.refresh_from_db()
+        self.assertEqual(active.state, "revoked")
+        self.assertIsNotNone(active.revoked_at)
+
+        already_revoked.refresh_from_db()
+        self.assertEqual(already_revoked.state, "revoked")

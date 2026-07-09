@@ -13,8 +13,8 @@ use super::{
     build_infix, fold_call_or_exprcall, identifier_text, infix_bp, interval_call_name,
     interval_call_name_case_sensitive, is_reserved_alias_name, kw_acts_as_ident_in_primary,
     kw_valid_as_identifier, kw_valid_type_cast_ident, parse_number_literal, postfix_bp,
-    unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
-    BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
+    unquote_single_string, Parser, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
+    BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_TERNARY, BP_UNARY_MINUS,
 };
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -62,6 +62,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ) -> Result<E::Value, ParseError> {
         loop {
             let kind = self.peek();
+            // A bare alias was just built: only an outer-tier operator (AND, OR,
+            // ternary `?`, or a chained AS) may wrap it. Any value-tier operator
+            // terminates the expression here, matching cpp's two-tier grammar
+            // (`1 AS x AND y` is `(1 AS x) AND y`; `1 AS x + 2` rejects).
+            if std::mem::take(&mut self.after_bare_alias)
+                && !matches!(
+                    kind,
+                    TokenKind::Keyword(Kw::And)
+                        | TokenKind::Keyword(Kw::Or)
+                        | TokenKind::Keyword(Kw::As)
+                        | TokenKind::QMark
+                )
+            {
+                break;
+            }
             if let Some((lbp, rbp, op)) = infix_bp(kind) {
                 if lbp < min_bp {
                     break;
@@ -806,23 +821,63 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // back; operator continuations like `interval + 1` reach try_alt too.
             //
             // A nested INTERVAL in the value position of an enclosing INTERVAL
-            // (`interval interval '5 day' month`) is special: cpp's ALL(*)
-            // reserves the trailing unit (`month`) for the OUTER interval, so
-            // the inner one never takes the unit-consuming form. Parse it
-            // string-only when a string follows (`interval '5 day'` →
-            // `toIntervalDay(5)`, with a bad string a hard error like cpp's
-            // `ColumnExprIntervalString`), else as a Field / call via the ident
-            // path (`interval - x` → `interval` Field minus `x`; `interval(1)`
-            // → call). The trailing unit then binds to the outer interval.
+            // is two-faced. The STRING form (`interval interval '5 day' month`)
+            // is self-contained — count and unit live inside the string — so
+            // cpp's ALL(*) parses the inner string-only and reserves the
+            // trailing `month` for the OUTER interval (a bad string is a hard
+            // error like cpp's `ColumnExprIntervalString`). The EXPR form is
+            // resolved by which reading lets the WHOLE thing parse: the inner is
+            // a nested `INTERVAL <value> <unit>` only when it leaves a unit for
+            // the outer (`interval interval 0 week week` → inner `INTERVAL 0
+            // WEEK`, outer `WEEK`). Otherwise the inner `interval` is an
+            // identifier and its trailing unit binds to the outer
+            // (`interval interval - x week` → `INTERVAL (interval - x) WEEK`;
+            // `interval interval(1) week` → the call as the value). So probe the
+            // nested form and keep it only when a unit keyword still follows.
             TokenKind::Keyword(Kw::Interval) if interval_value => {
                 if self.peek_next() == TokenKind::String {
-                    self.parse_interval_string_only()
-                        .map_err(ParseError::into_fatal)
+                    // Nested string-valued INTERVAL. cpp keeps the inner string a
+                    // self-contained `ColumnExprIntervalString` (count+unit inside
+                    // the quotes, `'5 day'`) when a SINGLE unit trails — that unit
+                    // is the OUTER interval's. When TWO units trail, the inner is
+                    // instead an expr+unit INTERVAL whose VALUE is the (plain
+                    // constant) string and whose unit is the first keyword, leaving
+                    // the second for the outer (`interval interval '' day month` →
+                    // `INTERVAL (INTERVAL '' DAY) MONTH`). The value-expr reading
+                    // sidesteps the string's count/unit validation, which is why
+                    // `''` parses there but not as a bare string interval.
+                    if self.interval_string_trailing_unit_count() >= 2 {
+                        self.parse_interval_expr().map_err(ParseError::into_fatal)
+                    } else {
+                        self.parse_interval_string_only()
+                            .map_err(ParseError::into_fatal)
+                    }
                 } else {
-                    self.parse_ident_lead()
+                    let cp = self.checkpoint();
+                    match self.parse_interval_expr() {
+                        // Keep the nested reading only when a unit is still left
+                        // for the OUTER interval — directly, or after a run of
+                        // postfix operators on the inner (`interval interval 0
+                        // hour () hour` → `INTERVAL ((INTERVAL 0 HOUR)()) HOUR`).
+                        Ok(inner) if self.interval_unit_follows_postfix_run() => Ok(inner),
+                        Err(e) if e.fatal => Err(e),
+                        _ => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    }
                 }
             }
-            TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
+            // A HogQLX tag is a valid interval value (`interval <t/> second` →
+            // `INTERVAL (<t/>) SECOND`), but `<` is a pure-infix operator so
+            // `can_start_interval_value` rejects it — admit it explicitly when
+            // the `<` actually begins a tag (not a `<` comparison). The try_alt
+            // below still falls back to the `interval < x` comparison reading
+            // when the tag parse doesn't pan out.
+            TokenKind::Keyword(Kw::Interval)
+                if can_start_interval_value(self.peek_next())
+                    || self.peek_next_starts_hogqlx_tag() =>
+            {
                 if self.peek_next() == TokenKind::String {
                     self.parse_interval_expr().map_err(ParseError::into_fatal)
                 } else {
@@ -1227,85 +1282,60 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if matches!(self.peek(), TokenKind::String) && !self.peek_next_is_interval_unit() {
             let str_tok = self.peek0;
             let raw = unquote_single_string(self.text(str_tok));
-            if let Some((count_str, unit)) = raw.split_once(' ') {
-                // cpp's `visitColumnExprIntervalString` requires the
-                // count to be a non-negative decimal integer (`isdigit`
-                // per char, `stoi` for the convert), and matches the
-                // unit against a literal-lowercase set (so `SECOND`
-                // rejects with "Unsupported interval unit: SECOND").
-                // Rust used to lowercase the unit and silently
-                // substitute `Constant(0)` for any unparseable count
-                // — `INTERVAL 'twenty days'` quietly became "0 days".
-                let count_valid =
-                    !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
-                if !count_valid {
-                    self.bump()?;
-                    return Err(ParseError::not_implemented_fatal(
-                        format!("Unsupported interval count: {count_str}"),
-                        str_tok.start,
-                        str_tok.end,
-                    ));
-                }
-                let count: i64 = match count_str.parse() {
-                    Ok(n) => n,
-                    Err(_) => {
-                        self.bump()?;
-                        return Err(ParseError::not_implemented_fatal(
-                            "Unknown error: stoi: out of range",
-                            str_tok.start,
-                            str_tok.end,
-                        ));
-                    }
-                };
-                // cpp's unit check is literal-lowercase — case-sensitive
-                // against the lowercase singular / plural forms. Match
-                // that here rather than `interval_call_name`'s
-                // case-insensitive helper.
-                let unit_name = interval_call_name_case_sensitive(unit);
-                if let Some(unit_name) = unit_name {
-                    self.bump()?;
-                    return Ok(self
-                        .emit
-                        .call(unit_name, vec![self.emit.constant(self.emit.int(count))]));
-                }
-                // Unit not lowercase / not recognised — cpp errors
-                // here even though the count was valid.
-                self.bump()?;
-                return Err(ParseError::not_implemented_fatal(
-                    format!("Unsupported interval unit: {unit}"),
-                    str_tok.start,
-                    str_tok.end,
-                ));
-            }
-            // Reaching here means the string has no internal space (the split
-            // failed) and — per the branch guard — no trailing unit keyword:
-            // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
-            // rejects (it isn't `<count> <unit>`). In a clause cpp grammar-parses
-            // but never visits (`suppress_unvisited_clause_checks`), tolerate it
-            // with a throwaway so the discarded parse completes — matching cpp's
-            // accept (`{x} order by interval 'p'`). The node value is moot.
+            // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+            // grammar-parses the string-form INTERVAL but never visits it, so
+            // none of its count / unit "not supported" rejections (`interval
+            // 'bm '`) fire here. Consume the string into a throwaway and return;
+            // the value is moot. (The no-space `interval 'p'` case is covered
+            // too, so its own suppress branch below is unreachable now.)
             if self.suppress_unvisited_clause_checks {
-                let s = unquote_single_string(self.text(str_tok));
                 self.bump()?;
                 return Ok(self.emit.call(
                     "toIntervalSecond",
-                    vec![self.emit.constant(self.emit.string(&s))],
+                    vec![self.emit.constant(self.emit.string(&raw))],
                 ));
             }
-            // Fall through to the expr+unit form: parse the string as
-            // the value expression and let the trailing unit keyword
-            // close the INTERVAL.
+            if let Some((count_str, unit)) = raw.split_once(' ') {
+                // `INTERVAL '<count> <unit>'` carries both inside one string;
+                // cpp's `visitColumnExprIntervalString` validates and emits it.
+                return self.emit_interval_combined_string(count_str, unit, str_tok);
+            }
+            // The string has no internal space (the split failed) and — per the
+            // branch guard — no trailing unit keyword. cpp's ALL(*) still prefers
+            // `ColumnExprInterval` (expr+unit) when the no-space string is only the
+            // HEAD of a longer unit-terminated value (`interval 'a' || 'b' hour`),
+            // so try that form first. If it fails (no unit keyword closes the
+            // value, e.g. bare `interval ''` / `interval 'x' + 1`), cpp falls back
+            // to `ColumnExprIntervalString`, whose visitor rejects a string that
+            // isn't `<count> <unit>`. Reproduce that rejection rather than leaking
+            // the expr+unit form's "expected interval unit keyword" syntax error.
+            // A fatal error from the value parse (a committed nested rejection)
+            // surfaces as-is, matching cpp.
+            let cp = self.checkpoint();
+            return match self.parse_interval_value_unit_form() {
+                Ok(v) => Ok(v),
+                Err(e) if e.fatal => Err(e),
+                Err(_) => {
+                    self.restore(cp)?;
+                    self.bump()?;
+                    Err(ParseError::not_implemented_fatal(
+                        "Unsupported interval type: must be in the format '<count> <unit>'",
+                        str_tok.start,
+                        str_tok.end,
+                    ))
+                }
+            };
         }
-        // `INTERVAL <expr> <unit>` — the grammar admits a full
-        // columnExpr for the value, so we parse at BP=0 (greedy).
-        // The unit-keyword tokens (SECOND/MINUTE/…/YEAR) aren't binary
-        // or postfix operators, so the Pratt loop naturally halts
-        // before them. AND/OR/BETWEEN that surround the INTERVAL in
-        // an outer expression bind correctly because the SECOND
-        // keyword terminates the interval value before they're seen
-        // — the outer call gets to those operators after parse_interval_expr
-        // returns.
-        //
+        self.parse_interval_value_unit_form()
+    }
+
+    /// `INTERVAL <expr> <unit>` (cpp's `ColumnExprInterval`): parse a full
+    /// columnExpr value at BP=0 (greedy), then require one of the eight singular
+    /// unit keywords. The unit-keyword tokens (`SECOND`/`MINUTE`/…/`YEAR`) aren't
+    /// binary or postfix operators, so the Pratt loop halts before them; AND / OR
+    /// / BETWEEN that surround the INTERVAL in an outer expression bind correctly
+    /// because the unit keyword terminates the value before they're seen.
+    fn parse_interval_value_unit_form(&mut self) -> Result<E::Value, ParseError> {
         // Flag the value's leading primary so a nested INTERVAL there yields
         // the unit to us rather than eating it (see `parse_primary`). One-shot:
         // `parse_primary` takes it, so only that first primary is affected.
@@ -1325,7 +1355,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // identifier / quoted identifier is never a unit — cpp rejects
         // all of those (`INTERVAL 1 hours`, `INTERVAL 1 "hour"`). The
         // plural-tolerant `INTERVAL '5 days'` form is the *string*
-        // branch above, handled before this point.
+        // branch in `parse_interval_expr`, handled before this point.
         let unit_tok = self.bump()?;
         let unit_name = match unit_tok.kind {
             TokenKind::Keyword(
@@ -1366,6 +1396,18 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect_kw(Kw::Interval, "INTERVAL")?;
         let str_tok = self.peek0;
         let raw = unquote_single_string(self.text(str_tok));
+        // Unvisited clause (window FILTER body / discarded ORDER BY): cpp
+        // grammar-parses the inner `ColumnExprIntervalString` but never visits it,
+        // so its count/unit "not supported" rejections never fire — tolerate any
+        // string with a throwaway, matching the suppress short-circuit in
+        // `parse_interval_expr` (`a() filter(where interval interval 'bm ' day) over a`).
+        if self.suppress_unvisited_clause_checks {
+            self.bump()?;
+            return Ok(self.emit.call(
+                "toIntervalSecond",
+                vec![self.emit.constant(self.emit.string(&raw))],
+            ));
+        }
         let Some((count_str, unit)) = raw.split_once(' ') else {
             self.bump()?;
             return Err(ParseError::not_implemented_fatal(
@@ -1374,38 +1416,88 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 str_tok.end,
             ));
         };
-        let count_valid = !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
-        if !count_valid {
-            self.bump()?;
+        self.emit_interval_combined_string(count_str, unit, str_tok)
+    }
+
+    /// Validate and emit a `<count> <unit>` combined-string INTERVAL (cpp's
+    /// `visitColumnExprIntervalString`). `str_tok` is the string literal at the
+    /// cursor; it is consumed here, and anchors every error. Shared by the
+    /// top-level combined-string branch of `parse_interval_expr` and the nested
+    /// `parse_interval_string_only`.
+    ///
+    /// The count must be a non-empty run of ASCII digits (cpp digit-checks each
+    /// char). ClickHouse stores intervals as Int64, so the count is accepted
+    /// across the full Int64 range; a digit string past Int64 max is rejected as
+    /// too large. The unit is matched case-sensitively against cpp's
+    /// literal-lowercase singular / plural set (so `SECOND` rejects).
+    fn emit_interval_combined_string(
+        &mut self,
+        count_str: &str,
+        unit: &str,
+        str_tok: Token,
+    ) -> Result<E::Value, ParseError> {
+        self.bump()?;
+        if count_str.is_empty() || !count_str.bytes().all(|b| b.is_ascii_digit()) {
             return Err(ParseError::not_implemented_fatal(
-                format!("Unsupported interval count: {count_str}"),
+                format!("Unsupported interval count: '{count_str}' is not a valid integer"),
                 str_tok.start,
                 str_tok.end,
             ));
         }
-        let count: i64 = match count_str.parse() {
+        let count: i64 = match count_str.parse::<i64>() {
             Ok(n) => n,
             Err(_) => {
-                self.bump()?;
                 return Err(ParseError::not_implemented_fatal(
-                    "Unknown error: stoi: out of range",
+                    format!("Unsupported interval count: '{count_str}' is too large"),
                     str_tok.start,
                     str_tok.end,
                 ));
             }
         };
         let Some(unit_name) = interval_call_name_case_sensitive(unit) else {
-            self.bump()?;
             return Err(ParseError::not_implemented_fatal(
                 format!("Unsupported interval unit: {unit}"),
                 str_tok.start,
                 str_tok.end,
             ));
         };
-        self.bump()?;
         Ok(self
             .emit
             .call(unit_name, vec![self.emit.constant(self.emit.int(count))]))
+    }
+
+    /// For a nested string-valued INTERVAL (`peek0 == interval`, `peek1 ==
+    /// String`), count the INTERVAL unit keywords (`SECOND … YEAR`) that
+    /// immediately trail the string, capped at 2. Drives the string-only vs
+    /// expr+unit choice for the inner interval: one trailing unit is the OUTER
+    /// interval's (inner stays self-contained), two means the inner takes the
+    /// first as its own unit and reserves the second for the outer.
+    fn interval_string_trailing_unit_count(&self) -> usize {
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        let mut count = 0usize;
+        while count < 2 {
+            match probe.next_token() {
+                Ok(t)
+                    if matches!(
+                        t.kind,
+                        TokenKind::Keyword(
+                            Kw::Second
+                                | Kw::Minute
+                                | Kw::Hour
+                                | Kw::Day
+                                | Kw::Week
+                                | Kw::Month
+                                | Kw::Quarter
+                                | Kw::Year
+                        )
+                    ) =>
+                {
+                    count += 1
+                }
+                _ => break,
+            }
+        }
+        count
     }
 
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
@@ -1419,6 +1511,66 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 interval_call_name(self.text(self.peek1)).is_some()
             }
             _ => false,
+        }
+    }
+
+    /// After a nested-interval value at `peek0`, would one of the eight singular
+    /// INTERVAL unit keywords (`SECOND … YEAR`, what `parse_interval_expr`'s unit
+    /// slot accepts) follow once a run of postfix operators on that value — a
+    /// `(…)` call, `[…]` subscript, or `.id` / `?.id` member — is skipped? The
+    /// enclosing INTERVAL takes that unit, so the inner `interval` is a nested
+    /// value-plus-postfixes (`interval interval 0 hour () hour`) rather than a
+    /// bare identifier. Postfix runs only — an arithmetic / infix continuation
+    /// is left to the bare-identifier reading.
+    fn interval_unit_follows_postfix_run(&self) -> bool {
+        let is_unit = |k: TokenKind| {
+            matches!(
+                k,
+                TokenKind::Keyword(
+                    Kw::Second
+                        | Kw::Minute
+                        | Kw::Hour
+                        | Kw::Day
+                        | Kw::Week
+                        | Kw::Month
+                        | Kw::Quarter
+                        | Kw::Year
+                )
+            )
+        };
+        let mut probe = Lexer::with_pos(self.src, self.peek0.start);
+        loop {
+            let Ok(t) = probe.next_token() else {
+                return false;
+            };
+            match t.kind {
+                k if is_unit(k) => return true,
+                TokenKind::LParen | TokenKind::LBracket => {
+                    let mut depth: i32 = 1;
+                    while depth > 0 {
+                        let Ok(inner) = probe.next_token() else {
+                            return false;
+                        };
+                        match inner.kind {
+                            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                                depth += 1
+                            }
+                            TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                                depth -= 1
+                            }
+                            TokenKind::Eof => return false,
+                            _ => {}
+                        }
+                    }
+                }
+                // `.id` / `?.id` member — skip the member token too.
+                TokenKind::Dot | TokenKind::NullProperty => {
+                    if probe.next_token().is_err() {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
         }
     }
 
@@ -3253,9 +3405,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // all keep DISTINCT as a Field. The follow-set heuristic here
         // mirrors that: bail out when peek_next is Comma or any pure
         // infix/postfix op that can't start a fresh expression.
+        // `distinct()` with EMPTY parens is the zero-arg call `Call(distinct,
+        // [])`, not the args DISTINCT-marker: cpp reads `count(distinct())` as
+        // `count` over a nested `distinct()` call (cf. `SELECT distinct()`).
+        // `distinct(x)` keeps the marker, so only empty `()` triggers this.
+        let distinct_heads_empty_call =
+            self.peek_next() == TokenKind::LParen && self.peek_lparen_is_empty();
         let distinct = if self.peek() == TokenKind::Keyword(Kw::Distinct)
             && !matches!(self.peek_next(), TokenKind::Comma)
             && !is_pure_infix_op(self.peek_next())
+            && !distinct_heads_empty_call
         {
             self.bump()?;
             true
@@ -3420,8 +3579,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let mut pos = self.peek0.start;
         loop {
             let mut probe = Lexer::with_pos(self.src, pos);
-            // enumValue: STRING `=` numberLiteral
-            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::String)) {
+            // enumValue: string `=` numberLiteral, where `string` is
+            // STRING_LITERAL | templateString — so an `f'…'` key (`a(f''=0)`) is
+            // an enum value too, which cpp rejects as `ColumnTypeExprEnum`.
+            if !matches!(
+                probe.next_token().map(|t| t.kind),
+                Ok(TokenKind::String | TokenKind::TemplateString)
+            ) {
                 return false;
             }
             if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::EqDouble)) {
@@ -4275,8 +4439,19 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // `a() b` (juxtaposition), `Int NULL` — is swallowed as raw text and
         // accepted, where cpp rejects. Both callers (param-mode loop and the
         // `parse_type_param_item` fall-back) route through here.
+        //
+        // `getText()` matches the item but never VISITS it, so the visitor-level
+        // "not supported" rejections (a `date '' ` / `timestamp ''` literal —
+        // `a(date '')` — and friends) must not fire during this grammar-only
+        // validation: cpp accepts them as raw param text. Suppress those checks
+        // for the validation parse only. (A genuine `ColumnTypeExprEnum` is
+        // already caught by `paren_body_is_enum_value_list` before we get here.)
         let validate_cp = self.checkpoint();
-        self.parse_expr_bp(0)?;
+        let prev_suppress = self.suppress_unvisited_clause_checks;
+        self.suppress_unvisited_clause_checks = true;
+        let validated = self.parse_expr_bp(0);
+        self.suppress_unvisited_clause_checks = prev_suppress;
+        validated?;
         if !matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) {
             return Err(self.err("type parameter is not a valid expression"));
         }
@@ -4351,6 +4526,56 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(args)
     }
 
+    /// Table-function argument list (cpp's `tableArgList`): each arg is a plain
+    /// `columnExpr` or a named `ident := expr`. Unlike a general function call
+    /// (cpp's `ColumnExprCallSelect`), a *bare* `SELECT …` is not a valid table
+    /// arg — cpp rejects `FROM a(SELECT 1)` but accepts `FROM a((SELECT 1))` —
+    /// so this skips the bare-`selectSetStmt` alt that `parse_arg_list` allows.
+    pub(crate) fn parse_table_arg_list(
+        &mut self,
+        terminator: TokenKind,
+    ) -> Result<Vec<E::Value>, ParseError> {
+        let mut args = Vec::new();
+        if self.peek() == terminator {
+            return Ok(args);
+        }
+        loop {
+            args.push(self.parse_table_argument()?);
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            if self.peek() == terminator {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// One table-function argument: a named `ident := expr`, else a plain
+    /// `columnExpr` (no bare-`SELECT` alt — see `parse_table_arg_list`). The
+    /// named-arg gate mirrors `parse_call_argument_with` (cpp's
+    /// `ColumnExprNamedArg` admits the full `identifier` rule).
+    fn parse_table_argument(&mut self) -> Result<E::Value, ParseError> {
+        let name_kw_ok =
+            matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+        if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
+            && self.peek_next() == TokenKind::ColonEquals
+        {
+            let named_start = self.peek0.start;
+            let name_tok = self.bump()?;
+            let name = identifier_text(self.text(name_tok), name_tok.kind);
+            self.bump()?; // consume `:=`
+            let value = self.parse_expr_bp(0)?;
+            // cpp's `ColumnExprNamedArg` is a value-tier primary, so a
+            // trailing value-tier operator re-roots onto the NamedArgument
+            // itself when the value parse stopped at a bare-alias boundary:
+            // `f(y := 1 as x [1])` is `ArrayAccess(NamedArgument(…), 1)`.
+            let named = self.emit.named_argument(&name, value);
+            return self.pratt_continue_with_lhs(named, 0, named_start);
+        }
+        self.parse_expr_bp(0)
+    }
+
     /// One argument in a function call's argument list. Supports the named
     /// argument shape `ident := expr` which is grammar-bound to call sites,
     /// and a `SELECT …` subquery (`f(select 1)`) which the grammar's
@@ -4395,11 +4620,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
             && self.peek_next() == TokenKind::ColonEquals
         {
+            let named_start = self.peek0.start;
             let name_tok = self.bump()?;
             let name = identifier_text(self.text(name_tok), name_tok.kind);
             self.bump()?; // consume `:=`
             let value = self.parse_expr_bp(0)?;
-            return Ok(self.emit.named_argument(&name, value));
+            // See `parse_table_argument`: a trailing value-tier operator
+            // re-roots onto the NamedArgument primary, matching cpp.
+            let named = self.emit.named_argument(&name, value);
+            return self.pratt_continue_with_lhs(named, 0, named_start);
         }
         // A function-call argument is either a selectSetStmt (cpp's
         // ColumnExprCallSelect) or a regular columnExpr. The grammar
@@ -4867,36 +5096,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     if BP_BETWEEN < min_bp {
                         return Ok(None);
                     }
-                    self.bump()?;
-                    self.bump()?;
-                    let (low, high, hoisted) = self.parse_between_body(min_bp)?;
+                    self.bump()?; // NOT
+                    self.bump()?; // BETWEEN
+                    let (low, high) = self.parse_between_body()?;
                     let prev = std::mem::replace(lhs, self.emit.null());
-                    // Wrap the inner BetweenExpr with positions BEFORE the hoist loop. When a hoist
-                    // wrapper (Or / Ternary / Alias / Arith) is applied, the outer pratt-loop wrap_pos
-                    // at line ~126 stamps positions onto the OUTERMOST wrapper, but the BetweenExpr
-                    // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
-                    // and would not otherwise receive a span. cpp emits position info on BetweenExpr
-                    // unconditionally — match that. Simple BETWEEN spans through the high operand's
-                    // last consumed token (incl. a parenthesized high's trailing `)`); only the
-                    // WIDE/hoist case needs `high.end` (last_consumed_end overshoots there).
-                    let high_end = self.emit.get_field(&high, "end");
                     let between_inner = self.emit.between(prev, low, high, true);
-                    let mut between = if hoisted.is_empty() {
-                        self.wrap_pos(between_inner, lhs_start)
-                    } else {
-                        match high_end {
-                            Some(end) => {
-                                self.emit
-                                    .with_pos(between_inner, self.pos_obj(lhs_start), end)
-                            }
-                            None => self.wrap_pos(between_inner, lhs_start),
-                        }
-                    };
-                    for (hoist, hoist_end) in hoisted {
-                        between = apply_between_hoist(&self.emit, between, hoist);
-                        between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
-                    }
-                    *lhs = between;
+                    *lhs = self.wrap_pos(between_inner, lhs_start);
                     Ok(Some(true))
                 }
                 TokenKind::Keyword(Kw::In) => {
@@ -4935,38 +5140,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 _ => Ok(None),
             },
-            // `[e] BETWEEN low AND high`
+            // `[e] BETWEEN low AND high`. BETWEEN binds at the comparison tier
+            // (BP_BETWEEN), so the bounds are parsed above BP_AND and cannot swallow
+            // a trailing `AND` chain — `a BETWEEN b AND c AND d` becomes
+            // `(a BETWEEN b AND c) AND d`. The low bound parses at BP_BETWEEN (a
+            // nested BETWEEN chains into it); the high at BP_BETWEEN + 1 (a trailing
+            // BETWEEN chains left-associatively via the outer Pratt loop instead).
             TokenKind::Keyword(Kw::Between) => {
                 if BP_BETWEEN < min_bp {
                     return Ok(None);
                 }
                 self.bump()?;
-                let (low, high, hoisted) = self.parse_between_body(min_bp)?;
+                let (low, high) = self.parse_between_body()?;
                 let prev = std::mem::replace(lhs, self.emit.null());
-                // The simple BETWEEN spans through the high operand's *last consumed*
-                // token — including a trailing `)` that a parenthesized high
-                // (`… and (3)`) strips from `high.end`. Only the WIDE/hoist case
-                // (`parse_between_body` absorbed a nested BETWEEN that is now hoisted
-                // back out) needs `high.end`, because there `last_consumed_end` is
-                // past the high we actually keep.
-                let high_end = self.emit.get_field(&high, "end");
                 let between_inner = self.emit.between(prev, low, high, false);
-                let mut between = if hoisted.is_empty() {
-                    self.wrap_pos(between_inner, lhs_start)
-                } else {
-                    match high_end {
-                        Some(end) => {
-                            self.emit
-                                .with_pos(between_inner, self.pos_obj(lhs_start), end)
-                        }
-                        None => self.wrap_pos(between_inner, lhs_start),
-                    }
-                };
-                for (hoist, hoist_end) in hoisted {
-                    between = apply_between_hoist(&self.emit, between, hoist);
-                    between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
-                }
-                *lhs = between;
+                *lhs = self.wrap_pos(between_inner, lhs_start);
                 Ok(Some(true))
             }
             // `[e] IN ...` (plain, no NOT)
@@ -5123,159 +5311,34 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 let prev = std::mem::replace(lhs, self.emit.null());
                 *lhs = self.emit.alias(prev, &name);
+                // `AS`/aliases sit in the loosest (boolean) grammar tier, so only an
+                // outer-tier operator may bind to a bare alias — `AND`, `OR`, ternary
+                // (`?`), or a chained `AS` wrap it, while a value-tier operator (`+`,
+                // `[`, `::`, `BETWEEN`, `IS`, a call `()`, …) cannot and terminates the
+                // expression (cpp rejects `1 AS x + 2`; parenthesise as `(1 AS x) + 2`).
+                // The Pratt loop's next iteration reads this flag and stops before
+                // folding a value-tier op onto the alias.
+                self.after_bare_alias = true;
                 Ok(Some(true))
             }
             _ => Ok(None),
         }
     }
 
-    /// Parse the body of a BETWEEN (`<low> AND <high>`). cpp's grammar
-    /// at line 285 is `columnExpr NOT? BETWEEN columnExpr AND columnExpr`,
-    /// left-recursive; the line-284 TODO acknowledges cpp's resolution is
-    /// "rightmost AND in body is the separator." Across body shapes:
-    ///
-    ///   `a BETWEEN b AND c AND d`               → low=And(b,c), high=d
-    ///   `a NOT BETWEEN b AND c OR d`            → low=b, high=Or(c,d)
-    ///   `a BETWEEN y AS alias AND high`         → low=Alias(y,alias), high=high
-    ///   `a BETWEEN lambda y : a AND b AND high` → low=Lambda(y, And(a,b)), high=high
-    ///   `a BETWEEN x ? y : c AND high`          → low=if(x,y,c), high=high
-    ///   `a BETWEEN name := value AND high`      → low=NamedArg(name,value), high=high
-    ///   `a BETWEEN b AND c ? then : else`       → if(BETWEEN(a,b,c), then, else)
-    ///   `a NBT b AND c NBT 4 AND 5`             → BETWEEN(BETWEEN(a,b,c), 4, 5)
-    ///
-    /// Strategy: `try_alt` between two alternatives that cover this set.
-    ///
-    /// **Narrow alt** (`BP_BETWEEN + 1`): the body parse stops at any
-    /// operator with BP ≤ BP_BETWEEN — that's `TERNARY` (20), `ALIAS`
-    /// (10), and BETWEEN itself (30). Everything tighter (AND, OR,
-    /// comparison, arithmetic) chains into the body. The split then
-    /// peels the rightmost AND.
-    ///
-    /// The narrow alt handles the trailing-construct cases cleanly:
-    /// `a BTWN b AND c ? then : else` — body stops at `?`, returns
-    /// (b, c); the outer Pratt loop applies the ternary OUTSIDE the
-    /// BetweenExpr.  `a NBT b AND c NBT 4 AND 5` — body stops at the
-    /// second NBT, returns (b, c); the outer Pratt loop chains a
-    /// second BETWEEN with the first as `.expr`. This is what made the
-    /// `BetweenWrap` machinery unnecessary.
-    ///
-    /// **Wide alt** (`BP = 0`): handles the cases where the construct
-    /// carrying the rightmost AND lives INSIDE the body — lambda's
-    /// expression slot (`lambda y : a AND b AND high`), named-arg's
-    /// value (`name := value AND high`), AS-alias's expression (`y AS
-    /// alias AND high`), ternary's else-arm (`x ? y : c AND high`).
-    /// `parse_expr_bp(0)` absorbs the lower-precedence wrappers; the
-    /// split's descent rules in `split_at_rightmost_and` then walk
-    /// into them to find the rightmost AND.
-    ///
-    /// Both alts share the same post-parse split + literal-AND
-    /// fallback; the difference is just the starting BP.
-    /// Stamp a hoisted BETWEEN wrapper's span. Every wrapper starts at the
-    /// BETWEEN's leftmost operand (`start`); the `end` is the wrapper's own last
-    /// token, captured during the split. `apply_between_hoist` builds a
-    /// position-less node, so `with_pos` fills it; the OUTERMOST wrapper's span
-    /// matches the outer pratt `wrap_pos` (idempotent). Falls back to
-    /// `wrap_pos` when the end wasn't captured.
-    fn stamp_hoist_pos(&self, node: E::Value, start: usize, end: Option<E::Value>) -> E::Value {
-        match end {
-            Some(e) => self.emit.with_pos(node, self.pos_obj(start), e),
-            None => self.wrap_pos(node, start),
-        }
-    }
-
-    fn parse_between_body(
-        &mut self,
-        outer_min_bp: u8,
-    ) -> Result<BetweenSplit<E::Value>, ParseError> {
-        // Depth-aware arm ordering:
-        //   - OUTERMOST call (depth=0): WIDE first. The body greedy
-        //     parse maximizes what's inside the OUTER BETWEEN; split
-        //     reassociates via low-peel / expr-hoist / alias-hoist /
-        //     ternary-hoist to produce cpp's shape.
-        //   - NESTED call (depth>=1): NARROW first. Inside an outer
-        //     body parse, a nested BETWEEN must NOT consume the outer's
-        //     trailing ternary / AND / etc. — cpp's left-recursive
-        //     grammar gives each nested BETWEEN the SHORTEST body that
-        //     lets the chain succeed.
-        //
-        // Arm ordering plus a hoist-compatibility filter on the WIDE
-        // arm together model cpp's ANTLR ALL(*) "longest-parse-that-
-        // lets-outer-succeed". WIDE explores the maximum body extent
-        // (BP=0). If the resulting split's hoist contains a wrapper
-        // whose precedence is below the outer context's `outer_min_bp`,
-        // the WIDE arm REJECTS — the outer context owns that wrapper.
-        // Example: in `x ? a : b BETWEEN c AND d AS al` with
-        // outer_min_bp=BP_TERNARY=20, WIDE absorbs `c AND d AS al`,
-        // splits to `(c, d, [Alias('al')])`. Alias' BP_ALIAS=10 <= 20,
-        // so the WIDE alt rejects and the next narrower arm runs at
-        // BP_ALIAS+1=11 (floored by outer_min_bp), which doesn't
-        // absorb AS — letting the outer Pratt apply Alias(if(...),
-        // al). For `... AS al AND y` (with a trailing AND), WIDE's
-        // split gives `(Alias(And(c,d), al), y, [])` — empty hoist,
-        // commit.
-        self.between_body_depth += 1;
-        let alt_bps: [u8; 3] = if self.between_body_depth == 1 {
-            [0, BP_ALIAS + 1, BP_BETWEEN + 1]
-        } else {
-            [BP_BETWEEN + 1, BP_ALIAS + 1, 0]
-        };
-        // Narrower arms still respect outer_min_bp via flooring — they
-        // serve as the fallback when WIDE rejects. WIDE itself is
-        // intentionally UN-floored so its hoist-compatibility check
-        // is the sole disambiguator at the top of the arm chain.
-        let floored: [u8; 3] = [
-            alt_bps[0],
-            alt_bps[1].max(outer_min_bp),
-            alt_bps[2].max(outer_min_bp),
-        ];
-        let result = self.try_alt(&[
-            &|p| Self::parse_between_body_arm_wide(p, floored[0], outer_min_bp),
-            &|p| Self::parse_between_body_arm(p, floored[1]),
-            &|p| Self::parse_between_body_arm(p, floored[2]),
-        ]);
-        self.between_body_depth -= 1;
-        result
-    }
-
-    /// Wide-arm wrapper: parses at the unfloored BP, then post-filters
-    /// the split's hoist by `outer_min_bp`. A hoist of type X with BP <=
-    /// outer_min_bp means the outer context wants to apply X itself,
-    /// not have it inside BETWEEN's hoist chain — so we REJECT this
-    /// arm and let `try_alt` fall to the next (narrower, floored) arm.
-    fn parse_between_body_arm_wide(
-        &mut self,
-        start_bp: u8,
-        outer_min_bp: u8,
-    ) -> Result<BetweenSplit<E::Value>, ParseError> {
-        let (low, high, hoisted) = Self::parse_between_body_arm(self, start_bp)?;
-        if hoisted.iter().any(|(h, _)| hoist_min_bp(h) <= outer_min_bp) {
-            return Err(
-                self.err("WIDE body hoist conflicts with outer precedence; falling through")
-            );
-        }
-        Ok((low, high, hoisted))
-    }
-
-    /// Shared body of `parse_between_body`'s two `try_alt` arms,
-    /// parameterized by the starting binding power. See
-    /// `parse_between_body` for the narrow/wide rationale.
-    fn parse_between_body_arm(
-        &mut self,
-        start_bp: u8,
-    ) -> Result<BetweenSplit<E::Value>, ParseError> {
-        let chain = self.parse_expr_bp(start_bp)?;
-        if let Some((low, high, hoisted)) = split_at_rightmost_and(self, &chain) {
-            return Ok((low, high, hoisted));
-        }
-        // The body had no AND that the split could find — consume the
-        // mandatory literal AND and parse `high` directly. Reached for
-        // shapes like `a BETWEEN b AND c` parsed with the narrow alt
-        // where the body parse stopped at the AND (BP_AND=50 vs
-        // start_bp=31, both alts admit AND, so this branch is mostly a
-        // safety net for inputs where the rightmost-AND descent fails).
+    /// Parse the `<low> AND <high>` body of a BETWEEN. BETWEEN binds at the
+    /// comparison tier (`BP_BETWEEN`, tighter than `AND`/`OR`/`NOT`), matching
+    /// cpp's grammar where the tested expression and both bounds are
+    /// `columnExprValue`. The `AND` separator sits at `BP_AND < BP_BETWEEN`, so
+    /// the low bound stops before it rather than swallowing the surrounding
+    /// `AND` chain. The low bound parses at `BP_BETWEEN` (a nested BETWEEN
+    /// chains into it — cpp's greedy interior operand); the high bound at
+    /// `BP_BETWEEN + 1` (a trailing BETWEEN instead chains left-associatively
+    /// onto the whole expression via the outer Pratt loop).
+    fn parse_between_body(&mut self) -> Result<(E::Value, E::Value), ParseError> {
+        let low = self.parse_expr_bp(BP_BETWEEN)?;
         self.expect_kw(Kw::And, "AND")?;
         let high = self.parse_expr_bp(BP_BETWEEN + 1)?;
-        Ok((chain, high, Vec::new()))
+        Ok((low, high))
     }
 }
 
@@ -5493,1075 +5556,6 @@ fn peek_can_start_clause_body(tok: TokenKind) -> bool {
         // fine starter.
         _ => true,
     }
-}
-
-/// One outer wrapper that the caller of `parse_between_body` should
-/// apply around the built BetweenExpr, in order (innermost first).
-/// Used to reassemble cpp's shape when Pratt's greedy body parse
-/// absorbed something that cpp's left-recursive grammar would have
-/// folded OUTSIDE the BETWEEN.
-///
-/// - `Alias(name)` — `BETWEEN body AND high AS alias` puts the alias
-///   on the BetweenExpr (BETWEEN binds tighter than alias-postfix).
-/// - `Between { low, high, negated }` — chained `<X> BETWEEN body1
-///   AND high1 BETWEEN body2 AND high2` builds left-recursively, so
-///   the SECOND BETWEEN wraps the FIRST. When the FIRST's body parse
-///   greedily consumed the second BETWEEN, we hoist the second out
-///   to be applied to the outer BetweenExpr the caller will build.
-/// - `Ternary { then_branch, else_branch }` — `(BETWEEN body AND
-///   high) ? then : else` parses with BETWEEN binding tighter than
-///   ternary, so the ternary wraps the BetweenExpr. When the body
-///   parse absorbed the AND inside an if-call's cond (`if(And(low,
-///   high), then, else)`), we hoist the ternary's then/else out to
-///   wrap the BetweenExpr the caller builds.
-#[derive(Debug, Clone)]
-pub(crate) enum BetweenHoist<V> {
-    Alias(String),
-    Between {
-        low: V,
-        high: V,
-        negated: bool,
-    },
-    Ternary {
-        then_branch: V,
-        else_branch: V,
-    },
-    /// `Or(left_siblings ... , <expr>, right_siblings ...)` —  the
-    /// greedy body parse absorbed an OR whose AND-carrying child sits
-    /// inside a looser wrapper (Alias / Lambda / NamedArg / Ternary).
-    /// cpp's left-recursive grammar treats the wrapper as terminating
-    /// BETWEEN's high body, so the OR (and its siblings) become an
-    /// outer wrapper around the alias-wrapped BetweenExpr.
-    Or {
-        left_siblings: Vec<V>,
-        right_siblings: Vec<V>,
-    },
-    /// `IsDistinctFrom(<expr>, right, negated?)` — `BETWEEN body AND
-    /// high AS al IS [NOT] DISTINCT FROM rhs` parses with the IS
-    /// DISTINCT FROM as the OUTERMOST node when an AS-alias sits
-    /// between BETWEEN's high and the IS DISTINCT FROM (the alias
-    /// terminates BETWEEN's high body, and IS DISTINCT FROM applies
-    /// to the alias-wrapped BetweenExpr).
-    IsDistinctFrom {
-        right: V,
-        negated: bool,
-    },
-    /// `IsNull(<expr>, negated?)` — `BETWEEN body AND high AS al IS
-    /// [NOT] NULL` has the same shape: alias terminates body, IS NULL
-    /// applies to the alias-wrapped BetweenExpr.
-    IsNull {
-        negated: bool,
-    },
-    /// `ArrayAccess(<expr>, property, nullish?)` — postfix `[…]`,
-    /// `.<ident>` (when re-rooted), or `?.<ident>` on top of an
-    /// alias-wrapped BetweenExpr. cpp's `ColumnExprArrayAccess` /
-    /// nullish-property forms apply at higher precedence than the
-    /// alias-wrap; when the body parse absorbed the access along
-    /// with the alias, we hoist it OUTSIDE the alias around the
-    /// BetweenExpr.
-    ArrayAccess {
-        property: V,
-        nullish: bool,
-    },
-    /// `ExprCall(<expr>, args)` — postfix `(<args>)` on top of the
-    /// alias-wrapped BetweenExpr. cpp's `ColumnExprCall` at
-    /// BP_POSTFIX=130 wraps OUTSIDE BetweenExpr (BP_BETWEEN=30);
-    /// when the WIDE body parse absorbed the call along with an
-    /// inner Alias / Lambda layer carrying the BETWEEN-separator AND,
-    /// the ExprCall hoists out alongside the alias to wrap the
-    /// final BetweenExpr.
-    ExprCall {
-        args: Vec<V>,
-    },
-    /// `TypeCast(<expr>, "<type-ident>")` — postfix `:: <type>` at
-    /// BP_POSTFIX=130. Same hoisting rationale as ExprCall: the
-    /// type-cast attaches OUTSIDE the BetweenExpr after the inner
-    /// AND-bearing wrapper chain is peeled.
-    TypeCast {
-        type_name: String,
-    },
-    /// `TupleAccess(<tuple>, index, nullish?)` — postfix `.<NUMBER>`
-    /// / `?.<NUMBER>` at BP_POSTFIX=130. Same hoisting rationale as
-    /// ArrayAccess (which carries the `.<ident>` / `?.<ident>` /
-    /// `[<expr>]` cases). cpp lowers the two postfix families to
-    /// different nodes (`TupleAccess` vs `ArrayAccess`) so we keep
-    /// them as separate hoist variants rather than collapsing.
-    TupleAccess {
-        index: i64,
-        nullish: bool,
-    },
-    /// `ArithmeticOperation(<expr>, op, right)` — a binary arith op
-    /// whose AND was buried in its LEFT side (typically via an
-    /// alias-around-And chain inside the .left). The arith op
-    /// attaches OUTSIDE the BetweenExpr after the alias-wrapped
-    /// And-chain is peeled. (The MIRRORED case of arith with AND in
-    /// its RIGHT — `between c and ({}) * lambda q : ... and 999999`
-    /// — is handled by the `.right`-descent branch in
-    /// `split_at_rightmost_and` which keeps the arith node in place
-    /// rather than hoisting.)
-    ArithmeticOperation {
-        op: String,
-        right: V,
-    },
-}
-
-/// A hoisted BETWEEN wrapper paired with the `end` position of the
-/// original node it was lifted from. The `end` lets the apply loop stamp
-/// `[lhs_start, end]` on each wrapper so the INNER ones (which the outer
-/// pratt `wrap_pos` never reaches once a further wrapper sits outside
-/// them) carry cpp's span — e.g. `1 between 2 and 3 as l :: Int` needs the
-/// Alias at `[0, end-of-`l`]` and the TypeCast at `[0, end-of-`Int`]`.
-type HoistWithEnd<V> = (BetweenHoist<V>, Option<V>);
-
-/// Result of finding the BETWEEN separator AND inside a greedy body
-/// parse. `hoisted` wrappers are applied around the BetweenExpr by
-/// the caller of `parse_between_body`, innermost first.
-type BetweenSplit<V> = (V, V, Vec<HoistWithEnd<V>>);
-
-/// The lowest binding power at which this hoist's outer wrapper can
-/// fire. Used by `parse_between_body_arm_wide` to detect when an
-/// outer Pratt context (the parent caller of `parse_between_body`)
-/// would itself claim the wrapper — in which case the WIDE arm must
-/// reject so the wrapper attaches at the outer level instead of
-/// being applied INSIDE the BETWEEN.
-fn hoist_min_bp<V>(hoist: &BetweenHoist<V>) -> u8 {
-    match hoist {
-        BetweenHoist::Alias(_) => BP_ALIAS,
-        BetweenHoist::Ternary { .. } => BP_TERNARY,
-        BetweenHoist::Between { .. } => BP_BETWEEN,
-        BetweenHoist::Or { .. } => BP_OR,
-        BetweenHoist::IsDistinctFrom { .. } => BP_IS_DISTINCT_FROM,
-        BetweenHoist::IsNull { .. } => BP_IS_NULL,
-        BetweenHoist::ArrayAccess { .. } => BP_POSTFIX,
-        BetweenHoist::ExprCall { .. } => BP_POSTFIX,
-        BetweenHoist::TypeCast { .. } => BP_POSTFIX,
-        BetweenHoist::TupleAccess { .. } => BP_POSTFIX,
-        // Arith hoists conservatively assume MULT (the tightest of
-        // the binary arith family). If the WIDE arm absorbed a /+
-        // -/concat/mod with the AND inside its left, we'd still want
-        // to hoist — using the lowest member (additive at 100) would
-        // still be above BP_BETWEEN so the gating check rarely
-        // affects this hoist either way.
-        BetweenHoist::ArithmeticOperation { .. } => BP_ADDITIVE,
-    }
-}
-
-/// Apply one outer wrapper around an in-progress BetweenExpr.
-fn apply_between_hoist<E: Emitter>(
-    emit: &E,
-    expr: E::Value,
-    hoist: BetweenHoist<E::Value>,
-) -> E::Value {
-    match hoist {
-        BetweenHoist::Alias(name) => emit.alias(expr, &name),
-        BetweenHoist::Between { low, high, negated } => emit.between(expr, low, high, negated),
-        BetweenHoist::Ternary {
-            then_branch,
-            else_branch,
-        } => emit.call("if", vec![expr, then_branch, else_branch]),
-        BetweenHoist::Or {
-            left_siblings,
-            right_siblings,
-        } => {
-            let mut all: Vec<E::Value> = left_siblings;
-            all.push(expr);
-            all.extend(right_siblings);
-            emit.or_(all)
-        }
-        BetweenHoist::IsDistinctFrom { right, negated } => {
-            emit.is_distinct_from(expr, right, negated)
-        }
-        BetweenHoist::IsNull { negated } => emit.compare_is_null(expr, negated),
-        BetweenHoist::ArrayAccess { property, nullish } => {
-            emit.array_access(expr, property, nullish)
-        }
-        BetweenHoist::ExprCall { args } => emit.expr_call(expr, args),
-        BetweenHoist::TypeCast { type_name } => {
-            // Reconstruct the TypeCast node the WIDE parse produced.
-            // Inner field is `expr`; the type identifier is on
-            // `type_name` (per cpp's `VISIT(ColumnTypeExprSimple)` —
-            // it deserialises to the Python dataclass field of the
-            // same name).
-            emit.type_cast(expr, &type_name)
-        }
-        BetweenHoist::TupleAccess { index, nullish } => {
-            // cpp's `VISIT(ColumnExprTupleAccess)` emits the inner
-            // expression on the `tuple` field, and the dot-number
-            // index on `index`. Mirror that.
-            emit.tuple_access(expr, index, nullish)
-        }
-        BetweenHoist::ArithmeticOperation { op, right } => emit.arith(expr, &op, right),
-    }
-}
-
-/// The byte offset carried by a position value, if present. ASCII-only —
-/// for non-ASCII sources this is a CHARACTER index, so callers that need a
-/// byte offset must gate on `parser.is_ascii_src` first. The JSON backend
-/// stores positions as `{line, column, offset}`; the Python backend stores
-/// the offset directly as an int — read whichever shape applies.
-fn pos_offset<E: Emitter>(emit: &E, pos: Option<&E::Value>) -> Option<usize> {
-    let pos = pos?;
-    if let Some(o) = emit.as_i64(pos) {
-        return usize::try_from(o).ok();
-    }
-    let offset = emit.get_field(pos, "offset")?;
-    usize::try_from(emit.as_i64(&offset)?).ok()
-}
-
-/// Given a child's inner `[start, end)` byte span, return the
-/// paren-inclusive `(outer_start, outer_end)` by counting the balanced
-/// `(`…`)` pairs that DIRECTLY wrap the child. A leading `(` (skipping
-/// whitespace) only counts when matched by a trailing `)` (skipping
-/// whitespace) — `min(leading_run, trailing_run)` — so parens belonging
-/// to a larger enclosing construct (the synthetic node itself, or a
-/// sibling group) are never absorbed. Byte-scanning is UTF-8-safe here:
-/// `(`, `)` and ASCII whitespace are single-byte and can't collide with
-/// any continuation byte.
-fn paren_inclusive_span(src: &str, start: usize, end: usize) -> (usize, usize) {
-    let bytes = src.as_bytes();
-    let mut lparens: Vec<usize> = Vec::new();
-    let mut i = start;
-    while i > 0 {
-        i -= 1;
-        match bytes[i] {
-            b'(' => lparens.push(i),
-            b if b.is_ascii_whitespace() => {}
-            _ => break,
-        }
-    }
-    let mut rparen_ends: Vec<usize> = Vec::new();
-    let mut j = end;
-    while j < bytes.len() {
-        match bytes[j] {
-            b')' => {
-                rparen_ends.push(j + 1);
-                j += 1;
-            }
-            b if b.is_ascii_whitespace() => j += 1,
-            _ => break,
-        }
-    }
-    let owned = lparens.len().min(rparen_ends.len());
-    let new_start = if owned > 0 { lparens[owned - 1] } else { start };
-    let new_end = if owned > 0 {
-        rparen_ends[owned - 1]
-    } else {
-        end
-    };
-    (new_start, new_end)
-}
-
-/// `child`'s `start` position extended backward over the parens it owns,
-/// rebuilt via `parser.pos_obj`. None when `child` lacks scannable byte
-/// offsets (non-ASCII source or a `no_pos` child).
-fn paren_extended_start<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    child: &E::Value,
-) -> Option<E::Value> {
-    if !parser.is_ascii_src {
-        return None;
-    }
-    let cs = pos_offset(&parser.emit, parser.emit.get_field(child, "start").as_ref())?;
-    let ce = pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref())?;
-    let (new_start, _) = paren_inclusive_span(parser.src, cs, ce);
-    Some(parser.pos_obj(new_start))
-}
-
-/// `child`'s `end` position extended forward over the parens it owns.
-fn paren_extended_end<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    child: &E::Value,
-) -> Option<E::Value> {
-    if !parser.is_ascii_src {
-        return None;
-    }
-    let cs = pos_offset(&parser.emit, parser.emit.get_field(child, "start").as_ref())?;
-    let ce = pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref())?;
-    let (_, new_end) = paren_inclusive_span(parser.src, cs, ce);
-    Some(parser.pos_obj(new_end))
-}
-
-/// The source-end position of `child` for stamping a synthetic And/Or
-/// or re-stamping a wrapper. A positioned node yields its paren-inclusive
-/// end; a `no_pos` NamedArgument (null `end`, but `name := value` source)
-/// ends where its `value` ends, so descend into it. cpp derives these
-/// ends from the operand's ANTLR ctx stop token even when the visitor
-/// emitted the node without its own position. None when nothing
-/// positioned is reachable.
-fn child_source_end_value<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    child: &E::Value,
-) -> Option<E::Value> {
-    if pos_offset(&parser.emit, parser.emit.get_field(child, "end").as_ref()).is_some() {
-        return paren_extended_end(parser, child).or_else(|| parser.emit.get_field(child, "end"));
-    }
-    if parser.emit.node_kind(child).as_deref() == Some("NamedArgument") {
-        return child_source_end_value(parser, &parser.emit.get_field(child, "value")?);
-    }
-    None
-}
-
-/// Re-stamp `node`'s `end` to `child`'s paren-inclusive end. Called by
-/// the stay-in-place wrapper arms of `split_at_rightmost_and` (Lambda /
-/// Not / ArithmeticOperation.right / the if-call else-branch) after they
-/// replace their rightmost child with the SHORTER left side of the AND
-/// split: the wrapper now ends where that child ends, not where the
-/// original greedy body parse stretched it. A `no_pos` wrapper (null
-/// `end`, e.g. NamedArgument) is left bare.
-fn restamp_end_from_child<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    node: &mut E::Value,
-    child: &E::Value,
-) {
-    // A node with no `end` field, or an explicitly null `end` (e.g. a
-    // `no_pos` NamedArgument), is left bare.
-    match parser.emit.get_field(node, "end") {
-        None => return,
-        Some(e) if parser.emit.is_null(&e) => return,
-        Some(_) => {}
-    }
-    if let Some(e) = child_source_end_value(parser, child) {
-        parser.emit.set_field(node, "end", e);
-    }
-}
-
-/// Stamp `start` / `end` on a synthetic And/Or built by
-/// `split_at_rightmost_and` from a slice of pre-positioned children.
-/// `emit.and_` / `emit.or_` produce position-less JSON; an outer
-/// `wrap_pos` would catch the BETWEEN-level wrap but not the inner
-/// synthetic And/Or that lives inside BetweenExpr's `low` or `high`,
-/// because BetweenExpr's `low` / `high` are direct fields (not nested
-/// expressions that the pratt loop wraps). Derive the span from the
-/// first child's `start` and the last child's `end`. cpp positions
-/// these nodes from the ANTLR ctx of the boundary operands, whose
-/// `ColumnExprParens` start/stop tokens are the OUTER parens — but rust
-/// strips parens to inner spans, so extend the boundary children over
-/// the parens they own (matching the pratt loop's `lhs_start` capture,
-/// which sees the leading `(` as the first token).
-fn stamp_span_from_children<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    mut node: E::Value,
-    children: &[E::Value],
-) -> E::Value {
-    if children.is_empty() {
-        return node;
-    }
-    let first = &children[0];
-    let last = &children[children.len() - 1];
-    let start =
-        paren_extended_start(parser, first).or_else(|| parser.emit.get_field(first, "start"));
-    let end = child_source_end_value(parser, last).or_else(|| parser.emit.get_field(last, "end"));
-    if let Some(s) = start {
-        parser.emit.set_field(&mut node, "start", s);
-    }
-    if let Some(e) = end {
-        parser.emit.set_field(&mut node, "end", e);
-    }
-    node
-}
-
-/// Walk an already-parsed boolean tree to find the rightmost AND in
-/// source order and split there. Returns `(left_of_and, right_of_and)`.
-/// Used by `parse_between_body` to apply ANTLR's "rightmost AND is the
-/// separator" resolution to a tree we built greedily.
-///
-/// Walking semantics:
-/// - An `And` node IS the AND. Peel the last operand: `low =
-///   And(exprs[:-1])` (collapsed when length 2), `high = exprs[-1]`.
-/// - An `Or` node defers — walk children right-to-left so we find the
-///   *latest* AND-bearing child. Reconstruct the Or above the split.
-/// - Anything else has no AND in it; return None.
-/// True when `node` is wholly wrapped in parentheses in the source. Parens are
-/// stripped at parse time and the node carries the INNER span, so we look
-/// OUTWARD: the nearest non-whitespace byte before `start` must be `(`, the
-/// nearest at/after `end` must be `)`, and that `(` must balance-match that
-/// exact `)` (so `(b) and (c)` — whose outer `(`/`)` belong to different pairs —
-/// is NOT treated as wholly parenthesized). The split must treat such a node as
-/// opaque: cpp picks the rightmost AND at paren-depth 0, so an AND inside
-/// `(...)` is never the BETWEEN separator (`1 between a and (b and c)` keeps
-/// `high = (b and c)`, not the inner AND). Skips string / quoted-identifier
-/// bodies and block comments so parens inside literals don't miscount.
-/// ASCII-gated (byte-scan); callers fall back to descend-anyway on non-ASCII.
-fn is_wholly_parenthesized<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    node: &E::Value,
-) -> bool {
-    let start = match pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref()) {
-        Some(s) => s,
-        None => return false,
-    };
-    let end = match pos_offset(&parser.emit, parser.emit.get_field(node, "end").as_ref()) {
-        Some(e) => e,
-        None => return false,
-    };
-    let bytes = parser.src.as_bytes();
-    if start >= end || end > bytes.len() {
-        return false;
-    }
-    // Nearest non-whitespace byte before `start` must be an opening paren.
-    let mut lp = start;
-    loop {
-        if lp == 0 {
-            return false;
-        }
-        lp -= 1;
-        if !bytes[lp].is_ascii_whitespace() {
-            break;
-        }
-    }
-    if bytes[lp] != b'(' {
-        return false;
-    }
-    // Nearest non-whitespace byte at/after `end` must be a closing paren.
-    let mut rp = end;
-    while rp < bytes.len() && bytes[rp].is_ascii_whitespace() {
-        rp += 1;
-    }
-    if rp >= bytes.len() || bytes[rp] != b')' {
-        return false;
-    }
-    // The `(` at `lp` must balance-match the `)` at `rp` exactly.
-    let mut depth = 0i32;
-    let mut i = lp;
-    while i <= rp {
-        match bytes[i] {
-            q @ (b'\'' | b'"' | b'`') => {
-                i += 1;
-                while i <= rp {
-                    let c = bytes[i];
-                    if c == b'\\' {
-                        i += 2; // backslash escape
-                        continue;
-                    }
-                    if c == q {
-                        if i < rp && bytes[i + 1] == q {
-                            i += 2; // doubled-quote escape
-                            continue;
-                        }
-                        break; // closing quote
-                    }
-                    i += 1;
-                }
-            }
-            b'/' if i < rp && bytes[i + 1] == b'*' => {
-                i += 2;
-                while i < rp && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    i += 1;
-                }
-                i += 1; // skip the `*`; the outer `i += 1` skips the `/`
-            }
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return i == rp;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    false
-}
-
-/// `a and (b and c)` flattens to `And([a,b,c])` (cpp does the same for a
-/// standalone expr), but in a BETWEEN body cpp keeps `(b and c)` as one high
-/// operand because the rightmost AND at paren-depth 0 is the one BEFORE the
-/// parens. The flattened node erases the grouping from its structure, so
-/// recover it from spans: scan from the node's start tracking paren-depth and
-/// split at the rightmost operand still at the node's base depth — the trailing
-/// deeper-nested operands are the parenthesized group (the high). Returns
-/// `(low, high)` only when such a trailing group exists (caller's normal split
-/// handles the rest). The group node gets the INNER span (its wrapping parens
-/// belong to the enclosing grammar, not the And/Or). ASCII-gated.
-fn try_trailing_paren_group_split<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    node: &E::Value,
-    exprs: &[E::Value],
-    is_or: bool,
-) -> Option<(E::Value, E::Value)> {
-    if !parser.is_ascii_src || exprs.len() < 3 {
-        return None;
-    }
-    let node_start = pos_offset(&parser.emit, parser.emit.get_field(node, "start").as_ref())?;
-    let starts: Vec<usize> = exprs
-        .iter()
-        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "start").as_ref()))
-        .collect::<Option<Vec<_>>>()?;
-    let ends: Vec<usize> = exprs
-        .iter()
-        .map(|e| pos_offset(&parser.emit, parser.emit.get_field(e, "end").as_ref()))
-        .collect::<Option<Vec<_>>>()?;
-    let bytes = parser.src.as_bytes();
-    let last_start = *starts.last().unwrap();
-    if node_start > starts[0] || last_start >= bytes.len() {
-        return None;
-    }
-    // For each junction k (gap between operand k and k+1) the AND/OR keyword sits
-    // at the gap's MINIMUM paren-depth — after any `)` closes, before any `(`
-    // opens. A junction at the node's base depth is a real top-level separator;
-    // deeper ones are inside parens. Scan once, sampling the running depth across
-    // each gap. (String / quoted-ident bodies and block comments are skipped so
-    // their parens don't miscount.)
-    let mut jmin = vec![i32::MAX; exprs.len() - 1];
-    let mut depth = 0i32;
-    let mut k_op = 0usize;
-    let mut i = node_start;
-    while i <= last_start {
-        while k_op + 1 < starts.len() && i >= starts[k_op + 1] {
-            k_op += 1;
-        }
-        let in_gap = k_op + 1 < exprs.len() && i >= ends[k_op];
-        match bytes[i] {
-            q @ (b'\'' | b'"' | b'`') => {
-                i += 1;
-                while i <= last_start {
-                    let c = bytes[i];
-                    if c == b'\\' {
-                        i += 2;
-                        continue;
-                    }
-                    if c == q {
-                        if i < last_start && bytes[i + 1] == q {
-                            i += 2;
-                            continue;
-                        }
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-            b'/' if i < last_start && bytes[i + 1] == b'*' => {
-                i += 2;
-                while i < last_start && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                    i += 1;
-                }
-                i += 1;
-            }
-            b'(' => {
-                if in_gap {
-                    jmin[k_op] = jmin[k_op].min(depth);
-                }
-                depth += 1;
-            }
-            b')' => {
-                if in_gap {
-                    jmin[k_op] = jmin[k_op].min(depth);
-                }
-                depth -= 1;
-            }
-            _ => {
-                if in_gap {
-                    jmin[k_op] = jmin[k_op].min(depth);
-                }
-            }
-        }
-        i += 1;
-    }
-    let base = *jmin.iter().min().unwrap();
-    let mut split_idx = 0usize;
-    for (k, d) in jmin.iter().enumerate() {
-        if *d == base {
-            split_idx = k;
-        }
-    }
-    // A trailing parenthesized group needs 2+ operands after the split point;
-    // otherwise the normal "pop the last operand" split already matches.
-    if split_idx >= exprs.len() - 2 {
-        return None;
-    }
-    let build = |lo: usize, hi_excl: usize| -> E::Value {
-        let group: Vec<E::Value> = exprs[lo..hi_excl].to_vec();
-        if group.len() == 1 {
-            return group.into_iter().next().unwrap();
-        }
-        let n = if is_or {
-            parser.emit.or_(group.clone())
-        } else {
-            parser.emit.and_(group.clone())
-        };
-        // Span from the children (paren-extended per child), matching cpp's
-        // ctx — the group's OWN wrapping parens belong to the enclosing grammar.
-        stamp_span_from_children(parser, n, &group)
-    };
-    let low = build(0, split_idx + 1);
-    let high = build(split_idx + 1, exprs.len());
-    Some((low, high))
-}
-
-fn split_at_rightmost_and<'a, E: Emitter + Clone>(
-    parser: &Parser<'a, E>,
-    node: &E::Value,
-) -> Option<BetweenSplit<E::Value>> {
-    // A parenthesized sub-expression is opaque to the rightmost-AND search:
-    // its ANDs sit at paren-depth > 0 and can't be the BETWEEN separator.
-    if parser.is_ascii_src && is_wholly_parenthesized(parser, node) {
-        return None;
-    }
-    let node_name = parser.emit.node_kind(node);
-    let node_name = node_name.as_deref();
-    // `node`'s `end` is the end of the wrapper this frame hoists (Alias, cast,
-    // postfix, …). Captured once so each `hoisted.push` can record it for the
-    // apply loop to stamp the wrapper's `[lhs_start, end]` span — needed for
-    // INNER wrappers the outer pratt `wrap_pos` never reaches.
-    let node_end = parser.emit.get_field(node, "end");
-    if node_name == Some("And") {
-        let exprs = parser
-            .emit
-            .get_field(node, "exprs")
-            .and_then(|v| parser.emit.as_list(&v))?;
-        if exprs.len() < 2 {
-            return None;
-        }
-        // A trailing parenthesized group (`a and (b and c)` -> And([a,b,c])) is
-        // the opaque high; split before it at the paren-depth-0 AND.
-        if let Some((low, high)) = try_trailing_paren_group_split(parser, node, &exprs, false) {
-            return Some((low, high, Vec::new()));
-        }
-        // Try descending the LAST element first — it may itself contain
-        // a deeper AND that's the rightmost in source order. e.g.
-        // `(a) * b AND c := d AND e` parses as
-        // `And(Arith, NamedArg(c, And(d, e)))`; the rightmost source
-        // AND is between `d` and `e` (inside NamedArg.value). cpp
-        // splits there, leaving NamedArg.value=d and using `e` as the
-        // outer high. Without this descent we'd just pop the last
-        // element (NamedArg) wholesale and lose that AND.
-        if let Some((deep_left, deep_right, hoisted)) =
-            split_at_rightmost_and(parser, &exprs[exprs.len() - 1])
-        {
-            let mut new_exprs = exprs.clone();
-            let last_idx = new_exprs.len() - 1;
-            new_exprs[last_idx] = deep_left;
-            let new_left = if new_exprs.len() == 1 {
-                new_exprs.into_iter().next().unwrap()
-            } else {
-                let synthetic = parser.emit.and_(new_exprs.clone());
-                stamp_span_from_children(parser, synthetic, &new_exprs)
-            };
-            return Some((new_left, deep_right, hoisted));
-        }
-        // No deeper AND in the last element — pop it as the split.
-        let mut exprs = exprs;
-        let right = exprs.pop().unwrap();
-        let left = if exprs.len() == 1 {
-            exprs.pop().unwrap()
-        } else {
-            let synthetic = parser.emit.and_(exprs.clone());
-            stamp_span_from_children(parser, synthetic, &exprs)
-        };
-        return Some((left, right, Vec::new()));
-    }
-    if node_name == Some("Or") {
-        let exprs = parser
-            .emit
-            .get_field(node, "exprs")
-            .and_then(|v| parser.emit.as_list(&v))?;
-        for i in (0..exprs.len()).rev() {
-            if let Some((left_in, right_in, mut hoisted)) =
-                split_at_rightmost_and(parser, &exprs[i])
-            {
-                if hoisted.is_empty() {
-                    // AND was found directly inside the Or's child (no
-                    // looser-wrapper between them). cpp's grammar lets
-                    // BETWEEN's high absorb the OR, so left/right
-                    // children flow into the high alongside the descent
-                    // result. `x BETWEEN low AND high OR rest` →
-                    // BETWEEN(x, low, Or(high, rest)).
-                    let mut left_children: Vec<E::Value> = exprs[..i].to_vec();
-                    left_children.push(left_in);
-                    let left = if left_children.len() == 1 {
-                        left_children.pop().unwrap()
-                    } else {
-                        let synthetic = parser.emit.or_(left_children.clone());
-                        stamp_span_from_children(parser, synthetic, &left_children)
-                    };
-                    let mut right_children: Vec<E::Value> = Vec::with_capacity(exprs.len() - i);
-                    right_children.push(right_in);
-                    right_children.extend_from_slice(&exprs[i + 1..]);
-                    let right = if right_children.len() == 1 {
-                        right_children.pop().unwrap()
-                    } else {
-                        let synthetic = parser.emit.or_(right_children.clone());
-                        stamp_span_from_children(parser, synthetic, &right_children)
-                    };
-                    return Some((left, right, hoisted));
-                }
-                // The descent passed THROUGH a looser wrapper (Alias /
-                // Lambda / NamedArg / Ternary). cpp treats the wrapper
-                // as terminating BETWEEN's high body, so the OR (and
-                // its siblings) hoist OUTSIDE the wrapper rather than
-                // being absorbed into the high. Pushing the Or hoist
-                // AFTER `hoisted` puts it OUTSIDE the wrappers the
-                // descent has accumulated.
-                let left_siblings: Vec<E::Value> = exprs[..i].to_vec();
-                let right_siblings: Vec<E::Value> = exprs[i + 1..].to_vec();
-                if !left_siblings.is_empty() || !right_siblings.is_empty() {
-                    hoisted.push((
-                        BetweenHoist::Or {
-                            left_siblings,
-                            right_siblings,
-                        },
-                        node_end,
-                    ));
-                }
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // Wrappers whose rightmost expression slot can contain the AND
-    // that ALL(*) treats as BETWEEN's separator. Recurse, then
-    // reconstruct the wrapper around the left side; the right side
-    // surfaces as BETWEEN's high.
-    //
-    // - Lambda.expr — bare-list / parens / colon lambda bodies.
-    // - NamedArgument.value — `name := body AND high`.
-    // - Call(name='if').args[2] — `cond ? then : else AND high` (the
-    //   ternary lowers to an `if` call with else in args[2]).
-    // - Alias.expr — `body AND high AS outer` (greedy parse wraps the
-    //   AND in an Alias). cpp's grammar has BETWEEN at higher
-    //   precedence than alias-postfix, so the alias goes OUTSIDE the
-    //   BetweenExpr. Descend through the Alias and HOIST its name to
-    //   the caller's outer-wrap list.
-    if node_name == Some("Lambda") {
-        if let Some(inner) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let mut new_node = node.clone();
-                restamp_end_from_child(parser, &mut new_node, &left_in);
-                parser.emit.set_field(&mut new_node, "expr", left_in);
-                return Some((new_node, right_in, hoisted));
-            }
-        }
-    }
-    // `Not(expr)` — same shape as Lambda. The AND-reservation context
-    // for BETWEEN's body must pass *through* a NOT prefix into the
-    // wrapped expression. `a BETWEEN NOT lambda x : b AND c` parses
-    // as `Not(Lambda(x, And(b, c)))` greedily; descending into
-    // `Not.expr` peels the AND off so the outer BETWEEN sees its own
-    // `low = Not(Lambda(x, b))`, `high = c` split.
-    if node_name == Some("Not") {
-        if let Some(inner) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let mut new_node = node.clone();
-                restamp_end_from_child(parser, &mut new_node, &left_in);
-                parser.emit.set_field(&mut new_node, "expr", left_in);
-                return Some((new_node, right_in, hoisted));
-            }
-        }
-    }
-    // ArithmeticOperation has two slots that can carry the BETWEEN-
-    // separator AND, and the two shapes need DIFFERENT handling:
-    //
-    // 1. AND in `.right` (typically buried under a BP-resetting
-    //    wrapper like Lambda.expr or NamedArgument.value): the arith
-    //    op STAYS in place wrapping a piece of the BETWEEN LOW.
-    //    Example: `BETWEEN columns(*) AND {} * lambda q : ... AND
-    //    999999` — the deepest source AND is inside Lambda's body
-    //    under Mul.right; the Mul itself belongs to the LOW.
-    //
-    // 2. AND in `.left` (typically via an Alias-around-And chain
-    //    inside the arith's left operand): the arith op HOISTS
-    //    outside the BetweenExpr. Example: `BETWEEN (1) AS p AND 2
-    //    AS al * y` — the rightmost AND is between `(1) as p` and
-    //    `2 as al`; the trailing `* y` wraps the BetweenExpr after
-    //    the inner alias's hoist applies.
-    //
-    // Try `.right` first (keep in place); on failure try `.left`
-    // (hoist via BetweenHoist::ArithmeticOperation). The order
-    // matters: when both slots could contain the AND (rare but
-    // possible), cpp prefers the rightmost-in-source which lives in
-    // `.right`.
-    if node_name == Some("ArithmeticOperation") {
-        if let Some(inner) = parser.emit.get_field(node, "right") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let mut new_node = node.clone();
-                restamp_end_from_child(parser, &mut new_node, &left_in);
-                parser.emit.set_field(&mut new_node, "right", left_in);
-                return Some((new_node, right_in, hoisted));
-            }
-        }
-        if let Some(inner) = parser.emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let op = parser
-                    .emit
-                    .get_field(node, "op")
-                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
-                    .unwrap_or_default();
-                let right = parser
-                    .emit
-                    .get_field(node, "right")
-                    .unwrap_or_else(|| parser.emit.null());
-                hoisted.push((BetweenHoist::ArithmeticOperation { op, right }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    if node_name == Some("NamedArgument") {
-        if let Some(inner) = parser.emit.get_field(node, "value") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let mut new_node = node.clone();
-                parser.emit.set_field(&mut new_node, "value", left_in);
-                return Some((new_node, right_in, hoisted));
-            }
-        }
-    }
-    if node_name == Some("Call")
-        && parser
-            .emit
-            .get_field(node, "name")
-            .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
-            .as_deref()
-            == Some("if")
-    {
-        if let Some(args) = parser
-            .emit
-            .get_field(node, "args")
-            .and_then(|v| parser.emit.as_list(&v))
-        {
-            if args.len() == 3 {
-                // Try the else-branch (args[2]) first: `cond ? then :
-                // else AND high` parses with else absorbing the AND;
-                // we peel and rewrap the if-call.
-                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &args[2])
-                {
-                    let mut new_args = args.clone();
-                    new_args[2] = left_in;
-                    let mut new_node = node.clone();
-                    restamp_end_from_child(parser, &mut new_node, &new_args[2]);
-                    // `args` is a plain list field on the Call node (not an Array AST node), so rebuild it via `list_value`.
-                    parser
-                        .emit
-                        .set_field(&mut new_node, "args", parser.emit.list_value(new_args));
-                    return Some((new_node, right_in, hoisted));
-                }
-                // Try the cond (args[0]): `(BETWEEN body AND high) ?
-                // then : else` parses with the AND inside the cond of
-                // an outer ternary. Hoist the ternary's then/else
-                // OUTSIDE the BETWEEN — cpp puts ternary at lower
-                // precedence than BETWEEN, so the if-call wraps the
-                // BetweenExpr the caller builds. The if-call node
-                // itself dissolves: its then/else go to the hoist, its
-                // cond's split becomes BETWEEN's low/high.
-                if let Some((left_in, right_in, mut hoisted)) =
-                    split_at_rightmost_and(parser, &args[0])
-                {
-                    hoisted.push((
-                        BetweenHoist::Ternary {
-                            then_branch: args[1].clone(),
-                            else_branch: args[2].clone(),
-                        },
-                        node_end,
-                    ));
-                    return Some((left_in, right_in, hoisted));
-                }
-            }
-        }
-    }
-    if node_name == Some("Alias") {
-        if let Some(inner) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                // Hoist *this* alias name. Caller wraps BetweenExpr
-                // with each hoisted item in order (innermost first),
-                // which matches cpp's `Alias(BetweenExpr(...),
-                // outer_name)` shape.
-                let name = parser
-                    .emit
-                    .get_field(node, "alias")
-                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
-                    .unwrap_or_default();
-                hoisted.push((BetweenHoist::Alias(name), node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // `IsDistinctFrom(left, right, negated)` and `CompareOperation`
-    // with `is_null_comparison_style=true` (the IS NULL postfix
-    // representation) are TIGHTER than BETWEEN in cpp's grammar, BUT
-    // when their `left` contains an alias-wrapped And-chain, the
-    // alias terminates BETWEEN's body and the IS DISTINCT FROM / IS
-    // NULL applies OUTSIDE the alias-wrapped BetweenExpr. Recurse
-    // into `left`; on a successful descent (which will hoist the
-    // intermediate Alias), hoist the IS-postfix itself AFTER the
-    // accumulated wrappers so it ends up OUTERMOST around the
-    // alias-wrapped BetweenExpr the caller will build.
-    if node_name == Some("IsDistinctFrom") {
-        if let Some(inner) = parser.emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let right = parser
-                    .emit
-                    .get_field(node, "right")
-                    .unwrap_or_else(|| parser.emit.null());
-                let negated = parser
-                    .emit
-                    .get_field(node, "negated")
-                    .and_then(|v| parser.emit.as_bool(&v))
-                    .unwrap_or(false);
-                hoisted.push((BetweenHoist::IsDistinctFrom { right, negated }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    if node_name == Some("CompareOperation")
-        && parser
-            .emit
-            .get_field(node, "is_null_comparison_style")
-            .and_then(|v| parser.emit.as_bool(&v))
-            == Some(true)
-    {
-        if let Some(inner) = parser.emit.get_field(node, "left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
-                let negated = parser
-                    .emit
-                    .get_field(node, "op")
-                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
-                    .as_deref()
-                    == Some("!=");
-                hoisted.push((BetweenHoist::IsNull { negated }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // `ArrayAccess(<expr>, property, nullish?)` — postfix `[…]` /
-    // `.<ident>` / `?.<ident>` over an alias-wrapped And-chain.
-    // Descend through `array`; on success, hoist the access OUTSIDE
-    // the alias so it wraps the BetweenExpr the caller builds.
-    if node_name == Some("ArrayAccess") {
-        if let Some(inner) = parser.emit.get_field(node, "array") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let property = parser
-                    .emit
-                    .get_field(node, "property")
-                    .unwrap_or_else(|| parser.emit.null());
-                let nullish = parser
-                    .emit
-                    .get_field(node, "nullish")
-                    .and_then(|v| parser.emit.as_bool(&v))
-                    .unwrap_or(false);
-                hoisted.push((BetweenHoist::ArrayAccess { property, nullish }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // `ExprCall(<expr>, args)` — postfix `(<args>)` at BP_POSTFIX=130
-    // on top of an alias-wrapped And-chain. Same hoisting pattern as
-    // ArrayAccess: descend through `.expr`, hoist the call OUTSIDE.
-    // Reaches cases like `x BETWEEN lambda k : 1 AND ((2)) AS 'a'
-    // (1)` where the WIDE body parse absorbs `(1)` as a postfix call
-    // on `Alias(And(1, (2)), 'a')`, burying the BETWEEN-separator
-    // AND inside the call's `.expr`.
-    if node_name == Some("ExprCall") {
-        if let Some(inner) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let args = parser
-                    .emit
-                    .get_field(node, "args")
-                    .and_then(|v| parser.emit.as_list(&v))
-                    .unwrap_or_default();
-                hoisted.push((BetweenHoist::ExprCall { args }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // `TypeCast(<expr>, type_name)` — postfix `:: <type>` at
-    // BP_POSTFIX=130. Same hoisting pattern as ExprCall.
-    if node_name == Some("TypeCast") {
-        if let Some(inner) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let type_name = parser
-                    .emit
-                    .get_field(node, "type_name")
-                    .and_then(|v| parser.emit.as_str(&v).map(|s| s.into_owned()))
-                    .unwrap_or_default();
-                hoisted.push((BetweenHoist::TypeCast { type_name }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // `TupleAccess(<tuple>, index, nullish?)` — postfix `.<NUMBER>` /
-    // `?.<NUMBER>` at BP_POSTFIX=130. Same hoisting pattern as
-    // ArrayAccess but on a different node type with a different
-    // field name (`tuple` vs `array`, `index` vs `property`).
-    if node_name == Some("TupleAccess") {
-        if let Some(inner) = parser.emit.get_field(node, "tuple") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, &inner) {
-                let index = parser
-                    .emit
-                    .get_field(node, "index")
-                    .and_then(|v| parser.emit.as_i64(&v))
-                    .unwrap_or(0);
-                let nullish = parser
-                    .emit
-                    .get_field(node, "nullish")
-                    .and_then(|v| parser.emit.as_bool(&v))
-                    .unwrap_or(false);
-                hoisted.push((BetweenHoist::TupleAccess { index, nullish }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    // BetweenExpr has TWO slots that can contain the AND we need.
-    // ORDER MATTERS — cpp prefers nested-via-low when both options
-    // are valid (e.g. `a BETWEEN b AND c BETWEEN d AND e AND f` →
-    // outer(a, inner(And(b,c), d, e), f) NOT chained):
-    //
-    // 1. `low` first: classic nested-via-low case (`x BETWEEN y
-    //    BETWEEN z AND w AND v` → outer.low = BETWEEN(y, z, w),
-    //    outer.high = v; or 3-AND case where the inner BETWEEN's
-    //    low absorbs the extra AND). Peel one AND from inner.low:
-    //    the peeled-off right operand becomes the new inner.high;
-    //    the OLD inner.high surfaces as the outer's high. Recursion
-    //    peels N-1 ANDs across N levels.
-    //
-    // 2. `expr` fallback: when inner.low has no AND, the greedy body
-    //    parse must have consumed a later sibling BETWEEN with the
-    //    AND-chain ending up in the embedded BetweenExpr's `expr`
-    //    field. cpp parses that pattern LEFT-RECURSIVELY: the second
-    //    (rightmost-source) BETWEEN wraps the first. Hoist the whole
-    //    BetweenExpr's low / high / negated out so the caller wraps
-    //    with a second BETWEEN. Example:
-    //
-    //      `a NOT BETWEEN b ? c : d AND e NOT BETWEEN f AND g`
-    //
-    //    Pratt builds body = if(b, c, BetweenExpr(expr=And(d,e),
-    //    low=f, high=g, neg=true)). inner.low=f is a single field
-    //    (no AND), so the `low` peel above fails. Fall through to
-    //    `expr`: split And(d,e), hoist (f, g, neg=true).
-    if node_name == Some("BetweenExpr") {
-        if let (Some(inner_low), Some(inner_high)) = (
-            parser.emit.get_field(node, "low"),
-            parser.emit.get_field(node, "high"),
-        ) {
-            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(parser, &inner_low) {
-                let mut new_inner = node.clone();
-                restamp_end_from_child(parser, &mut new_inner, &new_high);
-                parser.emit.set_field(&mut new_inner, "low", new_low);
-                parser.emit.set_field(&mut new_inner, "high", new_high);
-                return Some((new_inner, inner_high, hoisted));
-            }
-        }
-        if let Some(inner_expr) = parser.emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) =
-                split_at_rightmost_and(parser, &inner_expr)
-            {
-                let low = parser
-                    .emit
-                    .get_field(node, "low")
-                    .unwrap_or_else(|| parser.emit.null());
-                let high = parser
-                    .emit
-                    .get_field(node, "high")
-                    .unwrap_or_else(|| parser.emit.null());
-                let negated = parser
-                    .emit
-                    .get_field(node, "negated")
-                    .and_then(|v| parser.emit.as_bool(&v))
-                    .unwrap_or(false);
-                hoisted.push((BetweenHoist::Between { low, high, negated }, node_end));
-                return Some((left_in, right_in, hoisted));
-            }
-        }
-    }
-    None
 }
 
 /// True when `v` is a `Field` node with a single-element identifier

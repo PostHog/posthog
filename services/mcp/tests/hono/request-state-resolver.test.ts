@@ -55,9 +55,12 @@ vi.mock('@/hono/request-context', () => {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
                         getApiKey: vi.fn(async () => ({ scopes: ['*'], scoped_teams: [] })),
                         getAiConsentGiven: vi.fn(async () => undefined),
+                        getOrFetchGroupTypes: vi.fn(async () => undefined),
+                        getEnvironmentPrompt: vi.fn(async () => undefined),
+                        getAvailableFeatures: vi.fn(async () => undefined),
                     },
                 })),
-                getAnalyticsContextSafe: vi.fn(async () => undefined),
+                safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
             }
@@ -89,6 +92,13 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 function makeResolver(): RequestStateResolver {
     const catalog = {
         getFilteredTools: vi.fn(() => []),
+    }
+    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+}
+
+function makeResolverWithTools(toolNames: string[]): RequestStateResolver {
+    const catalog = {
+        getFilteredTools: vi.fn(() => toolNames.map((name) => ({ name }))),
     }
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
@@ -133,18 +143,41 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('uses cached session client props when request client detection would resolve differently', async () => {
-        await makeResolver().resolve(makeProps())
+        // Cursor pins tools mode at initialize; a later request self-reporting a
+        // cli-defaulting client must not downgrade the session out of tools mode.
+        await makeResolver().resolve(makeProps({ mcpClientName: 'cursor' }))
 
-        const props = makeProps({ mcpClientName: 'Claude Desktop' })
+        const props = makeProps({ mcpClientName: 'claude-code' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+        expect(props.mcpClientName).toBe('claude-code')
+        expect(result.requestContext.mcpClientName).toBe('claude-code')
+        expect(result.sessionContext?.mcpClientName).toBe('cursor')
+        expect(result.clientProfile.clientName).toBe('cursor')
+    })
+
+    it('auto-selects tools mode from the ChatGPT user-agent', async () => {
+        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
+        // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+    })
+
+    it('defaults to cli mode when no client hints are present', async () => {
+        const props = makeProps({
+            mcpClientName: undefined,
+            mcpClientVersion: undefined,
+            mcpProtocolVersion: undefined,
+        })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
-        expect(props.mcpClientName).toBe('Claude Desktop')
-        expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
-        expect(result.sessionContext?.mcpClientName).toBe('claude-code')
-        expect(result.clientProfile.clientName).toBe('claude-code')
-        expect(result.clientProfile.isCliModeEnabled()).toBe(true)
     })
 
     it('uses cached session client props for instruction capabilities without overwriting request props', async () => {
@@ -235,16 +268,31 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('keeps Claude web/desktop in tools mode when the render-ui flag is off', async () => {
-        // A `ClaudeAI` vendor header is unconditionally single-exec, so the render-ui
-        // gate only observably matters on the User-Agent-only path, where the client
-        // isn't otherwise a CLI-mode client.
+    it('keeps Claude web/desktop in single-exec via the Claude-User user agent even when the render-ui flag is off', async () => {
+        // Anthropic clients always run in CLI (single-exec) mode, so the
+        // User-Agent-only path is single-exec regardless of the render-ui flag — the
+        // flag only gates whether the `render-ui` tool itself is advertised.
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(false)
-        expect(result.useSingleExec).toBe(false)
-        expect(props.mode).toBe('tools')
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
+    })
+
+    it('puts header-less Claude.ai (pooled Anthropic/* name + Claude-User UA, no vendor header) in single-exec', async () => {
+        // The production gap: Claude.ai web/desktop sessions that omit the
+        // x-anthropic-client header and report only clientInfo.name "Anthropic/ClaudeAI"
+        // with a Claude-User user-agent previously fell into tools mode.
+        const props = makeProps({
+            mcpClientName: 'Anthropic/ClaudeAI',
+            mcpVendorClient: undefined,
+            clientUserAgent: 'Claude-User',
+        })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(true)
+        expect(props.mode).toBe('cli')
     })
 
     it('does not enable render-ui for Claude Code even when the flag is on', async () => {
@@ -302,5 +350,27 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+})
+
+describe('RequestStateResolver SQL schema-discovery flag', () => {
+    beforeEach(() => {
+        mockSessionStore.clear()
+        mockTokenStore.clear()
+        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
+    })
+
+    // The flag steers discovery instructions toward SQL but is prompt-only — it must NOT
+    // remove read-data-warehouse-schema from the tool set. Guards against re-introducing
+    // tool gating here; the tool stays advertised/callable whether the flag is on or off.
+    it.each([true, false])('keeps read-data-warehouse-schema available when the flag is %s', async (flagOn) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': flagOn })
+        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
+
+        const result = await resolver.resolve(makeProps())
+
+        const names = result.allTools.map((t) => t.name)
+        expect(names).toContain('read-data-warehouse-schema')
+        expect(names).toContain('execute-sql')
     })
 })

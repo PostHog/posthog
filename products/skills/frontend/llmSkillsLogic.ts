@@ -73,6 +73,51 @@ export const SKILLS_GROUP_LIMIT = 500
 export const SKILLS_GROUP_MAX_DEPTH = 4
 export const LLM_SKILLS_FORCE_RELOAD_PARAM = 'llm_skills_force_reload'
 
+/** URL/UI key for the default tab — the uncategorized skills (everything not pulled into a category tab). */
+export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
+
+/** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
+export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage versioned agent skills that any agent can discover and use.'
+
+export interface SkillCategoryTab {
+    /** Tab key, also the `/skills/<key>` URL segment. */
+    key: string
+    /** The `LLMSkill.category` value this tab filters to. */
+    category: string
+    label: string
+    /** Sub-title shown under the scene title while this tab is active. */
+    description: string
+}
+
+/**
+ * Category-backed tabs shown alongside the default "Skills" tab. Each entry surfaces one
+ * `LLMSkill.category` value as its own tab and removes it from the default list (which only shows
+ * uncategorized skills). To add a tab — e.g. official AI-plugin skills — add an entry here, register
+ * the matching `/skills/<key>` route in manifest.tsx, and have the producer stamp that `category`.
+ */
+export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
+    {
+        key: 'scouts',
+        category: 'scout',
+        label: 'Scouts',
+        description:
+            "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
+    },
+]
+
+export function skillCategoryForTabKey(tabKey: string): string {
+    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.category ?? ''
+}
+
+export function skillTabDescription(tabKey: string): string {
+    return SKILL_CATEGORY_TABS.find((tab) => tab.key === tabKey)?.description ?? DEFAULT_SKILLS_TAB_DESCRIPTION
+}
+
+/** The `/skills` or `/skills/<categoryKey>` path for a tab key. */
+export function skillTabUrl(tabKey: string): string {
+    return tabKey === DEFAULT_SKILLS_TAB_KEY ? urls.skills() : urls.skillsCategoryTab(tabKey)
+}
+
 export interface SkillFilters {
     page: number
     search: string
@@ -193,6 +238,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             debounce,
         }),
         loadSkills: (debounce: boolean = true) => ({ debounce }),
+        loadCategoryCounts: true,
+        setActiveTab: (tabKey: string) => ({ tabKey }),
         deleteSkill: (skillName: string) => ({ skillName }),
         duplicateSkill: (skillName: string, newName: string) => ({ skillName, newName }),
         importSkill: (file: File) => ({ file }),
@@ -208,6 +255,12 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
     }),
 
     reducers({
+        activeTabKey: [
+            DEFAULT_SKILLS_TAB_KEY,
+            {
+                setActiveTab: (_, { tabKey }) => tabKey,
+            },
+        ],
         rawFilters: [
             null as Partial<SkillFilters> | null,
             {
@@ -264,6 +317,9 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                     }
 
                     const { filters } = values
+                    // Always send `category` (even as ""): the default tab shows uncategorized skills,
+                    // each category tab shows its own category. Presence of the param is the filter.
+                    const category = values.activeCategory
                     const params = filters.group_by_prefix
                         ? {
                               search: filters.search,
@@ -271,6 +327,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
                               created_by_id: filters.created_by_id,
+                              category,
                           }
                         : {
                               search: filters.search,
@@ -278,6 +335,7 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
                               created_by_id: filters.created_by_id,
+                              category,
                           }
 
                     if (
@@ -294,12 +352,54 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 },
             },
         ],
+        // Per-category skill counts, used to decide which category tabs to show. Loaded once on
+        // mount (and after a delete) with a cheap limit=1 probe per category — we only read `count`.
+        categoryCounts: [
+            {} as Record<string, number>,
+            {
+                loadCategoryCounts: async () => {
+                    const teamId = String(ApiConfig.getCurrentTeamId())
+                    const entries = await Promise.all(
+                        SKILL_CATEGORY_TABS.map(async (tab) => {
+                            const { count } = await llmSkillsList(teamId, {
+                                category: tab.category,
+                                limit: 1,
+                                offset: 0,
+                            })
+                            return [tab.category, count] as const
+                        })
+                    )
+                    return Object.fromEntries(entries)
+                },
+            },
+        ],
     })),
 
     selectors({
         filters: [
             (s) => [s.rawFilters],
             (rawFilters: Partial<SkillFilters> | null): SkillFilters => cleanFilters(rawFilters || {}),
+        ],
+
+        activeCategory: [
+            (s) => [s.activeTabKey],
+            (activeTabKey: string): string => skillCategoryForTabKey(activeTabKey),
+        ],
+
+        activeTabDescription: [
+            (s) => [s.activeTabKey],
+            (activeTabKey: string): string => skillTabDescription(activeTabKey),
+        ],
+
+        // A category tab is shown only once the team has at least one skill in that category.
+        // The active tab is always kept visible so direct navigation to /skills/<key> (or deleting
+        // the last skill while viewing the tab) doesn't strand the user on a tab that isn't listed.
+        visibleCategoryTabs: [
+            (s) => [s.categoryCounts, s.activeTabKey],
+            (categoryCounts: Record<string, number>, activeTabKey: string): SkillCategoryTab[] =>
+                SKILL_CATEGORY_TABS.filter(
+                    (tab) => (categoryCounts[tab.category] ?? 0) > 0 || tab.key === activeTabKey
+                ),
         ],
 
         count: [(s) => [s.skills], (skills: PaginatedLLMSkillListListApi) => skills.count],
@@ -393,6 +493,8 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                 await llmSkillsNameArchiveCreate(String(ApiConfig.getCurrentTeamId()), skillName)
                 lemonToast.info(`${skillName || 'Skill'} has been archived.`)
                 await asyncActions.loadSkills(false)
+                // Archiving may have removed the last skill in a category — refresh tab visibility.
+                actions.loadCategoryCounts()
             } catch (e) {
                 console.error('Failed to archive skill', e)
                 lemonToast.error('Failed to archive skill')
@@ -485,32 +587,49 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
             const urlValues = cleanFilters(router.values.searchParams)
 
             if (!objectsEqual(values.filters, urlValues)) {
-                return [urls.skills(), nextValues, {}, { replace: true }]
+                // Keep filter changes on the active tab's path so editing search/sort on a category
+                // tab doesn't bounce the URL back to the default /skills.
+                return [skillTabUrl(values.activeTabKey), nextValues, {}, { replace: true }]
             }
         }
 
         return { setFilters: changeUrl }
     }),
 
-    urlToAction(({ actions, values }) => ({
-        [urls.skills()]: (_, searchParams, __, { method }) => {
-            const newFilters = cleanFilters(searchParams)
-            const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
-            if (!objectsEqual(values.filters, newFilters)) {
-                actions.setFilters(newFilters, false)
-            } else if (forceReload || method !== 'REPLACE') {
-                actions.loadSkills(false)
+    urlToAction(({ actions, values }) => {
+        const handleTab =
+            (tabKey: string) =>
+            (_: any, searchParams: Record<string, any>, __: any, { method }: { method: string }): void => {
+                // Update the active tab first so the loader picks up the new category. Setting it is a
+                // plain reducer (no reload of its own) — handleTab owns the single reload below.
+                const tabChanged = values.activeTabKey !== tabKey
+                if (tabChanged) {
+                    actions.setActiveTab(tabKey)
+                }
+                const newFilters = cleanFilters(searchParams)
+                const forceReload = typeof searchParams?.[LLM_SKILLS_FORCE_RELOAD_PARAM] === 'string'
+                if (!objectsEqual(values.filters, newFilters)) {
+                    // setFilters reloads, reading the just-updated activeCategory.
+                    actions.setFilters(newFilters, false)
+                } else if (tabChanged || forceReload || method !== 'REPLACE') {
+                    actions.loadSkills(false)
+                }
+
+                if (forceReload) {
+                    const nextSearchParams = { ...searchParams }
+                    delete nextSearchParams[LLM_SKILLS_FORCE_RELOAD_PARAM]
+                    router.actions.replace(skillTabUrl(tabKey), nextSearchParams)
+                }
             }
 
-            if (forceReload) {
-                const nextSearchParams = { ...searchParams }
-                delete nextSearchParams[LLM_SKILLS_FORCE_RELOAD_PARAM]
-                router.actions.replace(urls.skills(), nextSearchParams)
-            }
-        },
-    })),
+        return {
+            [urls.skills()]: handleTab(DEFAULT_SKILLS_TAB_KEY),
+            ...Object.fromEntries(SKILL_CATEGORY_TABS.map((tab) => [skillTabUrl(tab.key), handleTab(tab.key)])),
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadSkills()
+        actions.loadCategoryCounts()
     }),
 ])

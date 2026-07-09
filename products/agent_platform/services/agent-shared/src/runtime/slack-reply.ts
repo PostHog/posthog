@@ -11,28 +11,7 @@
  */
 
 import { HttpFetcher } from './http-client'
-
-export interface SlackTriggerMetadata {
-    type: 'slack'
-    workspace_id: string
-    channel: string
-    ts: string
-    thread_ts: string
-}
-
-export function isSlackTriggerMetadata(meta: unknown): meta is SlackTriggerMetadata {
-    if (!meta || typeof meta !== 'object') {
-        return false
-    }
-    const m = meta as Record<string, unknown>
-    return (
-        m.type === 'slack' &&
-        typeof m.channel === 'string' &&
-        typeof m.thread_ts === 'string' &&
-        m.channel.length > 0 &&
-        m.thread_ts.length > 0
-    )
-}
+import { markdownToMrkdwn } from './slack-mrkdwn'
 
 /** Join the text blocks of an assistant message into one Slack message body. */
 export function slackTextFromContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
@@ -179,8 +158,154 @@ export class SlackStatusReporter {
     }
 }
 
+/**
+ * Codec for the opaque Slack button `value` carrying a tool-approval decision.
+ * Shared by the poster (the runner, which renders the buttons when a
+ * `principal` approval queues) and the receiver (the ingress interactivity
+ * handler). `approval:<approve|reject>:<sessionId>:<requestId>`.
+ */
+export function encodeApprovalActionValue(opts: {
+    sessionId: string
+    requestId: string
+    decision: 'approve' | 'reject'
+}): string {
+    return `approval:${opts.decision}:${opts.sessionId}:${opts.requestId}`
+}
+
+export function decodeApprovalActionValue(
+    value: string | undefined
+): { sessionId: string; requestId: string; decision: 'approve' | 'reject' } | null {
+    if (!value) {
+        return null
+    }
+    const parts = value.split(':')
+    if (parts.length !== 4 || parts[0] !== 'approval') {
+        return null
+    }
+    const decision = parts[1]
+    if (decision !== 'approve' && decision !== 'reject') {
+        return null
+    }
+    return { decision, sessionId: parts[2], requestId: parts[3] }
+}
+
+export interface PostApprovalButtonsOpts {
+    token: string | undefined
+    channel: string
+    thread_ts: string
+    sessionId: string
+    requestId: string
+    /** Tool the model proposed — shown in the prompt so the approver has context. */
+    toolName: string
+    logger?: SlackReplyLogger
+}
+
+/**
+ * Post an in-thread Block Kit message with Approve / Reject buttons for a queued
+ * `principal` approval, so the session owner can decide right in Slack. The
+ * buttons' opaque value round-trips through `decodeApprovalActionValue` at the
+ * ingress interactivity handler, which enforces principal-match before deciding.
+ * Best-effort: never throws (a Slack hiccup must not break the agent loop).
+ */
+export async function postSlackApprovalButtons(http: HttpFetcher, opts: PostApprovalButtonsOpts): Promise<boolean> {
+    if (!opts.token) {
+        opts.logger?.warn({ session_id: opts.sessionId, channel: opts.channel }, 'slack_approval_buttons_no_bot_token')
+        return false
+    }
+    const value = (decision: 'approve' | 'reject'): string =>
+        encodeApprovalActionValue({ sessionId: opts.sessionId, requestId: opts.requestId, decision })
+    const blocks = [
+        {
+            type: 'section',
+            text: { type: 'mrkdwn', text: `*Approval needed* — \`${opts.toolName}\` is waiting for your go-ahead.` },
+        },
+        {
+            type: 'actions',
+            elements: [
+                {
+                    type: 'button',
+                    text: { type: 'plain_text', text: 'Approve' },
+                    style: 'primary',
+                    action_id: 'approval_approve',
+                    value: value('approve'),
+                },
+                {
+                    type: 'button',
+                    text: { type: 'plain_text', text: 'Reject' },
+                    style: 'danger',
+                    action_id: 'approval_reject',
+                    value: value('reject'),
+                },
+            ],
+        },
+    ]
+    // Visibility for debugging the approval round-trip: log exactly what routing
+    // data we put in the buttons. Slack echoes these opaque `value`s back on
+    // click and the ingress interactivity handler decodes them to find the
+    // approval — so a mis-encoded session/request id shows up here at send time.
+    // NB: the callback *URL* (where Slack POSTs the click) is the Slack app's
+    // interactivity request_url from the manifest, not anything we send here.
+    opts.logger?.info?.(
+        {
+            session_id: opts.sessionId,
+            request_id: opts.requestId,
+            channel: opts.channel,
+            thread_ts: opts.thread_ts,
+            tool_name: opts.toolName,
+            approve_value: value('approve'),
+            reject_value: value('reject'),
+        },
+        'slack_approval_buttons_post'
+    )
+    try {
+        const res = await http.fetch('https://slack.com/api/chat.postMessage', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${opts.token}`,
+                'Content-Type': 'application/json; charset=utf-8',
+            },
+            body: JSON.stringify({
+                channel: opts.channel,
+                thread_ts: opts.thread_ts,
+                text: `Approval needed for ${opts.toolName}`,
+                blocks,
+            }),
+        })
+        let body: { ok?: boolean; error?: string } = {}
+        try {
+            body = (await res.json()) as { ok?: boolean; error?: string }
+        } catch {
+            // Non-JSON — fall through to the res.ok check.
+        }
+        if (!res.ok || body.ok === false) {
+            opts.logger?.warn(
+                {
+                    session_id: opts.sessionId,
+                    channel: opts.channel,
+                    status: res.status,
+                    slack_error: body.error ?? null,
+                },
+                'slack_approval_buttons_failed'
+            )
+            return false
+        }
+        return true
+    } catch (err) {
+        opts.logger?.warn(
+            {
+                session_id: opts.sessionId,
+                channel: opts.channel,
+                err: err instanceof Error ? err.message : String(err),
+            },
+            'slack_approval_buttons_threw'
+        )
+        return false
+    }
+}
+
 export async function postSlackReply(http: HttpFetcher, opts: PostSlackReplyOpts): Promise<boolean> {
-    const text = opts.text.trim()
+    // The model replies in Markdown; Slack speaks mrkdwn.
+    const text = markdownToMrkdwn(opts.text).trim()
     if (!text) {
         return false
     }

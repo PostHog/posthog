@@ -8,20 +8,20 @@ class AchievementScope(StrEnum):
 
 
 class TrackKey(StrEnum):
-    HOG_STREAK = "hog_streak"
-    LOYAL_HOG = "loyal_hog"
-    DATA_HOG = "data_hog"
-    DETECTIVE_HOG = "detective_hog"
-    GOAL_HOG = "goal_hog"
-    MIGHTY_HOG = "mighty_hog"
+    STREAK = "streak"
+    LOYALTY = "loyalty"
+    EXPLORER = "explorer"
+    DETECTIVE = "detective"
+    CONVERSIONS = "conversions"
+    TRAFFIC = "traffic"
 
 
-STREAK_ARM_HOLDOUT = "holdout"
+STREAK_ARM_CONTROL = "control"
 STREAK_ARM_HYBRID = "hybrid"
 STREAK_ARM_DAILY = "daily-only"
 STREAK_ARM_WEEKLY = "weekly-only"
 
-_STREAK_STAGE_NAMES = ("Spark", "Heating up", "On a roll", "Relentless", "Unstoppable")
+_STREAK_STAGE_NAMES = ("Getting started", "Warming up", "On a roll", "Committed", "Locked in")
 
 
 @dataclass(frozen=True)
@@ -73,10 +73,10 @@ _WEEKLY_STREAK_THRESHOLDS = (2, 3, 4, 8, 12)
 
 
 TRACKS: dict[TrackKey, TrackDefinition] = {
-    TrackKey.HOG_STREAK: TrackDefinition(
-        key=TrackKey.HOG_STREAK,
-        display_name="Hog Streak",
-        description="Keep your streak alive — come back and check your traffic.",
+    TrackKey.STREAK: TrackDefinition(
+        key=TrackKey.STREAK,
+        display_name="Streak",
+        description="Check your analytics regularly to keep a streak going.",
         scope=AchievementScope.USER,
         evaluator_key="streak",
         stages=_streak_stages(_DAILY_STREAK_THRESHOLDS),
@@ -87,24 +87,24 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
             STREAK_ARM_WEEKLY: _WEEKLY_STREAK_THRESHOLDS,
         },
     ),
-    TrackKey.LOYAL_HOG: TrackDefinition(
-        key=TrackKey.LOYAL_HOG,
-        display_name="Loyal Hog",
-        description="Every visit counts — forever.",
+    TrackKey.LOYALTY: TrackDefinition(
+        key=TrackKey.LOYALTY,
+        display_name="Loyalty",
+        description="Keep coming back — every visit counts.",
         scope=AchievementScope.USER,
         evaluator_key="loyal_days",
         stages=(
             Stage("Regular", 5),
             Stage("Familiar", 15),
             Stage("Devoted", 30),
-            Stage("Stalwart", 60),
-            Stage("Lifer", 100),
+            Stage("Dedicated", 60),
+            Stage("Loyal", 100),
         ),
     ),
-    TrackKey.DATA_HOG: TrackDefinition(
-        key=TrackKey.DATA_HOG,
-        display_name="Data Hog",
-        description="Slice your data like a pro.",
+    TrackKey.EXPLORER: TrackDefinition(
+        key=TrackKey.EXPLORER,
+        display_name="Explorer",
+        description="Dig into your data.",
         scope=AchievementScope.USER,
         evaluator_key="data_events",
         stages=(
@@ -112,13 +112,13 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
             Stage("Digging in", 15),
             Stage("Analyst", 40),
             Stage("Power user", 100),
-            Stage("Data nerd", 250),
+            Stage("Data pro", 250),
         ),
     ),
-    TrackKey.DETECTIVE_HOG: TrackDefinition(
-        key=TrackKey.DETECTIVE_HOG,
-        display_name="Detective Hog",
-        description="Stop guessing — watch what actually happened.",
+    TrackKey.DETECTIVE: TrackDefinition(
+        key=TrackKey.DETECTIVE,
+        display_name="Detective",
+        description="Watch recordings to see what really happened.",
         scope=AchievementScope.USER,
         evaluator_key="recordings_opened",
         stages=(
@@ -126,27 +126,27 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
             Stage("Investigating", 10),
             Stage("Sleuth", 50),
             Stage("Profiler", 150),
-            Stage("Mastermind", 500),
+            Stage("Expert", 500),
         ),
     ),
-    TrackKey.GOAL_HOG: TrackDefinition(
-        key=TrackKey.GOAL_HOG,
-        display_name="Goal Hog",
-        description="Turn traffic into outcomes.",
+    TrackKey.CONVERSIONS: TrackDefinition(
+        key=TrackKey.CONVERSIONS,
+        display_name="Conversions",
+        description="Turn traffic into conversions.",
         scope=AchievementScope.TEAM,
         evaluator_key="conversions",
         stages=(
-            Stage("First goal", 1),
+            Stage("First conversion", 1),
             Stage("On target", 3),
-            Stage("Optimizer", 5),
+            Stage("Optimizing", 5),
             Stage("Converting", 100),
-            Stage("Conversion master", 1000),
+            Stage("Conversion pro", 1000),
         ),
     ),
-    TrackKey.MIGHTY_HOG: TrackDefinition(
-        key=TrackKey.MIGHTY_HOG,
-        display_name="Mighty Hog",
-        description="Your audience is growing — watch the numbers climb.",
+    TrackKey.TRAFFIC: TrackDefinition(
+        key=TrackKey.TRAFFIC,
+        display_name="Traffic",
+        description="Watch your pageviews climb.",
         scope=AchievementScope.TEAM,
         evaluator_key="cumulative_pageviews",
         stages=(
@@ -154,7 +154,7 @@ TRACKS: dict[TrackKey, TrackDefinition] = {
             Stage("Picking up", 100_000),
             Stage("Major traffic", 1_000_000),
             Stage("High volume", 10_000_000),
-            Stage("Internet famous", 100_000_000),
+            Stage("Viral", 100_000_000),
         ),
     ),
 }

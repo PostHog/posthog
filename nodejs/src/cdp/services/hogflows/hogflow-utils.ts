@@ -1,9 +1,12 @@
 import { DateTime } from 'luxon'
-import { Summary } from 'prom-client'
+import { Counter, Summary } from 'prom-client'
 
-import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilterGlobals } from '~/cdp/types'
+import { execHog } from '~/cdp/utils/hog-exec'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     const action = hogFlow.actions.find((action) => action.id === id)
@@ -129,6 +132,78 @@ export function isEvaluableCondition(condition?: {
         (filters.actions?.length ?? 0) > 0 ||
         Boolean(filters.filter_test_accounts)
     )
+}
+
+const counterHogflowFilterBytecodeError = new Counter({
+    name: 'cdp_hogflow_matcher_bytecode_error',
+    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
+})
+
+// Logged as separate fields on a bytecode error so it's filterable by flow/action.
+// actionId is absent for a conversion goal (not an action).
+export type HogFlowBytecodeContext = { hogFlowId: string; actionId?: string }
+
+// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
+// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
+// it would match every incoming event. Action-based entries (events empty, actions set) are real
+// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
+// in one place.
+export function hasEventOrActionTarget(eventConfig: {
+    filters?: { events?: unknown[]; actions?: unknown[] }
+}): boolean {
+    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
+}
+
+// Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
+// every events[].filters at save time, so missing/empty bytecode means a malformed row:
+// we fail closed (return false) rather than falling back to event-name-only matching, which
+// would silently bypass property filters.
+export async function runFilterBytecode(
+    bytecode: unknown,
+    filterGlobals: HogFunctionFilterGlobals,
+    context: HogFlowBytecodeContext
+): Promise<boolean> {
+    if (!Array.isArray(bytecode) || bytecode.length === 0) {
+        return false
+    }
+    try {
+        const result = await execHog(bytecode, { globals: filterGlobals })
+        return result.execResult?.result === true
+    } catch (err) {
+        // A broken filter silently never matches and the workflow falls through to its
+        // timeout branch, which is usually the wrong outcome. Surface loudly so we notice.
+        logger.error('🔴', 'Bytecode evaluation error', { ...context, err })
+        captureException(err, { extra: { ...context } })
+        counterHogflowFilterBytecodeError.inc()
+        return false
+    }
+}
+
+// `events` and the property-based `condition` are OR'd: a step can wait on either,
+// and either matching wakes the job. The condition is evaluated on every incoming
+// event, which is what makes property-based waits event-driven rather than polled.
+// Used by the subscription matcher in production and by the test-invocation endpoint
+// to simulate a matcher wake against a supplied event.
+export async function matchesWaitUntilCondition(
+    action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
+    filterGlobals: HogFunctionFilterGlobals,
+    context: HogFlowBytecodeContext
+): Promise<boolean> {
+    for (const eventConfig of action.config.events ?? []) {
+        if (!hasEventOrActionTarget(eventConfig)) {
+            continue
+        }
+        if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
+            return true
+        }
+    }
+    // An empty condition compiles to always-true bytecode, which would wake the job on the next
+    // event of any kind. Only evaluate the condition when it has a real compiled filter;
+    // otherwise the wait relies on its `events` / the step timeout.
+    if (!isEvaluableCondition(action.config.condition)) {
+        return false
+    }
+    return runFilterBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
 }
 
 const DELAY_ACTION_TYPES: HogFlowAction['type'][] = ['delay', 'wait_until_condition', 'wait_until_time_window']

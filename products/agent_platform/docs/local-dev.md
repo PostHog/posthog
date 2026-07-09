@@ -51,10 +51,11 @@ etc.) live in [products/agent_platform/services/agent-tools](../../../products/a
 
 - **POSTHOG_DB** — Django-owned. Tables: `agent_application`,
   `agent_revision`. Written by Django; read by ingress + runner.
-- **AGENT_DB** — node-owned. Tables: `agent_session`, `agent_user`,
-  `agent_sandbox_instance`, `agent_tool_approval_request`. Schema is
-  managed by [@posthog/agent-migrations](../../../products/agent_platform/services/agent-migrations/);
-  the runner applies pending migrations on boot (idempotent).
+- **AGENT_DB** — the queue / runtime database. Tables: `agent_session`,
+  `agent_user`, `agent_sandbox_instance`, `agent_tool_approval_request`.
+  Schema is Django-owned ([products/agent_platform/backend/migrations/](../backend/migrations/)),
+  applied by the main `migrate` process (`migrate_product_databases`); the
+  node services are pure clients that connect and run raw SQL, never DDL.
 
 In dev they're the same Postgres (`postgres://posthog:posthog@localhost:5432`),
 just two databases: `posthog` and `agent_runtime_queue`. In prod they're
@@ -70,7 +71,6 @@ dev:setup` and `hogli start` (or `./bin/start`) gives you:
 agent-ingress     → http://localhost:3030     (PORT=AGENT_INGRESS_PORT)
 agent-janitor     → http://localhost:3031     (PORT=AGENT_JANITOR_PORT)
 agent-runner      → no HTTP, watches the queue
-migrate-agent-runtime → applies AGENT_DB migrations once on boot
 ```
 
 Standalone (without phrocs) if you only want the agent services:
@@ -105,25 +105,37 @@ To turn it on:
 
 1. **Clone the sibling repo** at `~/Development/ai-gateway`
    (override with `AI_GATEWAY_REPO`).
-2. **Create `~/Development/ai-gateway/.env`** with provider keys:
+2. **Add provider keys** to `~/Development/ai-gateway/.env`:
 
    ```bash
-   AI_GATEWAY_AUTH_MODE=open
    AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
    AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
    ```
 
-   Note the `AI_GATEWAY_*` prefix — older docs/scripts referenced
-   `LLM_GATEWAY_*`, which is inert against the current compose file.
+   (`bin/setup-gateway-e2e` sets `AI_GATEWAY_AUTH_MODE=resolver` for you.)
 
-3. **Enable the `ai_gateway` capability** in `hogli dev:setup` so the
-   `ai-gateway` mprocs entry runs. It executes
-   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway) which
-   brings up `docker compose --profile full` (gateway + billing +
-   deps) and seeds the anonymous-team ledger with $100 so requests
-   pass admission. Idempotent — runs cleanly on every restart.
-4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
-   in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
+3. **Enable the `ai_gateway` capability** in `hogli dev:setup` (it pulls in
+   `agent_runtime`).
+
+`hogli start` then runs the `ai-gateway` pane
+([`bin/start-ai-gateway`](../../../bin/start-ai-gateway)): it provisions a phs*
+credential — enable the team, mint the deterministic dev phs*
+(`llm_gateway:read`), publish its blob to the **same Valkey the gateway reads**
+(`localhost:6381` — Django's hypercache and the gateway must share one Redis or
+the resolver 401s) — sets resolver mode, starts the gateway on the host, and
+funds the ledger once it's up. Idempotent.
+
+The agent-runner uses the gateway **by default in dev** (config dev defaults, no
+`.env.local`); it authenticates with the static dev phs\_ and all cost bills to
+the team that owns it. To fall back to direct providers, set
+`AGENT_USE_AI_GATEWAY=false` in `.env.local`.
+
+Standalone (without the capability):
+
+```bash
+bin/setup-gateway-e2e
+cd ~/Development/ai-gateway && bin/start gateway
+```
 
 How model routing works:
 
@@ -149,17 +161,24 @@ addition.
 
 ### 1. `bin/run-agent` — the smoke test
 
-Fires a chat trigger against the canned dev revision and tails SSE:
+Fires a chat trigger against an agent you've already authored + promoted
+to `live`, and tails SSE:
 
 ```bash
-bin/run-agent                            # default app (slug=demo)
-bin/run-agent --input='{"foo":"bar"}'
-bin/run-agent --no-listen                # skip SSE tail
+bin/run-agent --slug=<your-slug>
+bin/run-agent --slug=<your-slug> --message='hello'           # chat shape
+bin/run-agent --slug=<your-slug> --input='{"foo":"bar"}'     # raw JSON
+bin/run-agent --slug=<your-slug> --no-listen                 # skip SSE tail
 ```
 
 Validates the full ingress → queue → runner → bus → SSE path with one
 command. Reach for this first when anything changes in any of the three
 services.
+
+Auth: the script defaults to `x-posthog-internal: <dev-key>` so an agent
+whose spec declares `auth.modes: [{type:'posthog_internal'}]` (the
+ingress fallback when no modes are configured) works out of the box. For
+`auth.modes: [{type:'posthog'}]`, pass `--bearer=<PAT>`.
 
 ### 2. Local MCP — end-to-end via an MCP client
 
@@ -257,10 +276,17 @@ pnpm --filter @posthog/agent-tests test                 # full suite (faux)
 pnpm --filter @posthog/agent-tests test cases/chat      # one case file
 ```
 
-Requires `agent_runtime_queue_test` to exist locally (`bin/migrate
---scope=agent_runtime` creates `agent_runtime_queue`; the test DB is a
-sibling). The harness drops + reapplies schema per test, so DB state
-is never shared between tests.
+Requires the `agent_runtime_queue_test` DB to exist locally **with the schema
+applied**. Schema is Django-owned (the single source of truth —
+`products/agent_platform/backend/migrations/`), so create + migrate it with:
+
+```bash
+bin/migrate-agent-test-db        # drop + recreate + migrate agent_platform
+```
+
+Run that once, and again after pulling a new agent*platform migration. The test
+harness's `reset()` then only truncates the `agent*\*` tables between cases, so DB
+state is never shared between tests (and there's no hand-maintained SQL to drift).
 
 ### Vital-feature coverage rule
 
@@ -322,6 +348,10 @@ auth predicates). Anything that crosses two services belongs in
 
 ## Where the canonical docs live
 
+- [README.md](README.md) — docs index.
+- [architecture.md](architecture.md) — high-level architecture (diagrams).
+- [services.md](services.md) — what each service does (diagrams).
+- [identity-and-tools.md](identity-and-tools.md) — identity → tools → MCP (diagrams).
 - This file — local dev + testing.
 - [../plans/\_ROADMAP.md](../plans/_ROADMAP.md) — what we're building next.
 - [products/agent_platform/CLAUDE.md](../../../products/agent_platform/CLAUDE.md) — Django-side rules.

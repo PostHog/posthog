@@ -19,6 +19,7 @@ cold Redis.
 
 import os
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -35,6 +36,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
+from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
 logger = structlog.get_logger(__name__)
@@ -389,3 +391,66 @@ def refresh_all_gateway_credentials() -> int:
             count += 1
 
     return count
+
+
+# Gateway-owned Valkey hash (credential sha256$<hex> -> unix-second last-used),
+# written by the gateway. Wire contract: must match internal/lastused.ValkeyKey.
+GATEWAY_CREDENTIAL_LAST_USED_KEY = "ai-gateway:cred-last-used"
+
+# Match the authenticator's hour-granular throttle (posthog/auth.py).
+_LAST_USED_THROTTLE = timedelta(hours=1)
+
+
+def _decode_last_used_marks(raw: dict[Any, Any]) -> dict[str, int]:
+    """Fold an HGETALL result (bytes field -> bytes ts) into {hash: unix_ts}."""
+    marks: dict[str, int] = {}
+    for field, value in raw.items():
+        hash_key = field.decode() if isinstance(field, bytes | bytearray) else str(field)
+        raw_ts = value.decode() if isinstance(value, bytes | bytearray) else value
+        try:
+            marks[hash_key] = int(raw_ts)
+        except (TypeError, ValueError):
+            continue
+    return marks
+
+
+def drain_gateway_credential_last_used() -> int:
+    """Stamp ProjectSecretAPIKey.last_used_at from the gateway-coalesced Valkey hash.
+
+    phs_ only (OAuthAccessToken has no such field). bulk_update bypasses signals,
+    like the authenticator's .update(), to avoid churning the cache. Returns rows updated.
+    """
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return 0
+
+    client = get_client(settings.AI_GATEWAY_REDIS_URL)
+    # Atomic read-and-clear (at-most-once): a crash before the DB commit drops
+    # this window's marks. Accepted for a cosmetic, hour-granular, self-healing
+    # field; process-then-delete would be at-least-once but races a gateway HSET.
+    pipe = client.pipeline(transaction=True)
+    pipe.hgetall(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+    pipe.delete(GATEWAY_CREDENTIAL_LAST_USED_KEY)
+    raw = pipe.execute()[0]
+    if not raw:
+        return 0
+
+    marks = _decode_last_used_marks(raw)
+    if not marks:
+        return 0
+
+    to_update = []
+    for secret_key in ProjectSecretAPIKey.objects.filter(secure_value__in=marks.keys()).only(
+        "id", "last_used_at", "secure_value"
+    ):
+        ts = marks.get(secret_key.secure_value or "")
+        if ts is None:
+            continue
+        used = datetime.fromtimestamp(ts, UTC)
+        # Never regress, and honour the hour throttle against whatever last wrote it.
+        if secret_key.last_used_at is None or used - secret_key.last_used_at > _LAST_USED_THROTTLE:
+            secret_key.last_used_at = used
+            to_update.append(secret_key)
+
+    if to_update:
+        ProjectSecretAPIKey.objects.bulk_update(to_update, ["last_used_at"])
+    return len(to_update)

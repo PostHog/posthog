@@ -16,8 +16,12 @@ env:
     CARGO_DIST_INSTALLER_SHA256: b657cf8c04a8b7bc28f39d220f7e6dd11bbd2bdb072c552262bd9ccf597261b5
 
 # Publishing is handled by the Release CLI workflow after Release environment approval.
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
 on:
-    pull_request:
+    workflow_call:
+        secrets:
+            POSTHOG_API_TOKEN:
+                required: false
 
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -155,11 +159,16 @@ jobs:
                   ${{ matrix.packages_install }}
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              # This job also runs on the Windows runner, where the default
+              # shell is PowerShell and `find` resolves to Windows FIND.exe.
+              # Force bash (git-bash) so find/chmod are the Unix tools.
+              shell: bash
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: 'pnpm'
             - name: Install API CLI dependencies
               run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
             - name: Build API CLI release bundle
@@ -238,11 +247,12 @@ jobs:
                   merge-multiple: true
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: 'pnpm'
             - name: Install API CLI dependencies
               run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
             - name: Build API CLI release bundle

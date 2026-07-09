@@ -32,6 +32,7 @@ from posthog.models.team import Team
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
     is_precompute_enabled_for_team,
+    is_precompute_unrestricted_for_team,
 )
 
 logger = structlog.get_logger(__name__)
@@ -125,6 +126,12 @@ class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
 
 
 class PerQueryOptInNotSet(LazyPrecomputeIneligible):
+    pass
+
+
+class PerQueryOptedOut(LazyPrecomputeIneligible):
+    """Unrestricted team where the user explicitly turned precompute off."""
+
     pass
 
 
@@ -237,7 +244,14 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if not is_precompute_enabled_for_team(runner.team):
         raise OrgFeatureFlagDisabled()
 
-    if query.useWebAnalyticsPrecompute is not True:
+    unrestricted = is_precompute_unrestricted_for_team(runner.team)
+
+    # Unrestricted teams default to opt-out: only an explicit `False` rejects.
+    # Restricted teams keep the opt-in default (`None`/`False` both reject).
+    if unrestricted:
+        if query.useWebAnalyticsPrecompute is False:
+            raise PerQueryOptedOut()
+    elif query.useWebAnalyticsPrecompute is not True:
         raise PerQueryOptInNotSet()
 
     # Half-hour-offset timezones (IST +5:30, Newfoundland -3:30, Nepal +5:45, etc.)
@@ -262,18 +276,23 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    properties = query.properties or []
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+    # Unrestricted teams accept any filter shape — `user_filter_expr` translates
+    # arbitrary filters via `property_to_expr`, and each distinct filter set
+    # becomes a distinct cache key. Filters the INSERT can't express fail the
+    # job and fall back to the live query automatically.
+    if not unrestricted:
+        properties = query.properties or []
+        if len(properties) > 1:
+            raise TooManyFilters()
+        for prop in properties:
+            if not isinstance(prop, EventPropertyFilter):
+                raise NonEventPropertyFilter()
+            if prop.key not in SUPPORTED_USER_FILTER_KEYS:
+                raise UnsupportedFilterKey(prop.key)
+            if prop.operator != PropertyOperator.EXACT:
+                raise UnsupportedFilterOperator(prop.operator)
+            if not isinstance(prop.value, str) or not prop.value:
+                raise NonStringOrEmptyFilterValue()
 
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
@@ -293,6 +312,12 @@ def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     """
     if not runner.query.properties:
         return ast.Constant(value=True)
+
+    # Unrestricted teams may pass arbitrary filters — translate the whole list
+    # via the general `property_to_expr`. Each distinct filter set becomes a
+    # distinct cache key.
+    if is_precompute_unrestricted_for_team(runner.team):
+        return property_to_expr(runner.query.properties, team=runner.team)
 
     # Gate already enforces single EventPropertyFilter with $host exact + string value.
     host_filter = runner.query.properties[0]

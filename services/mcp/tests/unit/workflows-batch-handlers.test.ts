@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Context } from '@/tools/types'
-import {
-    BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
-    workflowsBlastRadius,
-    workflowsRunBatch,
-    workflowsScheduleCreate,
-} from '@/tools/workflows/batch'
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from '@/tools/workflows/batch'
+
+// Default per-team audience cap the mocked blast-radius endpoint returns unless a test overrides it.
+const DEFAULT_LIMIT = 50_000
 
 interface RequestArgs {
     method: string
@@ -24,7 +22,7 @@ const BATCH_FILTERS = { properties: [{ key: 'email', value: 'is_set', type: 'per
  */
 function createMockContext(opts: {
     trigger: unknown
-    blastRadius: { affected: number; total: number }
+    blastRadius: { affected: number; total: number; limit?: number }
     status?: string
 }): { context: Context; request: ReturnType<typeof vi.fn> } {
     const request = vi.fn(async ({ method, path }: RequestArgs) => {
@@ -32,7 +30,7 @@ function createMockContext(opts: {
             return { id: 'wf-1', status: opts.status ?? 'active', trigger: opts.trigger }
         }
         if (method === 'POST' && path.endsWith('/user_blast_radius/')) {
-            return opts.blastRadius
+            return { limit: DEFAULT_LIMIT, ...opts.blastRadius }
         }
         if (method === 'POST' && path.endsWith('/batch_jobs/')) {
             return { id: 'batch-1', status: 'queued' }
@@ -80,7 +78,7 @@ describe('workflows batch handlers', () => {
                 path: '/api/projects/1/hog_flows/user_blast_radius/',
                 body: { filters: BATCH_FILTERS },
             })
-            expect(result).toEqual({ affected: 42, total: 100 })
+            expect(result).toEqual({ affected: 42, total: 100, limit: DEFAULT_LIMIT })
         })
     })
 
@@ -130,19 +128,34 @@ describe('workflows batch handlers', () => {
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
         })
 
-        it('rejects and does not fire when the audience exceeds the cap', async () => {
+        it('rejects and does not fire when the audience exceeds the per-team cap', async () => {
             const { context, request } = createMockContext({
                 trigger: { type: 'batch', filters: BATCH_FILTERS },
-                blastRadius: { affected: BATCH_WORKFLOW_MAX_AUDIENCE_SIZE + 1, total: 1_000_000 },
+                blastRadius: { affected: 5001, total: 1_000_000, limit: 5000 },
             })
 
             await expect(
                 runBatchTool.handler(context, {
                     workflow_id: 'wf-1',
-                    acknowledged_affected_count: BATCH_WORKFLOW_MAX_AUDIENCE_SIZE + 1,
+                    acknowledged_affected_count: 5001,
                 })
-            ).rejects.toThrow(new RegExp(String(BATCH_WORKFLOW_MAX_AUDIENCE_SIZE)))
+            ).rejects.toThrow(/5000/)
             expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(false)
+        })
+
+        it('fires for a large audience that is within an elevated per-team cap', async () => {
+            const { context, request } = createMockContext({
+                trigger: { type: 'batch', filters: BATCH_FILTERS },
+                blastRadius: { affected: 40_000, total: 1_000_000, limit: 50_000 },
+            })
+
+            const result = await runBatchTool.handler(context, {
+                workflow_id: 'wf-1',
+                acknowledged_affected_count: 40_000,
+            })
+
+            expect(calls(request).some((c) => c.path.endsWith('/batch_jobs/'))).toBe(true)
+            expect(result).toMatchObject({ id: 'batch-1' })
         })
 
         it('rejects workflows whose trigger is not a batch trigger', async () => {

@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { getSeriesColorPalette } from 'lib/colors'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonColorPicker } from 'lib/lemon-ui/LemonColor'
@@ -9,6 +11,8 @@ import {
     METRIC_DEFAULT_DECREASE_COLOR,
     METRIC_DEFAULT_INCREASE_COLOR,
     METRIC_SHOW_CHANGE_DEFAULT,
+    METRIC_SUMMARY_DEFAULT,
+    type MetricSummary,
 } from 'scenes/insights/views/Metric/Metric.utils'
 
 import { insightLogic } from '../insightLogic'
@@ -48,6 +52,30 @@ function DirectionColorPickers({
                     preventPopoverClose
                 />
             </div>
+        </div>
+    )
+}
+
+export function MetricSummaryFilter(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
+    const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
+
+    return (
+        <div className="flex items-center justify-between gap-2 p-1 px-2">
+            <span className="font-normal">Headline value</span>
+            <LemonSelect<MetricSummary>
+                size="small"
+                value={summary}
+                onChange={(value) => updateInsightFilter({ metricSummary: value })}
+                options={[
+                    { value: 'total', label: 'Total' },
+                    { value: 'average', label: 'Average' },
+                    { value: 'latest', label: 'Latest' },
+                ]}
+            />
         </div>
     )
 }

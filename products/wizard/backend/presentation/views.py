@@ -96,7 +96,10 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
-SSE_MAX_DURATION_SECONDS = 30 * 60
+# Long-lived connections pin NGINX Unit processes during recycle-drain; the
+# `event: end` close makes EventSource reconnect, so the cap is near-invisible to
+# users (the progress tracker may show a brief "reconnecting" blip per rotation).
+SSE_MAX_DURATION_SECONDS = 15 * 60
 
 WIZARD_SYNC_KILLSWITCH_FLAG = "onboarding-wizard-sync-killswitch"
 
@@ -233,7 +236,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Killswitch parity with `stream`: a 204 makes the client treat this as "no run"
         # and wind the detector down, so flipping the flag in an incident also stops the
         # 60s poll (and skips the DB read entirely), not just the SSE stream.
+        poll_source = request.headers.get("X-Wizard-Poll-Source")
         if self._killswitch_active(request):
+            wizard_facade.record_latest_session_poll(poll_source, "killswitch")
             return Response(status=status.HTTP_204_NO_CONTENT)
         workflow_id = request.query_params.get("workflow_id")
         if not workflow_id:
@@ -241,7 +246,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         skill_id = request.query_params.get("skill_id") or None
         dto = wizard_facade.get_latest(self.team_id, workflow_id, skill_id)
         if dto is None:
+            wizard_facade.record_latest_session_poll(poll_source, "empty")
             return Response(status=status.HTTP_204_NO_CONTENT)
+        wizard_facade.record_latest_session_poll(poll_source, "hit")
         return Response(WizardSessionSerializer(dto).data)
 
     @extend_schema(
@@ -335,7 +342,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Releases the request-thread DB connection (auth, team resolution) before
         # the long-lived stream begins — see sse_streaming_response.
-        return sse_streaming_response(generator)
+        return sse_streaming_response(generator, endpoint="wizard_session")
 
 
 async def _wizard_session_event_stream(

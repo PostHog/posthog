@@ -8,6 +8,7 @@ import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -19,7 +20,11 @@ import {
 
 /** Upper bound on a `search` regex pattern — keeps a pathological pattern from
  *  forcing catastrophic backtracking against tool metadata. */
-const MAX_SEARCH_PATTERN_LENGTH = 200
+const MAX_SEARCH_PATTERN_LENGTH = 400
+
+/** Ranked (plain-word) search can match loosely on a common token like
+ *  "create"; cap the returned names so a vague query can't dump the catalog. */
+const MAX_RANKED_SEARCH_RESULTS = 25
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -36,12 +41,20 @@ export interface ExecInnerCallProperties {
      */
     input_tokens?: number
     output_tokens?: number
+    input?: Record<string, unknown>
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
+    /**
+     * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
+     * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
+     * PostHog Code consumer: structuredContent suppressed toward the model, app data
+     * re-homed onto `_meta`. Computed from the client profile at the call site.
+     */
+    isInlineExecUiHost?: boolean
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -120,11 +133,17 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server. When the model attempts to call
-// one, surface a targeted redirect to the replacement instead of dumping the
-// full tool catalog. Keep the redirect text editorial — schemas don't carry
-// "use X instead" guidance.
+// Tools that were removed from the MCP server — or flag-gated out of the active
+// catalog. When the model attempts to call one that isn't present, surface a
+// targeted redirect to the replacement instead of dumping the full tool catalog.
+// Keep the redirect text editorial — schemas don't carry "use X instead"
+// guidance. A redirect only fires when the tool is absent, so an entry for a
+// conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
+    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    'read-data-warehouse-schema': () =>
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>
         'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
@@ -172,6 +191,28 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Whether the tool's input schema declares an `output_format` field. */
+function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
+    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+}
+
+/**
+ * Exec mode owns output encoding through the `--json` call flag, so tools must
+ * not also advertise their `output_format` input — an agent passing
+ * `output_format: "json"` would make the handler skip the server-side formatter
+ * only for exec to TOON-encode the raw result anyway. `call` folds the flag back
+ * into the field for tools that have it (see the `call` verb), so hiding it here
+ * loses no capability.
+ */
+function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, unknown> | undefined
+    if (!properties || !('output_format' in properties)) {
+        return jsonSchema
+    }
+    const { output_format: _omitted, ...rest } = properties
+    return { ...jsonSchema, properties: rest }
+}
+
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -187,7 +228,7 @@ function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny>
 
 export function createExecTool(
     allTools: Tool<ZodObjectAny>[],
-    context: Context,
+    context: Context | undefined,
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
@@ -199,7 +240,7 @@ export function createExecTool(
 
     return {
         name: 'exec',
-        title: 'Execute PostHog command',
+        title: 'PostHog analytics, dashboards, insights, feature flags & more',
         description: toolDescription,
         schema: ExecSchema,
         scopes: [],
@@ -219,7 +260,7 @@ export function createExecTool(
 
                 case 'search': {
                     if (!rest) {
-                        throw new Error('Usage: search <regex_pattern>')
+                        throw new Error('Usage: search <words or regex_pattern>')
                     }
                     // Bound the user-supplied pattern length to limit the blast
                     // radius of a pathological (catastrophic-backtracking) regex.
@@ -228,18 +269,33 @@ export function createExecTool(
                             `Search pattern too long (${rest.length} chars, max ${MAX_SEARCH_PATTERN_LENGTH}). Use a shorter, more targeted pattern.`
                         )
                     }
-                    let regex: RegExp
-                    try {
-                        regex = new RegExp(rest, 'i')
-                    } catch {
-                        throw new Error(`Invalid regex pattern: "${rest}"`)
+
+                    // Route by pattern shape: a pattern with regex metacharacters
+                    // (e.g. `query-`, `feature-flag`) keeps the original regex
+                    // predicate; plain words — including multi-word, natural-
+                    // language queries — use forgiving token ranking.
+                    let matches: string[]
+                    let gatedMatches: ScopeGatedTool[]
+                    let truncatedFrom = 0
+                    if (isRegexPattern(rest)) {
+                        try {
+                            matches = searchToolsRegex(allTools, rest).map((t) => t.name)
+                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
+                        } catch {
+                            throw new Error(`Invalid regex pattern: "${rest}"`)
+                        }
+                    } else {
+                        const ranked = searchToolsRanked(allTools, rest)
+                        truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
+                        matches = ranked.slice(0, MAX_RANKED_SEARCH_RESULTS).map((r) => r.name)
+                        // Preserve ranked order for gated matches too, then map
+                        // each name back to its ScopeGatedTool (for missingScopes).
+                        const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
+                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                            .map((r) => gatedByName.get(r.name))
+                            .filter((t): t is ScopeGatedTool => t !== undefined)
                     }
-                    const matches = allTools
-                        .filter((t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description))
-                        .map((t) => t.name)
-                    const gatedMatches = scopeGatedTools.filter(
-                        (t) => regex.test(t.name) || regex.test(t.title) || regex.test(t.description)
-                    )
+
                     if (gatedMatches.length > 0) {
                         const requiredScopes = [...new Set(gatedMatches.flatMap((t) => t.missingScopes))].sort()
                         return JSON.stringify({
@@ -259,6 +315,13 @@ export function createExecTool(
                             hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
                         })
                     }
+                    if (truncatedFrom > 0) {
+                        return JSON.stringify({
+                            matches,
+                            truncated: true,
+                            hint: `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
+                        })
+                    }
                     return JSON.stringify(matches)
                 }
 
@@ -272,7 +335,7 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const fullSchema = z.toJSONSchema(tool.schema)
+                    const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -309,7 +372,9 @@ export function createExecTool(
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
-                    const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    const fullJsonSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -346,6 +411,9 @@ export function createExecTool(
                     if (!rest) {
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
+                    if (!context) {
+                        throw new Error('Cannot call PostHog tools without an API context')
+                    }
                     const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
@@ -369,7 +437,25 @@ export function createExecTool(
                         }
                     }
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+                    // letting the handler skip the formatter only for the result to be
+                    // TOON-encoded anyway.
+                    let strayOutputFormat: unknown
+                    if ('output_format' in input) {
+                        ;({ output_format: strayOutputFormat, ...input } = input)
+                    }
+                    const useJson =
+                        forceJson ||
+                        strayOutputFormat === 'json' ||
+                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // Fold the flag back into the tool's own `output_format` field when it has
+                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+                    // JSON, no `__formatted_results_override` duplication), and tools where the
+                    // field is a real backend param (dashboard-insights-run) keep full function.
+                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                        input.output_format = 'json'
+                    }
 
                     // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
                     // otherwise bad input reaches the HTTP layer and builds URLs like
@@ -401,6 +487,7 @@ export function createExecTool(
                             success: false,
                             output_format: useJson ? 'json' : 'text',
                             error_message: err instanceof Error ? err.message : String(err),
+                            input,
                         })
                         throw err
                     }
@@ -411,9 +498,10 @@ export function createExecTool(
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
-                    // don't render UI apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
+                    // runs, etc.) don't render UI apps — they should see plain text.
+                    const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
+                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         const payload = markExecPayload(
@@ -422,10 +510,13 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `false` bypasses coding-agent suppression in
-                                // `buildToolResultPayload` because this path explicitly wants it.
-                                suppressStructuredContentForFormattedResults: false,
+                                // Inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork)
+                                // surface `structuredContent` to the model in preference to the
+                                // text content, which would bury the compact formatted table
+                                // under the raw JSON. Always re-home the UI app's data onto
+                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
+                                // table (or the TOON text when unformatted) and the chart still renders.
+                                forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })
@@ -436,6 +527,7 @@ export function createExecTool(
                             output_format: 'structured',
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
+                            input,
                         })
                         return payload
                     }
@@ -463,6 +555,7 @@ export function createExecTool(
                         output_format: useJson ? 'json' : 'text',
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
+                        input,
                     })
                     return outputText
                 }

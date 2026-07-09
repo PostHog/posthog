@@ -58,10 +58,11 @@ jobs:
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
                         - '.oxlintrc.json'
+                        - '.oxfmtrc*'
 
     typecheck-lint:
         if: needs.changes.outputs.agents == 'true'
-        name: ${{ matrix.workspace }} typecheck + lint
+        name: ${{ matrix.workspace }} typecheck + lint + format
         needs: changes
         runs-on: depot-ubuntu-latest
         timeout-minutes: 10
@@ -82,30 +83,22 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
-
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
 
             - name: Typecheck
               run: pnpm --filter="${{ matrix.workspace }}" typescript:check
 
             - name: Lint
               run: pnpm --filter="${{ matrix.workspace }}" lint
+
+            # The agent Node workspaces own their own oxfmt check, run per-workspace
+            # against the same root .oxfmtrc.json, so a service is format-gated by its
+            # own CI rather than relying on the repo-wide frontend formatting job.
+            - name: Format
+              run: pnpm --filter="${{ matrix.workspace }}" format:check
 
     unit-tests:
         if: needs.changes.outputs.agents == 'true'
@@ -156,32 +149,47 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
 
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
-
+            # Schema is Django-owned (the agent_platform product DB). The test DB
+            # is created fresh and migrated by Django below; `reset()` then only
+            # truncates between cases (see persistence/test-reset.ts). This is the
+            # single source of truth — no hand-maintained SQL snapshot to drift.
             - name: Create empty test database
-              # Schema lives in @posthog/agent-migrations; tests call
-              # `reset()` per file (see vitest.config.ts fileParallelism:false)
-              # so we just need an empty DB to drop into.
               run: |
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS agent_runtime_queue_test;"
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE agent_runtime_queue_test;"
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Migrate agent_platform schema into the test DB
+              # Single source of truth: apply the Django agent_platform migrations
+              # to the test DB. PRODUCT_DB_AGENT_PLATFORM_WRITER_URL points the
+              # `agent_platform_db_writer` alias at it; migrate agent_platform --database
+              # agent_platform_db_writer then applies just the agent_platform app.
+              env:
+                  DEBUG: '1'
+                  PRODUCT_DB_AGENT_PLATFORM_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+                  PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: '0'
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv run python manage.py migrate agent_platform --database agent_platform_db_writer
 
             - name: Run unit tests
               run: pnpm --filter="${{ matrix.workspace }}" test
@@ -219,31 +227,42 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-agents.yml
+                  install-command: pnpm --filter='@posthog/agent-tests...' install --frozen-lockfile
 
-            - name: Install dependencies
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter='@posthog/agent-tests...' install --frozen-lockfile
-
+            # Schema is Django-owned (the agent_platform product DB). The test DB
+            # is created fresh and migrated by Django below; the harness's
+            # `reset()` then only truncates between cases. Single source of truth.
             - name: Create empty test database
-              # Schema lives in @posthog/agent-migrations; the test harness
-              # calls reset() per case, so we just need a fresh DB.
               run: |
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS agent_runtime_queue_test;"
                   docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE agent_runtime_queue_test;"
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Migrate agent_platform schema into the test DB
+              env:
+                  DEBUG: '1'
+                  PRODUCT_DB_AGENT_PLATFORM_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+                  PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: '0'
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv run python manage.py migrate agent_platform --database agent_platform_db_writer
 
             - name: Run e2e tests
               run: pnpm --filter=@posthog/agent-tests test

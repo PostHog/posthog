@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react'
+import type { ReactNode } from 'react'
 
 import type { ChartTheme, Series } from '../../core/types'
 import { applyHiddenSeries, useChartLegend } from './useChartLegend'
@@ -40,6 +41,12 @@ describe('useChartLegend', () => {
         const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true }))
         expect(result.current.legendProps.items.map((i) => i.key)).toEqual(['a', 'b', 'c'])
         expect(result.current.legendProps.show).toBe(true)
+    })
+
+    it('forwards config.renderItem onto legendProps', () => {
+        const renderItem = (node: ReactNode): ReactNode => node
+        const { result } = renderHook(() => useChartLegend(SERIES, THEME, { show: true, renderItem }))
+        expect(result.current.legendProps.renderItem).toBe(renderItem)
     })
 
     it('toggles a series off then back on in uncontrolled mode, keeping it in the legend', () => {

@@ -18,7 +18,7 @@ from clickhouse_pool import ChPool
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
 
 class _LazyDagsterLogger:
@@ -44,7 +44,14 @@ logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    # The test ClickHouse is a single node: ON CLUSTER only adds distributed-DDL keeper
+    # round-trips (tens of ms per statement) without changing the outcome, and tests issue
+    # DDL in bulk (session-start CREATEs, per-test TRUNCATEs), so render no clause there.
+    # If a call site ever needs to exercise real ON CLUSTER SQL under TEST, thread an
+    # allow-in-test flag through here.
+    if on_cluster and not TEST:
+        return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    return ""
 
 
 # Smoke-test only: when migrating against the multinode docker-compose stack
@@ -62,6 +69,7 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-aux": ("localhost", 9200),
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
+    "clickhouse-logs": ("localhost", 9500),
 }
 
 
@@ -577,6 +585,18 @@ def redact_sql_secrets(sql: str) -> str:
     return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
 
 
+# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
+# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
+# its VALUES inline — floods them. The head is enough to identify the statement.
+_MAX_QUERY_REPR_LEN = 1500
+
+
+def _truncate_query(query: str) -> str:
+    if len(query) <= _MAX_QUERY_REPR_LEN:
+        return query
+    return f"{query[:_MAX_QUERY_REPR_LEN]}… ({len(query) - _MAX_QUERY_REPR_LEN} more chars truncated)"
+
+
 def _redact_parameters(parameters: Any) -> Any:
     if isinstance(parameters, Mapping):
         return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
@@ -595,7 +615,7 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
-        query = redact_sql_secrets(self.query)
+        query = _truncate_query(redact_sql_secrets(self.query))
         if self.parameters and isinstance(self.parameters, list):
             shown = _redact_parameters(self.parameters[:50])
             params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"

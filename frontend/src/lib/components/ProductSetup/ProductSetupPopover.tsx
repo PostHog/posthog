@@ -3,13 +3,14 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
+import { IconCheck, IconExternal, IconLock, IconSparkles, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -133,6 +134,10 @@ export function ProductSetupPopover({
     const setupTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'setup')
     const onboardingTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'onboarding')
     const exploreTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'explore')
+    const aiTasks = (tasksWithState as SetupTaskWithState[]).filter((t) => t.taskType === 'ai')
+
+    // Skip the rainbow animation in Storybook so visual-regression snapshots don't flake on the moving gradient.
+    const aiTitleClassName = `rainbow-text${inStorybook() || inStorybookTestRunner() ? '' : ' rainbow-text-animating'}`
 
     const productName = config?.title.replace('Get started with ', '') || ''
 
@@ -288,6 +293,21 @@ export function ProductSetupPopover({
                                                         </LemonButton>
                                                     ) : undefined
                                                 }
+                                            />
+                                        )}
+
+                                        {aiTasks.length > 0 && (
+                                            <TaskSection
+                                                title="AI"
+                                                tasks={aiTasks}
+                                                onTaskClick={handleTaskClick}
+                                                onSkip={handleSkip}
+                                                onUnskip={handleUnskip}
+                                                onMarkComplete={handleMarkComplete}
+                                                onUnmarkComplete={handleUnmarkComplete}
+                                                onHover={handleTaskHover}
+                                                titleClassName={aiTitleClassName}
+                                                titleIcon={<IconSparkles className="size-3 shrink-0 text-warning" />}
                                             />
                                         )}
                                     </>
@@ -537,6 +557,8 @@ interface TaskSectionProps {
     onUnmarkComplete?: (e: React.MouseEvent, taskId: SetupTaskId) => void
     onHover?: (task: SetupTaskWithState | null, element?: HTMLElement) => void
     actionButton?: React.ReactNode
+    titleClassName?: string
+    titleIcon?: React.ReactNode
 }
 
 function TaskSection({
@@ -549,13 +571,18 @@ function TaskSection({
     onUnmarkComplete,
     onHover,
     actionButton,
+    titleClassName,
+    titleIcon,
 }: TaskSectionProps): JSX.Element {
     const completedCount = tasks.filter((t) => t.completed || t.skipped).length
 
     return (
         <div className="py-1" role="group" aria-label={`${title} (${completedCount} of ${tasks.length} complete)`}>
             <div className="px-3 py-1 flex items-center justify-between">
-                <span className="text-[10px] font-semibold text-muted uppercase tracking-wider">{title}</span>
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider">
+                    {titleIcon}
+                    <span className={titleClassName ?? 'text-muted'}>{title}</span>
+                </span>
                 {actionButton}
             </div>
             <div role="list">

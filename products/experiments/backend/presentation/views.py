@@ -13,14 +13,13 @@ import asyncio
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.db.models import Prefetch, QuerySet
+from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
-import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
-from rest_framework import viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework import serializers, viewsets
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -29,8 +28,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.models.filters.filter import Filter
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -39,11 +37,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
@@ -51,11 +51,14 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
+    ArchiveExperimentSerializer,
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
+    ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
@@ -63,6 +66,7 @@ from products.experiments.backend.presentation.serializers import (
 )
 from products.experiments.backend.recalculation import (
     build_job_payload,
+    build_timeseries_cold_start_payload,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
@@ -84,25 +88,60 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from products.tasks.backend.facade.access import has_tasks_access
 
 tracer = trace.get_tracer(__name__)
 
-PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
+# Heavy JSON columns the list view never renders. Deferred for the list action so large
+# pages don't pay to read/decode detail-only data; the full serializer still loads them
+# for retrieve/update. None of these are touched by the list filters or status derivation.
+LIST_DEFERRED_FIELDS = (
+    "metrics",
+    "metrics_secondary",
+    "secondary_metrics",
+    "exposure_criteria",
+    "stats_config",
+    "scheduling_config",
+    "filters",
+    "primary_metrics_ordered_uuids",
+    "secondary_metrics_ordered_uuids",
+)
+
+# The viewset's `list` method shadows the builtin `list` in the class namespace, so a
+# `list[str]` annotation there resolves to that method (a runtime crash, and a mypy error).
+# Reference this module-level alias instead.
+RequiredScopes = list[str]
 
 
-def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
-    distinct_id = user.distinct_id or str(user.uuid)
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    return posthoganalytics.feature_enabled(
-        PROMPT_EXPERIMENTS_FEATURE_FLAG,
-        distinct_id,
-        groups={"organization": organization_id, "project": project_id},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
+def flag_evaluation_contexts_prefetch() -> Prefetch:
+    return Prefetch(
+        "feature_flag__flag_evaluation_contexts",
+        queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+    )
+
+
+def list_is_legacy_annotation() -> Case:
+    """DB-side `is_legacy` for the list endpoint, mirroring ``experiment_has_legacy_metrics`` in SQL.
+
+    The list serializer omits metrics, so it can't compute legacy-ness in Python without
+    re-reading the deferred JSON columns (one query per row). Instead we annotate the flag in the
+    single list query: a JSONB containment check on the inline metrics plus an ``EXISTS`` over the
+    saved metrics. The metric columns are referenced only in the predicate, so they stay out of the
+    SELECT output and the response — the deferral still holds.
+    """
+    inline_legacy = Q()
+    for kind in LEGACY_METRIC_KINDS:
+        inline_legacy |= Q(metrics__contains=[{"kind": kind}]) | Q(metrics_secondary__contains=[{"kind": kind}])
+    saved_legacy = Exists(
+        ExperimentToSavedMetric.objects.filter(
+            experiment=OuterRef("pk"),
+            saved_metric__query__kind__in=LEGACY_METRIC_KINDS,
+        )
+    )
+    return Case(
+        When(inline_legacy | saved_legacy, then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
     )
 
 
@@ -146,12 +185,18 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
+    # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
+    # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
-        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.",
+        request=ExperimentWriteSerializer,
     ),
+    # PUT /experiments/{id}/, same request shape as PATCH
+    update=extend_schema(request=ExperimentWriteSerializer),
     # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
+        request=ExperimentWriteSerializer,
     ),
     # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
     retrieve=extend_schema(
@@ -165,12 +210,13 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 name="status",
                 location=OpenApiParameter.QUERY,
                 type=str,
-                enum=["draft", "running", "paused", "stopped", "complete", "all"],
+                enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
                 description=(
-                    'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns '
-                    'launched experiments with an active feature flag, "paused" returns launched experiments whose '
-                    'feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status '
-                    "filtering."
+                    'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
+                    '"running" returns launched experiments with an active feature flag, "paused" returns launched '
+                    'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
+                    "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
+                    'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
                 ),
                 required=False,
             ),
@@ -262,10 +308,7 @@ class EnterpriseExperimentsViewSet(
             "holdout__created_by",
         )
         .prefetch_related(
-            Prefetch(
-                "feature_flag__flag_evaluation_contexts",
-                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-            ),
+            flag_evaluation_contexts_prefetch(),
             Prefetch(
                 # order_by("id") keeps saved metrics in insertion order — select_related below adds
                 # joins that would otherwise leave the row order unspecified.
@@ -279,6 +322,13 @@ class EnterpriseExperimentsViewSet(
     )
     ordering = "-created_at"
 
+    def get_serializer_class(self):
+        # The list view renders only scalar/flag fields; use the lightweight serializer so the
+        # heavy metric fields (and their prefetch/fingerprinting) are skipped — see safely_get_queryset.
+        if self.action == "list":
+            return ExperimentBasicSerializer
+        return ExperimentSerializer
+
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return super().list(request, *args, **kwargs)
@@ -286,6 +336,17 @@ class EnterpriseExperimentsViewSet(
     @tracer.start_as_current_span("ExperimentViewSet.safely_get_queryset")
     def safely_get_queryset(self, queryset) -> QuerySet:
         request = getattr(self, "request", None)
+        if self.action == "list":
+            # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
+            # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
+            # own values_list/queries, so it is unaffected by the defer. is_legacy is computed in
+            # SQL (see list_is_legacy_annotation) so the badge/guards survive without loading metrics.
+            queryset = (
+                queryset.prefetch_related(None)
+                .prefetch_related(flag_evaluation_contexts_prefetch())
+                .defer(*LIST_DEFERRED_FIELDS)
+                .annotate(is_legacy_annotation=list_is_legacy_annotation())
+            )
         service = ExperimentService(team=self.team, user=getattr(request, "user", None))
         return service.filter_experiments_queryset(
             queryset,
@@ -294,20 +355,51 @@ class EnterpriseExperimentsViewSet(
             request_data=getattr(request, "data", None),
         )
 
-    # ******************************************
-    # /projects/:id/experiments/requires_flag_implementation
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=False, required_scopes=["experiment:read"])
-    def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
+        # Archiving with disable_feature_flag=true also disables and archives the linked flag,
+        # which is a feature_flag write — require feature_flag:write on the token, not just
+        # experiment:write. Other actions fall back to their own scopes.
+        if self.action == "archive":
+            scopes = ["experiment:write"]
+            # Use DRF's own truthy set so this matches how ArchiveExperimentSerializer parses the field.
+            if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("feature_flag:write")
+            return scopes
+        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # request. Starting a task is a task write, so require task:write on the token, not
+        # just experiment:write.
+        if self.action in ("end", "ship_variant"):
+            scopes = ["experiment:write"]
+            if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("task:write")
+            return scopes
+        return None
 
-        warning = requires_flag_warning(filter, self.team)
+    def _check_cleanup_pr_access(self, request: Request) -> None:
+        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        scope only gates token auth (see dangerously_get_required_scopes); session auth
+        has no scopes, so gate every caller on PostHog Code product access instead."""
+        if not has_tasks_access(cast(User, request.user)):
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
 
-        return Response({"result": warning})
+    def _token_can_write_feature_flag(self, request: Request) -> bool:
+        """Whether the request's token carries feature_flag:write.
+
+        Archiving/unarchiving an experiment can touch the linked flag's archived/active
+        state as a side effect; that is a feature_flag write and must not be reachable with
+        only experiment:write. Session and other non-token auth aren't scope-limited (gated by
+        access control instead), mirroring APIScopePermission.
+        """
+        authenticator = request.successful_authenticator
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scopes = authenticator.personal_api_key.scopes or []
+        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scopes = (authenticator.access_token.scope or "").split()
+        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
+            scopes = list(authenticator.scopes or [])
+        else:
+            return True
+        return "*" in scopes or "feature_flag:write" in scopes
 
     @extend_schema(
         request=None,
@@ -329,21 +421,32 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        request=None,
+        request=ArchiveExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes — disabling the linked
+    # flag additionally requires feature_flag:write.
+    @action(methods=["POST"], detail=True)
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Archive an ended experiment.
 
         Hides the experiment from the default list view. The experiment can be
-        restored at any time by updating archived=false. Returns 400 if the
-        experiment is already archived or has not ended yet.
+        restored at any time by updating archived=false. When the linked feature
+        flag is still enabled, pass disable_feature_flag=true to also disable and
+        archive it. Returns 400 if the experiment is already archived or has not
+        ended yet.
         """
         experiment: Experiment = self.get_object()
+        request_serializer = ArchiveExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
         service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(experiment, request=request)
+        archived_experiment = service.archive_experiment(
+            experiment,
+            disable_feature_flag=request_serializer.validated_data["disable_feature_flag"],
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
+            request=request,
+        )
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
@@ -360,14 +463,20 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        unarchived_experiment = service.unarchive_experiment(experiment, request=request)
+        unarchived_experiment = service.unarchive_experiment(
+            experiment,
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
+            request=request,
+        )
         return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=EndExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True)
     def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         End a running experiment without shipping a variant.
@@ -396,11 +505,14 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -409,7 +521,9 @@ class EnterpriseExperimentsViewSet(
         request=ShipVariantSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True, url_path="ship_variant")
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Ship a variant and (optionally) end the experiment.
@@ -436,6 +550,8 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,
@@ -443,6 +559,7 @@ class EnterpriseExperimentsViewSet(
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -485,6 +602,51 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         resumed_experiment = service.resume_experiment(experiment, request=request)
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def freeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Freeze exposure on a running experiment while metrics keep flowing.
+
+        Snapshots the already-exposed users into a static cohort and narrows the
+        linked feature flag so only those users keep matching — new users can no
+        longer enter the experiment. ``end_date`` is left null so long-term metrics
+        (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+        their assigned variant. The serialized status becomes 'exposure_frozen'.
+
+        Returns 400 if the experiment is not running, exposure is already frozen,
+        the experiment is group-aggregated (group flags cannot be frozen with a
+        person cohort), or the exposed set is too large to snapshot synchronously.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        frozen_experiment = service.freeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unfreeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reopen enrollment on an exposure-frozen experiment.
+
+        Removes the snapshot-cohort condition and freeze markers from every release
+        group, restoring the flag's original targeting: new users can enroll again
+        and already-enrolled users keep their assigned variant. The snapshot cohort
+        is soft-deleted. The serialized status returns to 'running'.
+
+        Returns 400 if the experiment is not running or its exposure is not frozen.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(unfrozen_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,
@@ -557,9 +719,6 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -636,9 +795,6 @@ class EnterpriseExperimentsViewSet(
     )
     def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the LLM metric templates that can be passed to `create_from_prompt`."""
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         return Response(list_templates())
 
     @extend_schema(
@@ -888,7 +1044,7 @@ class EnterpriseExperimentsViewSet(
                         "experiment-metrics-recalculation-workflow",
                         MetricsRecalcInputs(recalculation_id=recalculation_id),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
             except Exception:
@@ -915,9 +1071,14 @@ class EnterpriseExperimentsViewSet(
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
         recalc = get_latest_recalculation(experiment)
-        if recalc is None:
-            return Response({"detail": "No completed recalculation found"}, status=404)
-        return Response(_serialize_recalculation(recalc))
+        if recalc is not None:
+            return Response(_serialize_recalculation(recalc))
+        # Cold start: no completed run yet. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately. Pure read, no workflow start.
+        fallback = build_timeseries_cold_start_payload(experiment)
+        if fallback is not None:
+            return Response(ExperimentMetricsRecalculationSerializer(fallback).data)
+        return Response({"detail": "No completed recalculation found"}, status=404)
 
     @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
     @action(
@@ -1011,6 +1172,6 @@ def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
     `results` field — recomputing per-metric fingerprints once per request is enough.
     """
     results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results)
+    payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
     return ExperimentMetricsRecalculationSerializer(payload).data

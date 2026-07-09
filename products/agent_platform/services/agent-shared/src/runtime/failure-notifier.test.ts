@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 import {
     categorize,
     FailureNotifier,
@@ -8,6 +8,7 @@ import {
     TriggerAwareFailureNotifier,
     userFacingMessage,
 } from './failure-notifier'
+import type { TriggerMetadata } from './trigger-metadata'
 
 const APP: AgentApplication = {
     id: 'app-1',
@@ -17,10 +18,22 @@ const APP: AgentApplication = {
     description: '',
     live_revision_id: null,
     archived: false,
+}
+
+const REV: AgentRevision = {
+    id: 'rev-1',
+    application_id: APP.id,
+    parent_revision_id: null,
+    created_by_id: null,
+    created_at: new Date().toISOString(),
+    state: 'live',
+    bundle_uri: 's3://x/',
+    bundle_sha256: null,
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: null,
 }
 
-function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSession {
+function makeSession(triggerMetadata: TriggerMetadata | null): AgentSession {
     return {
         id: 'sess-1',
         application_id: APP.id,
@@ -68,6 +81,11 @@ describe('categorize', () => {
         ['tool threw at dispatcher', 'tool_error'],
         ['tool_call_failed: timeout', 'tool_error'],
         ['sandbox timeout after 30s', 'transient_infra'], // sandbox keyword wins → infra
+
+        ['client_tool_unsupported:connect_mcp', 'capability_mismatch'],
+        ['Error: client_tool_unsupported:set_secret', 'capability_mismatch'],
+
+        ['client_tool_dispatcher_unavailable:focus', 'configuration'],
     ])('"%s" → %s', (reason, expected) => {
         expect(categorize(reason)).toBe(expected)
     })
@@ -84,12 +102,20 @@ describe('userFacingMessage', () => {
         expect(userFacingMessage('configuration')).toMatch(/owner/i)
         expect(userFacingMessage('quota_exhausted')).toMatch(/limit/i)
         expect(userFacingMessage('tool_error')).toMatch(/tool/i)
+        expect(userFacingMessage('capability_mismatch')).toMatch(/client/i)
         expect(userFacingMessage('unknown')).toMatch(/wasn't able/i)
     })
 
     it('never contains raw infra detail', () => {
         // Sanitization invariant: messages must not mention docker, MCP, kafka, etc.
-        for (const cat of ['transient_infra', 'configuration', 'quota_exhausted', 'tool_error', 'unknown'] as const) {
+        for (const cat of [
+            'transient_infra',
+            'configuration',
+            'quota_exhausted',
+            'tool_error',
+            'capability_mismatch',
+            'unknown',
+        ] as const) {
             const msg = userFacingMessage(cat)
             expect(msg.toLowerCase()).not.toMatch(/docker|kafka|redis|postgres|mcp|stack/i)
         }
@@ -100,7 +126,7 @@ describe('NoopFailureNotifier', () => {
     it('returns without doing anything', async () => {
         const n = new NoopFailureNotifier()
         await expect(
-            n.notify({ session: makeSession(null), application: APP, reason: 'x', category: 'unknown' })
+            n.notify({ session: makeSession(null), application: APP, revision: REV, reason: 'x', category: 'unknown' })
         ).resolves.toBeUndefined()
     })
 })
@@ -112,13 +138,14 @@ describe('TriggerAwareFailureNotifier', () => {
         }
     }
 
-    it('dispatches by trigger_metadata.type', async () => {
+    it('dispatches by trigger_metadata.kind', async () => {
         const slack = makeSub()
         const webhook = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack, webhook })
         await n.notify({
-            session: makeSession({ type: 'slack', channel: 'C1', thread_ts: '123' }),
+            session: makeSession({ kind: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: '123' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -129,22 +156,30 @@ describe('TriggerAwareFailureNotifier', () => {
     it('no-ops when trigger_metadata is null', async () => {
         const slack = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack })
-        await n.notify({ session: makeSession(null), application: APP, reason: 'x', category: 'unknown' })
+        await n.notify({
+            session: makeSession(null),
+            application: APP,
+            revision: REV,
+            reason: 'x',
+            category: 'unknown',
+        })
         expect(slack.notify).not.toHaveBeenCalled()
     })
 
-    it('no-ops when trigger_metadata.type is missing or unregistered', async () => {
+    it('no-ops when trigger_metadata.kind is unregistered', async () => {
         const slack = makeSub()
         const n = new TriggerAwareFailureNotifier({ slack })
         await n.notify({
-            session: makeSession({ channel: 'C1' }),
+            session: makeSession({ kind: 'chat' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
         await n.notify({
-            session: makeSession({ type: 'discord' }),
+            session: makeSession({ kind: 'mcp' }),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -161,8 +196,9 @@ describe('TriggerAwareFailureNotifier', () => {
         const n = new TriggerAwareFailureNotifier({ slack }, logger)
         await expect(
             n.notify({
-                session: makeSession({ type: 'slack' }),
+                session: makeSession({ kind: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: '123' }),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })

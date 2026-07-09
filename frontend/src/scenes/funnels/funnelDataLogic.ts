@@ -17,7 +17,7 @@ import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'sce
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
-import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -43,14 +43,21 @@ import {
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import {
     TIME_INTERVAL_BOUNDS,
+    aggregateBreakdownCompareResult,
     aggregateBreakdownResult,
+    aggregateFunnelCompareResult,
     aggregationLabelForHogQL,
+    dimPreviousPeriodColor,
     flattenedStepsByBreakdown,
+    flattenedStepsByBreakdownCompare,
+    flattenedStepsByCompare,
     getIncompleteConversionWindowStartDate,
     getLastFilledStep,
     getReferenceStep,
     getVisibilityKey,
     isBreakdownFunnelResults,
+    isFunnelStepsBreakdownCompareResult,
+    isFunnelStepsCompareResult,
     isFunnelWithEnoughSteps,
     isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
@@ -173,6 +180,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'insightDataError',
                 'getTheme',
                 'showLegend',
+                'legendPosition',
                 'showValuesOnSeries',
                 'hasDataWarehouseSeries',
                 'labelGroupType',
@@ -337,6 +345,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.breakdownFilter,
                 s.results,
                 s.isTimeToConvertFunnel,
+                s.isStepsFunnel,
             ],
             (
                 insightData,
@@ -344,7 +353,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 querySource,
                 breakdownFilter,
                 results,
-                isTimeToConvertFunnel
+                isTimeToConvertFunnel,
+                isStepsFunnel
             ): FunnelStepWithNestedBreakdown[] => {
                 if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return []
@@ -353,10 +363,23 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // we need to check wether results are an array, since isTimeToConvertFunnel can be false,
                 // while still having "time-to-convert" results in insightData
                 if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
+                    // STEPS compare: the runner returns both periods' steps as a flat tagged list.
+                    // Reshape into one step per order with current+previous as nested bars. Trends
+                    // also tags rows with compare_label but renders via indexedSteps, so gate on STEPS.
+                    if (isStepsFunnel && isFunnelStepsCompareResult(results)) {
+                        return aggregateFunnelCompareResult(results)
+                    }
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
                             ? breakdownFilter?.breakdowns.map((b) => b.property).join('::')
                             : (breakdownFilter?.breakdown ?? undefined)
+                        // Breakdown + compare: pair each breakdown value's current and previous
+                        // funnels so the grouped bars share a color (previous desaturated). Must
+                        // precede the plain breakdown path, which would otherwise treat each period
+                        // as an independent breakdown value (and double-count the step aggregate).
+                        if (isStepsFunnel && isFunnelStepsBreakdownCompareResult(results)) {
+                            return aggregateBreakdownCompareResult(results, breakdownProperty)
+                        }
                         return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
                     }
                     return results.sort((a, b) => a.order - b.order)
@@ -397,6 +420,23 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }))
             },
         ],
+        // True when STEPS results carry compare-tagged nested bars (current + previous per step).
+        // Compare reshapes the data to look like a 2-value breakdown, so the breakdown baseline /
+        // visibility machinery must be bypassed for it.
+        isComparedFunnel: [
+            (s) => [s.steps],
+            (steps): boolean =>
+                Array.isArray(steps) &&
+                steps.some((step) => step.nested_breakdown?.some((series) => series.compare_label != null)),
+        ],
+        // True when a compared funnel also carries real breakdown values (breakdown × compare), as
+        // opposed to a pure compare funnel whose current/previous bars are not breakdown values.
+        // Pure compare is then `isComparedFunnel && !isBreakdownCompareFunnel`: the former bypasses the
+        // breakdown machinery entirely, the latter keeps it (table, hidden legend) around the grouped bars.
+        isBreakdownCompareFunnel: [
+            (s) => [s.results, s.isStepsFunnel],
+            (results, isStepsFunnel): boolean => !!isStepsFunnel && isFunnelStepsBreakdownCompareResult(results),
+        ],
         stepsWithConversionMetrics: [
             (s) => [s.steps, s.funnelsFilter, s.querySource],
             (
@@ -426,14 +466,25 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.funnelsFilter,
                 s.disableFunnelBreakdownBaseline,
                 s.breakdownSorting,
+                s.isComparedFunnel,
+                s.isBreakdownCompareFunnel,
             ],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 funnelsFilter: FunnelsFilter | null | undefined,
                 disableBaseline: boolean,
-                breakdownSorting: string | undefined
+                breakdownSorting: string | undefined,
+                isComparedFunnel: boolean,
+                isBreakdownCompareFunnel: boolean
             ): FlattenedFunnelStepByBreakdown[] => {
-                const breakdowns = flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
+                // Pure compare's current/previous bars are not breakdown values — one baseline row
+                // per period. Breakdown × compare doubles every row into interleaved period pairs.
+                const breakdowns =
+                    isComparedFunnel && !isBreakdownCompareFunnel
+                        ? flattenedStepsByCompare(steps)
+                        : isBreakdownCompareFunnel
+                          ? flattenedStepsByBreakdownCompare(steps, funnelsFilter?.layout, disableBaseline)
+                          : flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
                 if (!breakdownSorting) {
                     return breakdowns
                 }
@@ -457,13 +508,72 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         resultCustomizations: [(s) => [s.funnelsFilter], (funnelsFilter) => funnelsFilter?.resultCustomizations],
         visibleStepsWithConversionMetrics: [
-            (s) => [s.stepsWithConversionMetrics, s.flattenedBreakdowns, s.hiddenLegendBreakdowns],
+            (s) => [
+                s.stepsWithConversionMetrics,
+                s.flattenedBreakdowns,
+                s.hiddenLegendBreakdowns,
+                s.isComparedFunnel,
+                s.isBreakdownCompareFunnel,
+            ],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
-                hiddenLegendBreakdowns: string[] | undefined
+                hiddenLegendBreakdowns: string[] | undefined,
+                isComparedFunnel: boolean,
+                isBreakdownCompareFunnel: boolean
             ): FunnelStepWithConversionMetrics[] => {
-                const isOnlySeries = flattenedBreakdowns.length <= 1
+                // Pure compare already shaped nested_breakdown into [current, previous]; skip the
+                // breakdown baseline-prepend / hidden-legend reordering, which assumes real breakdowns.
+                if (isComparedFunnel && !isBreakdownCompareFunnel) {
+                    return steps
+                }
+                // Count values, not rows — compare doubles rows per period, and a single-value
+                // breakdown × compare funnel must not flip into multi-series hidden-legend filtering.
+                const isOnlySeries = flattenedBreakdowns.filter((b) => b.compare_label !== 'previous').length <= 1
+                // Breakdown + compare: draw the per-period baseline pair (kept in flattenedBreakdowns)
+                // as the leading grouped bars — same as the plain-breakdown path below — and shift every
+                // real value's color position past the baseline's single slot so the chart bar colors
+                // line up with the detailed-results table. Preserve the grouped current/previous pairing
+                // and per-value orders (both periods of a value share one order, hence one color).
+                if (isBreakdownCompareFunnel) {
+                    const baselineRows = flattenedBreakdowns.filter((b) => b.isBaseline)
+                    // Offset stays 1 while the baseline is merely hidden, so the remaining values keep
+                    // their color positions when the baseline is toggled — same as the plain-breakdown
+                    // path, which assigns orders before filtering.
+                    const baselineOffset = baselineRows.length > 0 ? 1 : 0
+                    // Size each baseline bar by its period's share of the larger period (the larger fills,
+                    // the smaller is proportionally shorter) — matching how the value and pure-compare bars
+                    // are scaled, so the previous baseline isn't drawn at full height.
+                    const compareBasis = Math.max(0, ...baselineRows.map((row) => row.steps?.[0]?.count ?? 0))
+                    const visibleBaselineRows = baselineRows.filter(
+                        (row) =>
+                            isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(row.breakdown_value))
+                    )
+                    return steps.map((step, stepIndex) => {
+                        const baselineEntries = visibleBaselineRows
+                            .map((row) => row.steps?.[stepIndex])
+                            .filter((s): s is FunnelStepWithConversionMetrics => s != null)
+                            .map((s) => ({
+                                ...s,
+                                order: 0,
+                                conversionRates: {
+                                    ...s.conversionRates,
+                                    fromBasisStep: compareBasis > 0 ? s.count / compareBasis : 0,
+                                },
+                            }))
+                        const valueEntries = (step.nested_breakdown ?? [])
+                            .filter(
+                                (b) =>
+                                    isOnlySeries ||
+                                    !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                            )
+                            .map((b) => ({ ...b, order: (b.order ?? 0) + baselineOffset }))
+                        return {
+                            ...step,
+                            nested_breakdown: [...baselineEntries, ...valueEntries],
+                        }
+                    })
+                }
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
 
                 // Build a breakdown order lookup from flattenedBreakdowns (already sorted
@@ -572,12 +682,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         conversionMetrics: [
-            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults],
-            (steps, funnelsFilter, timeConversionResults): FunnelTimeConversionMetrics => {
+            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults, s.insightData],
+            (steps, funnelsFilter, timeConversionResults, insightData): FunnelTimeConversionMetrics => {
                 // steps should be empty in time conversion view. Return metrics precalculated on backend
                 if (funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
                     return {
-                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        medianTime: timeConversionResults?.median_conversion_time ?? null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -586,7 +696,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // Handle metrics for trends
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
                     return {
-                        averageTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
@@ -596,7 +706,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // no concept of funnel_from_step and funnel_to_step here
                 if (steps.length <= 1) {
                     return {
-                        averageTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -606,10 +716,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const fromStep = getReferenceStep(steps, FunnelStepReference.total)
 
                 return {
-                    averageTime: steps.reduce(
-                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
-                        0
-                    ),
+                    // The median of the total funnel time isn't the sum of per-step medians, so it's
+                    // computed breakdown-agnostically on the backend and carried as a top-level field.
+                    medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? null,
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
                     totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
                 }
@@ -756,7 +865,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (getFunnelsColorToken) => {
                 return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
-                    return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                    const color = colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                    // Current/previous compare bars share a color token (no breakdown_value), so the
+                    // previous-period bar is dimmed here to distinguish it — same treatment as trends.
+                    return (dataset as FunnelStepWithConversionMetrics).compare_label === 'previous'
+                        ? dimPreviousPeriodColor(color)
+                        : color
                 }
             },
         ],

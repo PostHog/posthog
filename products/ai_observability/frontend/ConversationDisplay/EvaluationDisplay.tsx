@@ -1,52 +1,36 @@
-import { IconCheck, IconMinus, IconX } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { lowercaseFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { EventType } from '~/types'
 
+import { EvaluationResultTag } from '../components/EvaluationResultTag'
 import { MetadataTag } from '../components/MetadataTag'
+import { normalizeEvaluationResultProperties } from '../utils'
 
 export function EvaluationDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
-    const rawResult = eventProperties.$ai_evaluation_result
-    const rawApplicable = eventProperties.$ai_evaluation_applicable
-    // Check if result is explicitly true (handles both boolean and string 'true')
-    const isPass = rawResult === true || rawResult === 'true'
-    // N/A when backend explicitly sets applicable to false (handle string 'false' from HogQL)
-    const isNA = rawApplicable === false || rawApplicable === 'false'
     const reasoning = eventProperties.$ai_evaluation_reasoning
     const evaluationName = eventProperties.$ai_evaluation_name
     const model = eventProperties.$ai_model ?? eventProperties.$ai_evaluation_model
     const traceId = eventProperties.$ai_trace_id
     const targetEventId = eventProperties.$ai_target_event_id
-
-    const renderResultTag = (): JSX.Element => {
-        if (isNA) {
-            return (
-                <LemonTag type="muted" icon={<IconMinus />}>
-                    N/A
-                </LemonTag>
-            )
-        }
-        if (isPass) {
-            return (
-                <LemonTag type="success" icon={<IconCheck />}>
-                    True
-                </LemonTag>
-            )
-        }
-        return (
-            <LemonTag type="danger" icon={<IconX />}>
-                False
-            </LemonTag>
-        )
+    const resultRun = {
+        status: 'completed' as const,
+        ...normalizeEvaluationResultProperties({
+            rawResult: eventProperties.$ai_evaluation_result,
+            rawApplicable: eventProperties.$ai_evaluation_applicable,
+            rawEvaluationType: eventProperties.$ai_evaluation_runtime,
+            rawResultType: eventProperties.$ai_evaluation_result_type,
+            rawSentimentLabel: eventProperties.$ai_sentiment_label,
+            rawSentimentScore: eventProperties.$ai_sentiment_score,
+        }),
     }
 
     return (
         <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-                {renderResultTag()}
+                <EvaluationResultTag run={resultRun} />
                 {evaluationName && (
                     <MetadataTag label="Evaluation" textToCopy={evaluationName}>
                         {evaluationName}

@@ -24,10 +24,9 @@ from django.db.models import QuerySet
 
 from posthog.models.team import Team
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -37,6 +36,9 @@ if TYPE_CHECKING:
 # ``devex_eng_analytics`` the pull-requests table is ``devex_eng_analyticsgithub_pull_requests``.
 PULL_REQUESTS_SCHEMA = "pull_requests"
 WORKFLOW_RUNS_SCHEMA = "workflow_runs"
+# Job-level CI (queue time, per-job duration, runner tier). Optional — the source/sync lands
+# separately, so reads must degrade gracefully (no jobs) rather than require it like the pair above.
+WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
@@ -51,6 +53,8 @@ class GitHubTables:
 
     pull_requests: str
     workflow_runs: str
+    # Optional: present only once the job-level source is synced; None means "no jobs data".
+    workflow_jobs: str | None = None
 
 
 def resolve_github_tables(
@@ -78,8 +82,19 @@ def resolve_github_tables(
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
+        # Both endpoints are required together, by design: every read surface (cards, PR list,
+        # lifecycle) joins workflow_runs for CI status and the push / re-run rollup, so a source
+        # with only pull_requests synced can't serve a complete result. The trade-off is that a
+        # half-synced source makes the whole product 400 (e.g. while workflow_runs is still
+        # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
+        # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
-            return GitHubTables(pull_requests=pull_requests, workflow_runs=workflow_runs)
+            # workflow_jobs is optional — included when synced, None otherwise (jobs degrade to empty).
+            return GitHubTables(
+                pull_requests=pull_requests,
+                workflow_runs=workflow_runs,
+                workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
+            )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
     raise GitHubSourceNotConnectedError()
@@ -141,7 +156,7 @@ def _synced_table_names(*, team: Team, source: ExternalDataSource) -> dict[str, 
             team_id=team.pk,
             source_id=source.id,
             should_sync=True,
-            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA),
+            name__in=(PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA),
         )
         .exclude(deleted=True)
         .select_related("table")

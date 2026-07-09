@@ -6,7 +6,7 @@ from typing import Any
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.notebooks.backend.util import (
+from products.notebooks.backend.facade.content import (
     TipTapContent,
     TipTapNode,
     create_bullet_list,

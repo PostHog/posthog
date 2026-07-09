@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 import yaml
 from parameterized import parameterized
 
-from products.tasks.backend.services.agentsh import (
+from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_AUDIT_DB,
     ENV_WRAPPER_SCRIPT,
     INFRASTRUCTURE_DOMAINS,
@@ -274,7 +274,7 @@ class TestBuildExecPrefix(TestCase):
 @override_settings(DEBUG=True, SANDBOX_PROVIDER="modal")
 class TestModalSandboxAgentShWrapping(TestCase):
     def test_command_without_domains_skips_agentsh_exec(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -291,8 +291,92 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 
+    @parameterized.expand(
+        [
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
+        ]
+    )
+    def test_command_includes_auto_publish_flag_only_when_opted_in(self, provider, auto_publish):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            auto_publish=auto_publish,
+        )
+        # Opt-out runs must not see the flag at all: agent-server builds without
+        # the option reject unknown flags, so appending it would break every run.
+        if auto_publish:
+            self.assertIn("--autoPublish true", cmd)
+        else:
+            self.assertNotIn("--autoPublish", cmd)
+
+    @parameterized.expand(
+        [
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
+        ]
+    )
+    def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+
+        # Snapshots restored from old images carry an agent-server that rejects unknown
+        # options; the launch probe must drop --autoPublish instead of crashing the run.
+        launched: list[str] = []
+
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if "--taskId" in command:
+                launched.append(command)
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            self.assertIn("grep", command)
+            return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+            sandbox._host_port = 8080
+        sandbox.id = "sb-test"
+        cast_sandbox: Any = sandbox
+        cast_sandbox.is_running = Mock(return_value=True)
+        cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
+        cast_sandbox._free_agent_server_port = Mock()
+        cast_sandbox.write_file = Mock()
+        cast_sandbox.execute = execute
+
+        sandbox.start_agent_server(
+            repository="org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            auto_publish=True,
+            wait_for_health=False,
+        )
+
+        self.assertEqual(len(launched), 1)
+        if supported:
+            self.assertIn("--autoPublish true", launched[0])
+        else:
+            self.assertNotIn("--autoPublish", launched[0])
+
     def test_command_includes_allowed_domains(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -310,7 +394,7 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("example.com,api.example.com", cmd)
 
     def test_command_includes_runtime_environment_variables(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         cmd = sandbox._build_agent_server_command(
@@ -330,8 +414,8 @@ class TestModalSandboxAgentShWrapping(TestCase):
         self.assertIn("POSTHOG_CODE_REASONING_EFFORT=high", cmd)
 
     def test_write_file_uses_filesystem_api_before_rename(self):
-        from products.tasks.backend.services.modal_sandbox import ModalSandbox
-        from products.tasks.backend.services.sandbox import ExecutionResult, SandboxConfig
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"

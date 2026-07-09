@@ -96,6 +96,22 @@ interface SlackCall {
     body: Record<string, unknown>
 }
 
+/** Slack tools send form-encoded bodies; the reply relay sends JSON. Parse
+ *  either into a plain object so assertions can read the fields. */
+function parseSlackBody(body: RequestInit['body']): Record<string, unknown> {
+    if (typeof body !== 'string') {
+        return {}
+    }
+    if (body.trimStart().startsWith('{')) {
+        try {
+            return JSON.parse(body) as Record<string, unknown>
+        } catch {
+            return {}
+        }
+    }
+    return Object.fromEntries(new URLSearchParams(body))
+}
+
 /** A recording `HttpClient` stand-in. The native `@posthog/slack-*` tools
  *  dispatch through `ctx.http.fetch` (NOT `global.fetch`), so the reliable
  *  way to intercept + assert on the Slack calls is to pass this as the
@@ -110,7 +126,7 @@ function buildSlackRecorder(): { http: { fetch: typeof fetch }; calls: SlackCall
                 calls.push({
                     method: url.replace('https://slack.com/api/', ''),
                     auth: headers.Authorization,
-                    body: typeof init?.body === 'string' ? JSON.parse(init.body) : {},
+                    body: parseSlackBody(init?.body),
                 })
             }
             return Promise.resolve({
@@ -473,7 +489,7 @@ describe('example: kudos-bot bundle', () => {
         // 2026-06-08 is a Monday and 09:00 PDT = 16:00 UTC. Window is
         // (lastTickAt, now], so t0 must land strictly before the firing.
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         const t0 = new Date('2026-06-08T15:59:00Z') // 08:59 PT — seeds the window
         await cronTick({ ...deps, now: () => t0 }, state)
         const t1 = new Date('2026-06-08T16:01:00Z') // window (15:59, 16:01] catches 16:00

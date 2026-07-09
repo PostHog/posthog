@@ -49,8 +49,10 @@ describe('reconcileNotebookDocuments', () => {
     })
 
     it('preserves component identity through the id prop when other props change', () => {
-        const previousDocument = parseMarkdownNotebook('<Chat id="chat-1" title="Before" />')
-        const nextDocument = parseMarkdownNotebook('<Chat id="chat-1" title="After answer" lastAnswer="Done" />')
+        const previousDocument = parseMarkdownNotebook('<SummaryCard id="summary-1" title="Before" />')
+        const nextDocument = parseMarkdownNotebook(
+            '<SummaryCard id="summary-1" title="After summary" summary="Done" />'
+        )
 
         const result = reconcileNotebookDocuments(previousDocument, nextDocument)
         const component = result.document.nodes[0] as NotebookComponentBlockNode

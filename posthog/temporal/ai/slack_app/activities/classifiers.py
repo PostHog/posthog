@@ -168,7 +168,7 @@ def classify_message_is_agent_directed(
     LLM outage can't fan out spurious forwards.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
-    by ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+    by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
     """
     stripped = event_text.strip()
     # Emoji-only / reaction-only replies are never agent-directed; drop before
@@ -247,7 +247,7 @@ def classify_untagged_followup_activity(
     ``False`` to drop. Conservative defaults: missing mapping → drop, history
     fetch failure → classify on text alone, classifier failure → drop.
     """
-    from products.slack_app.backend.api import _collect_thread_messages
+    from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
@@ -268,7 +268,9 @@ def classify_untagged_followup_activity(
     slack = SlackIntegration(integration)
 
     try:
-        thread_history = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
+        # Cached: the next activity in this workflow run (the forwarder) re-fetches the
+        # same thread to compute its diff; a cache hit there avoids a second Slack call.
+        thread_history = cached_collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
     except Exception:
         logger.exception(
             "posthog_code_thread_message_history_fetch_failed",

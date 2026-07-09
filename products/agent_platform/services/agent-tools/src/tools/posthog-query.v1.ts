@@ -28,10 +28,10 @@ export const posthogQueryV1 = defineNativeTool({
     // `query:read` is the scope the Django `QueryViewSet` enforces (`scope_object
     // = "query"`, with `create` registered as a read action). The HogQL request
     // hits `POST /api/projects/{team}/query/`.
-    requires: { integrations: [], scopes: ['query:read'] },
+    requires: { provider: { id: 'posthog', scopes: ['query:read'] } },
     cost_hint: 'medium',
     async run(args, ctx) {
-        // Routes through the per-user credential broker (`posthog_api` bearer)
+        // Resolves the `posthog` identity (trigger-edge seed or per-asker link)
         // exactly like the sibling `@posthog/agent-applications-*` tools, so the
         // query executes AS the connected PostHog user and Django enforces that
         // user's access to `args.project_id` (a 403 surfaces as a tool error).

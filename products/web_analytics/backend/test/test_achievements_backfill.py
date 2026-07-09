@@ -12,22 +12,20 @@ class TestBackfill(BaseTest):
         with patch.object(backfill, "EVALUATORS", evaluators):
             backfill.backfill_team(self.team.id)
 
-        loyal = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user=self.user, track_key="loyal_hog"
-        )
+        loyal = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(user=self.user, track_key="loyalty")
         self.assertEqual(loyal.current_stage, 3)
         self.assertEqual(loyal.state.get("pending_celebrations", []), [])
         self.assertEqual(len(loyal.state["unlocked_stages"]), 3)
 
         mighty = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user__isnull=True, track_key="mighty_hog"
+            user__isnull=True, track_key="traffic"
         )
         self.assertEqual(mighty.current_stage, 3)
         self.assertEqual(mighty.state.get("pending_celebrations", []), [])
 
         streak_exists = (
             WebAnalyticsAchievementProgress.objects.for_team(self.team.id)
-            .filter(user=self.user, track_key="hog_streak")
+            .filter(user=self.user, track_key="streak")
             .exists()
         )
         self.assertFalse(streak_exists)
@@ -37,8 +35,6 @@ class TestBackfill(BaseTest):
         # recompute (the once-per-day gate keys off last_computed_at).
         with patch.object(backfill, "EVALUATORS", make_evaluators(loyal_days=lambda ctx: 5)):
             backfill.backfill_team(self.team.id)
-        loyal = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user=self.user, track_key="loyal_hog"
-        )
+        loyal = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(user=self.user, track_key="loyalty")
         self.assertEqual(loyal.current_stage, 1)
         self.assertIsNone(loyal.last_computed_at)

@@ -5,7 +5,6 @@ import { useCallback, useMemo } from 'react'
 import { IconCalendar, IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -13,19 +12,21 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate } from 'lib/utils/datetime'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
-import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
 import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
 import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
 import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
-import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { isSubDailyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
@@ -33,6 +34,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
+import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -75,12 +77,31 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
+    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+
+    const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
+    const isFunnelInsight = funnelSource !== null
+    // Trends funnels alert on the overall conversion rate over time, so they skip the step picker and
+    // the preview reads the latest period instead of a step snapshot. The backend dispatches on the
+    // same viz type — see funnel_strategies.py.
+    const isTrendsFunnel = funnelSource?.funnelsFilter?.funnelVizType === FunnelVizType.Trends
+    const funnelStepLabels = (funnelSource?.series ?? []).map(
+        (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
+    )
+    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
+        ? 'hogql'
+        : isFunnelInsight
+          ? 'funnels'
+          : 'trends'
+
     const formLogicProps = {
         alert,
         insightId,
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
+        insightAlertKind,
+        insightIsTrendsFunnel: isTrendsFunnel,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -91,6 +112,11 @@ export function EditAlertModal({
         simulationResultLoading,
         simulationDateFrom,
         thresholdBoundsFormError,
+        hogqlAlertPreview,
+        funnelAlertPreview,
+        hogqlResultColumns,
+        hogqlValueColumnOptions,
+        hogqlLabelColumnOptions,
     } = useValues(formLogic)
     const {
         deleteAlert,
@@ -108,11 +134,6 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
-    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -132,16 +153,31 @@ export function EditAlertModal({
     }, [insightLogicProps, insightId])
 
     const creatingNewAlert = alertForm.id === undefined
-    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
+    const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
-            isNextPlannedEvaluationStale(creatingNewAlert, alert, {
-                calculation_interval: alertForm.calculation_interval,
-                schedule_restriction: alertForm.schedule_restriction,
-                skip_weekend: alertForm.skip_weekend,
-                config: alertForm.config,
-            }),
+            isNextPlannedEvaluationStale(
+                creatingNewAlert,
+                alert
+                    ? {
+                          calculation_interval: alert.calculation_interval,
+                          schedule_restriction: alert.schedule_restriction,
+                          skip_weekend: alert.skip_weekend,
+                          config: supportsOngoingInterval(alert.config)
+                              ? { check_ongoing_interval: alert.config.check_ongoing_interval }
+                              : null,
+                      }
+                    : null,
+                {
+                    calculation_interval: alertForm.calculation_interval,
+                    schedule_restriction: alertForm.schedule_restriction,
+                    skip_weekend: alertForm.skip_weekend,
+                    config: supportsOngoingInterval(alertForm.config)
+                        ? { check_ongoing_interval: alertForm.config.check_ongoing_interval }
+                        : null,
+                }
+            ),
         [
             alert,
             alertForm.calculation_interval,
@@ -154,12 +190,16 @@ export function EditAlertModal({
 
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
-        if (can_check_ongoing_interval && alertForm.config.check_ongoing_interval) {
+        if (
+            supportsOngoingInterval(alertForm.config) &&
+            alertForm.config.check_ongoing_interval &&
+            can_check_ongoing_interval
+        ) {
             n += 1
         }
         if (
             (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
-                isHighFrequencyAlertInterval(alertForm.calculation_interval)) &&
+                isSubDailyAlertInterval(alertForm.calculation_interval)) &&
             alertForm.skip_weekend
         ) {
             n += 1
@@ -170,7 +210,7 @@ export function EditAlertModal({
         return n
     }, [
         alertForm.calculation_interval,
-        alertForm.config.check_ongoing_interval,
+        alertForm.config,
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
@@ -228,11 +268,22 @@ export function EditAlertModal({
                                         alertForm={alertForm}
                                         alertMode={alertMode}
                                         thresholdBoundsFormError={thresholdBoundsFormError}
-                                        isBreakdownValid={isBreakdownValid}
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                                        alertSeries={alertSeries}
-                                        formulaNodes={formulaNodes}
-                                        anomalyDetectionEnabled={anomalyDetectionEnabled}
+                                        trends={{ alertSeries, formulaNodes, isBreakdownValid }}
+                                        funnel={{
+                                            stepLabels: funnelStepLabels,
+                                            preview: funnelAlertPreview,
+                                            isTrendsFunnel,
+                                        }}
+                                        hogql={{
+                                            preview: hogqlAlertPreview,
+                                            columns: hogqlResultColumns,
+                                            valueColumnOptions: hogqlValueColumnOptions,
+                                            labelColumnOptions: hogqlLabelColumnOptions,
+                                        }}
+                                        anomalyDetectionEnabled={
+                                            anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}
@@ -248,10 +299,9 @@ export function EditAlertModal({
                                         creatingNewAlert={creatingNewAlert}
                                         alert={alert}
                                         trendInterval={trendInterval}
-                                        alerts15MinuteIntervalEnabled={alerts15MinuteIntervalEnabled}
-                                        hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
-                                        guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}
+                                        canCheckOngoingInterval={can_check_ongoing_interval}
+                                        onSetAlertFormValue={setAlertFormValue}
                                     />
                                 </div>
                             </div>

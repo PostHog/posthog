@@ -1,6 +1,7 @@
-import { ingestionLagGauge, ingestionLagHistogram } from '../../../common/metrics'
-import { IngestedEventInfo } from '../../event-processing/emit-event-step'
-import { isOkResult } from '../../pipelines/results'
+import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
+import { isOkResult } from '~/ingestion/framework/results'
+
 import { RecordIngestionLagInput, createRecordIngestionLagStep } from './record-ingestion-lag'
 
 const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z

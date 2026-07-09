@@ -1,4 +1,4 @@
-import type { Series, TooltipConfig } from '@posthog/quill-charts'
+import type { Series, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import type { RetentionTrendPayload } from 'scenes/retention/types'
 
@@ -330,9 +330,10 @@ describe('retentionChartTransforms', () => {
                 getColor: colorAt,
                 maxCohorts: 6,
             })
-            expect(model.lineConfig.yAxis?.label).toBe(expectedLabel)
+            const lineYAxis = model.lineConfig.yAxis as YAxisConfig
+            expect(lineYAxis?.label).toBe(expectedLabel)
             expect(model.barConfig.yAxis?.label).toBe(expectedLabel)
-            expect(model.lineConfig.yAxis?.format).toBe(expectedFormat)
+            expect(lineYAxis?.format).toBe(expectedFormat)
         })
     })
 

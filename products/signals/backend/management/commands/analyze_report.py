@@ -8,15 +8,17 @@ the multi-turn research path while the eval infrastructure is built.
 import json
 import asyncio
 import logging
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from products.signals.backend.agent_runtime import CODEX_RUNTIME
 from products.signals.backend.report_generation.research import ReportResearchOutput, run_multi_turn_research
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.services.dev_sandbox_context import resolve_sandbox_context_for_local_dev
+from products.tasks.backend.facade.agents import resolve_sandbox_context_for_local_dev
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +184,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Stream full raw S3 log lines instead of only agent messages",
         )
+        parser.add_argument(
+            "--codex",
+            action="store_true",
+            help="Run the research agent on the Codex runtime + gpt-5.5 (local trial of the "
+            "`signals-pipeline-models` payload's effect on the `research` step)",
+        )
 
     def handle(self, *args, **options):
         if not settings.DEBUG:
@@ -213,6 +221,15 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(str(e)))
             return
 
+        if options["codex"]:
+            context = replace(
+                context,
+                runtime_adapter=CODEX_RUNTIME.runtime_adapter,
+                model=CODEX_RUNTIME.model,
+                reasoning_effort=CODEX_RUNTIME.reasoning_effort,
+            )
+            self.stdout.write(f"Runtime override: {CODEX_RUNTIME.runtime_adapter} / {CODEX_RUNTIME.model}")
+
         self.stdout.write(f"Mode: {mode}")
         self.stdout.write(f"Signals: {len(signals)}")
         self.stdout.write("")
@@ -234,16 +251,18 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
         self.stdout.write(f"Title: {result.title}")
         self.stdout.write(f"Summary: {result.summary}")
-        self.stdout.write(f"Actionability: {result.actionability.actionability}")
-        self.stdout.write(f"Already addressed: {result.actionability.already_addressed}")
-        self.stdout.write(f"Actionability explanation: {result.actionability.explanation}")
-        if result.priority:
-            self.stdout.write(f"Priority: {result.priority.priority}")
-            self.stdout.write(f"Priority explanation: {result.priority.explanation}")
+        actionability = result.effective_actionability()
+        priority = result.effective_priority()
+        self.stdout.write(f"Actionability: {actionability.actionability}")
+        self.stdout.write(f"Already addressed: {actionability.already_addressed}")
+        self.stdout.write(f"Actionability explanation: {actionability.explanation}")
+        if priority:
+            self.stdout.write(f"Priority: {priority.priority}")
+            self.stdout.write(f"Priority explanation: {priority.explanation}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
         self.stdout.write("")
-        for finding in result.findings:
+        for finding in result.effective_findings():
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))
             self.stdout.write(f"  Verified: {finding.verified}")
             self.stdout.write(f"  Code paths: {finding.relevant_code_paths}")

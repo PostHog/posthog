@@ -49,7 +49,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │     - Measure drift vs local estimate                         │  │
 │  │     - Update CacheEntry (estimated_count, pressure, synced_at)│  │
 │  │     - Reset local_pending to 0 (Redis now includes our writes)│  │
-│  │     - Track tier transitions                                  │  │
+│  │     - Record tier transitions for observability               │  │
 │  └───────────────────────────┬────────────────────────────────────┘  │
 │                              │                                       │
 └──────────────────────────────┼───────────────────────────────────────┘
@@ -200,6 +200,8 @@ If local traffic pushes an idle entity above the 10% boundary,
 it's promoted to Low on the very next request — no waiting for a stale sync interval.
 
 Tier boundaries are pressure-based (level / threshold), so they apply correctly to custom keys regardless of threshold magnitude. A custom key with a 100× higher limit than the default will sync at the same relative cadence when at equivalent pressure.
+
+**Tier-distribution gauges come from a throttled full scan.** `cache_size` is cheap (`entry_count`) and emits every tick. The per-tier `sync_tier_gauge` needs a full `cache.iter()` scan, so it runs only every `TIER_SCAN_INTERVAL_TICKS` (default 30): the distribution moves slowly and prod metrics dedup to 60s, so scanning every tick would be wasted work under load. The scan runs in the background tick task, off the per-event hot path.
 
 ## Data Model
 
@@ -372,8 +374,10 @@ When multiple Redis instances are configured, work is partitioned by consistent 
 | `global_rate_limiter_tick_ms` | Histogram | Full tick duration |
 | `global_rate_limiter_pipeline_size` | Histogram | Entities per pipeline (read/write) |
 | `global_rate_limiter_pending_sync_size` | Gauge | Backpressure signal |
-| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers |
+| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
+| `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
+| `global_rate_limiter_eviction_total` | Counter | Cache evictions by cause (size/expired/explicit) |
 | `global_rate_limiter_estimate_drift` | Histogram | Local vs Redis accuracy |
 | `global_rate_limiter_sync_staleness_ms` | Histogram | Real staleness at access time |
 | `global_rate_limiter_error_total` | Counter | Pipeline errors and timeouts |

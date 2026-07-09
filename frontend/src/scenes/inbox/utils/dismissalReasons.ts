@@ -36,3 +36,11 @@ export function isDismissalReasonSnooze(value: DismissalReasonValue): boolean {
     const option = DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)
     return option != null && 'snoozesInsteadOfDismiss' in option && option.snoozesInsteadOfDismiss === true
 }
+
+/** Human label for a persisted dismissal reason code, or the raw code if it's not a known option. */
+export function dismissalReasonLabel(value: string | null | undefined): string | null {
+    if (!value) {
+        return null
+    }
+    return DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ?? value
+}

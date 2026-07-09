@@ -14,6 +14,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 
 import {
     AgentApplication,
+    AgentRevision,
     AuthMode,
     CredentialMap,
     DirectHttpClient,
@@ -145,7 +146,12 @@ function posthogPrincipalFrom(me: PosthogMeResponse): SessionPrincipal {
 export function posthogVerifier(introspector: PosthogIdentityIntrospector, teamOrg: TeamOrgLookup): AuthVerifier {
     return {
         modeType: 'posthog',
-        async verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+        async verify(
+            req: Request,
+            mode: AuthMode,
+            application: AgentApplication,
+            _revision: AgentRevision
+        ): Promise<VerifyResult> {
             if (mode.type !== 'posthog') {
                 return { ok: false, status: 0, reason: 'skip' }
             }
@@ -192,13 +198,18 @@ export function posthogVerifier(introspector: PosthogIdentityIntrospector, teamO
  * the claim shape; we just prove possession.
  */
 export interface JwtSecretResolver {
-    resolve(secretRef: string, application: AgentApplication): Promise<string | null>
+    resolve(secretRef: string, source: { encrypted_env: string | null }): Promise<string | null>
 }
 
 export function jwtVerifier(resolver: JwtSecretResolver): AuthVerifier {
     return {
         modeType: 'jwt',
-        async verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+        async verify(
+            req: Request,
+            mode: AuthMode,
+            _application: AgentApplication,
+            revision: AgentRevision
+        ): Promise<VerifyResult> {
             if (mode.type !== 'jwt') {
                 return { ok: false, status: 0, reason: 'skip' }
             }
@@ -211,7 +222,7 @@ export function jwtVerifier(resolver: JwtSecretResolver): AuthVerifier {
                 return { ok: false, status: 401, reason: 'malformed_jwt' }
             }
             const [headerB64, payloadB64, sigB64] = segments
-            const secret = await resolver.resolve(mode.issuer_secret_ref, application)
+            const secret = await resolver.resolve(mode.issuer_secret_ref, revision)
             if (!secret) {
                 return { ok: false, status: 500, reason: 'jwt_secret_not_set' }
             }
@@ -286,7 +297,12 @@ function secretsMatch(provided: string, expected: string): boolean {
 export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
     return {
         modeType: 'shared_secret',
-        async verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+        async verify(
+            req: Request,
+            mode: AuthMode,
+            application: AgentApplication,
+            revision: AgentRevision
+        ): Promise<VerifyResult> {
             if (mode.type !== 'shared_secret') {
                 return { ok: false, status: 0, reason: 'skip' }
             }
@@ -294,7 +310,7 @@ export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
             if (typeof provided !== 'string') {
                 return { ok: false, status: 0, reason: 'skip' }
             }
-            const expected = await resolver.resolve(mode.secret_ref, application)
+            const expected = await resolver.resolve(mode.secret_ref, revision)
             if (!expected) {
                 return { ok: false, status: 500, reason: 'shared_secret_not_set' }
             }
@@ -315,7 +331,12 @@ export function sharedSecretVerifier(resolver: SecretResolver): AuthVerifier {
 export function posthogInternalVerifier(internalSecret: string): AuthVerifier {
     return {
         modeType: 'posthog_internal',
-        async verify(req: Request, _mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
+        async verify(
+            req: Request,
+            _mode: AuthMode,
+            application: AgentApplication,
+            _revision: AgentRevision
+        ): Promise<VerifyResult> {
             const provided = req.headers['x-posthog-internal']
             if (typeof provided !== 'string') {
                 return { ok: false, status: 0, reason: 'skip' }

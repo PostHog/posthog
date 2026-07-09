@@ -144,7 +144,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             exp.exposure_criteria,
             only_count_matured_users=exp.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        recalc_fp = compute_recalc_fingerprint(config_fp)
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -195,3 +195,55 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=other, status="completed")
         resp = self.client.get(self._by_id_url(exp.id, str(row.id)))
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    # ------------------------------------------------------------------
+    # GET /metrics_recalculation/latest/ — timeseries cold-start fallback
+    # ------------------------------------------------------------------
+
+    def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
+        assert exp.metrics and exp.start_date is not None
+        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
+        config_fp = compute_metric_fingerprint(
+            metric_dict,
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+        )
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid=metric_uuid,
+            fingerprint=config_fp,
+            query_from=exp.start_date,
+            query_to=query_to,
+            status="completed",
+            result={"ok": True},
+        )
+
+    def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
+        # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
+        exp = self._launched_experiment(flag_key="ts-fallback")
+        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+        body = resp.json()
+        assert body["result_source"] == "timeseries_fallback"
+        assert body["status"] == "completed"
+        assert len(body["results"]) == 1
+        assert body["results"][0]["result"] == {"ok": True}
+
+    def test_get_latest_still_404_when_no_recalc_and_no_timeseries(self):
+        exp = self._launched_experiment(flag_key="ts-empty")
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
+        # GET stays a pure read: the fallback path must never connect to Temporal.
+        exp = self._launched_experiment(flag_key="ts-pure-read")
+        self._store_timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC))
+
+        resp = self.client.get(self._latest_url(exp.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert not mock_connect.called

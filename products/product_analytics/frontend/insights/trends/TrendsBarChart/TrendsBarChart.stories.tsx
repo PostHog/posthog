@@ -1,15 +1,23 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
-import { useState } from 'react'
+import { type CSSProperties, useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsValueFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
+import { InsightType } from '~/types'
 
 import { TrendsBarChart } from './TrendsBarChart'
 
@@ -108,6 +116,33 @@ function renderTrendsBarChart(insightFixture: any): JSX.Element {
                 <Stage>
                     <TrendsBarChart />
                 </Stage>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+function renderTrendInsight(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
+    const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
+
+    const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: cachedInsight.query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
+        doNotLoad: true,
+    }
+
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                {/* TrendInsight renders `.TrendsInsight` but not the `.InsightVizDisplay` ancestor that
+                    defines `--insight-viz-min-height`. Define it here so the chart's height behaves like the
+                    real insight page — without it the standard-height floor no-ops and a single bar collapses. */}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div style={{ width: 720, '--insight-viz-min-height': '32rem' } as CSSProperties}>
+                    <TrendInsight view={InsightType.TRENDS} />
+                </div>
             </BindLogic>
         </BindLogic>
     )
@@ -452,4 +487,105 @@ const PERCENT_STACK_BREAKDOWN_INSIGHT = {
 
 export const PercentStackBreakdown: Story = {
     render: () => renderTrendsBarChart(PERCENT_STACK_BREAKDOWN_INSIGHT),
+}
+
+// 50 breakdown rows — verifies all bars are visible and the container grows rather than clipping.
+// If TrendsInsight--ActionsBarValue loses its max-height:none override, only ~20 rows show up.
+const BAR_VALUE_50_BREAKDOWNS = Array.from({ length: 50 }, (_, i) => ({
+    action: ACTION,
+    label: `/blog/post-${String(i + 1).padStart(2, '0')}`,
+    count: 0,
+    aggregated_value: Math.max(5, Math.round(9000 / (i + 1))),
+    data: [],
+    labels: [],
+    days: [],
+    breakdown_value: `/blog/post-${String(i + 1).padStart(2, '0')}`,
+    filter: {
+        date_from: '2023-07-04T00:00:00Z',
+        date_to: '2023-07-10T23:59:59Z',
+        display: 'ActionsBarValue',
+        insight: 'TRENDS',
+        interval: 'day',
+    },
+}))
+
+const BAR_VALUE_50_BREAKDOWNS_INSIGHT = {
+    id: 203,
+    short_id: 'barValue50',
+    name: 'Page views by URL (50 breakdowns)',
+    derived_name: 'Pageview count',
+    filters: {},
+    last_refresh: '2023-07-11T12:00:00Z',
+    refreshing: false,
+    saved: true,
+    is_sample: false,
+    description: '',
+    tags: [],
+    favorited: false,
+    created_at: '2023-07-11T12:00:00Z',
+    updated_at: '2023-07-11T12:00:00Z',
+    last_modified_at: '2023-07-11T12:00:00Z',
+    dashboards: [],
+    dashboard_tiles: [],
+    result: BAR_VALUE_50_BREAKDOWNS,
+    query: {
+        kind: 'InsightVizNode',
+        source: {
+            dateRange: { date_from: '2023-07-04', date_to: '2023-07-10' },
+            filterTestAccounts: false,
+            interval: 'day',
+            kind: 'TrendsQuery',
+            series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
+            trendsFilter: { display: 'ActionsBarValue' },
+            breakdownFilter: { breakdown: '$current_url', breakdown_type: 'event' },
+            version: 2,
+        },
+        full: true,
+    },
+}
+
+export const BarValue50Breakdowns: Story = {
+    render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
+}
+
+// A single breakdown row should still fill the standard chart height — the lone bar must not
+// shrink. Guards the min-height floor on TrendsInsight--ActionsBarValue: drop it back to `auto`
+// and this snapshot collapses to a thin one-row bar instead of filling the container.
+const BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT = {
+    ...BAR_VALUE_50_BREAKDOWNS_INSIGHT,
+    id: 204,
+    short_id: 'barValueSingle',
+    name: 'Page views by URL (single breakdown)',
+    result: BAR_VALUE_50_BREAKDOWNS.slice(0, 1),
+}
+
+export const BarValueSingleBreakdown: Story = {
+    render: () => renderTrendInsight(BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT),
+}
+
+// Plain bar-value display (aggregated totals per series, no breakdown)
+export const BarValue: Story = {
+    render: () => renderTrendInsight(trendsValueFixture),
+}
+
+// Full insight scene in edit mode — the trends editor (shared across display types), aggregated result shape
+export const EditScene: Story = createInsightStory(trendsValueFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+    },
+}
+
+export const EditSceneViewports: Story = createInsightStory(trendsValueFixture as any, 'edit')
+EditSceneViewports.decorators = [insightSceneMswDecorator]
+EditSceneViewports.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-bar-value-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
 }

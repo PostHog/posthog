@@ -82,19 +82,16 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
     ];
     // Blob count per event (2x increments)
     const BLOB_COUNTS: &[f64] = &[1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
-    // Global rate limiter pipeline/tick latency (milliseconds)
-    const GLOBAL_RATE_LIMITER_LATENCY_MS: &[f64] = &[
-        0.1,     // 100 microseconds
-        0.5,     // 500 microseconds
-        1.0,     // 1ms
-        2.0,     // 2ms
-        5.0,     // 5ms
-        10.0,    // 10ms
-        100.0,   // 100ms
-        1000.0,  // 1 second
-        2000.0,  // 2 seconds
-        4000.0,  // 4 seconds
-        10000.0, // 10 seconds
+    // Redis read/write pipeline round-trip (milliseconds). Dense around the
+    // 100ms read/write timeout so p99 is readable below it.
+    const GLOBAL_RATE_LIMITER_PIPELINE_MS: &[f64] = &[
+        0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0, 1000.0,
+    ];
+    // Full background tick (milliseconds). Dense around the 1s tick_interval so
+    // we can see how close ticks run to the budget (e.g. reconcile ticks).
+    const GLOBAL_RATE_LIMITER_TICK_MS: &[f64] = &[
+        5.0, 10.0, 25.0, 50.0, 100.0, 150.0, 250.0, 400.0, 600.0, 800.0, 1000.0, 1500.0, 2000.0,
+        4000.0,
     ];
     // Global rate limiter pipeline batch sizes (entity counts)
     const GLOBAL_RATE_LIMITER_PIPELINE_SIZES: &[f64] =
@@ -182,12 +179,12 @@ pub fn setup_metrics_recorder(role: String, capture_mode: &'static str) -> Prome
         .unwrap()
         .set_buckets_for_metric(
             Matcher::Full("global_rate_limiter_pipeline_ms".to_string()),
-            GLOBAL_RATE_LIMITER_LATENCY_MS,
+            GLOBAL_RATE_LIMITER_PIPELINE_MS,
         )
         .unwrap()
         .set_buckets_for_metric(
             Matcher::Full("global_rate_limiter_tick_ms".to_string()),
-            GLOBAL_RATE_LIMITER_LATENCY_MS,
+            GLOBAL_RATE_LIMITER_TICK_MS,
         )
         .unwrap()
         .set_buckets_for_metric(

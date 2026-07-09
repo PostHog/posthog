@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,14 +18,29 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { conversationsDestroy } from 'products/conversations/frontend/generated/api'
+import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import { PHAI_VIEW_MODE_KEY } from './max-storage-keys'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
 import { SIDE_PANEL_PANEL_ID, maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
+/**
+ * Which PostHog AI implementation the Max scene renders. `'new'` is the posthog_ai/frontend surface
+ * (the tasks product on `/ai`, the new composer + thread viewer in the side panel); `'legacy'` is the
+ * existing Max chat. Only meaningful while the `PHAI_SANDBOX_MODE` flag is on — see `effectivePhaiView`.
+ */
+export type PhaiViewMode = 'new' | 'legacy'
+
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
-const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = 'posthog_ai_data_processing_dismissed'
+
+// Keep this stored across all projects, only display this once per month
+const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = `posthog_ai_data_processing_dismissed_${dayjs().format('YYYY-MM')}`
+
+// Records, per organization, that this member has already asked an admin to enable
+// PostHog AI — so the request button doesn't invite repeated submissions.
+const AI_ACCESS_REQUESTED_STORAGE_KEY = 'posthog_ai_access_requested_by_org'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -97,6 +112,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
+        openSidePanelMaxWithTaskBind: (taskId: string) => ({ taskId }),
         askSidePanelMax: (prompt: string) => ({ prompt }),
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
@@ -105,6 +121,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
         dismissDataProcessing: true,
+        setPhaiViewMode: (mode: PhaiViewMode) => ({ mode }),
+        requestAiAccess: true,
+        markAiAccessRequested: (organizationId: string) => ({ organizationId }),
+        requestAiAccessError: true,
     }),
 
     loaders(({ values }) => ({
@@ -178,12 +198,53 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissDataProcessing: () => true,
             },
         ],
+        requestingAiAccess: [
+            false,
+            {
+                requestAiAccess: () => true,
+                markAiAccessRequested: () => false,
+                requestAiAccessError: () => false,
+            },
+        ],
+        aiAccessRequestedByOrg: [
+            {} as Record<string, boolean>,
+            { persist: true, storageKey: AI_ACCESS_REQUESTED_STORAGE_KEY },
+            {
+                markAiAccessRequested: (state, { organizationId }) => ({ ...state, [organizationId]: true }),
+            },
+        ],
+        // The user's chosen implementation, persisted per device. Defaults to the new surface so a
+        // flagged user lands there; `effectivePhaiView` collapses this to legacy when the flag is off.
+        phaiViewMode: [
+            'new' as PhaiViewMode,
+            { persist: true, storageKey: PHAI_VIEW_MODE_KEY },
+            {
+                setPhaiViewMode: (_, { mode }) => mode,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
             await organizationLogic.asyncActions.updateOrganization({
                 is_ai_data_processing_approved: testOnlyOverride ?? true,
             })
+        },
+        requestAiAccess: async () => {
+            const organization = values.currentOrganization
+            if (!organization) {
+                actions.requestAiAccessError()
+                return
+            }
+            try {
+                // Backend notifies the org admins/owners via a customer.io email — keeps the
+                // recipient resolution server-side so it can't be tampered with from the client.
+                await requestAiAccessCreate(organization.id)
+                actions.markAiAccessRequested(organization.id)
+                lemonToast.success('Request sent to your organization admins')
+            } catch {
+                actions.requestAiAccessError()
+                lemonToast.error('Could not send your request. Please try again.')
+            }
         },
         askSidePanelMax: ({ prompt }) => {
             newInternalTab(urls.ai(undefined, prompt))
@@ -200,6 +261,22 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 }
                 logic.actions.openConversation(conversationId)
             }
+        },
+        // Open the side panel on a fresh chat bound to a sandbox Task (inbox "Open task" — in-place,
+        // not a new tab). The side panel doesn't sync the URL, so the binding is seeded directly here
+        // rather than via the `bind_task` param the scene route reads. `setPendingBindTaskId` runs
+        // after `startNewConversation`, which clears it.
+        openSidePanelMaxWithTaskBind: ({ taskId }) => {
+            if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
+                actions.openSidePanel(SidePanelTab.Max)
+            }
+            let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
+            if (!logic) {
+                logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+                logic.mount() // we're never unmounting this
+            }
+            logic.actions.startNewConversation()
+            logic.actions.setPendingBindTaskId(taskId)
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
@@ -250,6 +327,11 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
         ],
+        aiAccessRequested: [
+            (s) => [s.aiAccessRequestedByOrg, s.currentOrganization],
+            (aiAccessRequestedByOrg, currentOrganization): boolean =>
+                !!(currentOrganization && aiAccessRequestedByOrg[currentOrganization.id]),
+        ],
         isOrganizationCreatedRecently: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => {
@@ -261,6 +343,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             (s) => [s.isOrganizationCreatedRecently, s.liabilityNoticeDismissed],
             (isOrganizationCreatedRecently, liabilityNoticeDismissed): boolean =>
                 isOrganizationCreatedRecently && !liabilityNoticeDismissed,
+        ],
+        // Gates the new-vs-legacy toggle: only flagged users can switch, and the new surface only
+        // exists for them.
+        isPhaiSandboxFlagOn: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        ],
+        // The implementation the Max scene actually renders: the user's choice while the flag is on,
+        // always legacy otherwise (so non-flagged users are unaffected regardless of any stored value).
+        effectivePhaiView: [
+            (s) => [s.isPhaiSandboxFlagOn, s.phaiViewMode],
+            (isPhaiSandboxFlagOn, phaiViewMode): PhaiViewMode => (isPhaiSandboxFlagOn ? phaiViewMode : 'legacy'),
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],

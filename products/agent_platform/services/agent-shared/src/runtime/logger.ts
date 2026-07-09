@@ -19,9 +19,21 @@
  * don't have to repeat shared context — every record carries the bindings.
  */
 
+import os from 'node:os'
+import path from 'node:path'
 import pino, { Logger as PinoLogger } from 'pino'
 
 export type Logger = PinoLogger
+
+/**
+ * Dev-only: where each service tees its JSON logs so a local agent (or you) can
+ * read them without scraping the mprocs pane. `AGENT_LOG_FILE` is set per service
+ * in `bin/mprocs.yaml`; the shared fallback is fine for a single ad-hoc process.
+ * See products/agent_platform/AGENTS.md.
+ */
+function devLogFile(): string {
+    return process.env.AGENT_LOG_FILE || path.join(os.tmpdir(), 'posthog-agent-logs', 'agent.log')
+}
 
 /**
  * Documented exception to the "no process.env outside the typed config loader"
@@ -48,14 +60,23 @@ function getRoot(): Logger {
         return rootLogger
     }
     const isProd = process.env.NODE_ENV === 'production'
-    // Pretty output everywhere except prod. Test runs get pretty too — easier
-    // to scan when `LOG_LEVEL=debug` is on.
-    const transport = isProd
-        ? undefined
-        : {
-              target: 'pino-pretty',
-              options: { colorize: true, ignore: 'pid,hostname', translateTime: 'HH:MM:ss.l' },
-          }
+    const isTest = !!process.env.VITEST || process.env.NODE_ENV === 'test'
+    // Prod: JSON to stdout (no transport). Dev/test: pretty to stdout. Dev only
+    // (not test): ALSO tee raw JSON to a tmp file so a local agent can `tail`/grep
+    // the logs — separate worker target, doesn't touch the pretty stdout stream.
+    const level = defaultLevel()
+    const targets: pino.TransportTargetOptions[] = []
+    if (!isProd) {
+        targets.push({
+            target: 'pino-pretty',
+            level,
+            options: { colorize: true, ignore: 'pid,hostname', translateTime: 'HH:MM:ss.l' },
+        })
+    }
+    if (!isProd && !isTest) {
+        targets.push({ target: 'pino/file', level, options: { destination: devLogFile(), mkdir: true } })
+    }
+    const transport = targets.length > 0 ? { targets } : undefined
     rootLogger = pino({ level: defaultLevel(), transport })
     return rootLogger
 }

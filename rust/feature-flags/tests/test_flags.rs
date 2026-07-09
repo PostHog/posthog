@@ -17,7 +17,7 @@ use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, TestContext,
+    setup_redis_client, update_team_in_hypercache, TestContext,
 };
 
 pub mod common;
@@ -1736,6 +1736,47 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
         v2.quota_limited,
         Some(vec![ServiceName::FeatureFlags.as_string()])
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_minimal_flag_called_events_reaches_v2_but_not_legacy_response() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user1".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.minimal_flag_called_events = true;
+    update_team_in_hypercache(client.clone(), &team).await?;
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    // V2 response: the gated team's signal is present and true.
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let v2: FlagsResponse = res.json().await?;
+    assert_eq!(v2.minimal_flag_called_events, Some(true));
+
+    // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
+    // gated team's v1 clients never see the signal and keep sending full events.
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert!(json_data.get("minimalFlagCalledEvents").is_none());
 
     Ok(())
 }
@@ -5600,6 +5641,127 @@ async fn test_initial_property_population_respects_db_values(
     Ok(())
 }
 
+/// Tests that `$os` and `$os_name` are mirrored at match time, so a flag condition
+/// keyed on either property matches a person row that carries only one of them.
+///
+/// Web SDKs report the OS as `$os`; mobile SDKs report it as `$os_name`, and
+/// ingestion stores only one of the two on the person. Matching does exact-key
+/// lookups, so without the mirror a mobile person (DB has only `$os_name`) would
+/// fall through on a `$os` filter, and vice versa.
+///
+/// Each case runs with experience continuity off and on. The on cases pin the
+/// scenario reported in https://github.com/PostHog/posthog/issues/55532, where
+/// matching reads properties from the persisted person row — exactly where a
+/// legacy `$os_name`-only mobile row used to miss a `$os` filter.
+#[rstest]
+// Person row has only $os_name (mobile); flag filters on $os -> should match.
+#[case::os_name_in_db_matches_os_filter(json!({"$os_name": "Android"}), "$os", "Android", false, true)]
+// Person row has only $os (web); flag filters on $os_name -> should match.
+#[case::os_in_db_matches_os_name_filter(json!({"$os": "iOS"}), "$os_name", "iOS", false, true)]
+// Person row has only $os_name; flag filters on $os for a different value -> no match.
+#[case::os_name_in_db_wrong_value_no_match(json!({"$os_name": "Android"}), "$os", "iOS", false, false)]
+// Same three under experience continuity (the #55532 path: matches the persisted person row).
+#[case::eec_os_name_in_db_matches_os_filter(json!({"$os_name": "Android"}), "$os", "Android", true, true)]
+#[case::eec_os_in_db_matches_os_name_filter(json!({"$os": "iOS"}), "$os_name", "iOS", true, true)]
+#[case::eec_os_name_in_db_wrong_value_no_match(json!({"$os_name": "Android"}), "$os", "iOS", true, false)]
+#[tokio::test]
+async fn test_os_name_aliases_os_at_match_time(
+    #[case] db_properties: Value,
+    #[case] filter_key: &str,
+    #[case] filter_value: &str,
+    #[case] ensure_experience_continuity: bool,
+    #[case] flag_should_match: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = format!("test_os_alias_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    context
+        .insert_person(team.id, distinct_id.clone(), Some(db_properties))
+        .await
+        .unwrap();
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "os-flag",
+            "name": "Flag checking OS",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "ensure_experience_continuity": ensure_experience_continuity,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": filter_key,
+                                "value": filter_value,
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // No person_properties override: properties come purely from the DB person row,
+    // which is the experience-continuity path this bug affects.
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {status}\nBody: {text}");
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    let expected_reason = if flag_should_match {
+        "condition_match"
+    } else {
+        "no_condition_match"
+    };
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "os-flag": {
+                    "key": "os-flag",
+                    "enabled": flag_should_match,
+                    "reason": {
+                        "code": expected_reason
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
 #[rstest]
 #[case(true)]
 #[case(false)]
@@ -6078,6 +6240,7 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
             false,
             Some(CohortType::Realtime),
             None, // no backfill timestamp
+            None, // no events backfill timestamp
         )
         .await
         .unwrap();

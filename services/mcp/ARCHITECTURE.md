@@ -77,13 +77,15 @@ This produces one structured JSON log per request, making it easier to query in 
 
 There are three independent layers that emit signals about each MCP request:
 
-1. **PostHog analytics events** — `mcp_tool_call` and friends, captured for product analytics.
+1. **PostHog analytics events** — `$mcp_tool_call` and friends, captured for product analytics.
 2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
 3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
 
-#### `mcp_tool_call` event paths
+#### `$mcp_tool_call` event paths
 
-Three distinct code paths emit `mcp_tool_call` events; which one fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The canonical event is `$mcp_tool_call`.
+The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
+The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
 
 - **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
 - **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.

@@ -14,9 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -340,7 +338,6 @@ export function TraceReviewButton({
     onReviewSaved?: () => void
 }): JSX.Element {
     const logic = useMountedLogic(traceReviewModalLogic({ traceId, queueId }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { getTraceReview } = useValues(traceReviewsLazyLoaderLogic)
     const {
         openModal,
@@ -387,10 +384,6 @@ export function TraceReviewButton({
 
         wasSavingRef.current = saving
     }, [effectiveReview, isOpen, onReviewSaved, saving])
-
-    if (!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]) {
-        return <></>
-    }
 
     return (
         <>

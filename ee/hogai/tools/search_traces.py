@@ -27,6 +27,14 @@ Search for LLM traces based on criteria like date range, model, error status, an
 A formatted list of matching traces with their name, timestamp, latency, cost, token counts, and error count.
 If more results are available, a cursor will be provided for pagination.
 All timestamps are in UTC timezone.
+
+# What this tool does NOT return:
+This is metadata only. It does NOT include prompt/response content ($ai_input, $ai_output, $ai_output_choices, $ai_tools).
+That content is retained for 30 days by default.
+
+# Do not infer bugs or "no problems" from this list alone:
+- To inspect what actually happened in a trace (the prompt, the model output, the tools called), use `read_data` with kind="llm_trace" and the trace's ID from this list.
+- A trace older than the 30-day retention window still shows metadata here but has no content left to read — that is aged-out data, not evidence that nothing went wrong.
 """.strip()
 
 SEARCH_TRACES_QUERY_DESCRIPTION = """
@@ -100,7 +108,7 @@ class SearchLLMTracesTool(MaxTool):
         query.offset = current_offset
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(query)
 
         raw_results = cast(list[dict], query_results.get("results", []))
@@ -128,6 +136,12 @@ class SearchLLMTracesTool(MaxTool):
 
         for i, trace in enumerate(results, 1):
             content += self._format_trace(i, trace)
+
+        content += (
+            "\nThis list is metadata only — prompt/response content ($ai_input, $ai_output, $ai_output_choices) "
+            'is not included. To inspect a trace\'s content, read it with read_data (kind="llm_trace") using the '
+            "trace's ID above (content is retained 30 days; older traces show metadata but no content)."
+        )
 
         if has_more and next_cursor:
             content += f'\nMore traces are available. Pass cursor="{next_cursor}" to see the next page.'

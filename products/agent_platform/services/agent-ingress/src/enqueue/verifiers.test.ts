@@ -8,7 +8,7 @@
 import type { Request } from 'express'
 import { describe, expect, it } from 'vitest'
 
-import { AgentApplication, AuthModeSchema } from '@posthog/agent-shared'
+import { AgentApplication, AgentRevision, AuthModeSchema } from '@posthog/agent-shared'
 
 import {
     buildDefaultVerifiers,
@@ -28,6 +28,22 @@ const APP: AgentApplication = {
     description: '',
     live_revision_id: null,
     archived: false,
+}
+
+// The jwt + shared_secret verifiers resolve their secret from the revision's
+// `encrypted_env`. The fake `secretResolver` below keys only on the secret
+// name, so the env value itself is irrelevant here — but the verifier
+// signature requires a revision.
+const REV: AgentRevision = {
+    id: 'rev-1',
+    application_id: APP.id,
+    parent_revision_id: null,
+    created_by_id: null,
+    created_at: 'now',
+    state: 'live',
+    bundle_uri: 's3://x/',
+    bundle_sha256: null,
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: null,
 }
 
@@ -88,7 +104,8 @@ describe('buildDefaultVerifiers', () => {
         const res = await posthogVerifier(introspector, teamOrg).verify(
             req({ authorization: 'Bearer good-token' }),
             PROJECT_MODE,
-            APP
+            APP,
+            REV
         )
         expect(res.ok).toBe(true)
         if (res.ok) {
@@ -103,7 +120,8 @@ describe('buildDefaultVerifiers', () => {
         const res = await posthogVerifier(introspector, teamOrg).verify(
             req({ authorization: 'Bearer org-peer-token' }),
             PROJECT_MODE,
-            APP
+            APP,
+            REV
         )
         expect(res).toMatchObject({ ok: false, status: 403, reason: 'not_in_project' })
     })
@@ -114,7 +132,8 @@ describe('buildDefaultVerifiers', () => {
         const res = await posthogVerifier(introspector, teamOrg).verify(
             req({ authorization: 'Bearer org-peer-token' }),
             ORG_MODE,
-            APP
+            APP,
+            REV
         )
         expect(res.ok).toBe(true)
         if (res.ok) {
@@ -126,7 +145,8 @@ describe('buildDefaultVerifiers', () => {
         const res = await posthogVerifier(introspector, teamOrg).verify(
             req({ authorization: 'Bearer outsider-token' }),
             ORG_MODE,
-            APP
+            APP,
+            REV
         )
         expect(res).toMatchObject({ ok: false, status: 403, reason: 'not_in_org' })
     })
@@ -135,20 +155,20 @@ describe('buildDefaultVerifiers', () => {
         ['missing bearer → skip', {}, { status: 0 }],
         ['bad bearer → 401', { authorization: 'Bearer nope' }, { status: 401 }],
     ])('posthog mode: %s', async (_label, headers, expected) => {
-        const res = await posthogVerifier(introspector, teamOrg).verify(req(headers), PROJECT_MODE, APP)
+        const res = await posthogVerifier(introspector, teamOrg).verify(req(headers), PROJECT_MODE, APP, REV)
         expect(res).toMatchObject({ ok: false, ...expected })
     })
 
     it('shared_secret: matches resolved encrypted_env secret, 401 on mismatch, 500 when unset', async () => {
         const v = sharedSecretVerifier(secretResolver)
         const mode = { type: 'shared_secret' as const, header: 'X-WH', secret_ref: 'WH' }
-        expect(await v.verify(req({ 'x-wh': 's3cret' }), mode, APP)).toMatchObject({ ok: true })
-        expect(await v.verify(req({ 'x-wh': 'wrong' }), mode, APP)).toMatchObject({ ok: false, status: 401 })
-        expect(await v.verify(req({ 'x-wh': 's3cret' }), { ...mode, secret_ref: 'MISSING' }, APP)).toMatchObject({
+        expect(await v.verify(req({ 'x-wh': 's3cret' }), mode, APP, REV)).toMatchObject({ ok: true })
+        expect(await v.verify(req({ 'x-wh': 'wrong' }), mode, APP, REV)).toMatchObject({ ok: false, status: 401 })
+        expect(await v.verify(req({ 'x-wh': 's3cret' }), { ...mode, secret_ref: 'MISSING' }, APP, REV)).toMatchObject({
             ok: false,
             status: 500,
         })
-        expect(await v.verify(req({}), mode, APP)).toMatchObject({ ok: false, status: 0 })
+        expect(await v.verify(req({}), mode, APP, REV)).toMatchObject({ ok: false, status: 0 })
     })
 
     it('shared_secret: yields a single team-scoped principal (no per-caller discriminator)', async () => {
@@ -156,7 +176,7 @@ describe('buildDefaultVerifiers', () => {
         // is the same principal; per-caller isolation belongs to `jwt`.
         const v = sharedSecretVerifier(secretResolver)
         const mode = { type: 'shared_secret' as const, header: 'X-WH', secret_ref: 'WH' }
-        const res = await v.verify(req({ 'x-wh': 's3cret', 'x-posthog-caller-id': 'alice' }), mode, APP)
+        const res = await v.verify(req({ 'x-wh': 's3cret', 'x-posthog-caller-id': 'alice' }), mode, APP, REV)
         expect(res.ok).toBe(true)
         if (res.ok) {
             expect(res.principal).toEqual({ kind: 'shared_secret', team_id: 7 })
@@ -169,19 +189,20 @@ describe('buildDefaultVerifiers', () => {
             await posthogInternalVerifier('internal-xyz').verify(
                 req({ 'x-posthog-internal': 'internal-xyz' }),
                 mode,
-                APP
+                APP,
+                REV
             )
         ).toMatchObject({
             ok: true,
         })
         expect(
-            await posthogInternalVerifier('internal-xyz').verify(req({ 'x-posthog-internal': 'no' }), mode, APP)
+            await posthogInternalVerifier('internal-xyz').verify(req({ 'x-posthog-internal': 'no' }), mode, APP, REV)
         ).toMatchObject({
             ok: false,
             status: 403,
         })
         expect(
-            await posthogInternalVerifier('').verify(req({ 'x-posthog-internal': 'anything' }), mode, APP)
+            await posthogInternalVerifier('').verify(req({ 'x-posthog-internal': 'anything' }), mode, APP, REV)
         ).toMatchObject({
             ok: false,
             status: 500,

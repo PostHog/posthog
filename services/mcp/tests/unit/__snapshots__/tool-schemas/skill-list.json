@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "category": {
+            "description": "Filter skills to this exact category. Pass \"scout\" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
+            "type": "string"
+        },
         "created_by_id": {
             "description": "Filter skills by the ID of the user who created them.",
             "type": "number"

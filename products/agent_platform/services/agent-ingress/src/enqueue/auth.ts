@@ -34,6 +34,7 @@ import { Request } from 'express'
 
 import {
     AgentApplication,
+    AgentRevision,
     AuthConfig,
     AuthMode,
     AuthModeType,
@@ -76,7 +77,7 @@ export type VerifyResult = VerifyOk | VerifyFail
  */
 export interface AuthVerifier {
     readonly modeType: AuthModeType
-    verify(req: Request, mode: AuthMode, application: AgentApplication): Promise<VerifyResult>
+    verify(req: Request, mode: AuthMode, application: AgentApplication, revision: AgentRevision): Promise<VerifyResult>
 }
 
 export interface AuthProvider {
@@ -148,6 +149,7 @@ export function readBearer(req: Request): string | null {
 export async function authorize(
     req: Request,
     application: AgentApplication,
+    revision: AgentRevision,
     authConfig: AuthConfig,
     provider: AuthProvider
 ): Promise<VerifyResult> {
@@ -161,7 +163,7 @@ export async function authorize(
         if (!verifier) {
             continue
         }
-        const result = await verifier.verify(req, mode, application)
+        const result = await verifier.verify(req, mode, application, revision)
         if (result.ok) {
             return result
         }

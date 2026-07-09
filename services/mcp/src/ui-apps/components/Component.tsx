@@ -9,6 +9,7 @@ import { inferVisualizationType } from './infer-visualization'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
 import { PathsVisualizer } from './PathsVisualizer'
 import { RetentionVisualizer } from './RetentionVisualizer'
+import { StickinessVisualizer } from './StickinessVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type {
@@ -21,14 +22,30 @@ import type {
     PathsResult,
     RetentionQuery,
     RetentionResult,
+    StickinessQuery,
+    StickinessResult,
     TrendsQuery,
     TrendsResult,
 } from './types'
 
 /** Data payload from MCP tools */
 interface DataPayload {
-    query?: TrendsQuery | FunnelsQuery | LifecycleQuery | RetentionQuery | PathsQuery | Record<string, unknown>
-    results: TrendsResult | FunnelResult | LifecycleResult | RetentionResult | PathsResult | HogQLResult
+    query?:
+        | TrendsQuery
+        | StickinessQuery
+        | FunnelsQuery
+        | LifecycleQuery
+        | RetentionQuery
+        | PathsQuery
+        | Record<string, unknown>
+    results:
+        | TrendsResult
+        | StickinessResult
+        | FunnelResult
+        | LifecycleResult
+        | RetentionResult
+        | PathsResult
+        | HogQLResult
     _posthogUrl?: string
 }
 
@@ -73,6 +90,16 @@ export function Component({ data }: ComponentProps): ReactElement {
             case 'funnel':
                 return (
                     <FunnelVisualizer query={payload.query as FunnelsQuery} results={payload.results as FunnelResult} />
+                )
+
+            case 'stickiness':
+                return (
+                    <StickinessVisualizer
+                        // The host updates `data` in place, so key on the query to re-seed state per result.
+                        key={JSON.stringify(payload.query)}
+                        query={payload.query as StickinessQuery}
+                        results={payload.results as StickinessResult}
+                    />
                 )
 
             case 'lifecycle':

@@ -16,6 +16,7 @@ from posthog.schema import (
     LogsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyGroupsMode,
     PropertyOperator,
 )
 
@@ -472,6 +473,25 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response["results"]), 101)
         self.assertEqual(len(queries), 2)
 
+    @parameterized.expand(
+        [
+            ("utc_aware", "2025-12-16T00:00:00+00:00"),
+            ("naive", "2025-12-16T00:00:00"),
+        ]
+    )
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_live_tail_checkpoint_iso_string(self, _name, checkpoint):
+        query_params = {
+            "dateRange": {"date_from": "2025-12-16 09:32:36.178572Z", "date_to": None},
+            "limit": 50,
+            "orderBy": "latest",
+            "liveLogsCheckpoint": checkpoint,
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+        }
+
+        response = self._make_logs_api_request(query_params)
+        self.assertGreater(len(response["results"]), 0)
+
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_filters(self):
         query_params = {
@@ -595,6 +615,55 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertLess(len(results), len(unfiltered["results"]))
+
+    def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2025-12-14T00:00:00Z", date_to="2025-12-18T03:00:00Z"),
+            limit=2000,
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            LogPropertyFilter(
+                                key="logtag",
+                                operator=operator,
+                                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                                value=["F"],
+                            ),
+                        ],
+                    )
+                ],
+            ),
+            kind="LogsQuery",
+        )
+        runner = LogsQueryRunner(query=query, team=self.team)
+        # Simulate a logs query path that reaches the printer with a non-OPTIMIZED mode (the logs-cluster
+        # path this regression covers). The printer must still force OPTIMIZED so the filter resolves the
+        # type-suffixed key against the typed `attributes_map_str` column instead of the un-suffixed alias.
+        runner.modifiers.propertyGroupsMode = mode
+        return runner.calculate().results
+
+    @parameterized.expand([(PropertyGroupsMode.OPTIMIZED,), (PropertyGroupsMode.DISABLED,)])
+    @freeze_time("2025-12-18T03:00:00Z")
+    def test_log_attribute_filter_resolves_regardless_of_property_groups_mode(self, mode: PropertyGroupsMode):
+        # The seed data has 1000 logs with logtag="F" and 11 without. A log-attribute filter must resolve the
+        # type-suffixed key (logtag__str) to its physical Map column for every property-groups mode — otherwise an
+        # `is not` filter matches every row (does nothing) and an `exact` filter matches none, which is the silent
+        # mis-filtering this regression guards against. DISABLED is the mode that fails without the printer's forced
+        # OPTIMIZED; OPTIMIZED is the control.
+        is_not_results = self._run_log_attribute_filter(PropertyOperator.IS_NOT, mode)
+        # The "is not F" filter must actually exclude the 1000 logtag="F" rows — not pass them through.
+        self.assertTrue(all(r["attributes"].get("logtag") != "F" for r in is_not_results))
+        self.assertEqual(len(is_not_results), 11)
+
+        exact_results = self._run_log_attribute_filter(PropertyOperator.EXACT, mode)
+        # The "= F" filter must match the 1000 logtag="F" rows — not return nothing.
+        self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
+        self.assertEqual(len(exact_results), 1000)
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):

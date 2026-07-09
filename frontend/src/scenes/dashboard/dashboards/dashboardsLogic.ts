@@ -6,7 +6,8 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { objectClean } from 'lib/utils/objects'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -28,7 +29,7 @@ const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
 
 export interface DashboardsFilters {
     search: string
-    createdBy: string
+    createdBy: number[] | 'All users'
     pinned: boolean
     shared: boolean
     tags?: string[]
@@ -152,6 +153,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         `api/environments/${teamId}/dashboards/?${params.toString()}`
                     )
                     breakpoint()
+                    // Findability signal for the dashboards-list-view experiment (flag: dashboards-list-view ·
+                    // experiment: 379125) — fires once per settled search (the 250ms breakpoint + the post-fetch
+                    // breakpoint() drop keystrokes and superseded queries). Remove with the experiment cleanup.
+                    eventUsageLogic.actions.reportDashboardListSearched(term.length, response.results?.length ?? 0)
                     return response.results ?? []
                 },
             },
@@ -211,7 +216,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 if (currentTab === DashboardsTab.Yours) {
                     haystack = haystack.filter((d) => d.created_by?.uuid === user?.uuid)
                 } else if (filters.createdBy !== 'All users') {
-                    haystack = haystack.filter((d) => d.created_by?.uuid === filters.createdBy)
+                    const createdByIds = filters.createdBy
+                    haystack = haystack.filter((d) => d.created_by != null && createdByIds.includes(d.created_by.id))
                 }
                 if (filters.tags && filters.tags.length > 0) {
                     haystack = haystack.filter((d) => filters.tags?.some((tag) => d.tags?.includes(tag)))
@@ -273,39 +279,85 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setFilters: () => {
+            const { createdBy, pinned, shared, tags } = values.filters
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+
+            if (createdBy !== DEFAULT_FILTERS.createdBy) {
+                searchParams['created_by'] = createdBy
+            } else {
+                delete searchParams['created_by']
+            }
+            if (pinned) {
+                searchParams['pinned'] = true
+            } else {
+                delete searchParams['pinned']
+            }
+            if (shared) {
+                searchParams['shared'] = true
+            } else {
+                delete searchParams['shared']
+            }
+            if (tags && tags.length > 0) {
+                searchParams['tags'] = tags
+            } else {
+                delete searchParams['tags']
+            }
+
             // Persist the folder filter so it survives reloads/sharing. `null` means no filter (param absent);
             // an empty string is a valid value (project root), so we key off the param's presence, not its value.
             const folder = values.filters.folder ?? null
-            const hadFolder = 'folder' in router.values.searchParams
-            const currentFolder = hadFolder ? urlSearchParamToString(router.values.searchParams['folder']) : null
-
-            if (folder === currentFolder) {
-                return
-            }
-
-            const searchParams: Record<string, any> = {
-                ...router.values.searchParams,
-            }
-
             if (folder === null) {
                 delete searchParams['folder']
             } else {
                 searchParams['folder'] = folder
             }
 
+            if (objectsEqual(searchParams, router.values.searchParams)) {
+                return
+            }
+
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
-            actions.setCurrentTab(tab)
+            if (values.currentTab !== tab) {
+                actions.setCurrentTab(tab)
+            }
+
+            // Apply non-search filters before search so the setSearch listener's server fetch
+            // sees the freshly-restored tags. Guard each dispatch on a real change so that the
+            // actionToUrl -> locationChanged -> urlToAction round trip doesn't re-fire listeners
+            // (e.g. a redundant server search) for filters that didn't actually move.
+            const createdByParam = searchParams['created_by']
+            const createdByIds = Array.isArray(createdByParam)
+                ? createdByParam.map(Number).filter((id) => !Number.isNaN(id))
+                : typeof createdByParam === 'number'
+                  ? [createdByParam]
+                  : []
+            const nextFilters = {
+                createdBy: createdByIds.length > 0 ? createdByIds : DEFAULT_FILTERS.createdBy,
+                pinned: searchParams['pinned'] === true || searchParams['pinned'] === 'true',
+                shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
+                tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
+                folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,
+            }
+            const current = values.filters
+            if (
+                !objectsEqual(current.createdBy, nextFilters.createdBy) ||
+                current.pinned !== nextFilters.pinned ||
+                current.shared !== nextFilters.shared ||
+                !objectsEqual(current.tags ?? [], nextFilters.tags ?? []) ||
+                (current.folder ?? null) !== nextFilters.folder
+            ) {
+                actions.setFilters(nextFilters)
+            }
 
             const search = urlSearchParamToString(searchParams['search'])
-            actions.setSearch(search)
-
-            const folder = 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null
-            actions.setFilters({ folder })
+            if (values.filters.search !== search) {
+                actions.setSearch(search)
+            }
         },
     })),
     listeners(({ actions, values }) => ({

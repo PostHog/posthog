@@ -3,17 +3,21 @@ import React, { useMemo, useState } from 'react'
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { ChartTheme } from '../../core/types'
-import { percentage } from '../../utils/format'
+import {
+    type ChangeColor,
+    ChangePill,
+    computeFallbackChangePercent,
+    DEFAULT_FORMAT_CHANGE,
+    DEFAULT_FORMAT_VALUE,
+    DEFAULT_NEGATIVE_COLOR,
+    DEFAULT_POSITIVE_COLOR,
+} from './internals'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
 import { useHoverIntent } from './useHoverIntent'
 
 export type { MetricChange }
-
-export interface ChangeColor {
-    background: string
-    foreground: string
-}
+export type { ChangeColor }
 
 export interface MetricCardProps {
     title: React.ReactNode
@@ -34,6 +38,8 @@ export interface MetricCardProps {
     sparklineFill?: boolean
     sparklineFillOpacity?: number
     sparklineClassName?: string
+    /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
+    sparklineDashedFromIndex?: number
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -44,10 +50,20 @@ export interface MetricCardProps {
     changeSize?: 'sm' | 'md'
     /** Render the change pill inline next to the headline instead of in the header row. */
     changeInline?: boolean
+    /** Tooltip shown on hover over the change pill, e.g. explaining what it compares. */
+    changeTooltip?: string
     positiveColor?: ChangeColor
     negativeColor?: ChangeColor
-    /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present. */
+    /** Caption under the headline. Defaults to `labels[activeIndex]` when a sparkline is present.
+     *  Always wins — shown at rest and on hover. */
     subtitle?: React.ReactNode
+    /** Caption shown only while at rest (e.g. `'Avg'`); on hover it yields to the hovered point's
+     *  label. Ignored when `subtitle` is set. */
+    restingSubtitle?: React.ReactNode
+    /** While hovering a sparkline point, replace the resting `change` pill with the change from the
+     *  previous point (`(data[i] - data[i-1]) / |data[i-1]|`). At the first point there is no previous,
+     *  so the pill is hidden. The resting `change` (or fallback) still shows when not hovering. */
+    hoverChangeFromPreviousPoint?: boolean
     animationMs?: number
     /** Dwell (ms) a pointer must settle on the sparkline before the headline follows it.
      *  Keeps a quick pass-through from grabbing attention. `0` disables the gating. */
@@ -55,15 +71,6 @@ export interface MetricCardProps {
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
-}
-
-const DEFAULT_POSITIVE_COLOR: ChangeColor = { background: 'rgb(56 134 0 / 10%)', foreground: '#388600' }
-const DEFAULT_NEGATIVE_COLOR: ChangeColor = { background: 'rgb(219 55 7 / 10%)', foreground: '#db3707' }
-
-const DEFAULT_FORMAT_VALUE = (v: number): string => v.toLocaleString()
-const DEFAULT_FORMAT_CHANGE = (p: number): string => {
-    const formatted = percentage(p / 100, 1, true)
-    return p > 0 ? `+${formatted}` : formatted
 }
 
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
@@ -86,6 +93,7 @@ function MetricCardInner({
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineClassName = 'mt-4',
+    sparklineDashedFromIndex,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -93,9 +101,12 @@ function MetricCardInner({
     goodDirection = 'up',
     changeSize = 'sm',
     changeInline = false,
+    changeTooltip,
     positiveColor = DEFAULT_POSITIVE_COLOR,
     negativeColor = DEFAULT_NEGATIVE_COLOR,
     subtitle,
+    restingSubtitle,
+    hoverChangeFromPreviousPoint = false,
     animationMs = 350,
     hoverIntentMs = 140,
     className,
@@ -119,14 +130,28 @@ function MetricCardInner({
     }
 
     const liveValue = sparklineData ? (sparklineData[activeIndex] ?? 0) : restingValue
-    const fallbackChangePercent =
-        sparklineData == null || baselineValue == null
-            ? null
-            : ((liveValue - baselineValue) / Math.abs(baselineValue)) * 100
+    const usePrevPointHover = hoverChangeFromPreviousPoint && intentIndex >= 0 && sparklineData != null
+    const fallbackChangePercent = computeFallbackChangePercent(
+        sparklineData,
+        usePrevPointHover,
+        intentIndex,
+        liveValue,
+        baselineValue
+    )
 
-    const delta = resolveDelta({ showChange, change, fallbackChangePercent, formatChange })
+    // A supplied `change` shows at rest; while hovering with `hoverChangeFromPreviousPoint` it yields to
+    // the point-vs-previous delta — except an explicit `null` (suppress) stays suppressed across hover.
+    const delta = resolveDelta({
+        showChange,
+        change: usePrevPointHover && change !== null ? undefined : change,
+        fallbackChangePercent,
+        formatChange,
+    })
+    // The tooltip describes the resting comparison, so hide it once the pill shows the per-point delta.
+    const activeChangeTooltip = usePrevPointHover ? undefined : changeTooltip
     const headlineDisplay = sparklineData ? formatValue(animatedValue) : formatValue(restingValue)
-    const resolvedSubtitle = subtitle ?? labels?.[activeIndex]
+    const resolvedSubtitle =
+        subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labels?.[activeIndex])
 
     const positive = delta != null && delta.value >= 0
     const isGood = goodDirection === 'up' ? positive : !positive
@@ -147,7 +172,13 @@ function MetricCardInner({
                 <div className={`flex items-start gap-2 ${headerJustify}`}>
                     {title != null && <div className="text-sm font-medium">{title}</div>}
                     {headerDelta != null && (
-                        <ChangePill positive={positive} label={headerDelta.label} colors={pillColors} size={changeSize} />
+                        <ChangePill
+                            positive={positive}
+                            label={headerDelta.label}
+                            colors={pillColors}
+                            size={changeSize}
+                            tooltip={activeChangeTooltip}
+                        />
                     )}
                 </div>
             )}
@@ -155,7 +186,13 @@ function MetricCardInner({
             {changeInline && delta != null ? (
                 <div className="flex items-center justify-between gap-2">
                     {renderedHeadline}
-                    <ChangePill positive={positive} label={delta.label} colors={pillColors} size={changeSize} />
+                    <ChangePill
+                        positive={positive}
+                        label={delta.label}
+                        colors={pillColors}
+                        size={changeSize}
+                        tooltip={activeChangeTooltip}
+                    />
                 </div>
             ) : (
                 renderedHeadline
@@ -176,50 +213,12 @@ function MetricCardInner({
                     height={sparklineHeight}
                     fill={sparklineFill}
                     fillOpacity={sparklineFillOpacity}
+                    dashedFromIndex={sparklineDashedFromIndex}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
                 />
             )}
         </div>
-    )
-}
-
-interface ChangePillProps {
-    positive: boolean
-    label: React.ReactNode
-    colors: ChangeColor
-    size?: 'sm' | 'md'
-}
-
-function ChangePill({ positive, label, colors, size = 'sm' }: ChangePillProps): React.ReactElement {
-    const sizeClasses = size === 'md' ? 'gap-1.5 px-2.5 py-1 text-sm' : 'gap-1 px-2 py-0.5 text-xs'
-    return (
-        <div
-            className={`inline-flex items-center rounded-full font-medium transition-colors ${sizeClasses}`}
-            style={{ background: colors.background, color: colors.foreground }}
-            data-attr="metric-card-change-pill"
-        >
-            <Chevron up={positive} size={size === 'md' ? 12 : 10} />
-            <span className="tabular-nums">{label}</span>
-        </div>
-    )
-}
-
-function Chevron({ up, size = 10 }: { up: boolean; size?: number }): React.ReactElement {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 10 10"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={up ? '' : 'rotate-180'}
-        >
-            <path d="M2 6.5 L5 3.5 L8 6.5" />
-        </svg>
     )
 }

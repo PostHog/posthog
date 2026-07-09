@@ -84,8 +84,8 @@ from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUID
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
 from products.slack_app.backend.api import _extract_explicit_repo
-from products.tasks.backend.models import Task
-from products.tasks.backend.repo_selection import (
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import (
     RepoSelectionRejectedError,
     RepoSelectionResult,
     RepoSelectionUnavailableError,
@@ -456,7 +456,7 @@ class Command:
                     team_id=ctx.team_id,
                     user_id=ctx.user_id,
                     context=context,
-                    origin_product=Task.OriginProduct.SLACK,
+                    origin_product=tasks_facade.TaskOriginProduct.SLACK,
                 )
             )
             if result.repository is None:

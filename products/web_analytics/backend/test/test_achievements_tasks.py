@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext
-from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress, WebAnalyticsUserConfig
 from products.web_analytics.backend.test.achievements_test_utils import make_evaluators
 
 
@@ -29,14 +29,14 @@ class TestRecomputeTask(BaseTest):
 
     def test_crossing_multiple_stages_queues_each_celebration(self) -> None:
         self._run_user(make_evaluators(loyal_days=lambda ctx: 20))
-        progress = self._progress("loyal_hog")
+        progress = self._progress("loyalty")
         self.assertEqual(progress.current_stage, 2)
         self.assertEqual(progress.state["pending_celebrations"], [1, 2])
         self.assertEqual(sorted(progress.state["unlocked_stages"].keys()), ["1", "2"])
 
     def test_maxed_track_is_not_recomputed(self) -> None:
         WebAnalyticsAchievementProgress(
-            team=self.team, user=self.user, track_key="loyal_hog", current_stage=5, progress_value=100, state={}
+            team=self.team, user=self.user, track_key="loyalty", current_stage=5, progress_value=100, state={}
         ).save()
         calls = {"count": 0}
 
@@ -46,15 +46,13 @@ class TestRecomputeTask(BaseTest):
 
         self._run_user(make_evaluators(loyal_days=loyal))
         self.assertEqual(calls["count"], 0)
-        self.assertEqual(self._progress("loyal_hog").current_stage, 5)
+        self.assertEqual(self._progress("loyalty").current_stage, 5)
 
     def test_expensive_team_track_debounced_to_once_per_team_local_day(self) -> None:
-        # Mighty Hog (cumulative_pageviews) is a ClickHouse-backed team track, so it stays gated to
-        # one recompute per team-local day even when re-triggered.
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=None,
-            track_key="mighty_hog",
+            track_key="traffic",
             current_stage=0,
             progress_value=0,
             state={},
@@ -70,12 +68,10 @@ class TestRecomputeTask(BaseTest):
         self.assertEqual(calls["count"], 0)
 
     def test_cheap_user_track_recomputes_intraday(self) -> None:
-        # Loyal Hog is a cheap DB-backed track, so it recomputes on every trigger to stay same-day
-        # fresh — even if it already ran earlier today.
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,
-            track_key="loyal_hog",
+            track_key="loyalty",
             current_stage=0,
             progress_value=0,
             state={},
@@ -89,21 +85,38 @@ class TestRecomputeTask(BaseTest):
 
         self._run_user(make_evaluators(loyal_days=loyal))
         self.assertEqual(calls["count"], 1)
-        self.assertEqual(self._progress("loyal_hog").current_stage, 1)
+        self.assertEqual(self._progress("loyalty").current_stage, 1)
 
     def test_unlock_fires_best_effort_notification(self) -> None:
-        with patch.object(tasks, "create_notification") as mock_notify:
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
         self.assertEqual(mock_notify.call_count, 1)
 
+    def test_unlock_notification_skipped_when_achievements_flag_disabled(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        mock_notify.assert_not_called()
+
+    def test_unlock_notification_skipped_when_user_opted_out(self) -> None:
+        WebAnalyticsUserConfig(team=self.team, user=self.user, achievements_opt_out=True).save()
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        mock_notify.assert_not_called()
+
     def test_duplicate_recompute_is_idempotent(self) -> None:
-        with patch.object(tasks, "create_notification") as mock_notify:
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
-            with self.captureOnCommitCallbacks(execute=True):
-                self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
-        progress = self._progress("loyal_hog")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            with patch.object(tasks, "create_notification") as mock_notify:
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+                with self.captureOnCommitCallbacks(execute=True):
+                    self._run_user(make_evaluators(loyal_days=lambda ctx: 5))
+        progress = self._progress("loyalty")
         self.assertEqual(progress.state["pending_celebrations"], [1])
         self.assertEqual(mock_notify.call_count, 1)
 
@@ -112,7 +125,7 @@ class TestRecomputeTask(BaseTest):
         progress = WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,
-            track_key="loyal_hog",
+            track_key="loyalty",
             current_stage=1,
             progress_value=5,
             state={"pending_celebrations": [1], "unlocked_stages": {"1": yesterday.isoformat()}},
@@ -132,10 +145,10 @@ class TestRecomputeTask(BaseTest):
         progress.refresh_from_db()
         self.assertEqual(progress.state["pending_celebrations"], [])
 
-    def test_holdout_user_gets_no_compute(self) -> None:
+    def test_control_user_gets_no_compute(self) -> None:
         with (
             patch.object(tasks, "EVALUATORS", make_evaluators(loyal_days=lambda ctx: 50)),
-            patch.object(tasks, "streak_arm_for_user", return_value="holdout"),
+            patch.object(tasks, "streak_arm_for_user", return_value="control"),
         ):
             tasks.recompute_web_analytics_achievements(self.team.id, self.user.id)
         self.assertFalse(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user).exists())

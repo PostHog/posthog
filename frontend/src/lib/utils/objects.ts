@@ -11,6 +11,31 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
 }
 
+/**
+ * Reuse the previous list's object reference for any item whose content is unchanged. Polled
+ * endpoints return freshly parsed objects on every cycle, so without this every item's reference
+ * changes each poll and every memoized row re-renders even when nothing changed. Matching by id
+ * and reusing the old reference when deep-equal keeps identity stable through selectors, so
+ * `React.memo` on the rows can actually bite.
+ */
+export function reconcileById<T>(
+    previous: T[],
+    next: T[],
+    getId: (item: T) => string,
+    // Items whose rendering depends on wall-clock time (e.g. an in-flight run's ticking duration)
+    // must NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
+    isReusable: (item: T) => boolean = () => true
+): T[] {
+    if (previous.length === 0) {
+        return next
+    }
+    const previousById = new Map(previous.map((item) => [getId(item), item]))
+    return next.map((item) => {
+        const existing = previousById.get(getId(item))
+        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
+    })
+}
+
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
 export function objectClean<T extends Record<string | number | symbol, unknown>>(
     obj: T,

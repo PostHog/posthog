@@ -16,14 +16,14 @@ import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/
 import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
 import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
 
-// `$mcp_tool_category` is stamped onto every mcp_tool_call event by the producer
+// `$mcp_tool_category` is stamped onto every $mcp_tool_call event by the producer
 // (PostHog's MCP server from its catalog; external servers via the SDK). We read
 // the available categories straight from the data so the scope selector works for
 // any project's taxonomy without a hardcoded tool→category map.
 const CATEGORIES_QUERY = hogql`
 SELECT DISTINCT toString(properties.$mcp_tool_category) AS category
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 30 DAY
     AND properties.$mcp_tool_category IS NOT NULL
     AND properties.$mcp_tool_category != ''
@@ -36,7 +36,7 @@ ORDER BY category
 const CATEGORY_COUNTS_QUERY = hogql`
 SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY category
 `
@@ -295,7 +295,7 @@ SELECT
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
     round(quantile(0.99)(toFloat(properties.$mcp_duration_ms))) AS p99
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}

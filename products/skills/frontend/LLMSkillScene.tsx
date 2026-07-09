@@ -412,15 +412,17 @@ function SkillViewDetails(): JSX.Element {
                         Bundled files ({skill.files.length})
                     </label>
                     <div className="mt-1 space-y-1">
-                        {skill.files.map((file) => (
-                            <SkillFileViewer
-                                key={file.path}
-                                skillName={skill.name}
-                                file={file}
-                                version={skill.is_latest ? undefined : skill.version}
-                                autoOpen={selectedFilePath === file.path}
-                            />
-                        ))}
+                        {[...skill.files]
+                            .sort((a, b) => a.path.localeCompare(b.path))
+                            .map((file) => (
+                                <SkillFileViewer
+                                    key={file.path}
+                                    skillName={skill.name}
+                                    file={file}
+                                    version={skill.is_latest ? undefined : skill.version}
+                                    autoOpen={selectedFilePath === file.path}
+                                />
+                            ))}
                     </div>
                 </div>
             )}

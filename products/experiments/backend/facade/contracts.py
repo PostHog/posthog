@@ -27,12 +27,16 @@ class CreateExperimentInput:
     description: str = ""
     type: str = "product"
 
-    # Feature flag configuration
+    # Experiment-own metadata (variant_notes, prompt_metadata, custom_exposure_filter).
+    # NOT for flag config — send that through the experiment's feature_flag object.
     parameters: dict[str, Any] | None = None
 
     # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
     # recommended_sample_size, exposure_estimate_config)
     running_time_calculation: dict[str, Any] | None = None
+
+    # Variant keys dropped from statistical analysis
+    excluded_variants: list[str] | None = None
 
     # Metrics configuration
     metrics: list[dict] | None = None

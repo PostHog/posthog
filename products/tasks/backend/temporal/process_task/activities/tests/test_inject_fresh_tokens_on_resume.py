@@ -5,9 +5,9 @@ from asgiref.sync import async_to_sync
 
 from posthog.models import OrganizationMembership, User
 
+from products.tasks.backend.logic.services.agentsh import ENV_FILE
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.models import SandboxEnvironment
-from products.tasks.backend.services.agentsh import ENV_FILE
-from products.tasks.backend.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     InjectFreshTokensOnResumeInput,

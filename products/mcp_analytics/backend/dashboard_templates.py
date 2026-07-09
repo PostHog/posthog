@@ -67,7 +67,7 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
                                 "name": "$mcp_initialize",
                                 "custom_name": "sessions",
                                 "math": "hogql",
-                                "math_hogql": "count(DISTINCT properties.$mcp_session_id)",
+                                "math_hogql": "count(DISTINCT properties.$session_id)",
                             },
                         ],
                         "trendsFilter": {},

@@ -1,0 +1,36 @@
+rules:
+    - id: customer-analytics-no-raw-account-properties-write
+      message: |
+          Don't write Account `_properties` directly. Every account write must go through the
+          AccountManager chokepoint — `Account.objects.create_account(...)` or
+          `Account.objects.update_account(...)` — which validates and coerces properties via
+          `AccountProperties.from_input`.
+
+          Passing `_properties=` to `.create(...)` or assigning `account._properties = ...`
+          bypasses that validation and can persist malformed properties.
+
+          Pass `properties=<dict>` to the manager instead. Tags and the surrounding transaction
+          are the caller's responsibility (see `api/serializers.py` and `max_tools/upsert_account.py`
+          for the pattern).
+
+          Test setup may build fixtures directly, so this rule excludes tests. For a genuine
+          non-test exception, add
+          `# nosemgrep: customer-analytics-no-raw-account-properties-write` with a short reason.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - '/products/customer_analytics/backend/**'
+          exclude:
+              - '/products/customer_analytics/backend/models/account.py'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/test/**'
+              - '**/migrations/**'
+      pattern-either:
+          - pattern: $X.create(..., _properties=$V, ...)
+          - pattern: $OBJ._properties = $V
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

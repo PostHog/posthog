@@ -61,7 +61,9 @@ export function renderNode({
     isInsertMenuOpen,
     insertMenuMode,
     hasInvalidInsertMenuQuery,
+    isAIWriting,
     isAIWritingPlaceholder,
+    isAIPromptSubmitDisabled,
     aiPromptFocusRequest,
     submitInsertMenuSelection,
     submitAIPrompt,
@@ -106,7 +108,9 @@ export function renderNode({
     isInsertMenuOpen: boolean
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
+    isAIWriting: boolean
     isAIWritingPlaceholder: boolean
+    isAIPromptSubmitDisabled: boolean
     aiPromptFocusRequest?: number
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     submitAIPrompt: (queryOverride?: string) => boolean
@@ -159,6 +163,7 @@ export function renderNode({
                     deleteNodeAndFocusAdjacent={deleteNodeAndFocusAdjacent}
                     updateAIPromptQuery={updateAIPromptQuery}
                     submitAIPrompt={submitAIPrompt}
+                    isAIPromptSubmitDisabled={isAIPromptSubmitDisabled}
                     isActive={isInsertMenuOpen && insertMenuMode === 'ai'}
                     focusRequest={aiPromptFocusRequest}
                     restoreSelectionRef={restoreSelectionRef}
@@ -256,6 +261,7 @@ export function renderNode({
             isInsertMenuOpen={isInsertMenuOpen}
             insertMenuMode={insertMenuMode}
             hasInvalidInsertMenuQuery={hasInvalidInsertMenuQuery}
+            isAIWriting={isAIWriting}
             isAIWritingPlaceholder={isAIWritingPlaceholder}
             submitInsertMenuSelection={submitInsertMenuSelection}
             handleSelectionChange={handleSelectionChange}

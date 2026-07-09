@@ -1,6 +1,8 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from posthog.test.base import APIBaseTest
+
+from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
@@ -8,7 +10,8 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.models.file_system.file_system import FileSystem
 
-from products.tasks.backend.models import Task
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task
 
 
 class TestDesktopFolderContextGenerationAPI(APIBaseTest):
@@ -32,7 +35,8 @@ class TestDesktopFolderContextGenerationAPI(APIBaseTest):
     def _instructions_url(self, folder_id: str) -> str:
         return f"/api/projects/{self.team.id}/desktop_file_system/{folder_id}/instructions/"
 
-    def _create_task(self, team: Team | None = None) -> Task:
+    def _create_task(self, team: Team | None = None) -> "Task":
+        Task = apps.get_model("tasks", "Task")
         return Task.objects.create(
             team=team or self.team,
             title="Generate CONTEXT.md",

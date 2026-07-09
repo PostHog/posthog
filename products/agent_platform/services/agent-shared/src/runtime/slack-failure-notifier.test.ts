@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { AgentApplication, AgentSession } from '../spec/spec'
+import { AgentApplication, AgentRevision, AgentSession } from '../spec/spec'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
 import { SlackFailureNotifier } from './slack-failure-notifier'
+import type { TriggerMetadata } from './trigger-metadata'
 
 const APP: AgentApplication = {
     id: 'app-1',
@@ -13,10 +14,23 @@ const APP: AgentApplication = {
     description: '',
     live_revision_id: null,
     archived: false,
+}
+
+// The notifier resolves the bot token from the revision's `encrypted_env`.
+const REV: AgentRevision = {
+    id: 'rev-1',
+    application_id: APP.id,
+    parent_revision_id: null,
+    created_by_id: null,
+    created_at: new Date().toISOString(),
+    state: 'live',
+    bundle_uri: 's3://x/',
+    bundle_sha256: null,
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: 'fernet-blob',
 }
 
-function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSession {
+function makeSession(triggerMetadata: TriggerMetadata | null): AgentSession {
     return {
         id: 'sess-1',
         application_id: APP.id,
@@ -49,7 +63,13 @@ function tokenResolver(returns: string | null): SecretResolver {
     return { resolve: vi.fn(async () => returns) }
 }
 
-const SLACK_META = { type: 'slack', workspace_id: 'W1', channel: 'C1', ts: '111.222', thread_ts: '111.222' }
+const SLACK_META: TriggerMetadata = {
+    kind: 'slack',
+    workspace_id: 'W1',
+    channel: 'C1',
+    ts: '111.222',
+    thread_ts: '111.222',
+}
 
 describe('SlackFailureNotifier', () => {
     it('posts a sanitized message to chat.postMessage on the originating thread', async () => {
@@ -60,6 +80,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'docker run failed: Unable to find image',
             category: 'transient_infra',
         })
@@ -84,23 +105,9 @@ describe('SlackFailureNotifier', () => {
         const n = new SlackFailureNotifier({ http, resolver: tokenResolver('xoxb-token') })
 
         await n.notify({
-            session: makeSession({ type: 'webhook', url: 'https://example.com' }),
+            session: makeSession({ kind: 'webhook' }),
             application: APP,
-            reason: 'x',
-            category: 'unknown',
-        })
-
-        expect(fetch).not.toHaveBeenCalled()
-    })
-
-    it('no-ops when channel or thread_ts missing', async () => {
-        const fetch = vi.fn()
-        const http: HttpFetcher = { fetch: fetch as unknown as HttpFetcher['fetch'] }
-        const n = new SlackFailureNotifier({ http, resolver: tokenResolver('xoxb-token') })
-
-        await n.notify({
-            session: makeSession({ type: 'slack', channel: 'C1' }),
-            application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -117,6 +124,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -138,6 +146,7 @@ describe('SlackFailureNotifier', () => {
             n.notify({
                 session: makeSession(SLACK_META),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })
@@ -161,6 +170,7 @@ describe('SlackFailureNotifier', () => {
         await n.notify({
             session: makeSession(SLACK_META),
             application: APP,
+            revision: REV,
             reason: 'x',
             category: 'unknown',
         })
@@ -185,6 +195,7 @@ describe('SlackFailureNotifier', () => {
             n.notify({
                 session: makeSession(SLACK_META),
                 application: APP,
+                revision: REV,
                 reason: 'x',
                 category: 'unknown',
             })

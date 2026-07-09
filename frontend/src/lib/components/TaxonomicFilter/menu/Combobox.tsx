@@ -54,6 +54,7 @@ import {
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
+import { floatToFront } from '../utils/floatToFront'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -151,15 +152,6 @@ function entryLabelMatchesSelection(entry: MenuFilterEntry, selected: MenuFilter
  *  selection means we must not also prepend a synthetic placeholder. */
 function entryMatchesSelection(entry: MenuFilterEntry, selected: MenuFilterEntry): boolean {
     return entryValueMatchesSelection(entry, selected) || entryLabelMatchesSelection(entry, selected)
-}
-
-/** Move the element at `index` to the front, preserving the order of the rest.
- *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1). */
-function floatToFront<T>(list: T[], index: number): T[] {
-    if (index <= 0) {
-        return list
-    }
-    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
 }
 
 function fuseMatchEntries(entries: MenuFilterEntry[], query: string): MenuFilterEntry[] {
@@ -367,7 +359,10 @@ export function MenuFilterCombobox({
                         // branch). The legacy list reaches the same filter via the QuickFilterItem
                         // `eventName` path instead — see `buildUrlContainsShortcut`.
                         // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
-                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
+                        item: {
+                            name: trimmedQuery,
+                            isContainsShortcut: true,
+                        } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
                         friendlyLabel: label,
@@ -1051,6 +1046,7 @@ export function MenuFilterCombobox({
                                 <Autocomplete.Collection>
                                     {(entry: MenuFilterEntry) => (
                                         <Row
+                                            key={rowDomId(entry)}
                                             entry={entry}
                                             // Show the category label on mixed-group views (All,
                                             // Recent, Pinned) — those mix items from multiple
@@ -1145,7 +1141,9 @@ function AutocompleteLemonInput({
                     className: _baseClassName,
                     onKeyDown: baseOnKeyDown,
                     ...baseInputAttrs
-                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & {
+                    ref?: React.Ref<HTMLInputElement>
+                }
                 const setRef = (el: HTMLInputElement | null): void => {
                     if (typeof ref === 'function') {
                         ref(el)
@@ -1213,17 +1211,29 @@ interface RowProps {
  * the friendly label; everything else uses the entry name and has no
  * distinct raw value to show.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): {
+    name: string
+    value?: string
+    category: string
+} {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
     const pathTail = parseUrlPathTail(entry.name)
     if (pathTail !== null) {
-        return { name: pathTail, value: entry.name, category: entry.group.name }
+        return {
+            name: pathTail,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, value: entry.name, category: entry.group.name }
+        return {
+            name: friendly,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     return { name: entry.name, category: entry.group.name }
 }

@@ -60,6 +60,32 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-canvas-partial-update:
+        operation: desktop_file_system_canvas_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update canvas code
+        description: >
+            Publish the React source for a freeform canvas (a "dashboard" item on the desktop surface). The `id` is the
+            canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code
+            and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do
+            not write a local file.
+        param_overrides:
+            id:
+                description: ID of the canvas (desktop "dashboard" item) whose code to publish.
+            code:
+                description: |
+                    The complete single-file React source for the canvas. Replaces the current code wholesale.
+                required: true
+            name:
+                description: |
+                    Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
+                    in place. Omit to leave the name unchanged.
     desktop-file-system-context-generation-retrieve:
         operation: desktop_file_system_context_generation_retrieve
         enabled: false
@@ -212,24 +238,6 @@ tools:
     desktop-file-system-update:
         operation: desktop_file_system_update
         enabled: false
-    desktop-persisted-folder-create:
-        operation: desktop_persisted_folder_create
-        enabled: false
-    desktop-persisted-folder-destroy:
-        operation: desktop_persisted_folder_destroy
-        enabled: false
-    desktop-persisted-folder-list:
-        operation: desktop_persisted_folder_list
-        enabled: false
-    desktop-persisted-folder-partial-update:
-        operation: desktop_persisted_folder_partial_update
-        enabled: false
-    desktop-persisted-folder-retrieve:
-        operation: desktop_persisted_folder_retrieve
-        enabled: false
-    desktop-persisted-folder-update:
-        operation: desktop_persisted_folder_update
-        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
@@ -335,6 +343,27 @@ tools:
     generate-conversations-public-token-create:
         operation: organizations_projects_generate_conversations_public_token_create
         enabled: false
+    identity-provider-configs-create:
+        operation: identity_provider_configs_create
+        enabled: false
+    identity-provider-configs-destroy:
+        operation: identity_provider_configs_destroy
+        enabled: false
+    identity-provider-configs-list:
+        operation: identity_provider_configs_list
+        enabled: false
+    identity-provider-configs-partial-update:
+        operation: identity_provider_configs_partial_update
+        enabled: false
+    identity-provider-configs-retrieve:
+        operation: identity_provider_configs_retrieve
+        enabled: false
+    identity-provider-configs-scim-token-create:
+        operation: identity_provider_configs_scim_token_create
+        enabled: false
+    identity-provider-configs-update:
+        operation: identity_provider_configs_update
+        enabled: false
     insights-sharing-list:
         operation: insights_sharing_list
         enabled: false
@@ -410,29 +439,11 @@ tools:
     organizations-projects-logs-config-retrieve:
         operation: organizations_projects_logs_config_retrieve
         enabled: false
-    organizations-projects-promoted-product-intent-retrieve:
-        operation: organizations_projects_promoted_product_intent_retrieve
-        enabled: false
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
-    persisted-folder-create:
-        operation: persisted_folder_create
-        enabled: false
-    persisted-folder-destroy:
-        operation: persisted_folder_destroy
-        enabled: false
-    persisted-folder-list:
-        operation: persisted_folder_list
-        enabled: false
-    persisted-folder-partial-update:
-        operation: persisted_folder_partial_update
-        enabled: false
-    persisted-folder-retrieve:
-        operation: persisted_folder_retrieve
-        enabled: false
-    persisted-folder-update:
-        operation: persisted_folder_update
+    product-enablement-create:
+        operation: product_enablement_create
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
@@ -445,10 +456,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:
@@ -574,17 +587,51 @@ tools:
             idempotent: true
         title: Get user
         description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
-            callers may only access their own account.
+            Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name),
+            security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the
+            authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT
+            return organization or project configuration: the nested `organization`, `team`, and `organizations` objects
+            are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use
+            `project-get` for full project details, and the organization-scoped tools for organization details.
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
         response:
-            exclude:
-                - is_impersonated
-                - is_impersonated_until
-                - is_impersonated_read_only
-                - sensitive_session_expires_at
+            include:
+                - id
+                - uuid
+                - distinct_id
+                - email
+                - pending_email
+                - is_email_verified
+                - first_name
+                - last_name
+                - date_joined
+                - is_staff
+                - has_password
+                - is_2fa_enabled
+                - has_social_auth
+                - has_sso_enforcement
+                - passkeys_enabled_for_2fa
+                - allow_impersonation
+                - notification_settings
+                - anonymize_data
+                - toolbar_mode
+                - events_column_config
+                - theme_mode
+                - hedgehog_config
+                - allow_sidebar_suggestions
+                - shortcut_position
+                - role_at_organization
+                - hide_mcp_hints
+                - scene_personalisation
+                - pending_invites
+                - organization.id
+                - organization.name
+                - team.id
+                - team.name
+                - organizations.*.id
+                - organizations.*.name
     user-settings-update:
         operation: users_partial_update
         enabled: true
@@ -648,6 +695,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-prepare-callback-create:
+        operation: users_integrations_github_prepare_callback_create
+        enabled: false
     users-integrations-github-repos-refresh-create:
         operation: users_integrations_github_repos_refresh_create
         enabled: false
@@ -660,8 +710,26 @@ tools:
     users-integrations-list:
         operation: users_integrations_list
         enabled: false
+    users-integrations-slack-destroy:
+        operation: users_integrations_slack_destroy
+        enabled: false
+    users-integrations-slack-linkable-workspaces-retrieve:
+        operation: users_integrations_slack_linkable_workspaces_retrieve
+        enabled: false
+    users-integrations-slack-start-create:
+        operation: users_integrations_slack_start_create
+        enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-login-sessions-destroy:
+        operation: users_login_sessions_destroy
+        enabled: false
+    users-login-sessions-list:
+        operation: users_login_sessions_list
+        enabled: false
+    users-login-sessions-revoke-others-create:
+        operation: users_login_sessions_revoke_others_create
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create

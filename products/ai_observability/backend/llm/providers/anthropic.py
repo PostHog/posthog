@@ -31,10 +31,14 @@ from products.ai_observability.backend.llm.types import (
 logger = logging.getLogger(__name__)
 
 
+def _is_quota_or_billing_error(error: Exception) -> bool:
+    error_message = str(error).lower()
+    return any(token in error_message for token in ("quota", "credit", "billing"))
+
+
 class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
-    TEMPERATURE: float = 0
     # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
     TIMEOUT: float = 300.0
@@ -58,6 +62,8 @@ class AnthropicConfig:
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ]
+
+    DEFAULT_MODEL: str = "claude-haiku-4-5"
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
         "claude-opus-4-8",
@@ -129,9 +135,14 @@ class AnthropicAdapter:
             "system": system_prompt,
             "messages": messages,
             "max_tokens": request.max_tokens or AnthropicConfig.MAX_TOKENS,
-            "temperature": request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE,
             **(self._build_analytics_kwargs(analytics, client)),
         }
+
+        # Anthropic deprecated the sampling params (temperature/top_p/top_k) on newer models and
+        # recommends omitting them (https://platform.claude.com/docs/en/about-claude/model-deprecations).
+        # Forward temperature only when a caller explicitly set one.
+        if request.temperature is not None:
+            create_kwargs["temperature"] = request.temperature
 
         if use_structured:
             assert request.response_format is not None
@@ -173,11 +184,14 @@ class AnthropicAdapter:
             )
         except anthropic.AuthenticationError as e:
             raise AuthenticationError(str(e))
+        except anthropic.BadRequestError as e:
+            if _is_quota_or_billing_error(e):
+                raise QuotaExceededError(str(e)) from e
+            raise
         except anthropic.RateLimitError as e:
-            error_message = str(e).lower()
-            if "quota" in error_message or "credit" in error_message or "billing" in error_message:
-                raise QuotaExceededError(str(e))
-            raise RateLimitError(str(e))
+            if _is_quota_or_billing_error(e):
+                raise QuotaExceededError(str(e)) from e
+            raise RateLimitError(str(e)) from e
 
     def stream(
         self,
@@ -211,7 +225,6 @@ class AnthropicAdapter:
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 
-        effective_temperature = request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE
         effective_max_tokens = request.max_tokens if request.max_tokens is not None else AnthropicConfig.MAX_TOKENS
 
         tools = self._convert_tools(request.tools) if request.tools else None
@@ -235,8 +248,11 @@ class AnthropicAdapter:
                 "model": model_id,
                 "system": system_prompt,
                 "stream": True,
-                "temperature": effective_temperature,
             }
+
+            # See complete(): forward temperature only when a caller explicitly set one.
+            if request.temperature is not None:
+                common_kwargs["temperature"] = request.temperature
 
             if analytics.capture:
                 common_kwargs["posthog_distinct_id"] = analytics.distinct_id

@@ -21,22 +21,31 @@ import { S3Client } from '@aws-sdk/client-s3'
 import {
     createAgentPool,
     createLogger,
+    createMetricsServer,
     createModalSandboxTerminator,
+    DirectHttpClient,
+    HttpGatewayCatalog,
+    initMetrics,
     installProcessHandlers,
+    isDev,
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
+    PgIdentityAdminStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
     S3BundleStore,
     S3JsonlTabularStore,
     S3MemoryStore,
+    SandboxPool,
+    selectSandboxPool,
     TabularStore,
 } from '@posthog/agent-shared'
 
 import { loadAgentJanitorConfig } from './config'
 import { cronTick, newCronTickState } from './cron-tick'
+import * as metrics from './metrics'
 import { buildJanitorApp } from './server'
 import { sweepOnce } from './sweep'
 
@@ -45,6 +54,15 @@ const log = createLogger('agent-janitor')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentJanitorConfig()
+
+    // Prometheus: Node process defaults. Prod runs a dedicated scrape server; the
+    // sweep/cron metrics below let an alert catch a wedged singleton (rate of
+    // *_runs_total → 0). Dev mounts /metrics on the request port inside
+    // buildJanitorApp (no dedicated port — three services on one host collide).
+    initMetrics({ service: 'agent-janitor' })
+    if (!isDev()) {
+        createMetricsServer({ port: config.metricsPort, log })
+    }
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fails closed at config-load in prod). Endpoint is optional:
@@ -85,6 +103,9 @@ async function main(): Promise<void> {
     // (same secret_env entries the runner reads).
     const sandboxInstances = new PgSandboxInstanceStore(agentDb)
     const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+    // Keyless admin view over agent_user + agent_identity_credential for the
+    // console "Users" pane. No decryption key — metadata only.
+    const identityAdmin = new PgIdentityAdminStore(agentDb)
 
     const sweep = {
         queue,
@@ -137,6 +158,38 @@ async function main(): Promise<void> {
         'memory.s3.enabled'
     )
 
+    // Served-model catalog off the same gateway the runner uses — validate +
+    // freeze reject a models the gateway can't serve. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = new HttpGatewayCatalog({
+        baseUrl: config.aiGatewayUrl,
+        bearer: config.posthogAiGatewayKey,
+        http: new DirectHttpClient(),
+    })
+
+    // Single-shot sandbox pool for the dry-run endpoint. Same `selectSandboxPool`
+    // impl the runner uses; the janitor just runs it with a per-call lifecycle
+    // (acquire → invoke → release inside one HTTP handler) instead of the
+    // runner's per-session lifecycle. If execution duties grow enough to
+    // crowd out the janitor's CRUD character, the natural next step is to
+    // hoist this into a dedicated `agent-exec` service — the abstraction is
+    // already in agent-shared, so the split is mechanical.
+    let sandboxes: SandboxPool | undefined
+    if (config.sandboxBackend) {
+        sandboxes = selectSandboxPool({
+            backend: config.sandboxBackend,
+            sandboxHostImage: config.sandboxHostImage,
+            sandboxDockerImage: config.sandboxDockerImage,
+            sandboxModalImage: config.sandboxModalImage,
+            modalAppName: config.modalAppName,
+            modalRegion: config.modalRegion,
+            sandboxOutboundCidrAllowlist: config.sandboxOutboundCidrAllowlist,
+        })
+        log.info({ backend: config.sandboxBackend }, 'sandbox.dry_run.enabled')
+    } else {
+        log.warn({}, 'sandbox.dry_run.disabled — SANDBOX_BACKEND unset; dry-run endpoint will 503')
+    }
+
     const app = buildJanitorApp({
         queue,
         sweep,
@@ -145,7 +198,13 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
+        identityAdmin,
+        gatewayCatalog,
         internalSigningKey: config.internalSigningKey,
+        sandboxes,
+        dryRunWallMs: config.dryRunWallMs,
+        dryRunMemoryMb: config.dryRunMemoryMb,
+        dryRunMaxConcurrent: config.dryRunMaxConcurrent,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port }, 'listening')
@@ -166,23 +225,57 @@ async function main(): Promise<void> {
         // single throw can't take the loop down.
         await Promise.all([
             (async () => {
+                const end = metrics.sweepDuration.startTimer()
                 try {
                     const result = await sweepOnce(sweep)
+                    end()
+                    metrics.sweepRuns.inc()
+                    // Each action is its own series so a rising requeued/poisoned
+                    // rate (runner instability) or sandbox_reap_failures (bad
+                    // terminator) stands out on the dashboard.
+                    for (const [action, count] of Object.entries(result)) {
+                        if (count > 0) {
+                            metrics.sweptTotal.labels({ action }).inc(count)
+                        }
+                    }
                     log.debug({ ...result }, 'sweep.done')
                 } catch (err) {
+                    end()
+                    metrics.sweepFailures.inc()
                     log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'sweep.failed')
                 }
             })(),
             (async () => {
                 try {
                     const result = await cronTick(cronTickDeps, cronTickState)
+                    metrics.cronRuns.inc()
+                    if (result.fired > 0) {
+                        metrics.cronFired.inc(result.fired)
+                    }
+                    if (result.errors > 0) {
+                        metrics.cronErrors.inc(result.errors)
+                    }
                     if (result.fired > 0 || result.errors > 0) {
                         log.info({ ...result }, 'cron_tick.done')
                     } else {
                         log.debug({ ...result }, 'cron_tick.done')
                     }
                 } catch (err) {
+                    metrics.cronFailures.inc()
                     log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'cron_tick.failed')
+                }
+            })(),
+            // Sample fleet queue depth once per tick. Own try/catch so a depth
+            // query blip never marks the sweep failed. Zero-fill known states so
+            // a state that empties shows 0 rather than freezing at its last value.
+            (async () => {
+                try {
+                    const counts = await queue.countByState()
+                    for (const state of metrics.KNOWN_SESSION_STATES) {
+                        metrics.queueDepth.labels({ state }).set(counts[state] ?? 0)
+                    }
+                } catch (err) {
+                    log.warn({ err: (err as Error).message }, 'queue_depth.sample_failed')
                 }
             })(),
         ])

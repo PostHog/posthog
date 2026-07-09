@@ -4,12 +4,31 @@ const ExperimentType = ['web', 'product'] as const
 
 const ExperimentConclusion = ['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'] as const
 
+// The flag's native variant shape (filters.multivariate.variants). This is the source
+// of truth for an experiment's variants — the deprecated parameters.feature_flag_variants
+// projection just echoes it. looseObject so unknown filter/variant keys survive parsing:
+// the exposure query forwards the whole feature_flag object to the backend, so narrowing
+// filters here would strip groups/payloads/etc. before the query is sent.
+const FeatureFlagVariantSchema = z.looseObject({
+    key: z.string(),
+    name: z.string().nullish(),
+    rollout_percentage: z.number().nullish(),
+})
+
+const FeatureFlagFiltersSchema = z.looseObject({
+    multivariate: z
+        .looseObject({
+            variants: z.array(FeatureFlagVariantSchema).nullish(),
+        })
+        .nullish(),
+})
+
 const FeatureFlagSchema = z.object({
     id: z.number(),
     key: z.string(),
     name: z.string(),
     description: z.string().nullish(),
-    filters: z.any().nullish(),
+    filters: FeatureFlagFiltersSchema.nullish(),
     active: z.boolean(),
     tags: z.array(z.string()).optional(),
     updated_at: z.string().nullish(),
@@ -21,9 +40,24 @@ const ExperimentEventExposureConfigSchema = z.object({
     properties: z.array(z.any()),
 })
 
+// Action-based exposure: the experiment counts a user as exposed when they match a
+// PostHog action (kind 'ActionsNode', identified by numeric `id`) rather than a custom
+// event. The backend resolves the action by id, so id + properties round-trip faithfully
+// into the ExperimentExposureQuery.
+const ExperimentActionExposureConfigSchema = z.object({
+    kind: z.literal('ActionsNode'),
+    id: z.number(),
+    properties: z.array(z.any()).optional(),
+})
+
+const ExperimentExposureConfigSchema = z.union([
+    ExperimentEventExposureConfigSchema,
+    ExperimentActionExposureConfigSchema,
+])
+
 const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
-    exposure_config: ExperimentEventExposureConfigSchema.optional(),
+    exposure_config: ExperimentExposureConfigSchema.optional(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 
@@ -346,7 +380,7 @@ export function transformExperimentResults(input: {
             | 'draft'
             | 'running'
             | 'completed',
-        variants: experiment.parameters?.feature_flag_variants || [],
+        variants: experiment.feature_flag?.filters?.multivariate?.variants ?? [],
     }
 
     const buildRows = (

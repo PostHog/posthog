@@ -27,6 +27,7 @@ from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
@@ -96,6 +97,21 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_get_feature_flag_redacts_encrypted_payloads(self):
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-key",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/encrypted-key"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+
     def test_get_feature_flag_filters_inaccessible_teams(self):
         """Test that flags from teams the user cannot access are not returned."""
         from posthog.constants import AvailableFeature
@@ -131,6 +147,242 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         response_data = response.json()
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
+    def test_get_feature_flag_filters_flag_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create a second user and log in as them (not the flag creator) so that
+        # the "creator is always visible" exception does not apply.
+        other_user = self._create_user("other@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to feature_flag_2 at the object level.
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(self.feature_flag_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        # Only team_1's flag should be returned; team_2's flag is denied.
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
+
+class TestOrganizationFeatureFlagKeys(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        # Shared key exists in both projects; each project also has a unique key.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="only-in-1")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="only-in-2")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="deleted", deleted=True)
+
+        super().setUp()
+
+    def _keys_url(self, **params: Any) -> str:
+        url = f"/api/organizations/{self.organization.id}/feature_flags/keys/"
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return f"{url}?{query}" if query else url
+
+    def test_keys_returns_union_across_compared_projects(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(sorted(row["key"] for row in data["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_excludes_deleted_flags(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("deleted", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-2"])
+
+    def test_keys_redacts_encrypted_payloads(self):
+        # Session reads must never receive encrypted remote-config ciphertext.
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="secret-config",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+
+        row = next(r for r in response.json()["results"] if r["key"] == "secret-config")
+        self.assertEqual(row["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+        self.assertNotIn("ciphertext-blob", str(row["filters"]))
+
+    def test_keys_representative_prefers_earlier_team_in_order(self):
+        # team_2 listed first -> the shared row should be represented by team_2's flag.
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id) + f"&team_ids={self.team_1.id}")
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_2.id)
+
+    def test_keys_deduplicates_team_ids_preserving_priority(self):
+        # team_1 repeated at the end must not override its first-seen priority over team_2.
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&team_ids={self.team_1.id}"
+        )
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_1.id)
+
+    def test_keys_search_picks_representative_matching_search(self):
+        # Same key in both teams, but only the lower-priority team's name matches the search term.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="billing-flag", name="Alpha")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="billing-flag", name="SearchTarget")
+
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=SearchTarget"
+        )
+
+        rows = response.json()["results"]
+        self.assertEqual([row["key"] for row in rows], ["billing-flag"])
+        self.assertEqual(rows[0]["team_id"], self.team_2.id)
+        self.assertEqual(rows[0]["name"], "SearchTarget")
+
+    def test_keys_search_filters_by_key(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only")
+
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["only-in-1", "only-in-2"])
+
+    def test_keys_paginates_distinct_keys(self):
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=0"
+        )
+        self.assertEqual(first.json()["count"], 3)
+        self.assertEqual(len(first.json()["results"]), 2)
+        self.assertIsNotNone(first.json()["next"])
+        self.assertIsNone(first.json()["previous"])
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=2"
+        )
+        self.assertEqual(len(second.json()["results"]), 1)
+        self.assertIsNone(second.json()["next"])
+        self.assertIsNotNone(second.json()["previous"])
+
+    def test_keys_pagination_urls_preserve_team_ids_and_search(self):
+        # The next/previous links must carry the same team_ids and search, or paging would
+        # silently switch to the wrong projects or drop the filter.
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=0"
+        )
+        next_url = first.json()["next"]
+        self.assertIsNotNone(next_url)
+        self.assertIn(f"team_ids={self.team_1.id}", next_url)
+        self.assertIn(f"team_ids={self.team_2.id}", next_url)
+        self.assertIn("search=only", next_url)
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=1"
+        )
+        previous_url = second.json()["previous"]
+        self.assertIsNotNone(previous_url)
+        self.assertIn(f"team_ids={self.team_1.id}", previous_url)
+        self.assertIn(f"team_ids={self.team_2.id}", previous_url)
+        self.assertIn("search=only", previous_url)
+
+    def test_keys_negative_limit_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=-5")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # A negative limit is clamped to 1, not passed to a negative slice (which would 500).
+        self.assertLessEqual(len(response.json()["results"]), 1)
+
+    def test_keys_accepts_comma_separated_team_ids(self):
+        response = self.client.get(self._keys_url(team_ids=f"{self.team_1.id},{self.team_2.id}"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(row["key"] for row in response.json()["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_defaults_to_all_accessible_teams_when_unspecified(self):
+        response = self.client.get(self._keys_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
+
+    def test_keys_ignores_teams_outside_the_organization(self):
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        response = self.client.get(self._keys_url(team_ids=other_team.id))
+
+        # The team is not in this org, so it falls back to all accessible teams in the org.
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("other-org-flag", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
+
+    def test_keys_unauthorized(self):
+        self.client.logout()
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_keys_invalid_param_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=abc")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_keys_excludes_flags_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Use a second user (not the flag creator) so the creator-always-visible
+        # exception in filter_queryset_by_access_level does not apply.
+        other_user = self._create_user("other-keys@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to the "shared" flag in team_2 at the object level.
+        shared_flag_team2 = FeatureFlag.objects.get(team=self.team_2, key="shared")
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(shared_flag_team2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # "shared" key still appears because team_1's copy is accessible; team_2's is excluded.
+        rows = response.json()["results"]
+        keys = [row["key"] for row in rows]
+        self.assertIn("shared", keys)
+        shared_row = next(row for row in rows if row["key"] == "shared")
+        # Representative must be from team_1, not team_2 (team_2's flag is denied).
+        self.assertEqual(shared_row["team_id"], self.team_1.id)
 
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
@@ -187,6 +439,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "id": ANY,
             "created_at": ANY,
@@ -281,6 +534,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "rollback_conditions": None,
             "performed_rollback": False,
@@ -420,6 +674,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "rollback_conditions": None,
             "performed_rollback": False,
@@ -846,6 +1101,222 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         if destination_cohort is not None:
             self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
+
+    def _flag_dependency_property(self, dependency_flag, as_int=False):
+        return {
+            "key": dependency_flag.id if as_int else str(dependency_flag.id),
+            "type": "flag",
+            "value": "true",
+            "operator": "flag_evaluates_to",
+        }
+
+    @parameterized.expand(
+        [
+            # name, target_parent_active (None = no same-key flag in target), include_sibling_prop,
+            # expected_warning_substring (None = remapped, no warning), expected_active, expected_remaining_types
+            ("present_and_active", True, False, None, True, ["flag"]),
+            ("missing_with_sibling", None, True, "no flag with that key", False, ["person"]),
+            ("missing_only_property", None, False, "no flag with that key", False, []),
+            ("disabled_in_target", False, False, "disabled", False, []),
+        ]
+    )
+    def test_copy_feature_flag_remaps_or_drops_dependency(
+        self,
+        _name,
+        target_parent_active,
+        include_sibling_prop,
+        expected_warning_substring,
+        expected_active,
+        expected_remaining_types,
+    ):
+        target_project = self.team_2
+
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        target_parent = None
+        if target_parent_active is not None:
+            # Same-key parent in the target project, created with a different ID than the source
+            target_parent = FeatureFlag.objects.create(
+                team=target_project, created_by=self.user, key="parent-flag", active=target_parent_active
+            )
+
+        properties = [self._flag_dependency_property(source_parent)]
+        if include_sibling_prop:
+            properties.append({"key": "$some_prop", "value": "x", "type": "person", "operator": "exact"})
+
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": properties}]},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        success = response.json()["success"][0]
+
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
+        remaining = copied_flag.filters["groups"][0].get("properties", [])
+        self.assertEqual([prop["type"] for prop in remaining], expected_remaining_types)
+        self.assertEqual(copied_flag.active, expected_active)
+
+        if expected_warning_substring is None:
+            # Dependency remapped to the target project's parent flag; nothing dropped, copy stays active
+            assert target_parent is not None
+            self.assertNotIn("flag_dependency_warnings", success)
+            self.assertEqual(remaining[0]["key"], str(target_parent.id))
+        else:
+            # Dependency dropped: a warning is surfaced and the copy is forced inactive for review
+            self.assertIn("flag_dependency_warnings", success)
+            self.assertIn(expected_warning_substring, success["flag_dependency_warnings"][0])
+
+    def test_copy_feature_flag_remaps_int_keyed_dependency(self):
+        # Dependencies are usually stored as string keys, so the int-key branch of the remap is
+        # otherwise untested — assert it remaps and preserves the int key type in the target.
+        target_project = self.team_2
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        target_parent = FeatureFlag.objects.create(
+            team=target_project, created_by=self.user, key="parent-flag", active=True
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [self._flag_dependency_property(source_parent, as_int=True)],
+                    }
+                ]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
+        remapped_key = copied_flag.filters["groups"][0]["properties"][0]["key"]
+        self.assertEqual(remapped_key, target_parent.id)
+        self.assertIsInstance(remapped_key, int)
+        self.assertTrue(copied_flag.active)
+
+    def test_copy_feature_flag_with_multiple_dependencies_in_one_group(self):
+        # A group with two flag dependencies: one present-and-active in the target (remapped), one
+        # missing (dropped). Exactly one warning should be surfaced and only the active one kept.
+        target_project = self.team_2
+        present_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="present-parent", active=True
+        )
+        target_present_parent = FeatureFlag.objects.create(
+            team=target_project, created_by=self.user, key="present-parent", active=True
+        )
+        missing_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="missing-parent", active=True
+        )
+
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            self._flag_dependency_property(present_parent),
+                            self._flag_dependency_property(missing_parent),
+                        ],
+                    }
+                ]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        success = response.json()["success"][0]
+
+        copied_flag = FeatureFlag.objects.get(key="dependent-flag", team_id=target_project.id)
+        remaining = copied_flag.filters["groups"][0]["properties"]
+        # Only the present dependency survives, remapped to the target's parent ID
+        self.assertEqual(len(remaining), 1)
+        self.assertEqual(remaining[0]["key"], str(target_present_parent.id))
+        # The dropped dependency yields exactly one warning (the group still has the kept dependency,
+        # so no "group now matches everyone" warning is added)
+        self.assertEqual(len(success["flag_dependency_warnings"]), 1)
+        self.assertIn("missing-parent", success["flag_dependency_warnings"][0])
+        # A dependency was dropped, so the copy is forced inactive for review even though the
+        # remapped dependency still gates the group.
+        self.assertFalse(copied_flag.active)
+
+    def test_copy_feature_flag_remaps_dependency_per_target_without_leak(self):
+        # Each target has its own same-key parent under a different ID. The remap runs on a per-target
+        # deep copy of the filters, so each copy must point at its own target's parent and stay active.
+        target_1 = self.team_2
+        target_2 = Team.objects.create(organization=self.organization)
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True
+        )
+        parent_in_1 = FeatureFlag.objects.create(team=target_1, created_by=self.user, key="parent-flag", active=True)
+        parent_in_2 = FeatureFlag.objects.create(team=target_2, created_by=self.user, key="parent-flag", active=True)
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": dependent_flag.key,
+            "from_project": dependent_flag.team_id,
+            "target_project_ids": [target_1.id, target_2.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["failed"]), 0)
+        for success in response.json()["success"]:
+            self.assertNotIn("flag_dependency_warnings", success)
+
+        copied_1 = FeatureFlag.objects.get(key="dependent-flag", team_id=target_1.id)
+        copied_2 = FeatureFlag.objects.get(key="dependent-flag", team_id=target_2.id)
+        self.assertEqual(copied_1.filters["groups"][0]["properties"][0]["key"], str(parent_in_1.id))
+        self.assertEqual(copied_2.filters["groups"][0]["properties"][0]["key"], str(parent_in_2.id))
+        self.assertTrue(copied_1.active)
+        self.assertTrue(copied_2.active)
 
     def test_copy_remote_config_flag_preserves_type(self):
         """Test that copying a remote config flag preserves the is_remote_configuration field."""
@@ -1480,3 +1951,154 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
             body = self.client.get(self._url("shared_flag")).json()
         for entry in body:
             assert entry["evaluations_7d"] is None
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestOrganizationFeatureFlagCopyApprovalGate(APIBaseTest):
+    """Copying a flag routes through FeatureFlagSerializer create()/update(), so a copy that
+    lands the destination flag in a policy-guarded state must be gated. The gate raises inside
+    serializer.save(), which copy_flags surfaces as a per-project failure (the row is NOT made)."""
+
+    def setUp(self):
+        super().setUp()
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+        self.source_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="copy-gate-flag",
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100}]},
+        )
+
+    def _enable_policy(self, team) -> None:
+        from products.approvals.backend.models import ApprovalPolicy
+
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=team,
+            action_key="feature_flag.enable",
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    def _copy(self, target_ids: list[int], disable: bool = False) -> Any:
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        return self.client.post(
+            url,
+            {
+                "feature_flag_key": self.source_flag.key,
+                "from_project": self.source_flag.team_id,
+                "target_project_ids": target_ids,
+                **({"disable_copied_flag": True} if disable else {}),
+            },
+        )
+
+    def test_copy_active_flag_to_new_target_under_policy_is_gated(self, _mock_enabled):
+        self._enable_policy(self.team_2)
+
+        response = self._copy([self.team_2.id])
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["success"] == []
+        assert len(body["failed"]) == 1
+        assert body["failed"][0]["project_id"] == self.team_2.id
+        assert not FeatureFlag.objects.filter(team=self.team_2, key=self.source_flag.key).exists()
+
+    def test_copy_active_flag_onto_existing_active_target_is_gated(self, _mock_enabled):
+        # Existing destination flag is enabled via update() — covered by Task 2; assert it here too.
+        existing = FeatureFlag.objects.create(
+            team=self.team_2,
+            created_by=self.user,
+            key=self.source_flag.key,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 0}]},
+        )
+        self._enable_policy(self.team_2)
+
+        response = self._copy([self.team_2.id])
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"] == []
+        existing.refresh_from_db()
+        assert existing.active is False
+
+    def test_copy_disabled_flag_to_new_target_under_policy_succeeds(self, _mock_enabled):
+        self._enable_policy(self.team_2)
+
+        response = self._copy([self.team_2.id], disable=True)
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body["success"]) == 1
+        assert body["failed"] == []
+        assert FeatureFlag.objects.filter(team=self.team_2, key=self.source_flag.key, active=False).exists()
+
+    def _copy_with_schedule(self, target_ids: list[int], disable: bool = False) -> Any:
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        return self.client.post(
+            url,
+            {
+                "feature_flag_key": self.source_flag.key,
+                "from_project": self.source_flag.team_id,
+                "target_project_ids": target_ids,
+                "copy_schedule": True,
+                **({"disable_copied_flag": True} if disable else {}),
+            },
+        )
+
+    def test_copy_enable_schedule_under_policy_binds_pending_cr(self, _mock_enabled):
+        # A copied schedule that would enable the flag on the target must be gated exactly like a
+        # directly-created one: the target's enable policy binds a fresh pending CR to the copy.
+        from products.approvals.backend.models import ChangeRequestState
+
+        self._enable_policy(self.team_2)
+        ScheduledChange.objects.create(
+            record_id=str(self.source_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        # Copy the flag disabled so the flag-copy itself isn't blocked by the enable policy; the
+        # copied schedule then targets a disabled flag and its enable is what gets gated.
+        response = self._copy_with_schedule([self.team_2.id], disable=True)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=self.source_flag.key)
+        copied_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        assert copied_schedule.change_request is not None
+        assert copied_schedule.change_request.state == ChangeRequestState.PENDING
+
+    def test_copy_enable_schedule_matching_multiple_policies_is_skipped(self, _mock_enabled):
+        # A copied schedule that matches more than one enabled policy on the target can't bind a
+        # single CR, so it's skipped (fail closed) rather than copied ungated. The flag copy itself
+        # still succeeds.
+        self._enable_policy(self.team_2)  # team-level enable policy
+        self._enable_policy(None)  # org-level enable policy also matches → conflict
+        ScheduledChange.objects.create(
+            record_id=str(self.source_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+        response = self._copy_with_schedule([self.team_2.id], disable=True)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        copied_flag = FeatureFlag.objects.get(team=self.team_2, key=self.source_flag.key)
+        assert not ScheduledChange.objects.filter(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        ).exists()

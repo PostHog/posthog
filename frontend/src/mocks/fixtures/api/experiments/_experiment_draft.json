@@ -1,5 +1,6 @@
 {
     "id": 20,
+    "is_legacy": false,
     "name": "march-5-draft",
     "description": null,
     "start_date": null,

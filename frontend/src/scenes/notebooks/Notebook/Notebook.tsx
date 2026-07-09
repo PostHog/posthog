@@ -38,6 +38,8 @@ export type NotebookProps = NotebookLogicProps & {
     initialContent?: JSONContent
     editable?: boolean
     className?: string
+    markdownSourceOpen?: boolean
+    onMarkdownSourceOpenChange?: (isOpen: boolean) => void
 }
 
 export function Notebook({
@@ -50,6 +52,8 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    markdownSourceOpen,
+    onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = {
         shortId,
@@ -71,7 +75,7 @@ export function Notebook({
         comments,
     } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
-    const { isExpanded } = useValues(notebookSettingsLogic)
+    const { isExpanded, isMarkdownExpanded } = useValues(notebookSettingsLogic)
     const { isCommandOpen } = useValues(commandLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -112,9 +116,10 @@ export function Notebook({
     }, [size]) // oxlint-disable-line exhaustive-deps
 
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const isContentWidthExpanded = isMarkdownNotebook ? isMarkdownExpanded : isExpanded
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ shortId, content, comments, setLocalContent })
     }
 
     return (
@@ -129,8 +134,8 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        // Markdown notebooks have no width toggle — they always fill the content width.
-                        !isExpanded && !isMarkdownNotebook && 'Notebook--compact',
+                        !isContentWidthExpanded && 'Notebook--compact',
+                        isContentWidthExpanded && 'Notebook--expanded',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
@@ -178,7 +183,16 @@ export function Notebook({
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
-                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
+                        <ErrorBoundary>
+                            {isMarkdownNotebook ? (
+                                <MarkdownNotebookV2
+                                    debugOpen={markdownSourceOpen}
+                                    onDebugOpenChange={onMarkdownSourceOpenChange}
+                                />
+                            ) : (
+                                <Editor />
+                            )}
+                        </ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>

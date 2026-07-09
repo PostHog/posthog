@@ -93,15 +93,16 @@ class Command(BaseCommand):
             raise CommandError(f"Team {options['team_id']} not found")
 
         signal_ids = payload.get("signal_ids") or []
-        signal_count = max(len(signal_ids), len(result.findings))
+        signal_count = max(len(signal_ids), len(result.effective_findings()))
 
         report = self._create_and_advance_report(team, signal_count)
 
         self.stdout.write(f"Created SignalReport {report.id} for team {team.id} in state {report.status}")
         self.stdout.write(f"Repository: {repository}")
-        self.stdout.write(f"Actionability: {result.actionability.actionability.value}")
-        if result.priority:
-            self.stdout.write(f"Priority: {result.priority.priority.value}")
+        self.stdout.write(f"Actionability: {result.effective_actionability().actionability.value}")
+        priority = result.effective_priority()
+        if priority:
+            self.stdout.write(f"Priority: {priority.priority.value}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
 

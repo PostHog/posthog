@@ -1,4 +1,4 @@
-import { AgentRunnerConfigSchema, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
+import { AgentRunnerConfigSchema, DEV_GATEWAY_PHS, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 
 // Minimal prod env satisfying every `requiredInProd` field, so prod tests can
 // load the config and assert the remaining (still-optional) fields.
@@ -28,6 +28,12 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.logLevel).toBe('info')
         expect(cfg.bundleS3Bucket).toBe('prod-bundles')
         expect(cfg.memoryS3Bucket).toBe('prod-memory')
+        // The dev-only defaults must NOT leak into prod: their only guard is
+        // `isDev()`, so without this assert a hardcoded phs_ / analytics key
+        // could ship to prod unnoticed. Prod must inject these explicitly.
+        expect(cfg.posthogAiGatewayKey).toBeUndefined()
+        expect(cfg.posthogAnalyticsApiKey).toBeUndefined()
+        expect(cfg.posthogAnalyticsHost).toBeUndefined()
     })
 
     it('fails closed at config-load in prod when required infra env is unset', () => {
@@ -35,12 +41,16 @@ describe('loadAgentRunnerConfig', () => {
         expect(() => loadAgentRunnerConfig({})).toThrow(/REDIS_URL|HTTPS_PROXY|AGENT_(MEMORY|BUNDLE)_S3/)
     })
 
-    it('exposes dev SeaweedFS defaults when NODE_ENV is not production', () => {
+    it('exposes dev SeaweedFS + gateway defaults when NODE_ENV is not production', () => {
         // vitest runs NODE_ENV=test — same branch as local dev.
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.bundleS3Bucket).toBe('posthog')
         expect(cfg.bundleS3Endpoint).toBe('http://localhost:8333')
         expect(cfg.memoryS3Bucket).toBe('posthog')
+        // Local default is the gateway, with the deterministic dev phs_ bearer.
+        expect(cfg.useAiGateway).toBe(true)
+        expect(cfg.aiGatewayUrl).toBe('http://localhost:8080/v1')
+        expect(cfg.posthogAiGatewayKey).toBe(DEV_GATEWAY_PHS)
     })
 
     it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {
@@ -100,6 +110,15 @@ describe('loadAgentRunnerConfig', () => {
         expect(() => loadAgentRunnerConfig({ AGENT_MAX_CONCURRENCY: 'lots' })).toThrow()
     })
 
+    it('rejects an unknown id in AGENT_WEB_SEARCH_FALLBACKS at config load (matches primary strictness)', () => {
+        expect(() => loadAgentRunnerConfig({ AGENT_WEB_SEARCH_FALLBACKS: 'exa,barve' })).toThrow(/webSearchFallbacks/)
+    })
+
+    it('accepts a valid AGENT_WEB_SEARCH_FALLBACKS list (case- and whitespace-insensitive)', () => {
+        const cfg = loadAgentRunnerConfig({ AGENT_WEB_SEARCH_FALLBACKS: ' EXA , brave ' })
+        expect(cfg.webSearchFallbacks).toBe(' EXA , brave ')
+    })
+
     it('every schema key carries a description (for runbook generation)', () => {
         for (const [key, field] of Object.entries(AgentRunnerConfigSchema.shape)) {
             expect((field as { description?: string }).description, `missing .describe() for ${key}`).toBeTruthy()
@@ -108,14 +127,14 @@ describe('loadAgentRunnerConfig', () => {
 })
 
 describe('defaultApiKeyFromConfig', () => {
-    it('picks POSTHOG_AI_GATEWAY_KEY first', () => {
+    it('excludes the gateway bearer (phs_) — it is not a direct-path provider key', () => {
         const cfg = loadAgentRunnerConfig({
-            POSTHOG_AI_GATEWAY_KEY: 'phx_gateway',
+            POSTHOG_AI_GATEWAY_KEY: 'phs_gateway',
             ANTHROPIC_API_KEY: 'sk-ant',
             OPENAI_API_KEY: 'sk-openai',
             MODEL_API_KEY: 'sk-catchall',
         })
-        expect(defaultApiKeyFromConfig(cfg)).toBe('phx_gateway')
+        expect(defaultApiKeyFromConfig(cfg)).toBe('sk-ant')
     })
 
     it('falls back through Anthropic → OpenAI → catch-all', () => {

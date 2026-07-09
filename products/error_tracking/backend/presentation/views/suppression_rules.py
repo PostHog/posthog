@@ -3,7 +3,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
@@ -106,12 +106,15 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         return Response(self.get_serializer(rule).data)
 
     def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
-        rule = error_tracking_api.update_suppression_rule(
-            self.team.id,
-            pk,
-            filters=request.validated_data.get("filters"),
-            sampling_rate=request.validated_data.get("sampling_rate"),
-        )
+        try:
+            rule = error_tracking_api.update_suppression_rule(
+                self.team.id,
+                pk,
+                filters=request.validated_data.get("filters"),
+                sampling_rate=request.validated_data.get("sampling_rate"),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         if rule is None:
             raise NotFound()
         posthoganalytics.capture(
@@ -151,11 +154,14 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
         filters = request.validated_data.get("filters")
         if filters is None:
             filters = {"type": "AND", "values": []}
-        rule = error_tracking_api.create_suppression_rule(
-            self.team.id,
-            filters=filters,
-            sampling_rate=request.validated_data["sampling_rate"],
-        )
+        try:
+            rule = error_tracking_api.create_suppression_rule(
+                self.team.id,
+                filters=filters,
+                sampling_rate=request.validated_data["sampling_rate"],
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_suppression_rule_created",
             groups=groups(self.team.organization, self.team),

@@ -24,12 +24,13 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from posthog.models import Group, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.persons_db import persons_db_connection
 
 from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import api as notebooks
 
 ACCOUNT_GROUP_TYPE_INDEX = 0
 
@@ -97,14 +98,13 @@ class Command(BaseCommand):
             raise CommandError(f"Team {team_id} does not exist.")
 
     def _read_account_groups(self, team: Team, limit: int | None) -> list[tuple[str, dict[str, Any]]]:
-        rows = [
-            (group_key, props or {})
-            for group_key, props in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=team.pk, group_type_index=ACCOUNT_GROUP_TYPE_INDEX
-            )
-            .order_by("group_key")
-            .values_list("group_key", "group_properties")
-        ]
+        query = (
+            "SELECT group_key, group_properties FROM posthog_group "
+            "WHERE team_id = %(team_id)s AND group_type_index = %(gti)s ORDER BY group_key"
+        )
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(query, {"team_id": team.pk, "gti": ACCOUNT_GROUP_TYPE_INDEX})
+            rows = [(group_key, props or {}) for group_key, props in cursor.fetchall()]
         return rows[:limit] if limit is not None else rows
 
     def _set_config(self, team: Team) -> None:
@@ -164,12 +164,12 @@ class Command(BaseCommand):
             for index, (group_key, props) in enumerate(groups):
                 account = existing.get(group_key)
                 if account is None:
-                    account = Account.objects.create(
+                    account = Account.objects.create_account(
                         team=team,
                         name=props.get("name") or group_key,
                         external_id=group_key,
                         created_by=creator,
-                        _properties=self._account_roles(assignments, index, group_key).model_dump(mode="json"),
+                        properties=self._account_roles(assignments, index, group_key),
                     )
                     created += 1
                 accounts.append(account)
@@ -205,16 +205,15 @@ class Command(BaseCommand):
                 continue
             for note_index in range(notes_per_account):
                 title, body = NOTE_TEMPLATES[note_index % len(NOTE_TEMPLATES)]
-                notebook = Notebook.objects.create(
-                    team=team,
+                notebooks.create_account_notebook(
+                    team.id,
+                    account.id,
                     title=f"{account.name} — {title}",
                     content=_paragraph_doc(body),
                     text_content=body,
-                    created_by=author,
-                    last_modified_by=author,
-                    visibility=Notebook.Visibility.INTERNAL,
+                    created_by_id=author.id if author else None,
+                    last_modified_by_id=author.id if author else None,
                 )
-                ResourceNotebook.objects.create(notebook=notebook, account=account)
                 created += 1
         self.stdout.write(f"Created {created} note(s) across up to {len(selected)} account(s).")
 

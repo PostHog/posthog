@@ -1,6 +1,6 @@
 {
     "configPropertyKeys": {
-        "activity_events_list": ["dateRange", "filterTestAccounts", "limit", "widgetFilters"],
+        "activity_events_list": ["dateRange", "eventName", "filterTestAccounts", "limit", "widgetFilters"],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -12,6 +12,7 @@
             "widgetFilters"
         ],
         "session_replay_list": [
+            "collectionId",
             "dateRange",
             "filterTestAccounts",
             "limit",
@@ -21,7 +22,18 @@
             "widgetFilters"
         ],
         "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
-        "experiment_results": ["experimentId"]
+        "experiment_results": ["experimentId"],
+        "survey_results": ["dateRange", "limit", "surveyId"],
+        "logs_list": [
+            "dateRange",
+            "limit",
+            "orderBy",
+            "savedViewId",
+            "serviceNames",
+            "severityLevels",
+            "timezone",
+            "wrapLines"
+        ]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -89,6 +101,9 @@
             },
             "limit": {
                 "$type": "integer"
+            },
+            "eventName": {
+                "$type": "string"
             }
         },
         "error_tracking_list": {
@@ -256,6 +271,9 @@
             },
             "savedFilterId": {
                 "$type": "string"
+            },
+            "collectionId": {
+                "$type": "string"
             }
         },
         "experiments_list": {
@@ -269,7 +287,7 @@
                 "$enum": ["ASC", "DESC"]
             },
             "status": {
-                "$enum": ["all", "draft", "paused", "running", "stopped"]
+                "$enum": ["all", "draft", "exposure_frozen", "paused", "running", "stopped"]
             },
             "createdBy": {
                 "$type": "integer"
@@ -278,6 +296,51 @@
         "experiment_results": {
             "experimentId": {
                 "$type": "integer"
+            }
+        },
+        "survey_results": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "surveyId": {
+                "$type": "string"
+            },
+            "limit": {
+                "$type": "integer"
+            }
+        },
+        "logs_list": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "limit": {
+                "$type": "integer"
+            },
+            "orderBy": {
+                "$enum": ["earliest", "latest"]
+            },
+            "severityLevels": {
+                "$array": {
+                    "$enum": ["debug", "error", "fatal", "info", "trace", "warn"]
+                }
+            },
+            "serviceNames": {
+                "$array": {
+                    "$type": "string"
+                }
+            },
+            "wrapLines": {
+                "$type": "boolean"
+            },
+            "timezone": {
+                "$enum": ["UTC", "local"]
+            },
+            "savedViewId": {
+                "$type": "string"
             }
         }
     }

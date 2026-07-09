@@ -88,6 +88,8 @@
         position: absolute;
         bottom: 100%;
         left: -2px; // aligned with the bar's left edge
+        display: inline-flex;
+        align-items: baseline;
         max-width: 12rem;
         padding: 1px 6px;
         overflow: hidden;
@@ -100,6 +102,31 @@
         user-select: none;
         background: var(--remote-presence-color, currentColor);
         border-radius: 3px 3px 3px 0;
+    }
+
+    &-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    &-ai-dots {
+        display: inline-flex;
+        flex: 0 0 0.75em;
+        margin-left: 1px;
+
+        span {
+            opacity: 0;
+            animation: MarkdownNotebook__AICaretDots 1.2s steps(1, end) infinite;
+
+            &:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+
+            &:nth-child(3) {
+                animation-delay: 0.4s;
+            }
+        }
     }
 }
 
@@ -127,6 +154,8 @@
         position: absolute;
         bottom: 100%;
         left: -2px;
+        display: inline-flex;
+        align-items: baseline;
         max-width: 12rem;
         padding: 1px 6px;
         overflow: hidden;
@@ -145,6 +174,25 @@
 .MarkdownNotebook__remote-caret--fading,
 .MarkdownNotebook__remote-block--fading {
     opacity: 0;
+}
+
+@keyframes MarkdownNotebook__AICaretDots {
+    0%,
+    24% {
+        opacity: 0;
+    }
+
+    25%,
+    100% {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MarkdownNotebook__remote-caret-ai-dots span {
+        opacity: 1;
+        animation: none;
+    }
 }
 
 .MarkdownNotebook__debug-toolbar {
@@ -708,15 +756,20 @@
 }
 
 .MarkdownNotebook__ai-prompt-form {
+    display: flex;
     flex: 1 1 auto;
+    gap: 0.5rem;
     align-items: center;
+    width: 100%;
     min-width: 0;
 }
 
 .MarkdownNotebook__ai-prompt-input {
     flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     min-height: 1.55em;
+    max-height: calc(1.55em * 6);
     padding: 0;
     font: inherit;
     line-height: 1.55;
@@ -733,11 +786,22 @@
     justify-content: center;
 }
 
+.MarkdownNotebook__ai-prompt-form .LemonButton {
+    align-self: center;
+}
+
+.MarkdownNotebook__ai-prompt-form .LemonButton__chrome {
+    height: auto;
+    min-height: 1.75rem;
+}
+
 .MarkdownNotebook__ai-prompt-form textarea.MarkdownNotebook__ai-prompt-input {
     display: block;
     height: auto;
-    overflow: hidden;
+    overflow-y: auto;
     text-overflow: clip;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__ai-prompt-input:focus {
@@ -747,6 +811,20 @@
 
 .MarkdownNotebook__text-block:focus {
     background: var(--bg-light);
+}
+
+.MarkdownNotebook__text-block--ai-writing,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__code-block,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__list-block,
+.MarkdownNotebook__row--ai-writing .MarkdownNotebook__table-block {
+    background: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 72%, transparent);
+    border-radius: 0.25rem;
+    box-shadow: 0 0 0 0.25rem color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 36%, transparent);
+    animation: MarkdownNotebook__AIWritingPulse 1.8s ease-in-out infinite;
+}
+
+.MarkdownNotebook__text-block--ai-writing {
+    cursor: default;
 }
 
 .MarkdownNotebook__text-block--ai-thinking {
@@ -766,6 +844,26 @@
 
 .MarkdownNotebook__text-block--ai-thinking::selection {
     color: var(--color-text-primary);
+}
+
+@keyframes MarkdownNotebook__AIWritingPulse {
+    0%,
+    100% {
+        background-color: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 54%, transparent);
+    }
+
+    50% {
+        background-color: color-mix(in sRGB, var(--color-bg-fill-button-tertiary-hover) 88%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MarkdownNotebook__text-block--ai-writing,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__code-block,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__list-block,
+    .MarkdownNotebook__row--ai-writing .MarkdownNotebook__table-block {
+        animation: none;
+    }
 }
 
 .MarkdownNotebook__text-block[contenteditable='true'] a,
@@ -803,6 +901,10 @@
 h1.MarkdownNotebook__text-block--heading {
     margin: 1rem 0 0.5rem;
     font-size: 2rem;
+}
+
+h1.MarkdownNotebook__text-block.MarkdownNotebook__text-block--heading.MarkdownNotebook__text-block--title {
+    margin-top: 0;
 }
 
 h2.MarkdownNotebook__text-block--heading {
@@ -1329,125 +1431,6 @@ h3.MarkdownNotebook__text-block--heading {
     box-shadow: var(--markdown-notebook-code-shadow);
 }
 
-.MarkdownNotebook__ai-chat {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    max-height: 32rem;
-    padding: 0.75rem;
-    overflow-y: auto;
-}
-
-.MarkdownNotebook__ai-chat-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.MarkdownNotebook__ai-chat-thinking,
-.MarkdownNotebook__ai-chat-error {
-    display: flex;
-    gap: 0.375rem;
-    align-items: center;
-    min-height: 2.5rem;
-    padding: 0.75rem;
-    font-size: 0.875rem;
-    color: var(--color-text-secondary);
-    background: var(--color-bg-fill-tertiary);
-    border: 1px solid var(--color-border-primary);
-    border-radius: 0.375rem;
-}
-
-.MarkdownNotebook__ai-chat-thinking svg {
-    flex: 0 0 auto;
-    width: 1rem;
-    height: 1rem;
-}
-
-.MarkdownNotebook__ai-chat-error {
-    color: var(--color-text-danger);
-    border-color: var(--color-border-danger);
-}
-
-.MarkdownNotebook__ai-chat-answer {
-    padding: 0.75rem 1rem;
-}
-
-.MarkdownNotebook__ai-chat-answer--compact {
-    padding: 0;
-}
-
-.MarkdownNotebook__ai-chat-human-message {
-    align-self: flex-end;
-    max-width: min(42rem, 88%);
-    padding: 0.625rem 0.75rem;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-    background: var(--color-bg-fill-tertiary);
-    border: 1px solid var(--color-border-primary);
-    border-radius: 0.5rem;
-}
-
-.MarkdownNotebook__ai-chat-footer {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding-top: 0.25rem;
-}
-
-.MarkdownNotebook__ai-chat-footer-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: flex-start;
-}
-
-.MarkdownNotebook__ai-chat-reply {
-    display: flex;
-    gap: 0.5rem;
-    align-items: stretch;
-    width: 100%;
-}
-
-.MarkdownNotebook__ai-chat-reply-input {
-    flex: 1 1 0;
-    width: 100%;
-    min-width: 0;
-}
-
-.MarkdownNotebook__ai-chat-reply textarea.MarkdownNotebook__ai-chat-reply-input {
-    min-height: 3.25rem;
-    resize: vertical;
-}
-
-.MarkdownNotebook__ai-chat-reply .LemonButton {
-    align-self: stretch;
-}
-
-.MarkdownNotebook__ai-chat-reply .LemonButton__chrome {
-    height: 100%;
-    min-height: 3.25rem;
-}
-
-.MarkdownNotebook__ai-prompt-form.MarkdownNotebook__ai-chat-reply {
-    align-items: center;
-}
-
-.MarkdownNotebook__ai-prompt-form.MarkdownNotebook__ai-chat-reply textarea.MarkdownNotebook__ai-prompt-input {
-    min-height: 1.55em;
-    max-height: calc(1.55em * 6);
-    resize: none;
-}
-
-.MarkdownNotebook__ai-prompt-form.MarkdownNotebook__ai-chat-reply .LemonButton {
-    align-self: center;
-}
-
-.MarkdownNotebook__ai-prompt-form.MarkdownNotebook__ai-chat-reply .LemonButton__chrome {
-    height: auto;
-    min-height: 1.75rem;
-}
-
 .MarkdownNotebook__code-block-frame {
     position: relative;
     display: flex;
@@ -1668,6 +1651,30 @@ h3.MarkdownNotebook__text-block--heading {
     white-space: nowrap;
 }
 
+.MarkdownNotebook__component-toolbar-title--input {
+    padding: 0.125rem 0.375rem;
+    color: var(--color-text-primary);
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+
+    &::placeholder {
+        color: var(--color-text-tertiary);
+        opacity: 1;
+    }
+
+    &:hover {
+        border-color: var(--color-border-primary);
+    }
+
+    &:focus,
+    &:focus-visible {
+        border-color: var(--color-accent);
+        outline: none;
+    }
+}
+
 .MarkdownNotebook__component-actions {
     flex: 0 0 auto;
 }
@@ -1780,6 +1787,15 @@ button.MarkdownNotebook__component-title:focus-visible {
     background: var(--markdown-notebook-component-background);
 }
 
+.MarkdownNotebook__component-render-error {
+    color: var(--color-danger);
+}
+
+.MarkdownNotebook__component-render-error code {
+    color: var(--color-danger);
+    white-space: pre-wrap;
+}
+
 .MarkdownNotebook__unknown-component {
     display: flex;
     flex-direction: column;
@@ -1859,7 +1875,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__real-node {
     display: flex;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
 }
 
@@ -1875,7 +1891,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     // overrides the inline `height` and the resize drag has no visible effect.
     flex: 1 1 auto;
     flex-direction: column;
-    min-height: 8rem;
+    min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     overflow: hidden;
 }
 
@@ -1898,7 +1914,7 @@ button.MarkdownNotebook__component-title:focus-visible {
     opacity: 0.6;
 }
 
-/* Inline ref highlights: text a chat thread is anchored to. */
+/* Inline ref highlights: selected text an AI prompt is anchored to. */
 .MarkdownNotebook__ref {
     background: var(--color-bg-fill-highlight-100, rgb(235 145 0 / 15%));
     border-bottom: 2px solid var(--color-border-warning, rgb(235 145 0 / 60%));
@@ -1908,6 +1924,21 @@ button.MarkdownNotebook__component-title:focus-visible {
 .MarkdownNotebook__ref--active,
 .MarkdownNotebook__ref:hover {
     background: var(--color-bg-fill-highlight-200, rgb(235 145 0 / 30%));
+}
+
+/* Code comment anchors: code carries no inline marks, so highlights are measured from each
+   anchor's text range and painted as positioned boxes behind the text. */
+.MarkdownNotebook__code-ref-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.MarkdownNotebook__code-ref-highlight {
+    position: absolute;
+    background: var(--color-bg-fill-highlight-100, rgb(235 145 0 / 15%));
+    border-bottom: 2px solid var(--color-border-warning, rgb(235 145 0 / 60%));
+    border-radius: 2px;
 }
 
 /* Inline mentions keep their person id in the markdown; the text is the display label. */
@@ -2026,6 +2057,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
+}
+
+.MarkdownNotebook__discussion-comment-input {
+    max-height: calc(1.4em * 6 + 1rem);
+    overflow-y: auto;
+    resize: none;
+    /* stylelint-disable-next-line property-no-unknown -- Native textarea autosizing in supported browsers. */
+    field-sizing: content;
 }
 
 .MarkdownNotebook__discussion-comment-actions {

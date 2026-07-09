@@ -10,6 +10,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -381,7 +382,9 @@ async def send_slack_message_with_integration_async(
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
 ) -> SlackDeliveryResult:
-    message_data = _prepare_slack_message(
+    # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),
+    # which Django forbids on the event loop. Build it in a thread before the async Slack send.
+    message_data = await database_sync_to_async(_prepare_slack_message, thread_sensitive=False)(
         subscription,
         assets,
         total_asset_count,

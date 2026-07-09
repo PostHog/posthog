@@ -1,7 +1,7 @@
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
-import { TeamManager } from '../../../utils/team-manager'
 import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '../../types'
 import { CapturedEventsService } from './captured-events.service'
 

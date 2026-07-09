@@ -22,12 +22,25 @@ from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
+from ..hog import compile_ai_observability_hog
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluation_configs import validate_evaluation_configs
+from ..models.evaluation_configs import (
+    TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    TRACE_EVAL_MAX_WINDOW_SECONDS,
+    TRACE_EVAL_MIN_WINDOW_SECONDS,
+    EvaluationType,
+    evaluation_supports_reports,
+    evaluation_uses_model_configuration,
+    get_evaluation_config_content_key,
+    validate_evaluation_configs,
+    validate_target_config,
+)
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
@@ -64,6 +77,19 @@ logger = structlog.get_logger(__name__)
                 },
                 "additionalProperties": False,
             },
+            {
+                "type": "object",
+                "title": "Sentiment config",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["user_messages"],
+                        "description": "Classify sentiment from user messages in the generation input.",
+                        "default": "user_messages",
+                    }
+                },
+                "additionalProperties": False,
+            },
         ]
     }
 )
@@ -88,12 +114,39 @@ class _OutputConfigField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "For 'trace' target: seconds to wait after the first matching generation before "
+                    "evaluating the whole trace. Captured when the run is scheduled — editing it does not "
+                    "change trace runs already in flight."
+                ),
+                "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
+                "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
+                "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+            }
+        },
+        "additionalProperties": False,
+    }
+)
+class _TargetConfigField(serializers.JSONField):
+    pass
+
+
 class ModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+    )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -130,13 +183,28 @@ class EvaluationConditionSerializer(serializers.Serializer):
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    status_reason_detail = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Additional detail for the current system-disabled status. This is only populated when the detail is "
+            "safe to show in the evaluation UI."
+        ),
+    )
     evaluation_config = _EvaluationConfigField(
         required=False,
-        help_text="Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.",
+        help_text=(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; "
+            "for 'sentiment': {source: 'user_messages'}."
+        ),
     )
     output_config = _OutputConfigField(
         required=False,
         help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+    )
+    target_config = _TargetConfigField(
+        required=False,
+        help_text="Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
     )
     conditions = EvaluationConditionSerializer(
         many=True,
@@ -157,11 +225,14 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "status_reason",
+            "status_reason_detail",
             "evaluation_type",
             "evaluation_config",
             "output_type",
             "output_config",
             "conditions",
+            "target",
+            "target_config",
             "model_configuration",
             "created_at",
             "updated_at",
@@ -169,97 +240,235 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "deleted",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
-        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
-        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.
+        read_only_fields = [
+            "id",
+            "status",
+            "status_reason",
+            "status_reason_detail",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
         extra_kwargs = {
             "name": {"help_text": "Name of the evaluation."},
             "description": {"help_text": "Optional description of what this evaluation checks."},
             "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
             "evaluation_type": {
-                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+                "help_text": (
+                    "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; "
+                    "'sentiment' classifies user-message sentiment."
+                )
             },
-            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
+            "output_type": {
+                "help_text": (
+                    "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis."
+                )
+            },
+            "target": {
+                "help_text": (
+                    "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event "
+                    "individually. 'trace' evaluates the whole trace once: the first matching generation schedules "
+                    "a run that waits for the trace to settle, then evaluates all of its events together. "
+                    "Condition filters still match individual generations — a trace is evaluated when any of its "
+                    "generations matches, and sampling applies per trace."
+                )
+            },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
     def validate(self, data):
-        if "evaluation_config" in data and "output_config" in data:
-            evaluation_type = data.get("evaluation_type")
-            output_type = data.get("output_type")
-            if evaluation_type and output_type:
-                try:
-                    data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
-                        evaluation_type, output_type, data["evaluation_config"], data["output_config"]
-                    )
-                except ValueError as e:
-                    raise serializers.ValidationError({"config": str(e)})
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        model_configuration = data.get(
+            "model_configuration",
+            getattr(self.instance, "model_configuration", None) if self.instance else None,
+        )
 
-        # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
-        # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
-        # Without this check, a caller (UI, API, MCP, agent) can flip enabled=True, see a 200, and
-        # then watch the next Temporal run silently re-disable the eval for the same reason.
-        if data.get("enabled") and self.instance and not self.instance.enabled:
-            self._validate_re_enable(data)
+        if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
+            raise serializers.ValidationError(
+                {"model_configuration": "This evaluation type does not use model configuration."}
+            )
+
+        should_validate_configs = (
+            self.instance is None
+            or "evaluation_type" in data
+            or "output_type" in data
+            or "evaluation_config" in data
+            or "output_config" in data
+        )
+        if should_validate_configs and evaluation_type and output_type:
+            evaluation_config = data.get(
+                "evaluation_config",
+                getattr(self.instance, "evaluation_config", {}) if self.instance else {},
+            )
+            output_config = data.get(
+                "output_config",
+                getattr(self.instance, "output_config", {}) if self.instance else {},
+            )
+            try:
+                data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
+                    evaluation_type, output_type, evaluation_config, output_config
+                )
+            except ValueError as e:
+                raise serializers.ValidationError({"config": str(e)})
+
+        # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
+        # message index). A trace target emits a single evaluation event for the whole trace, where
+        # the message index is ambiguous and that per-generation linkage is absent. Trace-level
+        # sentiment is already produced by aggregating generation-target sentiment evals at read time.
+        effective_target = data.get("target") or getattr(self.instance, "target", None) or EvaluationTarget.GENERATION
+        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target == EvaluationTarget.TRACE.value:
+            raise serializers.ValidationError(
+                {"target": "Sentiment evaluations can't target a whole trace. Use the 'generation' target."}
+            )
+
+        # Validate target_config against the effective target (request value, else the stored one).
+        # Surfaces a clean field error for an out-of-range window; the model's save() re-runs this
+        # so untouched requests still get normalized.
+        if "target" in data or "target_config" in data:
+            target = data.get("target") or getattr(self.instance, "target", None) or "generation"
+            config = data.get("target_config")
+            if config is None:
+                config = getattr(self.instance, "target_config", {})
+            try:
+                data["target_config"] = validate_target_config(target, config or {})
+            except ValueError as e:
+                raise serializers.ValidationError({"target_config": str(e)})
+
+        if data.get("enabled"):
+            if self.instance is None:
+                self._validate_can_run(data)
+            elif not self.instance.enabled:
+                self._validate_re_enable(data)
 
         return data
 
-    def _validate_re_enable(self, data: dict) -> None:
-        has_byok = self._has_byok_key(data)
-        status_reason = getattr(self.instance, "status_reason", None)
+    def _validate_can_run(self, data: dict) -> None:
+        """An eval being turned on — created enabled or re-enabled — must be able to resolve a
+        model at runtime; otherwise the caller gets a 200/201 and the first Temporal run silently
+        disables it again."""
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
-        # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
-        # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
-        # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
-        if evaluation_type == "hog":
+        if not evaluation_uses_model_configuration(evaluation_type):
             return
 
-        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
-        if status_reason == "trial_limit_reached" or not status_reason:
-            team = self.context["get_team"]()
-            config = EvaluationConfig.objects.filter(team=team).first()
-            if config and config.trial_limit_reached and not has_byok:
+        provider_key = self._effective_provider_key(data)
+        if provider_key is not None:
+            if provider_key.state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError(
-                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
+                    {"enabled": "Attach a working provider API key to enable this evaluation."}
                 )
+            return
 
-        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
-        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
-        if status_reason == "model_not_allowed" and not has_byok:
-            from products.ai_observability.backend.llm import TRIAL_MODEL_IDS
+        self._validate_keyless_resolution(data)
 
-            model_config_data = data.get("model_configuration")
-            if model_config_data is not None:
-                model = model_config_data.get("model")
-            elif self.instance and self.instance.model_configuration:
-                model = self.instance.model_configuration.model
-            else:
-                model = None
-            if model and model not in TRIAL_MODEL_IDS:
+    def _validate_re_enable(self, data: dict) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if not evaluation_uses_model_configuration(evaluation_type):
+            return
+
+        # _validate_can_run mirrors runtime resolution, so it already rejects a re-enable whose key is
+        # missing/unhealthy or whose keyless config can't resolve — no separate provider-key gate needed.
+        self._validate_can_run(data)
+
+        status_reason = getattr(self.instance, "status_reason", None)
+
+        if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
+            raise serializers.ValidationError(
+                {"enabled": "Choose an available model before re-enabling this evaluation."}
+            )
+
+        # No default model: the team's active key is for a provider we have no default model for, and
+        # the eval left its model unset. Require an explicit model so it can't immediately re-disable.
+        if status_reason == "no_default_model":
+            if not self._has_model_configuration_after_update(data):
                 raise serializers.ValidationError(
                     {
-                        "enabled": (
-                            f"Model '{model}' is not available on the trial plan. "
-                            "Either choose a supported trial model or add a provider API key."
-                        )
+                        "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
                     }
                 )
 
-        # Provider key deleted: the eval must now point at a real provider key.
-        if status_reason == "provider_key_deleted" and not has_byok:
+    def _validate_keyless_resolution(self, data: dict) -> None:
+        """Mirror the runtime model resolution for evals with no usable provider key (see
+        `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
+        config's active-key fallback, is already handled by `_validate_can_run`; this covers what
+        is left: a null config resolves via the team's active key, else PostHog-funded trial
+        inference while the team is still grandfathered; an explicit config that reached here has
+        no active-key fallback, so it resolves via funded inference only, and only for models on
+        the trial allowlist."""
+        add_key_message = "Add a provider API key to enable this evaluation."
+        team = self.context["get_team"]()
+        config = EvaluationConfig.objects.filter(team=team).first()
+        is_grandfathered = config is not None and config.is_trial_grandfathered
+
+        explicit_config = self._effective_model_configuration(data)
+        if explicit_config is None:
+            active_key = config.active_provider_key if config else None
+            if active_key is not None:
+                # DefaultModelSpec never falls back to funded inference when an active key exists,
+                # so an unhealthy key blocks the enable regardless of grandfathering.
+                if active_key.state != LLMProviderKey.State.OK:
+                    raise serializers.ValidationError(
+                        {"enabled": "Attach a working provider API key to enable this evaluation."}
+                    )
+                if DEFAULT_MODEL_BY_PROVIDER.get(active_key.provider) is None:
+                    raise serializers.ValidationError(
+                        {
+                            "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
+                        }
+                    )
+                return
+            if is_grandfathered:
+                return
+            raise serializers.ValidationError({"enabled": add_key_message})
+
+        if not is_grandfathered:
+            raise serializers.ValidationError({"enabled": add_key_message})
+
+        model = explicit_config.get("model")
+        if model and model not in TRIAL_MODEL_IDS:
             raise serializers.ValidationError(
                 {
-                    "enabled": "The provider API key for this evaluation was deleted. Attach a provider API key before re-enabling."
+                    "enabled": (
+                        f"Model '{model}' is not available on the trial plan. "
+                        "Either choose a supported trial model or add a provider API key."
+                    )
                 }
             )
 
-    def _has_byok_key(self, data: dict) -> bool:
-        """Check if the evaluation will have a BYOK key after this update."""
-        model_config_data = data.get("model_configuration")
-        if model_config_data is not None:
-            return bool(model_config_data.get("provider_key_id"))
-        if self.instance and self.instance.model_configuration:
-            return self.instance.model_configuration.provider_key_id is not None
-        return False
+    def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
+        """The explicit model configuration the evaluation will have after this update, or None
+        when it defers to the team default (null config). An explicit `model_configuration: null`
+        detaches the stored config (see update()), so payload presence wins — membership, not
+        truthiness."""
+        if "model_configuration" in data:
+            return data["model_configuration"]
+        if self.instance is not None and self.instance.model_configuration is not None:
+            mc = self.instance.model_configuration
+            return {
+                "provider": mc.provider,
+                "model": mc.model,
+                "provider_key_id": str(mc.provider_key_id) if mc.provider_key_id else None,
+            }
+        return None
+
+    def _has_model_configuration_after_update(self, data: dict) -> bool:
+        return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
+
+    def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
+        """The provider key the evaluation will use after this update. With no pinned key, an
+        explicit config falls back to the team's active key for the same provider, mirroring
+        `active_key_fallback` in model_resolution.py."""
+        team = self.context["get_team"]()
+        model_config = self._effective_model_configuration(data)
+        if not model_config:
+            return None
+        provider_key_id = model_config.get("provider_key_id")
+        if provider_key_id:
+            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        provider = model_config.get("provider")
+        config = EvaluationConfig.objects.filter(team=team).first()
+        return active_key_fallback(config, provider) if config and provider else None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int
@@ -303,10 +512,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
+        # An explicit `model_configuration: null` detaches the config; a PATCH that omits the field must
+        # leave it untouched. pop()'s default can't tell the two apart, so check membership explicitly.
+        model_config_provided = "model_configuration" in validated_data
         model_config_data = validated_data.pop("model_configuration", None)
         old_config = None
 
-        if model_config_data is not None:
+        if model_config_provided:
             # Defer the cascade until after super().update(): SET_NULL would otherwise null
             # Evaluation.model_configuration_id before ModelActivityMixin.save() snapshots
             # before_update from the DB, producing a `null -> new` diff instead of `old -> new`.
@@ -328,6 +540,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
+    evaluation_type = django_filters.ChoiceFilter(
+        choices=EvaluationType.choices,
+        help_text="Filter by evaluation type",
+    )
     order_by = django_filters.OrderingFilter(
         fields=(
             ("created_at", "created_at"),
@@ -346,6 +562,7 @@ class EvaluationFilter(django_filters.FilterSet):
         fields = {
             "id": ["in"],
             "enabled": ["exact"],
+            "evaluation_type": ["exact"],
         }
 
     def filter_search(self, queryset, name, value):
@@ -451,25 +668,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def _get_config_length(instance) -> int:
         """Get the relevant config content length for tracking."""
         if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            if instance.evaluation_type == "hog":
-                source = instance.evaluation_config.get("source", "")
-                return len(source) if isinstance(source, str) else 0
-            else:
-                prompt = instance.evaluation_config.get("prompt", "")
-                return len(prompt) if isinstance(prompt, str) else 0
+            content_key = get_evaluation_config_content_key(instance.evaluation_type)
+            content = instance.evaluation_config.get(content_key, "") if content_key else ""
+            return len(content) if isinstance(content, str) else 0
         return 0
 
     def perform_create(self, serializer):
         with transaction.atomic():
             instance = serializer.save()
 
-            # Auto-create a default report config so reports are generated from the start.
-            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-            # and users add email/Slack delivery targets later if they want notifications.
-            EvaluationReport.objects.create(
-                team=self.team,
-                evaluation=instance,
-            )
+            if evaluation_supports_reports(instance.output_type) and instance.target == EvaluationTarget.GENERATION:
+                # Auto-create a default report config so reports are generated from the start.
+                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+                # and users add email/Slack delivery targets later if they want notifications.
+                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
@@ -539,9 +751,13 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                         eval_type = serializer.validated_data.get(
                             "evaluation_type", serializer.instance.evaluation_type
                         )
-                        config_key = "source" if eval_type == "hog" else "prompt"
-                        old_content = old_value.get(config_key, "") if isinstance(old_value, dict) else ""
-                        new_content = new_value.get(config_key, "") if isinstance(new_value, dict) else ""
+                        config_key = get_evaluation_config_content_key(eval_type)
+                        old_content = (
+                            old_value.get(config_key, "") if config_key and isinstance(old_value, dict) else ""
+                        )
+                        new_content = (
+                            new_value.get(config_key, "") if config_key and isinstance(new_value, dict) else ""
+                        )
                         if old_content != new_content:
                             config_content_changed = True
 
@@ -625,12 +841,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.hogql.property import property_to_expr
         from posthog.hogql.query import execute_hogql_query
 
-        from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.models.team import Team
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
             return Response({"error": f"Compilation error: {e.detail}"}, status=400)
         except Exception:

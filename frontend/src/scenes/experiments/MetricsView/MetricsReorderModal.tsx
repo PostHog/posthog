@@ -224,7 +224,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
             <div className="flex flex-col gap-2">
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
-                        {displayMetrics.length === 0 && (
+                        {isOpen && displayMetrics.length === 0 && (
                             <div className="p-4 text-center text-muted">
                                 <p>No metrics available for reordering</p>
                             </div>

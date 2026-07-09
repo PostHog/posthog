@@ -98,47 +98,17 @@ export function FixedRangeWithTimePicker({
                         }
                     }}
                     leftmostMonth={(selectingStart ? localFrom : localTo)?.startOf('month')}
-                    getLemonButtonProps={({ date, props, dayIndex }) => {
-                        if ((localFrom && date.isSame(localFrom, 'd')) || (localTo && date.isSame(localTo, 'd'))) {
-                            const isStart = localFrom && date.isSame(localFrom, 'd')
-                            const isEnd = localTo && date.isSame(localTo, 'd')
-                            return {
-                                ...props,
-                                className:
-                                    isStart && isEnd
-                                        ? props.className
-                                        : clsx(
-                                              props.className,
-                                              {
-                                                  'rounded-r-none': isStart && dayIndex < 6,
-                                                  'rounded-l-none': isEnd && dayIndex > 0,
-                                              },
-                                              'LemonCalendar__range--boundary'
-                                          ),
-                                type: 'primary',
-                            }
-                        } else if (
+                    getDateState={({ date }) => ({
+                        isStart: !!(localFrom && date.isSame(localFrom, 'd')),
+                        isEnd: !!(localTo && date.isSame(localTo, 'd')),
+                        isBetween: !!(
                             localFrom &&
                             localTo &&
                             date.isAfter(localFrom, 'd') &&
                             date.isBefore(localTo, 'd')
-                        ) {
-                            return {
-                                ...props,
-                                className: clsx(
-                                    props.className,
-                                    dayIndex === 0
-                                        ? 'rounded-r-none'
-                                        : dayIndex === 6
-                                          ? 'rounded-l-none'
-                                          : 'rounded-none'
-                                ),
-                                active: true,
-                            }
-                        }
-                        return props
-                    }}
-                    getLemonButtonTimeProps={(timeProps) => {
+                        ),
+                    })}
+                    getTimeState={(timeProps) => {
                         const currentValue = selectingStart ? localFrom : localTo
                         const selected = currentValue
                             ? timeProps.unit === 'h' && use24HourFormat
@@ -148,8 +118,6 @@ export function FixedRangeWithTimePicker({
 
                         return {
                             active: selected === String(timeProps.value),
-                            className: 'rounded-none',
-                            'data-attr': `${timeProps.value}-${timeProps.unit}`,
                             onClick: () => {
                                 // Fall back to today so the user can set the time
                                 // before picking a date — otherwise clicking time

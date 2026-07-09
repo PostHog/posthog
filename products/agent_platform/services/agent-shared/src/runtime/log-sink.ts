@@ -23,6 +23,20 @@ import type { HighLevelProducer, LibrdKafkaError, Metadata, ProducerGlobalConfig
 import { hostname } from 'node:os'
 
 import { createLogger } from './logger'
+import { Counter } from './metrics'
+
+/**
+ * Log-sink throughput by outcome. The runner's only path to the `log_entries`
+ * ClickHouse table (which backs the console's session-detail timeline) is this
+ * fire-and-forget Kafka producer, so a rising `dropped` / `error` rate means
+ * per-turn logs are silently not reaching the console. `produced` = handed to
+ * rdkafka (batched on the wire), not delivery-confirmed.
+ */
+const logSinkEntries = new Counter({
+    name: 'agent_logsink_entries_total',
+    help: 'Log entries handled by the Kafka log sink, by outcome (produced/dropped/error).',
+    labelNames: ['outcome'],
+})
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -263,6 +277,7 @@ export class KafkaLogSink implements LogSink {
             return
         }
         if (!this.connected || !this.producer) {
+            logSinkEntries.labels({ outcome: 'dropped' }).inc(entries.length)
             this.log.warn('dropping entries (not connected)', { count: entries.length })
             return
         }
@@ -279,7 +294,9 @@ export class KafkaLogSink implements LogSink {
             const value = Buffer.from(safeClickhouseString(JSON.stringify(wire)))
             try {
                 this.producer.produce(topic, null, value, null, Date.now(), noopDeliveryCallback)
+                logSinkEntries.labels({ outcome: 'produced' }).inc()
             } catch (err) {
+                logSinkEntries.labels({ outcome: 'error' }).inc()
                 this.log.error('produce failed', { topic, error: String(err) })
             }
         }

@@ -11,39 +11,7 @@ ui_apps: {}
 tools:
     activity-log-list:
         operation: activity_log_list
-        enabled: true
-        scopes:
-            - activity_log:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List recent activity in the project.
-        description: >
-            List recent activity log entries for the project. Shows who did what and when — feature flag changes,
-            dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.
-        param_overrides:
-            page_size:
-                default: 10
-                cast: string-int
-            page:
-                cast: string-int
-        url_prefix: /activity
-        response:
-            include:
-                - id
-                - user.id
-                - user.first_name
-                - user.last_name
-                - user.email
-                - activity
-                - scope
-                - item_id
-                - detail.name
-                - detail.short_id
-                - detail.type
-                - created_at
+        enabled: false
     advanced-activity-logs-export:
         operation: advanced_activity_logs_export_create
         enabled: false
@@ -60,6 +28,7 @@ tools:
         description: >
             Get the available filter options for activity logs — scopes, activity types, and users that have logged
             activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+        feature_entitlement: audit_logs
         url_prefix: /activity
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list
@@ -71,13 +40,16 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: List activity logs with advanced filtering.
+        title: List activity in the project.
         description: >
-            List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by
-            scope, activity type, user, date range, and search text.
+            List activity log entries — who changed what and when (feature flag changes, dashboard edits, experiment
+            launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type, user, item, date
+            range, and free-text search. Use this to audit a specific resource's history or to see what changed recently
+            across the project.
         param_overrides:
             page_size:
                 default: 10
+        feature_entitlement: audit_logs
         url_prefix: /activity
         response:
             include:
@@ -235,9 +207,6 @@ tools:
     comments-update:
         operation: comments_update
         enabled: false
-    environments-promoted-product-intent-retrieve:
-        operation: environments_promoted_product_intent_retrieve
-        enabled: false
     members-destroy:
         operation: members_destroy
         enabled: false
@@ -250,6 +219,26 @@ tools:
     members-update:
         operation: members_update
         enabled: false
+    org-member-get-github-login:
+        operation: members_github_login_retrieve
+        enabled: true
+        scopes:
+            - organization_member:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get an organization member's GitHub username.
+        description: >
+            Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID
+            (obtainable from org-members-list, or "@me" for the current user). Returns null if the member has no GitHub
+            identity linked. Use this when you know which member you want and need their GitHub handle — for example to
+            set suggested reviewers.
+        param_overrides:
+            user__uuid:
+                description: |
+                    The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me"
+                    for the current user.
     org-members-list:
         operation: members_list
         enabled: true
@@ -331,24 +320,9 @@ tools:
     personal-api-keys-list:
         operation: personal_api_keys_list
         enabled: false
-    promoted-product-intent-get:
-        operation: environments_promoted_product_intent_retrieve
-        enabled: true
-        scopes:
-            - project:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get the team's promoted product.
-        description: >
-            Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`,
-            `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured.
-            Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean —
-            for example, if their primary product is `session_replay`, treat a vague reference to "watch a session" as
-            referring to a session recording rather than a survey response.
-        feature_flag: promoted-product
-        feature_flag_variant: intent_plus
+    request-ai-access-create:
+        operation: request_ai_access_create
+        enabled: false
     role-get:
         operation: roles_retrieve
         enabled: true

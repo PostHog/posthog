@@ -1,6 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonSkeleton, LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -9,6 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
+import { getEvaluationResultDisplay } from './EvaluationResultTag'
 
 export interface EvalSummary {
     latestRun: EvaluationRun
@@ -34,19 +34,8 @@ export function getEvalBadgeProps(run: EvaluationRun): {
     icon: JSX.Element
     label: string
 } {
-    if (run.status === 'failed') {
-        return { type: 'danger', icon: <IconWarning />, label: 'Error' }
-    }
-    if (run.status === 'running') {
-        return { type: 'primary', icon: <IconMinus />, label: 'Running' }
-    }
-    if (run.result === null) {
-        return { type: 'muted', icon: <IconMinus />, label: 'N/A' }
-    }
-    if (run.result) {
-        return { type: 'success', icon: <IconCheck />, label: 'True' }
-    }
-    return { type: 'danger', icon: <IconX />, label: 'False' }
+    const { type, icon, label } = getEvaluationResultDisplay(run)
+    return { type, icon, label }
 }
 
 function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
@@ -64,7 +53,7 @@ function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
 
 export function EvalResultBadges({ generationEventId }: { generationEventId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ generationEventId })
+        generationEvaluationRunsLogic({ lookupBy: 'generation', generationEventId })
     )
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
