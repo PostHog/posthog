@@ -335,15 +335,21 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
-def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> tuple[int, dict, list]:
+def serialize_tile_in_worker(
+    tile, order: int, context: dict, chained: bool, *, in_pool: bool = True
+) -> tuple[int, dict, list]:
     """
     Pool-worker wrapper around serialize_tile_with_context. The task-chain context is a
     thread-local flag on the request thread, so when chained refresh is enabled we re-raise
     the flag on the worker and hand any queued tasks back for the request thread to chain.
+
+    ``in_pool`` should be False when this runs inline on the request thread (parallel
+    serialization disabled or under tests) — that thread's connection is already managed
+    by Django's normal per-request lifecycle.
     """
     # Pool threads outlive the request, so Django's request_finished cleanup never runs here;
     # discard stale/errored connections on entry and exit like DatabaseSyncToAsync does.
-    if not settings.TEST:
+    if in_pool and not settings.TEST:
         close_old_connections()
     try:
         if not chained:
@@ -354,10 +360,14 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
         try:
             order, tile_data = serialize_tile_with_context(tile, order, context)
         finally:
+            # Drain unconditionally: pool threads are reused across requests, so any task
+            # queued via add_task_to_on_commit before a later exception must not linger on
+            # this thread's chain and leak into the next chained request it happens to serve.
+            chained_tasks = drain_task_chain()
             set_in_context(False)
-        return order, tile_data, drain_task_chain()
+        return order, tile_data, chained_tasks
     finally:
-        if not settings.TEST:
+        if in_pool and not settings.TEST:
             close_old_connections()
 
 
@@ -2058,6 +2068,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # Use the specified layout size to get the correct order for the current viewport
         sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
 
+        span = trace.get_current_span()
+        span.set_attribute("dashboard.tile_serialize.parallel", parallel_serialization_enabled)
+        span.set_attribute("dashboard.tile_serialize.tile_count", len(sorted_tiles))
+
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
             # Handle case where there are no tiles
             if not sorted_tiles:
@@ -2068,7 +2082,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 # pool threads use separate DB connections, which can't see the uncommitted
                 # test transaction and are invisible to assertNumQueries.
                 tile_results = [
-                    serialize_tile_in_worker(tile, order, self.context, chained_tile_refresh_enabled)
+                    serialize_tile_in_worker(tile, order, self.context, chained_tile_refresh_enabled, in_pool=False)
                     for order, tile in enumerate(sorted_tiles)
                 ]
             else:
