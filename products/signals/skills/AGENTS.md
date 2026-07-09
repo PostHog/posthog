@@ -121,7 +121,8 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   (response-rate drops, sentiment shifts, completion-funnel regressions).
 - `signals-scout-web-analytics/` — acquisition + site-health watcher for web traffic.
   Reads the `sessions` table for per-channel volume diverging from
-  seasonality-aligned baselines (same 24h window 7/14 days back), attribution
+  seasonality-aligned baselines (robust z against the median/MAD of four
+  same-weekday aligned windows), attribution
   breakage (paid traffic reclassifying into Direct/Unknown when UTM tagging breaks),
   entry-path bounce steps and traffic cliffs, and 404 spikes (via the project's own
   not-found event, discovered by name). Its

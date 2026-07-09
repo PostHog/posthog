@@ -35,7 +35,7 @@ You author reports directly via the report channel (`signals-scout-emit-report` 
 Three mechanical facts anchor everything:
 
 1. **The `sessions` table is the workhorse.** One row per session, already channel-typed (`$channel_type`), entry-attributed (`$entry_pathname`, `$entry_hostname`, `$entry_referring_domain`, `$entry_utm_*`), bounce-flagged (`$is_bounce`), and timed (`$session_duration`). Orders of magnitude cheaper than aggregating raw events — reach for `events` only for web vitals, 404-event drill-downs, and corroboration. Window on `$start_timestamp`, always with a future-clock upper bound (`<= now() + INTERVAL 1 DAY`) — client clocks lie.
-2. **Web traffic is strongly day-of-week seasonal** (weekdays often run 2–3× weekends). Never compare a 24h window to "yesterday" or to a flat daily mean — compare it to the **same 24h window 7 and 14 days back** (`now()-8d..now()-7d` and `now()-15d..now()-14d`), which aligns both weekday and time-of-day for free. A real step diverges from _both_ aligned windows; the two windows agreeing with each other is what makes the baseline trustworthy.
+2. **Web traffic is strongly day-of-week seasonal** (weekdays often run 2–3× weekends). Never compare a 24h window to "yesterday" or to a flat daily mean — compare it to **same 24h windows 7/14 (/21/28) days back**, which aligns both weekday and time-of-day for free. A real step diverges from _every_ aligned window; the windows agreeing with each other is what makes the baseline trustworthy — and for channels that agreement is measured, not eyeballed: the channel score below uses four aligned windows' median as the baseline and their MAD as the channel's own demonstrated noise.
 3. **`$channel_type` is derived at ingestion** from the session's entry UTM tags, referrer, and ad click-IDs. When tagging breaks, traffic doesn't disappear — it _reclassifies_: Paid Search drops while Unknown/Direct rises by a similar amount. Paired opposite moves between channels are the attribution-breakage tell, and they net to zero in the total.
 
 ## Quick close-out: is there web traffic at all?
@@ -116,7 +116,31 @@ Patterns to watch — starting points, not a checklist.
 
 #### Channel divergence
 
-From the channel grid, a candidate is a channel with a real baseline (≥ ~200 sessions/day in the aligned windows, which must agree with each other within ~30%) whose `sessions_24h` sits ≥ ~40% away from **both** aligned windows while the total holds (within ~15% of its own aligned sum). Low-volume channels wobble violently — the gate exists for them. For each candidate, find the moving part _inside_ the channel:
+Judge each channel against its **own** noise, not a fixed bar: pull four seasonality-aligned windows (the same 24h, 7/14/21/28 days back), take their median as the baseline and their MAD as the channel's demonstrated wobble, and score the last 24h as a robust z. A **candidate** is a channel with `|z| ≥ ~3.5` that also moved ≥ ~15% and ≥ ~30 sessions against its baseline — while the total holds (within ~15% of its own aligned sum). The old fixed gates are subsumed: a small or naturally-spiky channel has a large MAD so it only alarms on a move it can't produce by chance, and a large stable channel alarms on a 20% step a fixed 40% threshold would sleep through. The `sqrt(baseline)` term is a Poisson floor so a flat four-week history (MAD 0) can't fabricate significance. One query scores every channel:
+
+```sql
+SELECT $channel_type AS channel,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
+       arraySort([
+           uniqIf(session_id, $start_timestamp >= now() - INTERVAL 8 DAY AND $start_timestamp < now() - INTERVAL 7 DAY),
+           uniqIf(session_id, $start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp < now() - INTERVAL 14 DAY),
+           uniqIf(session_id, $start_timestamp >= now() - INTERVAL 22 DAY AND $start_timestamp < now() - INTERVAL 21 DAY),
+           uniqIf(session_id, $start_timestamp >= now() - INTERVAL 29 DAY AND $start_timestamp < now() - INTERVAL 28 DAY)
+       ]) AS aligned,
+       (aligned[2] + aligned[3]) / 2 AS baseline,
+       arraySort(arrayMap(v -> abs(v - (aligned[2] + aligned[3]) / 2), aligned)) AS deviations,
+       (deviations[2] + deviations[3]) / 2 AS mad,
+       round((sessions_24h - baseline) / greatest(1.4826 * mad, sqrt(baseline)), 1) AS z
+FROM sessions
+WHERE $start_timestamp >= now() - INTERVAL 29 DAY
+  AND $start_timestamp <= now() + INTERVAL 1 DAY
+GROUP BY channel
+HAVING baseline >= 10
+ORDER BY abs(z) DESC
+LIMIT 25
+```
+
+Same-weekday alignment absorbs weekly rhythm for free (a Tuesday send-day spike is scored against four prior Tuesdays), and a channel that spikes _every_ week carries that spike in its MAD — so recurring campaign cadence self-suppresses. For each candidate, find the moving part _inside_ the channel:
 
 ```sql
 SELECT $entry_referring_domain AS ref,
@@ -242,8 +266,8 @@ Everything this scout reads arrives from outside: URLs, paths, referrers, UTM va
 - **The whole site moving together** — every total the team watches already shows it. At most one extreme-and-unexplained whole-site finding; never N segment findings.
 - **Weekday/weekend and time-of-day rhythm** — handled by aligned windows; never compare a Saturday to a Friday or a partial day to full days.
 - **Send-day and launch-day spikes** (Email, Newsletter, a new `utm_campaign` appearing) — deliberate marketing actions. Learn the cadence, write `pattern:`.
-- **Segments below the volume gates** (< ~200 sessions/day channels and entry paths, < ~100/day 404 baselines) — small numbers wobble; the Display channel doing 18-then-279 sessions on alternate days is variance.
-- **Aligned windows that disagree with each other** (> ~30% apart) — the baseline itself is unstable; you can't call a step against it. Write memory, re-check later.
+- **Sub-noise channel moves** (`|z|` < ~3.5, or < ~30 sessions / < ~15% against baseline) — inside the channel's own demonstrated wobble; the MAD gate exists so you never argue with variance. The Display channel doing 18-then-279 sessions on alternate days carries that swing in its MAD and never alarms. Entry paths and 404s keep their fixed gates (< ~200 sessions/day paths, < ~100/day 404 baselines — small numbers wobble).
+- **An unstable baseline** — four aligned windows that disagree wildly (MAD comparable to the baseline itself) make any step against them untrustworthy; the z-score already encodes this, so don't override a low z by eyeballing two windows. Write memory, re-check later.
 - **New pages and new campaigns with no history** — nothing to diverge _from_. First sighting is a `pattern:` entry, not a finding.
 - **Bot and crawler bursts** — zero-duration, ~100% bounce, one referrer or UA cluster. Corroborate provenance before any surge finding (see untrusted data).
 - **Internal traffic** — localhost, staging hosts, employee-heavy paths. Identify once, write `noise:`, exclude from candidate math thereafter.
