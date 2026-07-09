@@ -390,6 +390,25 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def test_in_progress_re_review_of_a_dormant_report_still_lists(self) -> None:
+        # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
+        # in-flight turn ranks below the top-N completed slice — it used to be dropped from the
+        # response entirely mid-run. It must surface first instead, as a running row.
+        for pr_number in range(1, 6):
+            self._report(pr_number=pr_number, acting_user=self.user)
+        dormant = self._report(pr_number=99, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
+        # Older completed turn than the five above; updated_at (creation, i.e. now) keeps it fresh.
+        ReviewReport.objects.for_team(self.team.id).filter(id=dormant.id).update(
+            last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
+        )
+
+        rows = self.client.get(self.url).json()
+
+        assert len(rows) == 5
+        assert rows[0]["pr_number"] == 99
+        assert rows[0]["in_progress"] is True
+        assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
+
     def test_perspective_stats_aggregate_latest_turns_of_my_reviews(self) -> None:
         # Effectiveness must aggregate each report's LATEST turn only and never mix in a teammate's
         # reviews — stale turns or foreign reports would inflate a perspective's record.

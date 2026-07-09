@@ -608,11 +608,28 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 :RECENT_REVIEWS_LIMIT
             ]
         )
-        in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + completed)
-        reports = [
+        # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
+        # in-flight turn can rank below the completed slice — fetch running re-reviews explicitly or
+        # an actively reviewed PR vanishes from the list mid-run.
+        running_re_review = list(
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=False).order_by("-updated_at")[
+                :RECENT_REVIEWS_LIMIT
+            ]
+        )
+        in_progress_ids = _in_progress_report_ids(team_id, running_first_turn + running_re_review + completed)
+        # Visibly running first (first turns, then re-reviews), then recent completed — deduped so a
+        # re-review that also ranks in the completed slice keeps its front position.
+        seen: set[str] = set()
+        reports: list[ReviewReport] = []
+        for report in [
             *[report for report in running_first_turn if str(report.id) in in_progress_ids],
+            *[report for report in running_re_review if str(report.id) in in_progress_ids],
             *completed,
-        ][:RECENT_REVIEWS_LIMIT]
+        ]:
+            if str(report.id) not in seen:
+                seen.add(str(report.id))
+                reports.append(report)
+        reports = reports[:RECENT_REVIEWS_LIMIT]
 
         snapshots = _snapshot_stats(team_id, reports)
         turns = _turn_stats(team_id, reports)
