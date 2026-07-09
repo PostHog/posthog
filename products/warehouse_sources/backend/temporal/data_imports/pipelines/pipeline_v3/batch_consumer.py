@@ -820,8 +820,8 @@ class BatchConsumer:
     ) -> None:
         """Write the retry/terminal state after a processing error."""
         if not self._adapter.is_retryable_error(err):
-            # Deterministic failure: retrying repeats the same outcome. The raw
-            # message is the customer-visible latest_error, so keep it unwrapped.
+            # Deterministic failures do not benefit from retrying. Preserve their
+            # messages, except for explicitly classified permanent apply errors.
             logger.exception(
                 self._event("batch_failed_non_retryable"),
                 batch_id=batch.id,
@@ -829,7 +829,8 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
-            await self._fail_run(batch, reason=str(err), conn=lock_conn)
+            reason = f"permanent apply error: {err}" if isinstance(err, PermanentBatchApplyError) else str(err)
+            await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"
             logger.exception(

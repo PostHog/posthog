@@ -412,8 +412,7 @@ class DuckgresBatchConsumerAdapter:
             await DuckgresBatchQueue.mark_applied(conn, batch=batch)
 
     def is_retryable_error(self, err: Exception) -> bool:
-        # No known deterministic duckgres failure signatures yet; retry everything.
-        return True
+        return not isinstance(err, PermanentBatchApplyError)
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):
