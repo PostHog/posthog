@@ -1,5 +1,6 @@
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
@@ -19,7 +20,13 @@ from posthog.clickhouse.client import (
     execute_async as client,
     sync_execute,
 )
-from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.clickhouse.client.async_task_chain import (
+    add_task_to_on_commit,
+    drain_task_chain,
+    get_task_chain,
+    set_in_context,
+    task_chain_context,
+)
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
@@ -42,6 +49,40 @@ ZERO_PROGRESS = {
     "time_elapsed": 0,
     "active_cpu_time": 0,
 }
+
+
+class TestTaskChainThreadLocals(SimpleTestCase):
+    def tearDown(self):
+        drain_task_chain()
+        set_in_context(False)
+        super().tearDown()
+
+    def test_drain_task_chain_returns_and_clears(self):
+        item = (MagicMock(), MagicMock(), MagicMock())
+        get_task_chain().append(item)
+
+        assert drain_task_chain() == [item]
+        assert get_task_chain() == []
+
+    def test_task_added_on_worker_thread_is_handed_back_via_drain(self):
+        # Dashboard tile serialization queues chained-refresh tasks from pool worker
+        # threads; the worker raises the thread-local flag, then drains its chain so
+        # the request thread can re-queue the tasks on its own chain.
+        item = (MagicMock(), MagicMock(), MagicMock())
+
+        def worker():
+            set_in_context(True)
+            try:
+                add_task_to_on_commit(*item)
+                return drain_task_chain()
+            finally:
+                set_in_context(False)
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            drained = pool.submit(worker).result()
+
+        assert drained == [item]
+        assert get_task_chain() == []
 
 
 class TestQueryStatusManager(SimpleTestCase):
