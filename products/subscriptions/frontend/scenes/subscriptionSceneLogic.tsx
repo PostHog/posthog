@@ -47,6 +47,23 @@ export const PREVIEW_POLL_INTERVAL_MS = 2000
 // Matches the preview workflow's generate-activity cap; past this the row will never leave "starting".
 export const PREVIEW_POLL_TIMEOUT_MS = 10 * 60 * 1000
 
+// The window placeholders the backend substitutes at run time (spec_generator.render_window_filter)
+// aren't valid HogQL, so the plan editor validates against a copy with these stand-ins. Each stand-in
+// is the SAME LENGTH as its placeholder so Monaco error markers stay aligned with the visible text.
+export const WINDOW_PLACEHOLDER_STAND_INS: Record<string, string> = {
+    '{{date_range}}': '/*range*/ true',
+    '{{compare_date_range}}': '/*compare-range*/ true',
+    '{{window_start}}': 'now()/*w-start*/',
+    '{{window_end}}': 'now()/*w-end*/',
+}
+
+export function substituteWindowPlaceholders(hogql: string): string {
+    return Object.entries(WINDOW_PLACEHOLDER_STAND_INS).reduce(
+        (acc, [placeholder, standIn]) => acc.split(placeholder).join(standIn),
+        hogql
+    )
+}
+
 function parseCursorFromPaginationUrl(url: string | null | undefined): string | undefined {
     if (!url) {
         return undefined

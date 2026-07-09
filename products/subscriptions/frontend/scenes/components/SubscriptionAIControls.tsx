@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonCollapse, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 
-import { subscriptionSceneLogic } from '../subscriptionSceneLogic'
+import { subscriptionSceneLogic, substituteWindowPlaceholders } from '../subscriptionSceneLogic'
 import type { QueryPlanStep } from '../subscriptionSceneLogic'
 import { GeneratedQueries } from './SubscriptionAiReportDelivery'
 
@@ -41,7 +41,8 @@ function PreviewResult(): JSX.Element | null {
     )
 }
 
-/** View + edit the frozen query plan: each step's description (read-only) and HogQL (editable textarea). */
+/** View + edit the frozen query plan: each step's description (read-only) and HogQL (editable, with
+ * Monaco HogQL highlighting; validation runs against a placeholder-substituted copy of the text). */
 function FrozenQueryPlanEditor({ steps }: { steps: QueryPlanStep[] }): JSX.Element {
     const { queryPlanEdits, hasQueryPlanEdits, subscriptionLoading } = useValues(subscriptionSceneLogic)
     const { setQueryPlanStepHogql, resetQueryPlanEdits, saveQueryPlan } = useActions(subscriptionSceneLogic)
@@ -51,21 +52,29 @@ function FrozenQueryPlanEditor({ steps }: { steps: QueryPlanStep[] }): JSX.Eleme
             <LemonCollapse
                 size="small"
                 multiple
-                panels={steps.map((step, index) => ({
-                    key: index,
-                    header: <span>{step.description || `Query ${index + 1}`}</span>,
-                    content: (
-                        <LemonTextArea
-                            className="font-mono text-xs"
-                            aria-label={`HogQL for step ${index + 1}: ${step.description || 'query'}`}
-                            value={queryPlanEdits[index] ?? step.hogql}
-                            onChange={(value) => setQueryPlanStepHogql(index, value)}
-                            minRows={3}
-                            maxRows={16}
-                            data-attr={`subscription-query-plan-step-${index}`}
-                        />
-                    ),
-                }))}
+                panels={steps.map((step, index) => {
+                    const hogql = queryPlanEdits[index] ?? step.hogql
+                    return {
+                        key: index,
+                        header: <span>{step.description || `Query ${index + 1}`}</span>,
+                        content: (
+                            <div data-attr={`subscription-query-plan-step-${index}`}>
+                                <CodeEditorInline
+                                    language="hogQL"
+                                    queryKey={`subscription-query-plan-step-${index}`}
+                                    value={hogql}
+                                    onChange={(value) => setQueryPlanStepHogql(index, value ?? '')}
+                                    metadataQuery={substituteWindowPlaceholders(hogql)}
+                                    minHeight="80px"
+                                    maxHeight="400px"
+                                    options={{
+                                        ariaLabel: `HogQL for step ${index + 1}: ${step.description || 'query'}`,
+                                    }}
+                                />
+                            </div>
+                        ),
+                    }
+                })}
             />
             <div className="flex items-center gap-2">
                 <LemonButton

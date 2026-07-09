@@ -15,7 +15,12 @@ import {
 } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import { PREVIEW_POLL_INTERVAL_MS, subscriptionSceneLogic } from './subscriptionSceneLogic'
+import {
+    PREVIEW_POLL_INTERVAL_MS,
+    WINDOW_PLACEHOLDER_STAND_INS,
+    subscriptionSceneLogic,
+    substituteWindowPlaceholders,
+} from './subscriptionSceneLogic'
 
 const MOCK_USER = {
     id: 1,
@@ -528,5 +533,18 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.preview).toBeNull()
 
         logic.unmount()
+    })
+
+    it('substitutes every window placeholder with a same-length HogQL stand-in', () => {
+        // Same length is load-bearing: the editor validates the substituted copy, so a length drift
+        // would misplace Monaco error markers relative to the text the user actually sees.
+        for (const [placeholder, standIn] of Object.entries(WINDOW_PLACEHOLDER_STAND_INS)) {
+            expect(standIn.length).toBe(placeholder.length)
+        }
+        const substituted = substituteWindowPlaceholders(
+            'SELECT count() FROM events WHERE {{date_range}} AND timestamp >= {{window_start}} ' +
+                'AND {{compare_date_range}} AND timestamp < {{window_end}} AND {{date_range}}'
+        )
+        expect(substituted).not.toContain('{{')
     })
 })
