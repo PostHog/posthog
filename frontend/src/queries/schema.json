@@ -12946,6 +12946,18 @@
             },
             "type": "object"
         },
+        "ChartStyle": {
+            "additionalProperties": false,
+            "description": "Per-insight chart rendering style. Pure presentation — no field changes the computed values. Every field is optional; unset fields fall through to the app-level chart defaults.",
+            "properties": {
+                "curve": {
+                    "description": "Line interpolation: straight segments or a smoothed curve through the points.",
+                    "enum": ["linear", "smooth"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
@@ -23427,6 +23439,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to historical-trends funnels."
                 },
                 "customAggregationTarget": {
                     "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
@@ -39803,6 +39819,10 @@
                     "enum": ["count", "sum", "avg"],
                     "type": "string"
                 },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "cohortLabelStartIndex": {
                     "$ref": "#/definitions/integer",
                     "default": 0,
@@ -43043,6 +43063,10 @@
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "computedAs": {
                     "$ref": "#/definitions/StickinessComputationMode"
                 },
@@ -45335,6 +45359,10 @@
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
                 },
                 "confidenceLevel": {
                     "type": "number"
