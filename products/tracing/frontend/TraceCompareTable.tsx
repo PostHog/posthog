@@ -1,7 +1,7 @@
 import { CSSProperties, useMemo, useState } from 'react'
 import { List } from 'react-window'
 
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
@@ -11,6 +11,14 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
+import {
+    buildRows,
+    changeMagnitude,
+    classifyRow,
+    type CompareRow,
+    compareRowKey,
+    type CompareRowStatus,
+} from './compareUtils'
 import { formatDuration } from './TraceWaterfallView'
 
 const ROW_HEIGHT = 44
@@ -28,50 +36,20 @@ const COL_WIDTH = {
 const NAME_MIN_WIDTH = 200
 const MIN_ROW_WIDTH = Object.values(COL_WIDTH).reduce((sum, width) => sum + width, 0) + NAME_MIN_WIDTH
 
-type SortColumn = 'service_name' | 'name' | 'count' | 'p50' | 'p95' | 'errors'
+// 'change' is the default: biggest p95 movers (both directions) first, so the table answers
+// "what changed?" without any clicking. Column header clicks switch to plain value sorts.
+type SortColumn = 'change' | 'service_name' | 'name' | 'count' | 'p50' | 'p95' | 'errors'
 type SortOrder = 1 | -1
 
-interface CompareRow {
-    service_name: string
-    name: string
-    current: AggregatedSpanRow | null
-    previous: AggregatedSpanRow | null
-}
+type StatusFilter = 'all' | CompareRowStatus
 
-const rowKey = (row: { service_name: string; name: string }): string => `${row.service_name}\0${row.name}`
-
-function buildRows(current: AggregatedSpanRow[], previous: AggregatedSpanRow[] | null): CompareRow[] {
-    const previousByKey = new Map<string, AggregatedSpanRow>()
-    for (const row of previous ?? []) {
-        previousByKey.set(rowKey(row), row)
-    }
-
-    const rows: CompareRow[] = current.map((row) => ({
-        service_name: row.service_name,
-        name: row.name,
-        current: row,
-        previous: previousByKey.get(rowKey(row)) ?? null,
-    }))
-
-    // Append rows that existed in the previous window but disappeared in the current window —
-    // useful for spotting fully regressed call sites.
-    const currentKeys = new Set(current.map(rowKey))
-    for (const row of previous ?? []) {
-        const key = rowKey(row)
-        if (!currentKeys.has(key)) {
-            rows.push({
-                service_name: row.service_name,
-                name: row.name,
-                current: null,
-                previous: row,
-            })
-        }
-    }
-
-    return rows
+const STATUS_TAG: Partial<Record<CompareRowStatus, { label: string; type: 'success' | 'muted' }>> = {
+    new: { label: 'New', type: 'success' },
+    gone: { label: 'Gone', type: 'muted' },
 }
 
 const SORTERS: Record<SortColumn, (a: CompareRow, b: CompareRow) => number> = {
+    change: (a, b) => changeMagnitude(a) - changeMagnitude(b),
     service_name: (a, b) => a.service_name.localeCompare(b.service_name),
     name: (a, b) => a.name.localeCompare(b.name),
     count: (a, b) => (a.current?.count ?? 0) - (b.current?.count ?? 0),
@@ -258,12 +236,14 @@ function CompareListRow({
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             data-index={index}
-            data-row-key={rowKey(row)}
+            data-row-key={compareRowKey(row)}
         >
             <div
                 className={cn(
                     'flex items-center border-b border-border hover:bg-surface-primary-hover',
-                    onRowClick && 'cursor-pointer'
+                    onRowClick && 'cursor-pointer',
+                    // Vanished call sites: keep them readable but visually secondary.
+                    !row.current && 'opacity-60'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ height: ROW_HEIGHT }}
@@ -285,7 +265,17 @@ function CompareListRow({
                     <span className="font-mono">{row.service_name}</span>
                 </Cell>
                 <Cell>
-                    <span className="font-mono">{row.name}</span>
+                    <span className="inline-flex items-center gap-1.5 max-w-full">
+                        <span className="font-mono truncate">{row.name}</span>
+                        {(() => {
+                            const tag = STATUS_TAG[classifyRow(row)]
+                            return tag ? (
+                                <LemonTag type={tag.type} size="small">
+                                    {tag.label}
+                                </LemonTag>
+                            ) : null
+                        })()}
+                    </span>
                 </Cell>
                 <Cell width={COL_WIDTH.count} align="right">
                     <div className="flex flex-col items-end">
@@ -333,15 +323,39 @@ export interface TraceCompareTableProps {
     onRowClick?: (row: { service_name: string; name: string }) => void
 }
 
+const STATUS_FILTER_LABELS: Record<Exclude<StatusFilter, 'all'>, string> = {
+    regressed: 'Regressed',
+    improved: 'Improved',
+    new: 'New',
+    gone: 'Gone',
+    unchanged: 'Unchanged',
+}
+
 export function TraceCompareTable({ current, previous, loading, onRowClick }: TraceCompareTableProps): JSX.Element {
-    const [sortColumn, setSortColumn] = useState<SortColumn>('count')
+    const [sortColumn, setSortColumn] = useState<SortColumn>('change')
     const [sortOrder, setSortOrder] = useState<SortOrder>(-1)
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+    const { allRows, statusByKey, statusCounts } = useMemo(() => {
+        const built = buildRows(current, previous)
+        const byKey = new Map<string, CompareRowStatus>()
+        const counts: Record<CompareRowStatus, number> = { regressed: 0, improved: 0, new: 0, gone: 0, unchanged: 0 }
+        for (const row of built) {
+            const status = classifyRow(row)
+            byKey.set(compareRowKey(row), status)
+            counts[status] += 1
+        }
+        return { allRows: built, statusByKey: byKey, statusCounts: counts }
+    }, [current, previous])
 
     const rows = useMemo(() => {
-        const built = buildRows(current, previous)
+        const filtered =
+            statusFilter === 'all'
+                ? allRows
+                : allRows.filter((row) => statusByKey.get(compareRowKey(row)) === statusFilter)
         const sorter = SORTERS[sortColumn]
-        return [...built].sort((a, b) => sorter(a, b) * sortOrder)
-    }, [current, previous, sortColumn, sortOrder])
+        return [...filtered].sort((a, b) => sorter(a, b) * sortOrder)
+    }, [allRows, statusByKey, statusFilter, sortColumn, sortOrder])
 
     const onSort = (column: SortColumn): void => {
         if (column === sortColumn) {
@@ -354,7 +368,7 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
 
     const rowProps = useMemo((): CompareRowProps => ({ dataSource: rows, onRowClick }), [rows, onRowClick])
 
-    if (rows.length === 0) {
+    if (allRows.length === 0) {
         return (
             <div className="flex items-center justify-center p-8 text-muted border rounded bg-bg-light">
                 {loading ? <Spinner className="text-2xl" /> : 'No spans found'}
@@ -362,38 +376,71 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
         )
     }
 
+    const statusOptions = [
+        { value: 'all' as StatusFilter, label: `All (${allRows.length})` },
+        ...(['regressed', 'improved', 'new', 'gone'] as const).map((status) => ({
+            value: status as StatusFilter,
+            label: `${STATUS_FILTER_LABELS[status]} (${statusCounts[status]})`,
+            disabledReason: statusCounts[status] === 0 ? 'No spans in this bucket' : undefined,
+        })),
+    ]
+
     return (
-        <div
-            className="flex flex-col flex-1 min-h-0 bg-bg-light border rounded overflow-hidden"
-            data-attr="tracing-compare-table"
-        >
-            <AutoSizer
-                renderProp={({ width, height }: SizeProps) => {
-                    if (!width || !height) {
-                        return null
-                    }
-                    const rowWidth = Math.max(width, MIN_ROW_WIDTH)
-                    return (
-                        // The viewport is fixed to the available box; the inner content can be wider
-                        // (MIN_ROW_WIDTH) so columns scroll horizontally and rows align with the header.
-                        // eslint-disable-next-line react/forbid-dom-props
-                        <div className="overflow-x-auto" style={{ width, height }}>
-                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                            <div style={{ width: rowWidth }}>
-                                <CompareRowHeader sortColumn={sortColumn} sortOrder={sortOrder} onSort={onSort} />
-                                <List<CompareRowProps>
-                                    style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
-                                    overscanCount={10}
-                                    rowCount={rows.length}
-                                    rowHeight={ROW_HEIGHT}
-                                    rowComponent={CompareListRow}
-                                    rowProps={rowProps}
-                                />
+        <div className="flex flex-col flex-1 min-h-0 gap-2" data-attr="tracing-compare-table">
+            <div className="flex items-center gap-2 flex-wrap">
+                <LemonSegmentedButton<StatusFilter>
+                    size="small"
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={statusOptions}
+                    data-attr="tracing-compare-status-filter"
+                />
+                {sortColumn !== 'change' && (
+                    <button
+                        type="button"
+                        className="text-xs text-link cursor-pointer"
+                        onClick={() => onSort('change')}
+                        data-attr="tracing-compare-sort-change"
+                    >
+                        Sort by biggest change
+                    </button>
+                )}
+            </div>
+            <div className="flex flex-col flex-1 min-h-0 bg-bg-light border rounded overflow-hidden">
+                <AutoSizer
+                    renderProp={({ width, height }: SizeProps) => {
+                        if (!width || !height) {
+                            return null
+                        }
+                        const rowWidth = Math.max(width, MIN_ROW_WIDTH)
+                        return (
+                            // The viewport is fixed to the available box; the inner content can be wider
+                            // (MIN_ROW_WIDTH) so columns scroll horizontally and rows align with the header.
+                            // eslint-disable-next-line react/forbid-dom-props
+                            <div className="overflow-x-auto" style={{ width, height }}>
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <div style={{ width: rowWidth }}>
+                                    <CompareRowHeader sortColumn={sortColumn} sortOrder={sortOrder} onSort={onSort} />
+                                    {rows.length === 0 ? (
+                                        <div className="flex items-center justify-center p-8 text-muted">
+                                            No spans in this bucket
+                                        </div>
+                                    ) : (
+                                        <List<CompareRowProps>
+                                            style={{ height: height - HEADER_HEIGHT, width: rowWidth }}
+                                            overscanCount={10}
+                                            rowCount={rows.length}
+                                            rowHeight={ROW_HEIGHT}
+                                            rowComponent={CompareListRow}
+                                            rowProps={rowProps}
+                                        />
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )
-                }}
-            />
+                        )
+                    }}
+                />
+            </div>
         </div>
     )
 }
