@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -42,10 +42,18 @@ const getColumns = ({
     aggregationLabel,
     currentTeamId,
     currentOrganization,
+    canToggleFlags,
+    onToggleFlag,
+    toggleLoading,
+    toggleLoadingFlagId,
 }: {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
     currentTeamId: number | null
     currentOrganization: OrganizationType | null
+    canToggleFlags: boolean
+    onToggleFlag: (record: OrganizationFeatureFlag, active: boolean) => void
+    toggleLoading: boolean
+    toggleLoadingFlagId: number | null
 }): LemonTableColumns<OrganizationFeatureFlag> => {
     return [
         {
@@ -89,15 +97,18 @@ const getColumns = ({
         {
             title: 'Status',
             dataIndex: 'active',
-            render: (dataValue) => {
-                return dataValue ? (
-                    <LemonTag type="success" className="uppercase">
-                        Enabled
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="default" className="uppercase">
-                        Disabled
-                    </LemonTag>
+            render: (_, record) => {
+                if (record.flag_id == null || record.team_id == null) {
+                    return <LemonTag type="default">Unavailable</LemonTag>
+                }
+                return (
+                    <LemonSwitch
+                        checked={record.active}
+                        onChange={(checked) => onToggleFlag(record, checked)}
+                        loading={toggleLoading && toggleLoadingFlagId === record.flag_id}
+                        disabled={!canToggleFlags}
+                        label={record.active ? 'Enabled' : 'Disabled'}
+                    />
                 )
             },
         },
@@ -229,8 +240,10 @@ function FeatureFlagCopySection(): JSX.Element {
 }
 
 export default function FeatureFlagProjects(): JSX.Element {
-    const { projectsWithCurrentFlag, featureFlag } = useValues(featureFlagLogic)
-    const { loadProjectsWithCurrentFlag, loadScheduledChanges } = useActions(featureFlagLogic)
+    const { projectsWithCurrentFlag, featureFlag, projectFeatureFlagActiveUpdateLoading, projectFlagToggleTargetId } =
+        useValues(featureFlagLogic)
+    const { loadProjectsWithCurrentFlag, loadScheduledChanges, toggleProjectFeatureFlagActive } =
+        useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -242,6 +255,13 @@ export default function FeatureFlagProjects(): JSX.Element {
         }
     })
 
+    const handleToggleFlag = (record: OrganizationFeatureFlag, active: boolean): void => {
+        if (record.team_id == null || record.flag_id == null) {
+            return
+        }
+        toggleProjectFeatureFlagActive(record.team_id, record.flag_id, active)
+    }
+
     return (
         <div>
             <InfoBanner />
@@ -249,7 +269,15 @@ export default function FeatureFlagProjects(): JSX.Element {
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
-                columns={getColumns({ currentTeamId, currentOrganization, aggregationLabel })}
+                columns={getColumns({
+                    currentTeamId,
+                    currentOrganization,
+                    aggregationLabel,
+                    canToggleFlags: featureFlag.can_edit,
+                    onToggleFlag: handleToggleFlag,
+                    toggleLoading: projectFeatureFlagActiveUpdateLoading,
+                    toggleLoadingFlagId: projectFlagToggleTargetId,
+                })}
                 emptyState="This feature flag is not being used in any other project."
             />
         </div>
