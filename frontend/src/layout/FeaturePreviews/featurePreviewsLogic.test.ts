@@ -181,6 +181,19 @@ describe('featurePreviewsLogic - submitConceptSurvey', () => {
             .toMatchValues({ conceptSurveySubmissions: { 'concept-flag': true } })
     })
 
+    test('captures without a per-question key when the payload has no question id', () => {
+        logic.actions.loadEarlyAccessFeaturesSuccess([
+            { flagKey: 'concept-flag', stage: 'concept', payload: { survey_id: 'survey-123' } } as any,
+        ])
+
+        logic.actions.submitConceptSurvey('concept-flag', 'test@example.com')
+
+        expect(mockCapture).toHaveBeenCalledWith('survey sent', {
+            $survey_id: 'survey-123',
+            $survey_response: 'test@example.com',
+        })
+    })
+
     test('shows an error and does not mark submitted when the feature has no linked survey', async () => {
         logic.actions.loadEarlyAccessFeaturesSuccess([
             { flagKey: 'concept-flag', stage: 'concept', payload: {} } as any,

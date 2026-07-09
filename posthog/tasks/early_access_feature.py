@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 
 import structlog
@@ -62,47 +62,61 @@ def ensure_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional
     # the (team, name) uniqueness constraint).
     survey = Survey.objects.filter(team=instance.team, linked_flag=feature_flag, type=Survey.SurveyType.API).first()
     if survey is None:
-        name = f"{instance.name} waitlist"[:380]
-        if Survey.objects.filter(team=instance.team, name=name).exists():
-            name = f"{name} ({feature_flag.key})"[:400]
-        try:
-            # A concurrent task (e.g. the signal firing on create and again on an immediate
-            # edit) can create the survey between the linked-survey check above and this
-            # insert; the (team, name) unique constraint turns that into an IntegrityError.
-            # The savepoint keeps the surrounding transaction usable so we can adopt the
-            # winner's survey instead of failing the task.
-            with transaction.atomic():
-                survey = Survey.objects.create(
-                    team=instance.team,
-                    name=name,
-                    description=f"Waitlist sign-ups for the upcoming {instance.name} feature.",
-                    type=Survey.SurveyType.API,
-                    linked_flag=feature_flag,
-                    questions=[
-                        {
-                            "type": "open",
-                            "question": f"Enter your email and we'll let you know when {instance.name} is ready.",
-                            "optional": False,
-                        }
-                    ],
-                    start_date=timezone.now(),
-                )
-        except IntegrityError:
+        # Serialize concurrent creates for the same flag (the signal firing on create and
+        # again on an immediate edit, or the backfill colliding with the signal) with a
+        # transaction-scoped advisory lock. Without it, a task committing between another
+        # task's linked-survey check and its name-collision check pushes the second task
+        # onto the "(flag-key)" suffixed name, leaving two api surveys linked to one flag.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [instance.team_id, feature_flag.id])
+            # Re-check under the lock: the winner may have committed after the check above.
             survey = Survey.objects.filter(
                 team=instance.team, linked_flag=feature_flag, type=Survey.SurveyType.API
             ).first()
             if survey is None:
-                raise
+                name = f"{instance.name} waitlist"[:380]
+                if Survey.objects.filter(team=instance.team, name=name).exists():
+                    name = f"{name} ({feature_flag.key})"[:400]
+                try:
+                    # The lock only serializes same-flag creates, so (team, name) can still
+                    # collide with a survey created concurrently for a different flag. The
+                    # savepoint keeps the transaction usable so we can adopt or re-raise.
+                    with transaction.atomic():
+                        survey = Survey.objects.create(
+                            team=instance.team,
+                            name=name,
+                            description=f"Waitlist sign-ups for the upcoming {instance.name} feature.",
+                            type=Survey.SurveyType.API,
+                            linked_flag=feature_flag,
+                            questions=[
+                                {
+                                    "type": "open",
+                                    "question": f"Enter your email and we'll let you know when {instance.name} is ready.",
+                                    "optional": False,
+                                }
+                            ],
+                            start_date=timezone.now(),
+                        )
+                except IntegrityError:
+                    survey = Survey.objects.filter(
+                        team=instance.team, linked_flag=feature_flag, type=Survey.SurveyType.API
+                    ).first()
+                    if survey is None:
+                        raise
 
     # `ensure_question_ids` (pre_save) guarantees the question has an id.
     question_id = (survey.questions or [{}])[0].get("id")
+    # The merge below is over the payload snapshot read when `instance` was loaded — a
+    # concurrent write to a different payload key between that read and this update gets
+    # dropped. Fine while this task is the only payload writer besides the API.
     EarlyAccessFeature.objects.filter(pk=instance.pk).update(
         payload={**(instance.payload or {}), "survey_id": str(survey.id), "survey_question_id": question_id}
     )
     return survey
 
 
-@shared_task(ignore_result=True, max_retries=3)
+@shared_task(ignore_result=True, max_retries=3, autoretry_for=(Exception,), retry_backoff=True)
 @skip_team_scope_audit
 def create_waitlist_survey_for_concept_feature(feature_id: str) -> None:
     try:

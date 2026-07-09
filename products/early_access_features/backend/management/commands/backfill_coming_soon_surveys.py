@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 
@@ -65,13 +65,16 @@ class Command(BaseCommand):
                 continue
 
             try:
-                with transaction.atomic():
-                    survey = ensure_waitlist_survey_for_feature(feature)
+                survey = ensure_waitlist_survey_for_feature(feature)
             except IntegrityError:
-                # Collided with the live post_save signal creating the same survey —
-                # skip this feature and keep going; a re-run picks it up.
+                # The common same-flag race is handled inside ensure_waitlist_survey_for_feature
+                # (advisory lock + adopt-on-IntegrityError). This only fires if that internal
+                # adoption also came up empty, e.g. the name collided with a survey created
+                # concurrently for a different flag — skip the feature; a re-run picks it up.
                 self.stdout.write(
-                    self.style.WARNING(f"'{feature.name}': survey creation raced, skipping (re-run to retry)")
+                    self.style.WARNING(
+                        f"'{feature.name}': survey creation raced even after internal adoption, skipping"
+                    )
                 )
                 skipped += 1
                 continue

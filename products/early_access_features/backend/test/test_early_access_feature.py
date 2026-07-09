@@ -2,7 +2,7 @@ import json
 
 import unittest
 from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test.client import Client
@@ -1655,6 +1655,10 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         assert survey.linked_flag_id == feature.feature_flag_id
 
     def test_ensure_adopts_survey_created_by_concurrent_task(self):
+        # Covers only the adopt-on-IntegrityError control flow: `transaction` is mocked (a
+        # TestCase already wraps the whole test in one transaction, so real savepoint and
+        # advisory-lock semantics can't be exercised here) and the IntegrityError is raised
+        # by the mock, not by a real constraint violation.
         from django.db import IntegrityError
 
         from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
@@ -1671,7 +1675,6 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
             raise IntegrityError("duplicate key value violates unique constraint")
 
         with (
-            # Neutralize the savepoint so the concurrently created survey outlives the error.
             patch("posthog.tasks.early_access_feature.transaction"),
             patch.object(Survey.objects, "create", side_effect=concurrent_create),
         ):
@@ -1681,6 +1684,44 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
         feature.refresh_from_db()
         assert feature.payload["survey_id"] == str(survey.id)
+
+    def test_ensure_recheck_under_lock_adopts_survey_committed_after_first_check(self):
+        # The divergent-name race: the initial linked-survey check misses, another task's
+        # survey for the same flag commits before the advisory lock is taken, and without
+        # the re-check under the lock this task would create a second survey under the
+        # "(flag-key)" suffixed name. Simulate the stale first read and assert the re-check
+        # adopts the committed survey instead of creating a duplicate.
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature(name="Racy")
+        existing = Survey.objects.create(
+            team=self.team,
+            name="Racy waitlist",
+            type=Survey.SurveyType.API,
+            linked_flag=feature.feature_flag,
+            questions=[{"type": "open", "question": "q"}],
+            created_by=self.user,
+        )
+
+        real_filter = Survey.objects.filter
+        first_check = {"done": False}
+
+        def stale_first_read(*args, **kwargs):
+            if not first_check["done"]:
+                first_check["done"] = True
+                return Survey.objects.none()
+            return real_filter(*args, **kwargs)
+
+        with patch.object(Survey.objects, "filter", side_effect=stale_first_read):
+            survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.id == existing.id
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(existing.id)
 
     @patch("posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature.delay")
     def test_post_save_enqueues_task_for_concept_feature(self, mock_delay):
@@ -1730,3 +1771,28 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         feature.refresh_from_db()
         assert feature.payload.get("survey_id")
         assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+
+    @patch("posthog.tasks.early_access_feature.capture_event")
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_migrate_command_skips_already_responded_emails(self, mock_query, mock_capture):
+        from django.core.management import call_command
+
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        feature = self._concept_feature(name="Migrate me")
+        survey = ensure_waitlist_survey_for_feature(feature)
+        assert survey is not None
+
+        mock_query.side_effect = [
+            # Legacy registrations: one new sign-up, one who already responded (case differs).
+            MagicMock(results=[("new@example.com", "did-new"), ("Already@Example.com", "did-already")]),
+            # Emails that already responded to the survey (lowercased by the query).
+            MagicMock(results=[("already@example.com",)]),
+        ]
+
+        call_command("migrate_enrollments_to_waitlist_surveys", team_id=self.team.id, really_run=True)
+
+        assert mock_capture.call_count == 1
+        assert mock_capture.call_args.kwargs["distinct_id"] == "did-new"
+        assert mock_capture.call_args.kwargs["properties"]["$survey_response"] == "new@example.com"
+        assert mock_capture.call_args.kwargs["properties"]["$survey_id"] == str(survey.id)

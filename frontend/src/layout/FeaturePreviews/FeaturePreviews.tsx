@@ -180,7 +180,9 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     let actions: JSX.Element
     if (hasWaitlistSurvey) {
         actions = surveySubmitted ? (
-            <span className="flex items-center gap-1 text-success font-medium">
+            // role="status" makes the confirmation a live region: the form (and its focused
+            // button) unmounts on submit, so without it screen readers announce nothing.
+            <span role="status" className="flex items-center gap-1 text-success font-medium">
                 <IconCheck /> Thanks — we'll email you when it's ready.
             </span>
         ) : (
