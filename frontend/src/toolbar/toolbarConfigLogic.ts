@@ -657,13 +657,19 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A non-OK response (e.g. a host that doesn't serve /toolbar_oauth/check yet)
+            // is an expected config-miss, not an exception. Record it via analytics and the
+            // config modal below, but don't mint an error tracking issue for it.
+            if (errorType !== 'http_error') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
