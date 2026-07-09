@@ -908,3 +908,22 @@ describe('toolPassesEntitlementGate', () => {
         expect(toolPassesEntitlementGate(gated, undefined, true)).toBe(true)
     })
 })
+
+describe('Tool Filtering - Entitlements (activity log family)', () => {
+    // Guards the full YAML -> generated definitions -> getToolsForFeatures wire-up:
+    // a predicate-only test wouldn't catch the entitlement missing from the
+    // generated JSON for these specific tools.
+    it('hides audit-log tools for a cloud org without audit_logs, shows them with it', () => {
+        const withoutAudit = getToolsForFeatures({ availableFeatures: [], isCloud: true })
+        expect(withoutAudit).not.toContain('advanced-activity-logs-list')
+        expect(withoutAudit).not.toContain('advanced-activity-logs-filters')
+
+        const withAudit = getToolsForFeatures({ availableFeatures: ['audit_logs'], isCloud: true })
+        expect(withAudit).toContain('advanced-activity-logs-list')
+        expect(withAudit).toContain('advanced-activity-logs-filters')
+
+        // Fail-open: unresolved entitlements still advertise.
+        const unknown = getToolsForFeatures({ isCloud: true })
+        expect(unknown).toContain('advanced-activity-logs-list')
+    })
+})
