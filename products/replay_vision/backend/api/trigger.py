@@ -51,6 +51,8 @@ def check_observation_quota(organization_id: UUID, observation_credits: int) -> 
     """Raise 402 when starting an observation of this credit cost would exceed the org's monthly limit."""
     snapshot = compute_quota_snapshot(organization_id=organization_id)
     if snapshot.would_exceed(observation_credits):
+        # would_exceed is only ever true when a limit is set, so credit_limit is non-None here.
+        assert snapshot.credit_limit is not None
         raise QuotaLimitExceeded(
             detail=(
                 f"Starting this observation would exceed your monthly Replay vision limit of "
