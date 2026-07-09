@@ -620,28 +620,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         }
         if not changed:
             return None
-        return self._feature_flag_config_object(changed) or None
-
-    @staticmethod
-    def _feature_flag_config_object(flag_config: dict[str, Any]) -> dict[str, Any]:
-        """Assemble a ``feature_flag`` config object (the flag's native write shape) from deprecated
-        ``parameters`` flag-config keys, so the shared feature_flag input path can consume them.
-        Mirrors the read projection's translation in reverse."""
-        filters: dict[str, Any] = {}
-        if "feature_flag_variants" in flag_config:
-            filters["multivariate"] = {"variants": flag_config["feature_flag_variants"]}
-        if flag_config.get("rollout_percentage") is not None:
-            filters["groups"] = [{"properties": [], "rollout_percentage": flag_config["rollout_percentage"]}]
-        if "aggregation_group_type_index" in flag_config:
-            filters["aggregation_group_type_index"] = flag_config["aggregation_group_type_index"]
-        if "feature_flag_payloads" in flag_config:
-            filters["payloads"] = flag_config["feature_flag_payloads"]
-        feature_flag_input: dict[str, Any] = {}
-        if filters:
-            feature_flag_input["filters"] = filters
-        if "ensure_experience_continuity" in flag_config:
-            feature_flag_input["ensure_experience_continuity"] = flag_config["ensure_experience_continuity"]
-        return feature_flag_input
+        # Assemble the flag's native write shape from the changed deprecated keys. The service owns
+        # this translation (it is the reverse of the read projection) so both the HTTP path and direct
+        # service callers build the config identically.
+        return ExperimentService._feature_flag_config_from_parameters(changed)
 
     @staticmethod
     def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:

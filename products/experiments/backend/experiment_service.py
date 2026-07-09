@@ -564,6 +564,37 @@ class ExperimentService:
             return parameters
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
+    @classmethod
+    def _feature_flag_config_from_parameters(cls, parameters: dict | None) -> dict | None:
+        """Translate deprecated ``parameters`` flag-config keys into a ``feature_flag`` config object
+        (the flag's native write shape), or ``None`` when ``parameters`` carries no flag config.
+
+        This is the reverse of the read projection. It lets a caller that hands the service deprecated
+        flag config through ``parameters`` — a direct service caller, or ExperimentSerializer's
+        deprecated-parameters copy-forward — flow through the single gated flag-write path. The
+        serializer strips these keys from ``parameters`` before calling ``update_experiment``, so on
+        the HTTP path this returns ``None`` and the explicit ``feature_flag`` config is used instead."""
+        if not parameters:
+            return None
+        flag_config = {key: parameters[key] for key in cls.FEATURE_FLAG_CONFIG_KEYS if key in parameters}
+        if not flag_config:
+            return None
+        filters: dict[str, Any] = {}
+        if "feature_flag_variants" in flag_config:
+            filters["multivariate"] = {"variants": flag_config["feature_flag_variants"]}
+        if flag_config.get("rollout_percentage") is not None:
+            filters["groups"] = [{"properties": [], "rollout_percentage": flag_config["rollout_percentage"]}]
+        if "aggregation_group_type_index" in flag_config:
+            filters["aggregation_group_type_index"] = flag_config["aggregation_group_type_index"]
+        if "feature_flag_payloads" in flag_config:
+            filters["payloads"] = flag_config["feature_flag_payloads"]
+        config: dict[str, Any] = {}
+        if filters:
+            config["filters"] = filters
+        if "ensure_experience_continuity" in flag_config:
+            config["ensure_experience_continuity"] = flag_config["ensure_experience_continuity"]
+        return config or None
+
     @staticmethod
     def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
         """Parameters for analytics events: the stored column carries no flag config, so attach
@@ -2850,6 +2881,14 @@ class ExperimentService:
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
+
+        # Direct service callers (no serializer) may still send flag config through the deprecated
+        # `parameters` keys instead of `feature_flag_config`. Translate them here so the flag write
+        # below still runs through the approval gate — otherwise the write is skipped and the edit is
+        # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
+        # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
+        if feature_flag_config is None:
+            feature_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
 
         self._validate_update_payload(experiment, update_data, feature_flag, feature_flag_config)
 
