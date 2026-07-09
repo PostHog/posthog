@@ -44,8 +44,9 @@ describe('close template', () => {
         apiKey: 'API_KEY',
         email: 'max@posthog.com',
         leadName: 'PostHog',
+        firstName: 'Max',
+        lastName: 'AI',
         properties: {
-            name: 'Max AI',
             title: 'Hedgehog in Residence',
         },
         leadProperties: {},
@@ -127,6 +128,61 @@ describe('close template', () => {
         })
         expect(done.error).toBeUndefined()
         expect(done.finished).toBe(true)
+    })
+
+    it('omits name when both firstName and lastName are empty', async () => {
+        const searchRequest = await tester.invoke({ ...defaultInputs, firstName: '', lastName: '' }, {})
+
+        const createRequest = await tester.invokeFetchResponse(searchRequest.invocation, {
+            status: 200,
+            body: { data: [] },
+        })
+
+        expect(parseBody(createRequest.invocation)).toEqual({
+            name: 'PostHog',
+            contacts: [
+                {
+                    emails: [{ email: 'max@posthog.com', type: 'office' }],
+                    title: 'Hedgehog in Residence',
+                },
+            ],
+        })
+    })
+
+    it('skips the PUT when a contact matches but there is nothing to update', async () => {
+        const searchRequest = await tester.invoke({ ...defaultInputs, firstName: '', lastName: '', properties: {} }, {})
+
+        const response = await tester.invokeFetchResponse(searchRequest.invocation, {
+            status: 200,
+            body: { data: [{ __object_type: 'contact', id: 'cont_123', lead_id: 'lead_456' }] },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toBe(true)
+        expect(response.invocation.queueParameters).toBeFalsy()
+        expect(response.logs.some((log) => log.message.includes('No contact fields to update. Skipping...'))).toBe(true)
+    })
+
+    it('JSON-stringifies object-valued property mappings', async () => {
+        const searchRequest = await tester.invoke(
+            {
+                ...defaultInputs,
+                properties: {
+                    title: 'Hedgehog in Residence',
+                    'custom.cf_addresses': [{ city: 'Berlin' }, { city: 'London' }],
+                },
+            },
+            {}
+        )
+
+        const createRequest = await tester.invokeFetchResponse(searchRequest.invocation, {
+            status: 200,
+            body: { data: [] },
+        })
+
+        const body = parseBody(createRequest.invocation)
+        expect(body.contacts[0]['custom.cf_addresses']).toBe('[{"city":"Berlin"},{"city":"London"}]')
+        expect(body.contacts[0].title).toBe('Hedgehog in Residence')
     })
 
     it('skips when email is empty', async () => {

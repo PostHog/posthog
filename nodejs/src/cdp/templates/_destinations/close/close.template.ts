@@ -6,7 +6,8 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-close',
     name: 'Close',
-    description: 'Create and update leads in Close',
+    description:
+        'Sync PostHog persons to Close as contacts. Creates a new lead when no contact with the same email exists yet.',
     icon_url: '/static/services/close.png',
     category: ['CRM', 'Customer Success'],
     code_language: 'hog',
@@ -55,13 +56,26 @@ let contactAttributes := {}
 
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
-        contactAttributes[key] := value
+        if (typeof(value) in ('object', 'array', 'tuple')) {
+            contactAttributes[key] := jsonStringify(value)
+        } else {
+            contactAttributes[key] := value
+        }
     }
+}
+
+let fullName := trim(f'{inputs.firstName} {inputs.lastName}')
+if (not empty(fullName)) {
+    contactAttributes.name := fullName
 }
 
 let res
 
 if (not empty(searchRes.body.data)) {
+    if (empty(contactAttributes)) {
+        print('No contact fields to update. Skipping...')
+        return
+    }
     // Never send emails on update - PUT replaces the contact's whole emails array
     res := fetch(f'https://api.close.com/api/v1/contact/{searchRes.body.data.1.id}/', {
         'method': 'PUT',
@@ -125,13 +139,32 @@ if (res.status >= 400) {
             required: true,
         },
         {
+            key: 'firstName',
+            type: 'string',
+            label: 'First name',
+            description:
+                "First name of the contact. Combined with the last name and sent as Close's single `name` field; if both are empty the name is omitted.",
+            default: '{person.properties.first_name}',
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'lastName',
+            type: 'string',
+            label: 'Last name',
+            description:
+                "Last name of the contact. Combined with the first name and sent as Close's single `name` field; if both are empty the name is omitted.",
+            default: '{person.properties.last_name}',
+            secret: false,
+            required: false,
+        },
+        {
             key: 'properties',
             type: 'dictionary',
             label: 'Contact field mapping',
             description:
-                'Map of Close contact fields and their values. Note that Close only accepts valid contact fields (e.g. name, title, or custom.cf_FIELD_ID keys) - unknown fields may be rejected. Custom fields use the custom.cf_FIELD_ID format: https://developer.close.com/resources/custom-fields/',
+                'Map of Close contact fields and their values. Note that Close only accepts valid contact fields (e.g. title, or custom.cf_FIELD_ID keys) - unknown fields may be rejected. Custom fields use the custom.cf_FIELD_ID format: https://developer.close.com/resources/custom-fields/',
             default: {
-                name: "{f'{person.properties.first_name} {person.properties.last_name}' == ' ' ? null : f'{person.properties.first_name} {person.properties.last_name}'}",
                 title: '{person.properties.job_title}',
             },
             secret: false,
