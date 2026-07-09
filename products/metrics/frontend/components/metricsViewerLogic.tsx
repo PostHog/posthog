@@ -60,7 +60,7 @@ export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, can
 // A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
 // The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
 // explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
-const isUserInitiatedError = (error: unknown): boolean => {
+export const isUserInitiatedError = (error: unknown): boolean => {
     const errorStr = String(error).toLowerCase()
     return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
 }
@@ -138,6 +138,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     actions({
         setMetricName: (metricName: string) => ({ metricName }),
         setAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
+        // Auto-applied on metric switch — a separate action so usage tracking can
+        // tell it apart from the user picking an aggregation themselves.
+        setRecommendedAggregation: (aggregation: MetricAggregation) => ({ aggregation }),
         setDateFrom: (dateFrom: string | null) => ({ dateFrom }),
         setDateTo: (dateTo: string | null) => ({ dateTo }),
         setViewMode: (viewMode: MetricsViewMode) => ({ viewMode }),
@@ -154,7 +157,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
         aggregation: [
             DEFAULT_AGGREGATION as MetricAggregation,
-            { setAggregation: (_, { aggregation }) => aggregation },
+            {
+                setAggregation: (_, { aggregation }) => aggregation,
+                setRecommendedAggregation: (_, { aggregation }) => aggregation,
+            },
         ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
@@ -190,7 +196,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             const metricType = values.items.find((item) => item.name === metricName)?.metric_type
             const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
             if (recommended && recommended !== values.aggregation) {
-                actions.setAggregation(recommended)
+                actions.setRecommendedAggregation(recommended)
             }
         },
         cancelInProgressQuery: ({ controller }) => {
