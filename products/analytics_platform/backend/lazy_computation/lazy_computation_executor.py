@@ -1098,6 +1098,7 @@ def ensure_precomputed(
     sentinel_placeholders: set[str] | None = None,
     query_type: str | None = None,
     spill_to_disk: bool = False,
+    wait_timeout_seconds: float | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1136,6 +1137,13 @@ def ensure_precomputed(
                       for hashing. Use this for placeholders whose values change between
                       requests (e.g. datetime.now()) but shouldn't invalidate the cache.
                       The real values are still used at INSERT time.
+        wait_timeout_seconds: Wall-clock budget for the executor's compute-and-wait
+                      loop (default DEFAULT_WAIT_TIMEOUT_SECONDS). The loop checks the
+                      budget before starting each inline INSERT and while polling for
+                      other requests' pending jobs, so a completed window always
+                      persists as a READY job even when the overall call times out —
+                      repeated calls converge. Use a small value for user-facing
+                      requests that have a cheap fallback path.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1225,7 +1233,10 @@ def ensure_precomputed(
     ttl_schedule = (
         ttl_seconds if isinstance(ttl_seconds, TtlSchedule) else parse_ttl_schedule(ttl_seconds, team.timezone)
     )
-    executor = LazyComputationExecutor(ttl_schedule=ttl_schedule)
+    executor = LazyComputationExecutor(
+        ttl_schedule=ttl_schedule,
+        wait_timeout_seconds=wait_timeout_seconds if wait_timeout_seconds is not None else DEFAULT_WAIT_TIMEOUT_SECONDS,
+    )
     return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
 
 

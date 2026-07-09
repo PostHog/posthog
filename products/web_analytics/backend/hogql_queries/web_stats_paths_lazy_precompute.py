@@ -36,7 +36,7 @@ from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import 
     DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE,
     DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE,
 )
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries, tags_context
 from posthog.settings import DEBUG, TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -418,6 +418,21 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     )
 
 
+# Warming triggers whose ensure calls keep the framework's full wait budget: they run in
+# background Dagster jobs where long synchronous rebuilds are the whole point (rotation
+# recovery depends on a single warmer tick being able to rebuild many windows).
+_BACKGROUND_WARMING_TRIGGERS = frozenset({"webAnalyticsEagerBaselineWarming", "webAnalyticsQueryWarming"})
+
+# Wall-clock budget for a *user-facing* request's ensure phase. The executor checks the
+# budget before starting each inline INSERT, so completed windows always persist as READY
+# jobs and later requests (or the hourly warmer) converge to warm — timing out here only
+# means this request serves the v2/raw fallback instead of blocking on a long rebuild.
+# 10s admits one or two typical window inserts (2–8s each on the largest teams), so the
+# common one-stale-window case still completes inline; what it bounds is the pile-up case
+# (many stale windows after a hash rotation), which previously held requests for 30s+.
+PATHS_USER_ENSURE_WAIT_SECONDS = 10
+
+
 def ensure_web_stats_paths_precomputed(
     runner: "WebStatsTableQueryRunner",
     time_range_start: datetime,
@@ -444,6 +459,7 @@ def ensure_web_stats_paths_precomputed(
     else:
         insert_query = INSERT_QUERY_TEMPLATE
 
+    is_background = get_query_tag_value("trigger") in _BACKGROUND_WARMING_TRIGGERS
     return web_ensure_precomputed(
         team=runner.team,
         insert_query=insert_query,
@@ -454,6 +470,7 @@ def ensure_web_stats_paths_precomputed(
         placeholders=placeholders,
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
+        wait_timeout_seconds=None if is_background else PATHS_USER_ENSURE_WAIT_SECONDS,
     )
 
 
@@ -586,7 +603,12 @@ FROM (
         avgMergeIf(avg_bounce_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS raw_bounce,
         avgMergeIf(avg_bounce_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS raw_prev_bounce
     FROM posthog.web_stats_paths_preaggregated
-    WHERE and(team_id = {team_id}, job_id IN {job_ids})
+    WHERE and(
+        team_id = {team_id},
+        job_id IN {job_ids},
+        time_window_start >= {window_min},
+        time_window_start < {window_max}
+    )
     GROUP BY {breakdown_expr}
     HAVING or(visitors > 0, previous_visitors > 0)
 )
@@ -660,6 +682,15 @@ def execute_read_query(
     prev_start = previous_start_utc if previous_start_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
     prev_end = previous_end_utc if previous_end_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
 
+    # Prune the scan to the union of the two requested windows. Covering jobs can be
+    # much wider than the request (a 7d read served by a 31d-warm job set), and without
+    # this bound every stored row of every covering job is scanned and state-merged only
+    # to be discarded by the *MergeIf conditions. Computed in Python (not `least()` in
+    # SQL) because the no-compare sentinel above would otherwise widen the lower bound
+    # to 1970 and defeat the pruning.
+    window_min = min(current_start_utc, previous_start_utc) if previous_start_utc else current_start_utc
+    window_max = max(current_end_utc, previous_end_utc) if previous_end_utc else current_end_utc
+
     placeholders: dict[str, ast.Expr] = {
         "team_id": ast.Constant(value=runner.team.pk),
         "job_ids": ast.Constant(value=[str(jid) for jid in job_ids]),
@@ -667,6 +698,8 @@ def execute_read_query(
         "cur_end": ast.Constant(value=current_end_utc),
         "prev_start": ast.Constant(value=prev_start),
         "prev_end": ast.Constant(value=prev_end),
+        "window_min": ast.Constant(value=window_min),
+        "window_max": ast.Constant(value=window_max),
         "breakdown_expr": ast.Field(chain=["breakdown_value"]),
         "fill_fraction_expr": _fill_fraction_expr(sort_column),
     }

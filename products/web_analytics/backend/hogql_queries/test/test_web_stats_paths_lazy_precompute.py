@@ -826,3 +826,92 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         ) as mock_exec:
             mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
         mock_exec.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_request", None),
+            ("eager_warmer", "webAnalyticsEagerBaselineWarming"),
+            ("replay_warmer", "webAnalyticsQueryWarming"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_ensure_wait_budget_by_trigger(self, _name: str, trigger: str | None) -> None:
+        from datetime import UTC, datetime
+
+        from posthog.clickhouse.query_tagging import reset_query_tags, tags_context
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        reset_query_tags()
+        with patch.object(
+            mod, "web_ensure_precomputed", return_value=LazyComputationResult(ready=True, job_ids=[])
+        ) as ensure_mock:
+            if trigger is not None:
+                with tags_context(trigger=trigger):
+                    mod.ensure_web_stats_paths_precomputed(
+                        runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                    )
+            else:
+                mod.ensure_web_stats_paths_precomputed(
+                    runner, datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)
+                )
+
+        budget = ensure_mock.call_args.kwargs["wait_timeout_seconds"]
+        if trigger is None:
+            assert budget == mod.PATHS_USER_ENSURE_WAIT_SECONDS
+        else:
+            assert budget is None, f"warmer trigger {trigger} must keep the framework default budget"
+
+    @parameterized.expand([("no_compare", False), ("compare", True)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_read_scan_is_pruned_to_requested_windows(self, _name: str, compare: bool) -> None:
+        from datetime import UTC, datetime
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        cur_start = datetime(2024, 1, 8, tzinfo=UTC)
+        cur_end = datetime(2024, 1, 15, tzinfo=UTC)
+        prev_start = datetime(2024, 1, 1, tzinfo=UTC) if compare else None
+        prev_end = datetime(2024, 1, 8, tzinfo=UTC) if compare else None
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=compare))
+        captured: dict = {}
+
+        def fake_execute(**kwargs):
+            captured["query"] = kwargs["query"]
+            return type("FakeResponse", (), {"results": []})()
+
+        with patch.object(mod, "execute_hogql_query", side_effect=fake_execute):
+            mod.execute_read_query(
+                runner=runner,
+                job_ids=[str(uuid.uuid4())],
+                current_start_utc=cur_start,
+                current_end_utc=cur_end,
+                previous_start_utc=prev_start,
+                previous_end_utc=prev_end,
+                sort_column="visitors",
+                sort_direction="DESC",
+                limit=11,
+                offset=0,
+            )
+
+        inner = captured["query"].select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        bounds: dict[str, object] = {}
+        assert inner.where is not None
+        for expr in inner.where.args if isinstance(inner.where, ast.Call) else [inner.where]:
+            if (
+                isinstance(expr, ast.CompareOperation)
+                and isinstance(expr.left, ast.Field)
+                and expr.left.chain == ["time_window_start"]
+                and isinstance(expr.right, ast.Constant)
+            ):
+                key = "min" if expr.op == ast.CompareOperationOp.GtEq else "max"
+                bounds[key] = expr.right.value
+
+        # The scan lower bound must be the union of the requested windows — with a compare
+        # period that is prev_start; without one it must stay cur_start (NOT the 1970
+        # no-compare sentinel, which would defeat the pruning entirely).
+        expected_min = prev_start if compare else cur_start
+        assert bounds == {"min": expected_min, "max": cur_end}
