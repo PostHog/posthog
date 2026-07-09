@@ -72,10 +72,25 @@ class TestGithubSource:
 
         assert expected_error in self.source.get_non_retryable_errors()
 
+    def test_endpoint_permissions_surface_credential_errors_per_table(self):
+        # The schema-picker caller swallows exceptions from get_endpoint_permissions and falls back
+        # to "all reachable", so a raising token fetch must be mapped to a per-table reason here or
+        # a broken integration shows the org tables as available and fails only at sync time.
+        config = GithubSourceConfig(
+            auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="oauth", personal_access_token=""),
+            repository="acme/widgets",
+        )
+
+        result = self.source.get_endpoint_permissions(config, self.team_id, ["teams", "team_members", "issues"])
+
+        assert result["issues"] is None
+        assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
+        assert result["team_members"] == result["teams"]
+
     @pytest.mark.parametrize("endpoint", ["teams", "team_members"])
     def test_org_schemas_are_full_refresh_only(self, endpoint):
         # teams / team_members expose no timestamps, so they must never advertise incremental,
-        # append, or webhook sync — otherwise the picker would offer a mode that syncs nothing.
+        # append, or webhook sync; otherwise the picker would offer a mode that syncs nothing.
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
             repository="acme/widgets",

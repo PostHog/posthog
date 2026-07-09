@@ -13,7 +13,7 @@ class GithubEndpointConfig:
     partition_key: Optional[str] = None
     page_size: int = 100  # GitHub default, max is 100
     sort_mode: Literal["asc", "desc"] = "asc"
-    # Primary key for upsert operations. A list declares a composite key — required for
+    # Primary key for upsert operations. A list declares a composite key, required for
     # fan-out children whose row id is only unique within a parent (a user can belong to
     # two teams, so team_members keys on ["team_id", "id"] to stay unique table-wide).
     primary_key: str | list[str] = "id"
@@ -38,7 +38,7 @@ class GithubEndpointConfig:
     fan_out_parent_field: str = "id"
     # Parent fields to copy onto each child row, mapped to the child column name
     # (e.g. {"id": "team_id", "slug": "team_slug"}). Gives fan-out children the
-    # parent context the child API omits — team_members rows are plain users.
+    # parent context the child API omits; team_members rows are plain users.
     fan_out_include_parent_fields: Optional[dict[str, str]] = None
     # Extra static query params for the request (e.g. {"filter": "all"}).
     extra_params: Optional[dict[str, str]] = None
@@ -204,21 +204,21 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # Org-scoped: {organization} is derived from the repository owner (owner/repo -> owner).
         path="/orgs/{organization}/teams",
         # The teams endpoint exposes no timestamps or server-side time filter, so there is no
-        # cursor to sync incrementally on — full refresh each sync (data volume is tiny).
+        # cursor to sync incrementally on, so full refresh each sync (data volume is tiny).
         incremental_fields=[],
     ),
     "team_members": GithubEndpointConfig(
         name="team_members",
         # Child of teams: {team_slug} is filled per parent team during fan-out.
         path="/orgs/{organization}/teams/{team_slug}/members",
-        incremental_fields=[],  # Member list has no timestamps either — full refresh only.
+        incremental_fields=[],  # Member list has no timestamps either; full refresh only.
         # Composite key: a user in two teams must be two distinct rows, and a fan-out child's
         # key must be unique table-wide or the delta merge multi-matches and degrades every sync.
         primary_key=["team_id", "id"],
         fan_out_parent="teams",
         fan_out_path_param="team_slug",
         fan_out_parent_field="slug",
-        # Member rows are plain user objects with no team context — inject it from the parent team.
+        # Member rows are plain user objects with no team context, so inject it from the parent team.
         fan_out_include_parent_fields={"id": "team_id", "slug": "team_slug", "name": "team_name"},
     ),
 }

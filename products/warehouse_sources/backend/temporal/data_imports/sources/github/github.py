@@ -284,7 +284,7 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
 
 
 # Endpoints that read organization data (not repo data). They need the GitHub App "Members: Read"
-# org permission (or the read:org PAT scope) and an org-owned repo — a user-owned repo has no org,
+# org permission (or the read:org PAT scope) and an org-owned repo; a user-owned repo has no org,
 # so /orgs/{owner}/teams 404s. Repo-scoped connections may legitimately lack this, so it must be
 # reported per-table in the schema picker, never block source-create.
 ORG_SCOPED_ENDPOINTS = frozenset({"teams", "team_members"})
@@ -297,7 +297,7 @@ _ORG_PERMISSION_REASON = (
 
 def check_org_endpoint_permission(personal_access_token: str, repository: str) -> str | None:
     """Probe the org teams endpoint once. Returns None when reachable, or a short reason when the
-    org grant is missing. Only a real denial (401/403/404) is a missing scope — throttles, 5xx, and
+    org grant is missing. Only a real denial (401/403/404) is a missing scope; throttles, 5xx, and
     network errors mean we could not tell, so treat those as reachable (the sync will surface a real
     failure if there is one) rather than mislabeling a transient blip as a permission problem."""
     organization = _organization_from_repository(repository)
@@ -564,7 +564,7 @@ def _fan_out_get_rows(
     Incremental bounding only applies when the parent endpoint has its own cursor. workflow_runs
     carries a created_at cursor, so its jobs fan-out stops early once a page predates the watermark
     (the same desc early-stop the run poll uses); a boundary re-read is harmless since jobs upsert by
-    id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync — the data
+    id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync; the data
     volume is tiny, and there is no timestamp to bound on anyway.
 
     Same created_at-cursor staleness workflow_runs carries applies to its jobs: a run that was
@@ -577,7 +577,7 @@ def _fan_out_get_rows(
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    # A parent with no incremental fields (teams) has no cursor to bound on — walk it whole.
+    # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
     parent_is_incremental = bool(parent_config.incremental_fields)
     parent_cursor_field = incremental_field or parent_config.default_incremental_field or "created_at"
     parent_cutoff = (

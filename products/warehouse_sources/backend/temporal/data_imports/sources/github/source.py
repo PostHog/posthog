@@ -288,7 +288,26 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         org_endpoints = [name for name in endpoints if name in ORG_SCOPED_ENDPOINTS]
         if not org_endpoints:
             return result
-        access_token = self._get_access_token(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+        except Exception as e:
+            # A broken credential (deleted integration, suspended installation) must become a
+            # per-table reason here rather than propagate: the schema-picker caller swallows
+            # exceptions and falls back to "all reachable", which would show the org tables as
+            # available and defer the failure to sync time. Reuse the curated wording, like
+            # validate_credentials does.
+            raw = str(e)
+            reason = next(
+                (
+                    friendly
+                    for pattern, friendly in self.get_non_retryable_errors().items()
+                    if friendly and pattern in raw
+                ),
+                raw,
+            )
+            for name in org_endpoints:
+                result[name] = reason
+            return result
         reason = check_org_endpoint_permission(access_token, config.repository)
         for name in org_endpoints:
             result[name] = reason
