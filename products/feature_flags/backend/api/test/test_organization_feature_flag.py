@@ -1891,6 +1891,22 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(body["copied_dependency_keys"], ["flag-c", "flag-b"])
         self.assertEqual(body["reused_dependency_keys"], [])
 
+    def test_copy_feature_flag_dependency_requirements_blocks_copy_when_any_target_is_unreachable(self):
+        other_organization = Organization.objects.create(name="Other organization")
+        other_team = Team.objects.create(organization=other_organization)
+        flag_a, _ = self._create_dependency_chain("unreachable-target-flag-a", "unreachable-target-flag-b")
+
+        response = self._post_dependency_requirements(flag_a, [self.team_2.id, other_team.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertFalse(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 1)
+        self.assertEqual(body["copied_dependency_keys"], [])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertEqual(body["warnings"], ["Project not found."])
+        self.assertEqual(body["reason"], "Project not found.")
+
     def test_copy_feature_flag_rejects_more_than_50_target_projects(self):
         flag_to_copy = FeatureFlag.objects.create(
             team=self.team_1,

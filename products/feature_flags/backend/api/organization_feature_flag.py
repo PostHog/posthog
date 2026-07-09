@@ -717,10 +717,12 @@ class OrganizationFeatureFlagView(
         copied_dependency_keys: set[str] = set()
         reused_dependency_keys: set[str] | None = None
         warnings: list[str] = []
+        has_unreachable_target = False
 
         for target_project_id in target_project_ids:
             target_team = target_teams_by_project_id.get(target_project_id)
             if target_team is None or target_team.id not in accessible_team_ids:
+                has_unreachable_target = True
                 warnings.append("Project not found.")
                 if reused_dependency_keys is None:
                     reused_dependency_keys = set()
@@ -770,7 +772,12 @@ class OrganizationFeatureFlagView(
         ]
         deduped_warnings = list(dict.fromkeys(warnings))
 
-        if ordered_copied_dependency_keys:
+        if has_unreachable_target:
+            ordered_copied_dependency_keys = []
+            ordered_reused_dependency_keys = []
+            reason = "Project not found."
+            can_copy_dependencies = False
+        elif ordered_copied_dependency_keys:
             count = len(ordered_copied_dependency_keys)
             reason = f"{count} dependency flag{'s' if count != 1 else ''} can be copied."
             if deduped_warnings:
