@@ -986,7 +986,7 @@ class DbtSourceConfig(config.Config):
 
 @config.config
 class DecagonSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
