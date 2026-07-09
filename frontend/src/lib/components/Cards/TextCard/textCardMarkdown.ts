@@ -96,7 +96,7 @@ const markdownManager = new MarkdownManager({
 // innermost mark it emits malformed markdown (e.g. **`snippet**` instead of **`snippet`**).
 // That broke the round trip and made the controlled editor reset itself while typing. Force
 // `code` innermost (first in the marks array) so its backticks always sit inside bold/italic/strike.
-// Fixed upstream in @tiptap/markdown >= 3.27.3; remove this once the tiptap suite is bumped.
+// Fixed upstream in @tiptap/markdown >= 3.20.4; remove this once the tiptap suite is bumped.
 function withCodeMarkInnermost(doc: JSONContent): JSONContent {
     const visit = (node: JSONContent): JSONContent => {
         const marks = node.marks
