@@ -538,7 +538,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_PERSON_TIMEZONE: 'workflows-person-timezone', // owner: #team-workflows
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: @Odin #team-workflows
     WORKFLOWS_RECURRING_SCHEDULES: 'workflows-recurring-schedules', // owner: #team-workflows
-    WORKFLOWS_WAIT_UNTIL_EVENT: 'workflows-wait-until-event', // owner: #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
