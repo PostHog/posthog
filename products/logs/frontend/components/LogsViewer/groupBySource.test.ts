@@ -1,8 +1,11 @@
+import * as fs from 'fs'
+import * as path from 'path'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
-import { resolveGroupBySource } from './groupBySource'
+import { GROUPABLE_COLUMN_KEYS, resolveGroupBySource } from './groupBySource'
 
 describe('resolveGroupBySource', () => {
     // A recent for a top-level column is recorded under LogAttributes (the search bar stores it as
@@ -18,5 +21,18 @@ describe('resolveGroupBySource', () => {
         ['some.attribute', TaxonomicFilterGroupType.Logs, 'column'],
     ])('resolves %s from %s to %s', (key, groupType, expected) => {
         expect(resolveGroupBySource(key, groupType)).toBe(expected)
+    })
+
+    // GROUPABLE_COLUMN_KEYS hand-mirrors the backend `GROUPABLE_COLUMNS` dict. If the backend adds or
+    // removes a groupable column without updating the frontend set, a recent for that key would route
+    // to the wrong source and silently return no groups. Parse the backend keys and lock them in step.
+    it('stays in sync with the backend GROUPABLE_COLUMNS dict', () => {
+        const runnerPath = path.resolve(__dirname, '../../../backend/group_by_query_runner.py')
+        const source = fs.readFileSync(runnerPath, 'utf8')
+        const block = source.match(/GROUPABLE_COLUMNS[^{]*\{([^}]*)\}/)?.[1]
+        expect(block).toBeDefined()
+        const backendKeys = [...(block as string).matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1])
+        expect(backendKeys.length).toBeGreaterThan(0)
+        expect(new Set(backendKeys)).toEqual(GROUPABLE_COLUMN_KEYS)
     })
 })

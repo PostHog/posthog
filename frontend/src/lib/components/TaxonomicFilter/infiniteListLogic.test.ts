@@ -1529,10 +1529,7 @@ describe('infiniteListLogic', () => {
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'logs-group-by-recents-test',
                 listGroupType: TaxonomicFilterGroupType.RecentFilters,
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.LogAttributes,
-                    TaxonomicFilterGroupType.RecentFilters,
-                ],
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.LogAttributes, TaxonomicFilterGroupType.RecentFilters],
                 showNumericalPropsOnly: false,
                 excludedProperties: { [TaxonomicFilterGroupType.LogAttributes]: ['message'] },
                 selectingKeyOnly: true,
