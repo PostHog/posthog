@@ -3502,6 +3502,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "snapshot_kind": "directory",
                 "snapshot_mount_path": "/tmp",
                 "workflow_id": "wf-real",
+                "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
             },
         )
 
@@ -3509,8 +3510,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # credential-propagation target at a sandbox they control, inflate the run's compute /
         # lifetime to provision an oversized, long-lived sandbox, turn the run into a wizard run
         # (which would mint a write-scoped wizard token into the sandbox), change rollout
-        # decisions, change Modal resume snapshot metadata, or repoint the run at another
-        # team's Temporal workflow. Non-protected keys still merge.
+        # decisions, change Modal resume snapshot metadata, repoint the run at another
+        # team's Temporal workflow, or steer an orphan re-dispatch (workflow ID prefix / MCP
+        # scopes) via pending_dispatch. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3528,6 +3530,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_kind": "directory",
                     "snapshot_mount_path": "/tmp/workspace",
                     "workflow_id": "wf-another-teams-workflow",
+                    "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
                     "scratch": "ok",
                 }
             },
@@ -3548,6 +3551,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_kind"] == "directory"
         assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["workflow_id"] == "wf-real"
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -3563,6 +3567,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "snapshot_kind",
                     "snapshot_mount_path",
                     "workflow_id",
+                    "pending_dispatch",
                     "scratch",
                 ],
             },
@@ -3577,6 +3582,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
         assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
+        assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")

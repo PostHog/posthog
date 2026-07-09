@@ -1465,6 +1465,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "snapshot_kind",
         "snapshot_mount_path",
         "workflow_id",
+        "pending_dispatch",
     }
 )
 
