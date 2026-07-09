@@ -2544,6 +2544,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
+            // Cache values used during and after the long-running fetch before the first await,
+            // since the logic may be unmounted by the time the awaits complete. Kea's no-arg
+            // breakpoint() only cancels on newer invocations, not on unmount, so reading `values`
+            // after an await can throw "Can not find path ... in the store" once the logic is gone.
+            const {
+                currentTeamId,
+                effectiveRefreshFilters,
+                urlFilters,
+                urlVariables,
+                dashboardLoadData,
+                dashboard,
+                lastDashboardRefresh,
+                placement,
+                dashboardWidgetsEnabled,
+                widgetTiles,
+            } = values
+
             if (sortedTilesToRefresh.length > 0) {
                 await breakpoint()
                 actions.resetIntermittentFilters()
@@ -2560,19 +2577,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.abortAnyRunningQuery()
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
-
-                // Cache values used during and after the long-running fetch, since the logic
-                // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
-                // only cancels on newer invocations, not on unmount).
-                const {
-                    currentTeamId,
-                    effectiveRefreshFilters,
-                    urlFilters,
-                    urlVariables,
-                    dashboardLoadData,
-                    dashboard,
-                    lastDashboardRefresh,
-                } = values
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const insight = tile.insight
@@ -2683,17 +2687,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 !forceRefresh &&
                 tilesErroredCount === 0 &&
                 tilesAbortedCount === 0 &&
-                values.placement === DashboardPlacement.Public
+                placement === DashboardPlacement.Public
             ) {
                 actions.forceRefreshIfStale()
             }
 
             if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
+                dashboardWidgetsEnabled &&
+                placement !== DashboardPlacement.Export &&
+                placement !== DashboardPlacement.Public
             ) {
-                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+                const widgetTileIds = widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
                     actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
                 }
