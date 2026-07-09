@@ -211,12 +211,15 @@ async def _relay_from_agent_proxy(
             error: Exception | None = None
             try:
                 async with httpx.AsyncClient(
+                    # trust_env=False keeps the in-cluster proxy call off the egress proxy, which
+                    # denies private-range hosts with 407 (see posthog/llm/gateway_client.py).
+                    trust_env=False,
                     timeout=httpx.Timeout(
                         connect=SSE_CONNECT_TIMEOUT_SECONDS,
                         read=SSE_READ_TIMEOUT_SECONDS,
                         write=30.0,
                         pool=30.0,
-                    )
+                    ),
                 ) as client:
                     async with httpx_sse.aconnect_sse(client, "GET", events_url, headers=headers) as event_source:
                         event_source.response.raise_for_status()
