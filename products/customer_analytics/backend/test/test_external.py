@@ -190,7 +190,7 @@ class TestExternalAccountAPI(APIBaseTest):
     def test_patch_rejects_unknown_definition_name(self):
         response = self._patch({"external_id": "acme-1", "relationships": {"AE": {"type": "user", "id": self.user.id}}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "AE: no relationship definition with this name")
+        self.assertEqual(response.json()["error"], "AE: no relationship definition with this name or ID")
 
     def test_patch_rejects_non_member_user(self):
         other_org = Organization.objects.create(name="Outsiders")

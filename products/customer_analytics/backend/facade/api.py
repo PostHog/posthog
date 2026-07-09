@@ -326,8 +326,9 @@ def _apply_external_relationship_assignments(
     by_id: dict[UUID, AccountRelationshipDefinition] = {}
     by_name: dict[str, AccountRelationshipDefinition] = {}
     if assignments:
-        # Every key doubles as a name candidate so a definition literally named like a
-        # UUID keeps resolving as it did before UUID keys were accepted.
+        # Every key doubles as a name candidate for back-compat with definitions literally
+        # named like a UUID. UUID lookup wins, so a key matching one definition's id and
+        # another definition's name resolves to the id match.
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
             Q(id__in=uuid_keys.values()) | Q(name__in=assignments.keys())
         ):

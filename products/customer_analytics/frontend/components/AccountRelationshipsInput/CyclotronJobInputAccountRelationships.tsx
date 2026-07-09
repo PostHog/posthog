@@ -7,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
+import { fullName } from 'lib/utils/strings'
 
 import type { AccountRelationshipDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -20,19 +21,30 @@ export default function CyclotronJobInputAccountRelationships({
 }: CustomInputRendererProps): JSX.Element {
     const { definitions, definitionsLoading } = useValues(accountRelationshipsInputLogic)
 
-    // Keys are definition UUIDs (stable across renames); values are user assignments or null (ends assignment)
+    // Keys are definition UUIDs (stable across renames); values are user assignments or null (ends assignment).
+    // Newly added rows stay out of the saved value until the user picks something — writing null on add
+    // would silently end the account's active assignment on the next run.
     const assignments: Record<string, RelationshipAssignment> = value ?? {}
-    const entries = Object.entries(assignments)
+    const [pendingIds, setPendingIds] = useState<string[]>([])
+    const entries: [string, RelationshipAssignment | undefined][] = [
+        ...Object.entries(assignments),
+        ...pendingIds.filter((id) => !(id in assignments)).map((id): [string, undefined] => [id, undefined]),
+    ]
     const selectedIds = new Set(entries.map(([id]) => id))
     const available = definitions.filter((d) => !selectedIds.has(d.id))
 
-    const setAssignment = (id: string, assignment: RelationshipAssignment): void =>
+    const setAssignment = (id: string, assignment: RelationshipAssignment): void => {
+        setPendingIds((ids) => ids.filter((pending) => pending !== id))
         onChange({ ...assignments, [id]: assignment })
-    const addDefinition = (id: string): void => onChange({ ...assignments, [id]: null })
+    }
+    const addDefinition = (id: string): void => setPendingIds((ids) => [...ids, id])
     const removeDefinition = (id: string): void => {
-        const next = { ...assignments }
-        delete next[id]
-        onChange(next)
+        setPendingIds((ids) => ids.filter((pending) => pending !== id))
+        if (id in assignments) {
+            const next = { ...assignments }
+            delete next[id]
+            onChange(next)
+        }
     }
 
     return (
@@ -49,7 +61,19 @@ export default function CyclotronJobInputAccountRelationships({
                             allowNone
                             defaultLabel="Clear assignment"
                             onChange={(user) => setAssignment(id, user ? { type: 'user', id: user.id } : null)}
-                        />
+                        >
+                            {(selectedUser) => (
+                                <LemonButton size="small" type="secondary">
+                                    {selectedUser ? (
+                                        fullName(selectedUser)
+                                    ) : assignment === undefined ? (
+                                        <span className="text-secondary">Select member</span>
+                                    ) : (
+                                        'Clear assignment'
+                                    )}
+                                </LemonButton>
+                            )}
+                        </MemberSelect>
                         <LemonButton icon={<IconX />} size="small" onClick={() => removeDefinition(id)} />
                     </div>
                 )

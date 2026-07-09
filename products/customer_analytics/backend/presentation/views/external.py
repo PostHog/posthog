@@ -124,7 +124,7 @@ def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Res
         )
     if result.error == contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND:
         return Response(
-            {"error": f"{result.error_field}: no relationship definition with this name"},
+            {"error": f"{result.error_field}: no relationship definition with this name or ID"},
             status=status.HTTP_400_BAD_REQUEST,
         )
     assert result.error is not None

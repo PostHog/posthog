@@ -26,8 +26,18 @@ export const accountRelationshipsInputLogic = kea<accountRelationshipsInputLogic
             [] as AccountRelationshipDefinitionApi[],
             {
                 loadDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> => {
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    const results: AccountRelationshipDefinitionApi[] = []
+                    let offset = 0
+                    let response
+                    do {
+                        response = await accountRelationshipDefinitionsList(String(values.currentProjectId), {
+                            limit: 100,
+                            offset,
+                        })
+                        results.push(...response.results)
+                        offset += response.results.length
+                    } while (response.next && response.results.length > 0)
+                    return results
                 },
             },
         ],
