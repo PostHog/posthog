@@ -72,7 +72,11 @@ def _evaluate_due(inputs: EvaluateDueVisionActionsInputs) -> list[DueVisionActio
             VisionAction.objects.for_team(inputs.team_id).filter(pk=action.id).update(
                 next_run_at=action.next_run_at, last_run_at=now, updated_at=now
             )
-            due.append(DueVisionAction(vision_action_id=action.id, team_id=action.team_id, scheduled_at=scheduled_at))
+            due.append(
+                DueVisionAction(
+                    vision_action_id=action.id, team_id=action.team_id, scheduled_at=scheduled_at, mode=action.mode
+                )
+            )
     return due
 
 

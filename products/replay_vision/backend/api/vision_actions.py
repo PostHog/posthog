@@ -451,6 +451,7 @@ _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
     "skipped_not_breached": "The alert condition wasn't met in this window.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
+    "not_breached": "The alert condition wasn't met in this window.",
     # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
     # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",

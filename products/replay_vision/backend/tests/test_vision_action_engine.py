@@ -13,10 +13,13 @@ from products.replay_vision.backend.models import ReplayScanner, VisionAction, V
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import TriggerType, VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions import activities as act
+from products.replay_vision.backend.temporal.vision_actions.alerts import evaluate_alert_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import synthesize_group_summary_activity
 from products.replay_vision.backend.temporal.vision_actions.types import (
+    AlertStatus,
     CreateVisionActionRunInputs,
     EmitActionReadyInputs,
+    EvaluateAlertResult,
     EvaluateDueVisionActionsInputs,
     ProcessVisionActionInputs,
     SynthesisStatus,
@@ -292,6 +295,38 @@ async def test_process_maps_synthesis_status(
     assert _final_error(mocks) == expected_error
     # The schedule cursor is advanced by the eligibility claim, never by this workflow.
     assert act.evaluate_due_vision_actions_activity not in call_fns
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "alert_status, expected_final, expect_emit, expected_error",
+    [
+        (AlertStatus.FIRED, VisionActionRunStatus.COMPLETED.value, True, None),
+        (AlertStatus.NOT_BREACHED, VisionActionRunStatus.SKIPPED.value, False, {"skip_reason": "not_breached"}),
+    ],
+)
+async def test_process_routes_alert_mode_to_alert_evaluation(
+    alert_status: AlertStatus, expected_final: str, expect_emit: bool, expected_error: dict | None
+) -> None:
+    # The routing regression: an alert action must evaluate its condition, never synthesize.
+    mocks = _Mocks(
+        results={
+            act.create_vision_action_run_activity: uuid.uuid4(),
+            act.validate_vision_action_activity: None,
+            evaluate_alert_activity: EvaluateAlertResult(status=alert_status, observation_count=1),
+        }
+    )
+    await _run_process(
+        ProcessVisionActionInputs(vision_action_id=uuid.uuid4(), team_id=1, mode="alert"),
+        mocks,
+    )
+
+    call_fns = mocks.calls()
+    assert evaluate_alert_activity in call_fns
+    assert synthesize_group_summary_activity not in call_fns
+    assert (act.emit_action_ready_activity in call_fns) is expect_emit
+    assert _final_status(mocks) == expected_final
+    assert _final_error(mocks) == expected_error
 
 
 @pytest.mark.asyncio
