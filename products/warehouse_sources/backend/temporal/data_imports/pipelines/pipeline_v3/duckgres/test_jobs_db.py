@@ -397,28 +397,44 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (1, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (1, 0, 0)
         assert oldest_age is not None and oldest_age >= 0
         assert blocked_age is None
 
         # The same batch counts as blocked (not eligible) once its schema is gated.
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
             conn, blocked_schema_ids=["schema-1"]
         )
-        assert (count, blocked) == (0, 1)
+        assert (count, blocked, failing) == (0, 1, 0)
         assert oldest_age is None and blocked_age is not None
+
+        # A hard-blocked schema's batches leave the pageable blocked bucket
+        # (count AND oldest-age) for the failing one — a wedged schema must not
+        # be able to trigger or mask the blocked-backlog page.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, blocked_schema_ids=["schema-1"], failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (0, 0, 1)
+        assert blocked_age is None
+
+        # A failing schema whose batches are NOT blocked (still eligible) never
+        # counts in the failing bucket: failing splits the blocked set only.
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+            conn, failing_schema_ids=["schema-1"]
+        )
+        assert (count, blocked, failing) == (1, 0, 0)
 
         # The v3 allow-list scopes the gauges too: a non-eligible schema drops
         # out of both the eligible and blocked counts.
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
             conn, eligible_schema_ids=["other-schema"]
         )
-        assert (count, blocked) == (0, 0)
+        assert (count, blocked, failing) == (0, 0, 0)
 
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
-        count, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked) == (0, 0)
+        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (count, blocked, failing) == (0, 0, 0)
         assert oldest_age is None and blocked_age is None
 
 
