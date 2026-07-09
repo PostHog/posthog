@@ -7,13 +7,16 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 @dataclass
 class GithubEndpointConfig:
     name: str
-    path: str  # Path template with {repository} placeholder
+    path: str  # Path template with {repository}, {organization}, and fan-out placeholders
     incremental_fields: list[IncrementalField]
     default_incremental_field: Optional[str] = None
     partition_key: Optional[str] = None
     page_size: int = 100  # GitHub default, max is 100
     sort_mode: Literal["asc", "desc"] = "asc"
-    primary_key: str = "id"  # Primary key for upsert operations
+    # Primary key for upsert operations. A list declares a composite key — required for
+    # fan-out children whose row id is only unique within a parent (a user can belong to
+    # two teams, so team_members keys on ["team_id", "id"] to stay unique table-wide).
+    primary_key: str | list[str] = "id"
     # Ordered columns (compared newest-first, NULLs last) that rank webhook events sharing a
     # primary key, so the source collapses a batch to the latest state per id before it reaches the
     # delta merge (which doesn't dedupe within a batch). GitHub emits one run/job as separate
@@ -27,8 +30,16 @@ class GithubEndpointConfig:
     # Fan-out: name of the parent endpoint whose rows seed this child's path.
     # When set, the endpoint is fetched by walking the parent (reusing its
     # pagination/incremental bounding) and calling this child once per parent
-    # row, substituting the parent id into the {run_id} path placeholder.
+    # row, substituting a parent field into the child path placeholder.
     fan_out_parent: Optional[str] = None
+    # Fan-out path placeholder to fill from the parent (e.g. "run_id" -> {run_id},
+    # "team_slug" -> {team_slug}) and the parent field to read for it.
+    fan_out_path_param: str = "run_id"
+    fan_out_parent_field: str = "id"
+    # Parent fields to copy onto each child row, mapped to the child column name
+    # (e.g. {"id": "team_id", "slug": "team_slug"}). Gives fan-out children the
+    # parent context the child API omits — team_members rows are plain users.
+    fan_out_include_parent_fields: Optional[dict[str, str]] = None
     # Extra static query params for the request (e.g. {"filter": "all"}).
     extra_params: Optional[dict[str, str]] = None
     # Hard cap on pages fetched per parent in a fan-out, to bound runaway
@@ -187,6 +198,28 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # (terminal) outranks started_at (running) outranks created_at (queued). Each is NULL until
         # the job reaches that stage, so NULLs-last ordering keeps the latest state.
         version_keys=["completed_at", "started_at", "created_at"],
+    ),
+    "teams": GithubEndpointConfig(
+        name="teams",
+        # Org-scoped: {organization} is derived from the repository owner (owner/repo -> owner).
+        path="/orgs/{organization}/teams",
+        # The teams endpoint exposes no timestamps or server-side time filter, so there is no
+        # cursor to sync incrementally on — full refresh each sync (data volume is tiny).
+        incremental_fields=[],
+    ),
+    "team_members": GithubEndpointConfig(
+        name="team_members",
+        # Child of teams: {team_slug} is filled per parent team during fan-out.
+        path="/orgs/{organization}/teams/{team_slug}/members",
+        incremental_fields=[],  # Member list has no timestamps either — full refresh only.
+        # Composite key: a user in two teams must be two distinct rows, and a fan-out child's
+        # key must be unique table-wide or the delta merge multi-matches and degrades every sync.
+        primary_key=["team_id", "id"],
+        fan_out_parent="teams",
+        fan_out_path_param="team_slug",
+        fan_out_parent_field="slug",
+        # Member rows are plain user objects with no team context — inject it from the parent team.
+        fan_out_include_parent_fields={"id": "team_id", "slug": "team_slug", "name": "team_name"},
     ),
 }
 

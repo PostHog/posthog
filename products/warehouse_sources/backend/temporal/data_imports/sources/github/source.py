@@ -40,8 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
+    ORG_SCOPED_ENDPOINTS,
     GithubEgressIdentity,
     GithubResumeConfig,
+    check_org_endpoint_permission,
     create_repo_webhook,
     delete_repo_webhook,
     get_repo_webhook_info,
@@ -274,6 +276,23 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def get_endpoint_permissions(
+        self, config: GithubSourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        # Only the org-scoped tables (teams, team_members) can be denied by a missing org grant; the
+        # repo-scoped tables are already covered by validate_credentials at create. Probe the org
+        # endpoint once and report the same reason for whichever org tables were requested, so a
+        # repo-scoped connection sees exactly which tables need the extra grant and can deselect them.
+        result: dict[str, str | None] = dict.fromkeys(endpoints)
+        org_endpoints = [name for name in endpoints if name in ORG_SCOPED_ENDPOINTS]
+        if not org_endpoints:
+            return result
+        access_token = self._get_access_token(config, team_id)
+        reason = check_org_endpoint_permission(access_token, config.repository)
+        for name in org_endpoints:
+            result[name] = reason
+        return result
 
     def validate_credentials(
         self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
