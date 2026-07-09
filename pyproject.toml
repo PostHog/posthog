@@ -551,6 +551,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_values_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.logs_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.pattern_diff",
     "products.logs.backend.presentation.views.api -> products.logs.backend.patterns_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.services_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.sparkline_query_runner",
