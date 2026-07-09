@@ -24,7 +24,7 @@ class TestDirectSQLRegistry(SimpleTestCase):
         self.assertIsNone(get_adapter(engine))
 
     def test_registered_engines_includes_phase_one_engines(self):
-        self.assertEqual({"postgres", "mysql", "snowflake"}, set(registered_engines()))
+        self.assertEqual({"postgres", "mysql", "snowflake", "redshift"}, set(registered_engines()))
 
     def test_register_adapter_round_trips(self):
         class FakeAdapter:
@@ -60,6 +60,11 @@ class TestDirectSQLCapability(SimpleTestCase):
 
     def test_direct_capable_source_types(self):
         self.assertEqual(
-            {ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL, ExternalDataSourceType.SNOWFLAKE},
+            {
+                ExternalDataSourceType.POSTGRES,
+                ExternalDataSourceType.MYSQL,
+                ExternalDataSourceType.SNOWFLAKE,
+                ExternalDataSourceType.REDSHIFT,
+            },
             set(direct_capable_source_types()),
         )
