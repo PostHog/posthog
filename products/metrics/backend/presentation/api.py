@@ -229,7 +229,10 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
 
 class _MetricQueryPointSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start as ISO 8601 timestamp.")
-    value = serializers.FloatField(help_text="Aggregated value for the bucket.")
+    value = serializers.FloatField(
+        allow_null=True,
+        help_text="Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+    )
 
 
 class _MetricSeriesSerializer(serializers.Serializer):
