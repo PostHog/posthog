@@ -167,8 +167,32 @@ pub async fn generate_embedding(
         if status.is_success() {
             context.update_rate_limits(model, &response).await;
 
+            let body = match response.json().await {
+                Ok(body) => body,
+                Err(e) => {
+                    // Reading/decoding the response body can time out or the connection
+                    // can drop mid-stream. These are transient, so retry them with backoff
+                    // like a transport error rather than aborting the whole batch, which
+                    // would panic and restart the worker.
+                    if attempt < MAX_RETRY_ATTEMPTS - 1 {
+                        let sleep_ms = retry_backoff_ms(attempt);
+                        warn!(
+                            "Failed to read response body from embedding provider ({}), retrying in {}ms (attempt {}/{})",
+                            e,
+                            sleep_ms,
+                            attempt + 1,
+                            MAX_RETRY_ATTEMPTS - 1
+                        );
+                        tokio::time::sleep(Duration::from_millis(sleep_ms)).await;
+                    }
+                    last_status = None;
+                    last_transport_error = Some(e);
+                    continue;
+                }
+            };
+
             let embedding = model
-                .extract_embedding_from_response_body(&response.json().await?)
+                .extract_embedding_from_response_body(&body)
                 .ok_or_else(|| anyhow::anyhow!("Failed to extract embedding"))?;
 
             request_time.label("outcome", "success").fin();
