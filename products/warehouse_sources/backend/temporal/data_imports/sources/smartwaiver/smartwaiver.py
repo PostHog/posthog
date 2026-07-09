@@ -106,7 +106,8 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
 
     if response.status_code == 429:
         # The rate-limit window is fixed, so exponential backoff alone can retry into the same
-        # window; honor Retry-After before handing control back to tenacity.
+        # window; sleep out Retry-After here. Tenacity still adds its jitter wait on top of this
+        # sleep, but the Retry-After sleep is the dominant delay for large windows.
         retry_after = _parse_retry_after(response.headers.get("Retry-After"))
         logger.debug(f"Smartwaiver rate limited; sleeping {retry_after}s before retrying {url}")
         time.sleep(retry_after)
@@ -260,7 +261,7 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
-    else:
+    elif endpoint == "waivers":
         yield from _get_waivers(
             session,
             config,
@@ -269,6 +270,10 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    else:
+        # Explicit so an endpoint added to SMARTWAIVER_ENDPOINTS without a dispatch branch fails
+        # fast instead of silently paging with the waivers logic.
+        raise ValueError(f"No fetcher implemented for Smartwaiver endpoint '{endpoint}'")
 
 
 def smartwaiver_source(

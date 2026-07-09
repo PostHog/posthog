@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SmartwaiverSourceConfig
@@ -48,24 +50,24 @@ class TestSmartwaiverSource:
         assert api_key_field.secret is True
         assert api_key_field.required is True
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.smartwaiver.com/v4/waivers?limit=100&offset=0",
-            "403 Client Error: Forbidden for url: https://api.smartwaiver.com/v4/checkins?fromDts=2000-01-01T00%3A00%3A00",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.smartwaiver.com/v4/waivers?limit=100&offset=0",),
+            (
+                "403 Client Error: Forbidden for url: https://api.smartwaiver.com/v4/checkins?fromDts=2000-01-01T00%3A00%3A00",
+            ),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
-    @pytest.mark.parametrize(
-        "other_error",
+    @parameterized.expand(
         [
-            "429 Client Error: Too Many Requests for url: https://api.smartwaiver.com/v4/waivers",
-            "500 Server Error: Internal Server Error for url: https://api.smartwaiver.com/v4/waivers",
-            "HTTPSConnectionPool(host='api.smartwaiver.com', port=443): Read timed out.",
-        ],
+            ("429 Client Error: Too Many Requests for url: https://api.smartwaiver.com/v4/waivers",),
+            ("500 Server Error: Internal Server Error for url: https://api.smartwaiver.com/v4/waivers",),
+            ("HTTPSConnectionPool(host='api.smartwaiver.com', port=443): Read timed out.",),
+        ]
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
@@ -102,17 +104,16 @@ class TestSmartwaiverSource:
         canonical = self.source.get_canonical_descriptions()
         assert set(canonical) == set(SMARTWAIVER_ENDPOINTS)
 
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+    @parameterized.expand(
         [
             ((True, None), True, None),
             ((False, "Invalid Smartwaiver API key"), False, "Invalid Smartwaiver API key"),
-        ],
+        ]
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.smartwaiver.source.validate_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_return, expected_valid, expected_message, mock_validate):
         mock_validate.return_value = mock_return
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
