@@ -247,6 +247,7 @@ the row lists both.
 | northpass_lms           | HTTP                        | requests                                                        | ✅                          |
 | notion                  | HTTP                        | requests                                                        | ✅                          |
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
+| oncehub                 | HTTP                        | requests                                                        | ✅                          |
 | onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
 | opinion_stage           | HTTP                        | requests                                                        | ✅                          |
@@ -570,7 +571,6 @@ doesn't conflict with concurrent PRs.
 - northpass_lms
 - nutshell
 - nylas
-- oncehub
 - onedrive
 - onehundredms
 - onepagecrm

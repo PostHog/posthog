@@ -2231,7 +2231,7 @@ class OmnisendSourceConfig(config.Config):
 
 @config.config
 class OncehubSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
