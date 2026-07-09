@@ -37152,6 +37152,8 @@ export namespace Schemas {
       scanner: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;
+      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+      is_scanner_digest?: boolean;
       /** What fires the action. MVP supports 'schedule' only.
        *
        * * `schedule` - Schedule
@@ -44289,6 +44291,8 @@ export namespace Schemas {
       scanner?: string;
       /** When false, the scheduler skips this action. */
       enabled?: boolean;
+      /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+      is_scanner_digest?: boolean;
       /** What fires the action. MVP supports 'schedule' only.
        *
        * * `schedule` - Schedule
@@ -49715,6 +49719,8 @@ export namespace Schemas {
      * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
      */
     export interface RunObservation {
+      /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
+      readonly index: number;
       /** Observation id; links to the observation detail view. */
       readonly id: string;
       /** Session recording id this observation was made on. */
@@ -56218,12 +56224,12 @@ export namespace Schemas {
          */
       success_rate: number | null;
       /**
-         * Median duration of completed runs, in seconds. Null if none completed.
+         * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p95_seconds: number | null;
@@ -56323,12 +56329,12 @@ export namespace Schemas {
          */
       queue_p50_seconds: number | null;
       /**
-         * Median duration of completed job instances, in seconds. Null if none completed.
+         * Median duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+         * 95th-percentile duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p95_seconds: number | null;
@@ -57277,8 +57283,11 @@ export namespace Schemas {
     export interface _MetricQueryPoint {
       /** Bucket start as ISO 8601 timestamp. */
       time: string;
-      /** Aggregated value for the bucket. */
-      value: number;
+      /**
+         * Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.
+         * @nullable
+         */
+      value: number | null;
     }
 
     /**
@@ -65406,10 +65415,22 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowHealthRunScope = {
+      All: 'all',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**

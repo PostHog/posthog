@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
-import { isLaunched } from 'scenes/experiments/experimentsLogic'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'

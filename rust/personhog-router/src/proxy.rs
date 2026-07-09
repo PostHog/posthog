@@ -157,7 +157,7 @@ impl RawProxyInner {
         let (mut response, backend, channel_call_ms) = match method_name {
             "UpdatePersonProperties" => {
                 let (resp, call_ms) = self
-                    .raw_proxy_to_leader(req, "UpdatePersonProperties", true)
+                    .raw_proxy_to_leader(req, "UpdatePersonProperties")
                     .await;
                 (resp, "leader", call_ms)
             }
@@ -169,7 +169,7 @@ impl RawProxyInner {
                     == Some("strong");
 
                 if is_strong {
-                    let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson", false).await;
+                    let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson").await;
                     (resp, "leader", call_ms)
                 } else {
                     let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
@@ -387,14 +387,22 @@ impl RawProxyInner {
     /// client, is hashed to a partition, and the request bytes are forwarded
     /// verbatim with the partition in the `x-partition` header. The body is
     /// never inspected, so client-compressed request frames transit
-    /// untouched. Writes (`use_stash`) go through the per-partition stash so
-    /// they buffer correctly during a handoff; reads forward directly and
-    /// surface the channel round-trip time for the network-overhead metric.
+    /// untouched.
+    ///
+    /// Both writes and strong reads go through the per-partition stash
+    /// during a handoff. Writes must buffer for the no-split-brain
+    /// guarantee; strong reads must buffer with them so read-your-write
+    /// holds across the handoff — a strong read racing ahead to the old
+    /// owner would miss any write parked in the stash before it, and a
+    /// read arriving after cutover on a router that hasn't seen Complete
+    /// would read the old owner's frozen cache after the new owner has
+    /// already accepted writes. Outside a handoff the stash is empty and
+    /// requests forward directly, surfacing the channel round-trip time
+    /// for the network-overhead metric.
     async fn raw_proxy_to_leader(
         &self,
         req: http::Request<BoxBody>,
         method: &'static str,
-        use_stash: bool,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let leader = match &self.leader {
             Some(l) => l.clone(),
@@ -432,25 +440,15 @@ impl RawProxyInner {
         let partition = leader.partition_for_person(team_id, person_id);
 
         let _in_flight = ClientInFlightGuard::new("leader");
-        if use_stash {
-            leader
-                .forward_or_stash(
-                    method,
-                    partition,
-                    (team_id, person_id),
-                    parts.headers,
-                    body_bytes,
-                )
-                .await
-        } else {
-            match leader
-                .forward_raw(method, partition, &parts.headers, &body_bytes)
-                .await
-            {
-                Ok((response, call_ms)) => (response, Some(call_ms)),
-                Err(status) => (grpc_error_response(status.code(), status.message()), None),
-            }
-        }
+        leader
+            .forward_or_stash(
+                method,
+                partition,
+                (team_id, person_id),
+                parts.headers,
+                body_bytes,
+            )
+            .await
     }
 }
 
