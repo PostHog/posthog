@@ -332,6 +332,7 @@ the row lists both.
 | snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | solarwinds_service_desk | HTTP                        | requests                                                        | ✅                          |
 | sparkpost               | HTTP                        | requests                                                        | ✅                          |
+| split_io                | HTTP                        | requests                                                        | ✅                          |
 | square                  | HTTP                        | requests                                                        | ✅                          |
 | squarespace             | HTTP                        | requests                                                        | ✅                          |
 | statuspage              | HTTP                        | requests                                                        | ✅                          |
@@ -703,7 +704,6 @@ doesn't conflict with concurrent PRs.
 - smartengage
 - smartwaiver
 - sonar_cloud
-- split_io
 - spotify_ads
 - spotlercrm
 - statsig
