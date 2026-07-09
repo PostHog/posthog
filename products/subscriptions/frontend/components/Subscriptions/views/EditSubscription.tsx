@@ -836,7 +836,7 @@ function EditSubscriptionForm({
                                 </div>
                             </div>
                         )}
-                        {id === 'new' && subscription?.enabled !== false && (
+                        {subscription?.enabled !== false && (
                             <div>
                                 <LemonField name="send_test_now">
                                     {({ value, onChange }) => (
@@ -851,7 +851,7 @@ function EditSubscriptionForm({
                                 </LemonField>
                                 <p className="text-xs text-secondary mt-1 mb-0">
                                     On save we send this report once to the destination above, so you can confirm it
-                                    looks right. Turn this off to wait for the first scheduled delivery
+                                    looks right. Turn this off to wait for the next scheduled delivery
                                     {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
                                 </p>
                             </div>

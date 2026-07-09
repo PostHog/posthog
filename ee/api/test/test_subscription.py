@@ -160,18 +160,28 @@ class TestSubscriptionTemporal(APILicensedTest):
         # Opting out of the first send must not touch the recurring schedule
         assert Subscription.objects.get(id=response.json()["id"]).next_delivery_date is not None
 
-    def test_update_ignores_send_test_now(self):
+    @parameterized.expand(
+        [
+            ("opt_in_fires", True, True),
+            ("opt_out_skips", False, False),
+            ("absent_skips", None, False),
+        ]
+    )
+    def test_update_honors_send_test_now(self, _name, send_test_now, should_fire):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"target_value": "other@posthog.com", "send_test_now": False},
-        )
+        payload: dict = {"target_value": "other@posthog.com"}
+        if send_test_now is not None:
+            payload["send_test_now"] = send_test_now
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", payload)
         assert response.status_code == status.HTTP_200_OK, response.content
-        # send_test_now is create-only: a target change warrants a redelivery, and an
-        # opt-out flag in the update payload must not suppress it
-        self.mock_temporal_client.start_workflow.assert_called_once()
+        # The confirmation send on edit is driven only by send_test_now now — a delivery-relevant
+        # field change (here target_value) no longer implies a re-send on its own.
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
 
     def test_cannot_create_subscription_without_insight_or_dashboard(self):
         response = self.client.post(
@@ -234,6 +244,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             {
                 "target_value": "test@posthog.com,new_user@posthog.com",
                 "invite_message": "hi new user",
+                "send_test_now": True,
             },
         )
         updated_data = response.json()
@@ -283,109 +294,55 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         ).json()["id"]
 
-    # Each case is (name, build, should_fire, expected_reason); build(test) -> (sub_id, patch_payload).
-    # The inline factory keeps each case's setup next to its expected outcome.
+    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). The confirmation
+    # send on edit is driven solely by send_test_now now — the kind of field changed no longer matters.
     @parameterized.expand(
         [
-            # Schedule/meta-only edits must NOT re-fire a delivery.
-            ("frequency", lambda t: (t._basic_sub(), {"frequency": "daily"}), False, "no_delivery_relevant_change"),
-            ("interval", lambda t: (t._basic_sub(), {"interval": 3}), False, "no_delivery_relevant_change"),
-            ("title", lambda t: (t._basic_sub(), {"title": "Renamed"}), False, "no_delivery_relevant_change"),
-            # Delivery-relevant edits MUST fire a confirmation — what (or where) gets delivered changed,
-            # or the subscription was re-enabled.
+            ("schedule_only_no_send", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
             (
-                "target_value",
-                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
+                "schedule_only_with_send",
+                lambda t: (t._basic_sub(), {"frequency": "daily", "send_test_now": True}),
                 True,
-                "delivery_field_changed",
             ),
             (
-                "target_type",  # switching channel routes delivery elsewhere — needs a Slack integration
+                "recipient_no_send",
+                lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
+                False,
+            ),
+            (
+                "recipient_with_send",
                 lambda t: (
                     t._basic_sub(),
-                    {
-                        "target_type": "slack",
-                        "target_value": "#general",
-                        "integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id,
-                    },
+                    {"target_value": "test@posthog.com,extra@posthog.com", "send_test_now": True},
                 ),
                 True,
-                "delivery_field_changed",
             ),
-            ("re_enable", lambda t: (t._disabled_email_sub(), {"enabled": True}), True, "re_enabled"),
+            ("re_enable_no_send", lambda t: (t._disabled_email_sub(), {"enabled": True}), False),
             (
-                "integration_swap",  # Slack routing depends on the workspace, not just target_value
-                lambda t: (
-                    Subscription.objects.create(
-                        team=t.team,
-                        target_type="slack",
-                        target_value="#general",
-                        integration=Integration.objects.create(team=t.team, kind="slack", config={}),
-                        frequency="daily",
-                        start_date=timezone.now(),
-                        insight=t.insight,
-                        title="t",
-                    ).id,
-                    {"integration_id": Integration.objects.create(team=t.team, kind="slack", config={}).id},
-                ),
+                "re_enable_with_send",
+                lambda t: (t._disabled_email_sub(), {"enabled": True, "send_test_now": True}),
                 True,
-                "delivery_field_changed",
             ),
-            (
-                "dashboard_export_change",  # changing the exported insight set hits the M2M branch
-                lambda t: (
-                    t._dashboard_sub(
-                        [t.insight, (other := Insight.objects.create(team=t.team, name="other"))],
-                        [t.insight],
-                    ),
-                    {"dashboard_export_insights": [t.insight.id, other.id]},
-                ),
-                True,
-                "delivery_field_changed",
-            ),
-            # ...except re-submitting the identical export set, which changes nothing.
-            (
-                "dashboard_export_resubmit_same",
-                lambda t: (
-                    t._dashboard_sub([t.insight], [t.insight]),
-                    {"dashboard_export_insights": [t.insight.id], "title": "Renamed"},
-                ),
-                False,
-                "no_delivery_relevant_change",
-            ),
+            # send_test_now on an edit that leaves the sub disabled must not deliver.
+            ("send_but_left_disabled", lambda t: (t._disabled_email_sub(), {"send_test_now": True}), False),
         ]
     )
-    def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
+    def test_update_fires_delivery_only_when_send_test_now(
         self,
         _name: str,
         build: Callable[["TestSubscriptionTemporal"], tuple[int, dict]],
         should_fire: bool,
-        expected_reason: str,
     ):
         sub_id, patch_payload = build(self)
         self.mock_temporal_client.start_workflow.reset_mock()
 
-        with patch("ee.api.subscription.posthoganalytics.capture") as mock_capture:
-            response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
-            assert response.status_code == status.HTTP_200_OK, response.content
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
+        assert response.status_code == status.HTTP_200_OK, response.content
 
-        # The workflow fires only when the edit warrants a confirmation delivery...
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
-
-        # ...and the decision is always emitted so a silent suppression is observable — the post_save
-        # "<kind> subscription updated" event fires pre-decision and can't carry this signal.
-        decision_calls = [
-            call
-            for call in mock_capture.call_args_list
-            if call.kwargs.get("event") == "subscription_update_delivery_decision"
-        ]
-        assert len(decision_calls) == 1
-        properties = decision_calls[0].kwargs["properties"]
-        assert properties["delivery_triggered"] is should_fire
-        assert properties["reason"] == expected_reason
 
     @freeze_time("2026-06-15T10:00:00Z")  # Monday — weekly (Sat) is 5 days away, daily is 1 day
     def test_schedule_only_update_still_recomputes_next_delivery_date(self):
@@ -1617,9 +1574,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert subscription.enabled is True
         assert subscription.next_delivery_date is not None
         assert subscription.next_delivery_date > timezone.now()
-        # Re-enable also fires the immediate TARGET_CHANGE confirmation delivery —
-        # the date reset prevents the *scheduler* from firing a second one moments later.
-        temporal_mock.return_value.start_workflow.assert_called_once()
+        # No confirmation delivery fires on a re-enable without send_test_now; the date reset still
+        # runs so the scheduler doesn't fire a stale-dated delivery on its next tick.
+        temporal_mock.return_value.start_workflow.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1740,14 +1697,14 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            # The confirmation-delivery workflow fires only on a re-enable or a delivery-relevant change —
-            # not on a meta-only edit (title) or a redundant enable that changes nothing. (This narrows the
-            # previous "every edit to an enabled sub fires" matrix; see FIELDS_THAT_TRIGGER_REDELIVERY.)
-            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, False),
+            # No edit fires a confirmation delivery unless send_test_now is set — not a meta-only edit,
+            # not a redundant toggle, and (unlike before) not a bare re-enable either.
+            ("enabled_field_edit_no_send", True, {"title": "renamed"}, False),
             ("redundant_enable", True, {"enabled": True}, False),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
-            ("enable_disabled", False, {"enabled": True}, True),
+            ("enable_disabled_no_send", False, {"enabled": True}, False),
+            ("enable_disabled_with_send", False, {"enabled": True, "send_test_now": True}, True),
         ]
     )
     def test_patch_workflow_trigger_for_enabled_field(
@@ -2838,12 +2795,11 @@ class TestAISubscriptionAPI(APILicensedTest):
 
         update_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"prompt": "Show me new error events"},
+            {"prompt": "Show me new error events", "send_test_now": True},
         )
         assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
         assert update_resp.json()["prompt"] == "Show me new error events"
-        # prompt is delivery-relevant for AI subscriptions; editing it must re-fire the
-        # confirmation delivery so recipients see the updated report.
+        # send_test_now on the edit fires the confirmation delivery so recipients see the updated report.
         mock_client.start_workflow.assert_called_once()
 
     def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_flag, mock_sync):
