@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { SubscriptionType } from '~/types'
 
+import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionsLogicProps } from '../utils'
 import { SubscriptionListItem } from './ManageSubscriptions'
@@ -55,7 +56,12 @@ function SubscriptionTabList({
     const logic = subscriptionsLogic(logicProps)
     const { deliveringSubscriptionId, togglingEnabledId } = useValues(logic)
     const { deleteSubscription, deliverSubscription, setSubscriptionEnabled } = useActions(logic)
-    const pagination = usePagination(subscriptions, { pageSize: PAGE_SIZE }, paginationId)
+    // Disabled subscriptions sort to the bottom so active ones stay visible first.
+    const orderedSubscriptions = useMemo(
+        () => [...subscriptions].sort((a, b) => Number(isSubscriptionEnabled(b)) - Number(isSubscriptionEnabled(a))),
+        [subscriptions]
+    )
+    const pagination = usePagination(orderedSubscriptions, { pageSize: PAGE_SIZE }, paginationId)
 
     if (loading && subscriptions.length === 0) {
         return (
