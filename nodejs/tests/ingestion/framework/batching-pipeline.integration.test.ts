@@ -358,7 +358,7 @@ class Harness {
                                     .teamAware((tb) =>
                                         tb.concurrentlyPerGroup(
                                             (event) => event.key,
-                                            (s) => s.pipe(processEventStep)
+                                            (group) => group.sequentially((s) => s.pipe(processEventStep))
                                         )
                                     )
                                     .handleIngestionWarnings(this.outputs)

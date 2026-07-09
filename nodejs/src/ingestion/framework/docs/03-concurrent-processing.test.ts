@@ -32,7 +32,7 @@
  * keeps at most N items in flight, starting the next item only as a slot
  * frees up. Emission order stays FIFO regardless of the cap.
  */
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -189,34 +189,5 @@ describe('Concurrent Processing', () => {
         expect(peak).toBe(2)
         // Results still stream out in input order
         expect(allValues).toEqual([2, 4, 6, 8, 10])
-    })
-
-    /**
-     * `pipeConcurrently()` is the same as `concurrently()` but takes an
-     * already-built `Pipeline` instead of a builder callback. Use it when the
-     * per-item pipeline is constructed elsewhere (e.g. shared across pipelines
-     * or built by a factory) and you want to plug it in directly.
-     *
-     * It accepts the same `{ maxConcurrency }` option.
-     */
-    it('pipeConcurrently() runs a pre-built pipeline per item', async () => {
-        function createDoubleStep(): ProcessingStep<number, number> {
-            return async function doubleStep(n) {
-                await new Promise((resolve) => setTimeout(resolve, 10))
-                return ok(n * 2)
-            }
-        }
-
-        // The per-item pipeline is built up front, then handed to pipeConcurrently
-        const perItemPipeline = newPipelineBuilder<number>().pipe(createDoubleStep()).build()
-
-        const pipeline = newBatchPipelineBuilder<number>().pipeConcurrently(perItemPipeline).build()
-
-        const batch = [1, 2, 3].map((n) => createOkContext(n, {}))
-        pipeline.feed(batch)
-
-        const allValues = await consumeAll(pipeline, 10)
-
-        expect(allValues).toEqual([2, 4, 6])
     })
 })

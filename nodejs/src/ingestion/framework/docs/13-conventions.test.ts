@@ -474,10 +474,11 @@ describe('Pipeline Phases', () => {
                                         b
                                             // Post-team preprocessing: validate (concurrent)
                                             .concurrently((b) => createPostTeamPreprocessingSubpipeline(b))
-                                            // Processing: group by team and process sequentially within each group
+                                            // Processing: group by team; groups run concurrently while the
+                                            // explicit `sequentially` step processes items within a group in order
                                             .concurrentlyPerGroup(
                                                 (item) => item.teamId,
-                                                (group) => createProcessingSubpipeline(group)
+                                                (group) => group.sequentially((b) => createProcessingSubpipeline(b))
                                             )
                                     )
                                     .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())

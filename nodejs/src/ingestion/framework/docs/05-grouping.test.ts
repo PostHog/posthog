@@ -19,13 +19,15 @@
  * ## How It Works
  *
  * ```
- * .concurrentlyPerGroup(keyFn, (groupBuilder) => groupBuilder.pipe(...))
+ * .concurrentlyPerGroup(keyFn, (group) => group.sequentially((b) => b.pipe(...)))
  * ```
  *
  * - `keyFn` partitions items by key
  * - Groups are processed in parallel (each group returns as it completes)
- * - Items within a group flow through the callback pipeline sequentially,
- *   so within-group order is preserved
+ * - The callback receives a group builder whose only method is `sequentially`.
+ *   Spelling out `sequentially` makes within-group ordering visible at the call
+ *   site: items within a group flow through that pipeline one at a time, in
+ *   input order.
  *
  * Pass `{ maxConcurrency }` to cap how many groups process at once (the cap
  * is on groups, not items):
@@ -104,7 +106,7 @@ describe('Grouped Processing', () => {
         const pipeline = newBatchPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
-                (groupBuilder) => groupBuilder.pipe(createProcessEventStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
             )
             .build()
 
@@ -141,7 +143,7 @@ describe('Grouped Processing', () => {
         const pipeline = newBatchPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
-                (groupBuilder) => groupBuilder.pipe(createProcessEventStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
             )
             .build()
 
@@ -190,7 +192,7 @@ describe('Grouped Processing', () => {
         const pipeline = newBatchPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
-                (groupBuilder) => groupBuilder.pipe(createVariableDelayStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
             )
             .build()
 
@@ -278,7 +280,7 @@ describe('Grouped Processing', () => {
         const pipeline = newBatchPipelineBuilder<IngestionEvent>()
             .concurrentlyPerGroup(
                 (event) => `${event.token}:${event.distinctId}`,
-                (groupBuilder) => groupBuilder.pipe(createProcessEventStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createProcessEventStep()))
             )
             .build()
 

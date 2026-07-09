@@ -91,10 +91,12 @@ export function createMlMirrorReplayPipeline(
                 // sessions with a bounded fan-out and per-session retry. Deleted sessions drop here.
                 .concurrentlyPerGroup(
                     (element) => `${element.team.teamId}:${element.headers.session_id}`,
-                    (b) =>
-                        b.pipe(createResolveKeyStep(keyStore), {
-                            retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
-                        }),
+                    (group) =>
+                        group.sequentially((b) =>
+                            b.pipe(createResolveKeyStep(keyStore), {
+                                retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
+                            })
+                        ),
                     { maxConcurrency: sessionKeyResolutionMaxConcurrency }
                 )
                 // Re-collect the per-session groups into one batch — both to mark the whole batch seen

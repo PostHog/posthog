@@ -106,8 +106,10 @@ builder.sequentially((b) => b.pipe(createOrderedWrite(db)))
 
 ### 4. concurrentlyPerGroup pattern
 
-`concurrentlyPerGroup(keyFn, callback, options?)` processes groups concurrently;
-items within a group run sequentially through the callback's pipeline, so within-group order is preserved.
+`concurrentlyPerGroup(keyFn, callback, options?)` processes groups concurrently.
+The callback receives a group builder whose only method is `sequentially`, which
+defines how items within a group are processed: one at a time, in input order.
+Spelling out `sequentially` keeps within-group ordering visible at the call site.
 Groups complete independently and results are returned as groups finish.
 Cap group parallelism with `{ maxConcurrency }`.
 The ingestion pipeline groups by `token:distinctId`.
@@ -115,7 +117,7 @@ The ingestion pipeline groups by `token:distinctId`.
 ```typescript
 builder.concurrentlyPerGroup(
   (event) => `${event.token}:${event.distinctId}`,
-  (b) => b.pipe(createPersonProcessing())
+  (group) => group.sequentially((b) => b.pipe(createPersonProcessing()))
 )
 ```
 

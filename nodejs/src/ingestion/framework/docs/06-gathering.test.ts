@@ -119,7 +119,7 @@ describe('Gathering Results', () => {
         const streamingPipeline = newBatchPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
-                (groupBuilder) => groupBuilder.pipe(createVariableDelayStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
             )
             .build()
 
@@ -146,7 +146,7 @@ describe('Gathering Results', () => {
         const gatheringPipeline = newBatchPipelineBuilder<Event>()
             .concurrentlyPerGroup(
                 (event) => event.userId,
-                (groupBuilder) => groupBuilder.pipe(createVariableDelayStep())
+                (group) => group.sequentially((groupBuilder) => groupBuilder.pipe(createVariableDelayStep()))
             )
             .gather()
             .build()
