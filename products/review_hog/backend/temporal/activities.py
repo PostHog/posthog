@@ -118,6 +118,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     count_reviewable_additions,
     generate_chunking_prompt,
     plan_deterministic_chunks,
+    reconcile_chunks,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -667,6 +668,9 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 model=CHUNKING_MODEL,
                 reasoning_effort=CHUNKING_REASONING_EFFORT,
             )
+    # The LLM's "every file in exactly one chunk" instruction is enforced in code, not trusted:
+    # an omitted file would silently skip review in every downstream pass.
+    chunks = reconcile_chunks(chunks, snapshot.pr_files)
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )

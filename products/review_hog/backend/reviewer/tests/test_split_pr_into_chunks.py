@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
     plan_deterministic_chunks,
+    reconcile_chunks,
 )
 
 
@@ -80,6 +81,41 @@ class TestGenerateChunkingPrompt:
             ChunksList(chunks=[chunk(1, "a.py"), chunk(2, "b.py"), chunk(1, "c.py")])
 
         assert len(ChunksList(chunks=[chunk(1, "a.py"), chunk(2, "b.py")]).chunks) == 2
+
+
+class TestReconcileChunks:
+    @staticmethod
+    def _chunks(*file_groups: list[str]) -> ChunksList:
+        return ChunksList(
+            chunks=[
+                Chunk(chunk_id=i, files=[FileInfo(filename=name) for name in group])
+                for i, group in enumerate(file_groups, start=1)
+            ]
+        )
+
+    @pytest.mark.parametrize(
+        "llm_groups,pr_names,expected",
+        [
+            # A compliant LLM answer passes through untouched.
+            ([["a.py"], ["b.py", "c.py"]], ["a.py", "b.py", "c.py"], {1: ["a.py"], 2: ["b.py", "c.py"]}),
+            # An omitted file is appended as a catch-all chunk — never silently skipped from review.
+            ([["a.py"]], ["a.py", "b.py", "c.py"], {1: ["a.py"], 2: ["b.py", "c.py"]}),
+            # A hallucinated file is removed; a chunk emptied by that is dropped.
+            ([["a.py"], ["ghost.py"]], ["a.py"], {1: ["a.py"]}),
+            # A duplicated file keeps its first (highest-priority) chunk only.
+            ([["a.py", "b.py"], ["b.py", "c.py"]], ["a.py", "b.py", "c.py"], {1: ["a.py", "b.py"], 2: ["c.py"]}),
+            # Zero LLM chunks with reviewable files still yields full coverage via the catch-all.
+            ([], ["a.py", "b.py"], {1: ["a.py", "b.py"]}),
+        ],
+    )
+    def test_output_covers_exactly_the_pr_files(
+        self, llm_groups: list[list[str]], pr_names: list[str], expected: dict[int, list[str]]
+    ) -> None:
+        pr_files = [_file(name, additions=10) for name in pr_names]
+
+        result = reconcile_chunks(self._chunks(*llm_groups), pr_files)
+
+        assert {c.chunk_id: [f.filename for f in c.files] for c in result.chunks} == expected
 
 
 class TestPlanDeterministicChunks:
