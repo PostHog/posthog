@@ -146,6 +146,45 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
+    // A 503 the browser can't read is invisible to the SDK's retry logic: the
+    // fetch rejects as a network error and the batch is eventually dropped. Any
+    // 5xx leaving the v1 stack must therefore carry the same CORS headers and a
+    // Retry-After that 2xx/4xx responses get, so posthog-js can read the status
+    // and back off instead of hard-failing. CorsLayer sits outermost, so this
+    // holds as long as no inner layer short-circuits the response — this test
+    // pins that invariant against router refactors.
+    #[tokio::test]
+    async fn cors_and_retry_after_present_on_503() {
+        // Drop the sink-router so process_batch returns ServiceUnavailable (503),
+        // the only 5xx the v1 analytics path emits on its own.
+        let mut ts = TestStateBuilder::new().build();
+        ts.state.v1_sink_router = None;
+        let app = router(default_cfg()).with_state(ts.state);
+
+        let resp = app
+            .oneshot(
+                valid_request()
+                    .header(header::ORIGIN, "https://example.com")
+                    .body(Body::from(batch_payload(&[valid_event()])))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            resp.headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|v| v.to_str().ok()),
+            Some("https://example.com"),
+            "503 must carry CORS headers so browser SDKs can read it and retry"
+        );
+        assert!(
+            resp.headers().contains_key(header::RETRY_AFTER),
+            "503 must carry Retry-After so browser SDKs back off instead of dropping"
+        );
+    }
+
     #[tokio::test]
     async fn cors_headers_on_error_responses() {
         let resp = app(default_cfg())
