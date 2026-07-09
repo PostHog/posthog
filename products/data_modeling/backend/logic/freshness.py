@@ -175,15 +175,70 @@ def declared_target_bounds(
     return source_floor, consumer_ceiling
 
 
+def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
+    """Every node's source floor (slowest ancestor source interval) in one forward pass.
+
+    The batch equivalent of calling `declared_target_bounds` per node, whose reachable-walk makes
+    a whole-graph check O(N^2). STREAMING for a node with no ancestor source. Nodes in a cycle are
+    omitted (callers default them to STREAMING; the scheduling path rejects cycles upstream).
+    """
+    children, parents = _adjacency(edges)
+    all_ids = set(source_intervals) | {node for edge in edges for node in edge}
+    in_degree = {node: len(parents.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if in_degree[node] == 0)
+    floor: dict[str, timedelta] = {}
+    while queue:
+        node = queue.popleft()
+        floor[node] = max([source_intervals.get(node, STREAMING), *(floor[parent] for parent in parents.get(node, []))])
+        for child in children.get(node, []):
+            in_degree[child] -= 1
+            if in_degree[child] == 0:
+                queue.append(child)
+    return floor
+
+
+def all_consumer_ceilings(
+    edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
+) -> dict[str, timedelta | None]:
+    """Every node's consumer ceiling (finest declared target among strict descendants) in one
+    reverse pass. None when no descendant declares a target. Cyclic nodes are omitted."""
+    children, parents = _adjacency(edges)
+    all_ids = set(declared_targets) | {node for edge in edges for node in edge}
+    out_degree = {node: len(children.get(node, [])) for node in all_ids}
+    queue = deque(node for node in all_ids if out_degree[node] == 0)
+    ceiling: dict[str, timedelta | None] = {}
+    while queue:
+        node = queue.popleft()
+        candidates = [declared_targets[child] for child in children.get(node, []) if child in declared_targets]
+        candidates += [ceiling[child] for child in children.get(node, []) if ceiling.get(child) is not None]
+        ceiling[node] = min(candidates) if candidates else None
+        for parent in parents.get(node, []):
+            out_degree[parent] -= 1
+            if out_degree[parent] == 0:
+                queue.append(parent)
+    return ceiling
+
+
 def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
     """The finest schedulable bucket no finer than `floor` — coarsen up to a runnable cadence.
 
     A source delivering every 45min means running finer than 1hour recomputes identical data, so
-    the meaningful cadence is the smallest bucket >= the floor. Falls back to the coarsest bucket
-    when the floor is coarser than every bucket (nothing coarser is schedulable).
+    the meaningful cadence is the smallest bucket >= the floor. Source intervals are themselves
+    schedulable buckets, so a real floor is always <= the coarsest bucket; assert that rather than
+    fall back to a bucket finer than the floor (which would silently defeat the clamp).
     """
     coarser_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket >= floor]
-    return min(coarser_or_equal) if coarser_or_equal else max(SCHEDULABLE_BUCKETS)
+    assert coarser_or_equal, f"source floor {floor} exceeds every schedulable bucket"
+    return min(coarser_or_equal)
+
+
+def nearest_schedulable_bucket_at_most(cadence: timedelta) -> timedelta:
+    """The coarsest schedulable bucket no coarser than `cadence` — round a non-bucket seed down to a
+    finer bucket so "no older than `cadence`" stays honored (fresher is always safe). Falls back to
+    the finest bucket for a sub-minute cadence, the finest anything can actually be scheduled at.
+    """
+    finer_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= cadence]
+    return max(finer_or_equal) if finer_or_equal else min(SCHEDULABLE_BUCKETS)
 
 
 @dataclasses.dataclass
@@ -210,15 +265,14 @@ def clamp_to_source_floor(
     source and clamps to the same bucket. Streaming/best-effort sources have a zero floor and are
     never clamped.
     """
+    floors = all_source_floors(edges, source_intervals)
     clamped: dict[str, timedelta | None] = {}
     changes: list[ClampedCadence] = []
     for node_id, cadence in effective.items():
         if cadence is None:
             clamped[node_id] = None
             continue
-        source_floor, _consumer_ceiling = declared_target_bounds(
-            node_id=node_id, edges=edges, declared_targets={}, source_intervals=source_intervals
-        )
+        source_floor = floors.get(node_id, STREAMING)
         if is_finer_than(cadence, source_floor):
             target = nearest_schedulable_bucket_at_least(source_floor)
             clamped[node_id] = target
@@ -228,6 +282,20 @@ def clamp_to_source_floor(
         else:
             clamped[node_id] = cadence
     return clamped, changes
+
+
+def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta:
+    """Round a raw v1 seed cadence to a schedulable, satisfiable declared target.
+
+    Snap a non-bucket seed down to a finer bucket (fresher honors "no older than X"), then coarsen
+    to the source floor if the source cannot deliver that fast. So a go-live backfill persists a
+    target that equals what the scheduler will run, rather than an unschedulable (45min) or
+    unsatisfiable (finer than the source) one that reconcile would have to clamp anyway.
+    """
+    bucket = seed if seed in SCHEDULABLE_BUCKETS else nearest_schedulable_bucket_at_most(seed)
+    if is_finer_than(bucket, source_floor):
+        return nearest_schedulable_bucket_at_least(source_floor)
+    return bucket
 
 
 def validate_declared_target(
@@ -281,11 +349,12 @@ def find_invalid_targets(
     graph edits move floors. Runtime freshness stays correct (finest demand wins) — what
     breaks is declared == effective, so run this on any graph mutation and surface the result.
     """
+    floors = all_source_floors(edges, source_intervals)
+    ceilings = all_consumer_ceilings(edges, declared_targets)
     invalid: list[InvalidTarget] = []
     for node_id, declared in declared_targets.items():
-        source_floor, consumer_ceiling = declared_target_bounds(
-            node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
-        )
+        source_floor = floors.get(node_id, STREAMING)
+        consumer_ceiling = ceilings.get(node_id)
         if is_finer_than(declared, source_floor) or (
             consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
         ):

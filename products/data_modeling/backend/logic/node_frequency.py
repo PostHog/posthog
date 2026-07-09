@@ -13,7 +13,7 @@ from datetime import timedelta
 
 from django.db.models import Q
 
-from products.data_modeling.backend.logic.freshness import STREAMING
+from products.data_modeling.backend.logic.freshness import STREAMING, all_source_floors, normalize_seed_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -168,19 +168,25 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     """Persist a seed target on every schedulable node lacking one; never overwrites.
 
-    `default` covers nodes with no seedable cadence anywhere (no saved-query interval, no
-    DAG interval) — the operator escape hatch for DAGs that are scheduled but carry no
-    interval metadata. Returns how many targets were written.
+    Each raw seed is normalized to a schedulable, satisfiable declared target (snapped to a bucket,
+    coarsened to the node's source floor) so the persisted target equals what the scheduler will
+    run — no unschedulable or unsatisfiable targets left for reconcile to clamp. `default` covers
+    nodes with no seedable cadence anywhere (no saved-query interval, no DAG interval) — the
+    operator escape hatch for scheduled DAGs carrying no interval metadata. Returns how many
+    targets were written.
     """
+    graph = build_frequency_graph(dag)
+    floors = all_source_floors(graph.edges, graph.source_intervals)
     seeds = seed_targets(dag)
     written = 0
     for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True):
+        node_id = str(node.id)
         if get_declared_target(node) is not None:
             continue
-        target = seeds.get(str(node.id), default)
-        if target is None:
+        raw = seeds.get(node_id, default)
+        if raw is None:
             continue
-        set_declared_target(node, target)
+        set_declared_target(node, normalize_seed_target(raw, floors.get(node_id, STREAMING)))
         written += 1
     return written
 

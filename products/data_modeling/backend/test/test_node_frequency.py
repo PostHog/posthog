@@ -17,6 +17,7 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
     get_declared_target,
+    persist_seed_targets,
     resolve_source_intervals,
     seed_targets,
     set_declared_target,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 M15 = timedelta(minutes=15)
+M30 = timedelta(minutes=30)
+M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
@@ -217,3 +220,30 @@ class TestSeedTargets(BaseTest):
         dag = DAG.objects.create(team=self.team, name="seed-demo-src", sync_frequency_interval=H1)
         _table_node(self.team, dag, "events", {"origin": "posthog"})
         self.assertEqual(seed_targets(dag), {})
+
+
+@pytest.mark.django_db
+class TestPersistSeedTargets(BaseTest):
+    def test_clamps_seed_finer_than_source_before_persisting(self):
+        # a node's v1 cadence (15min via the DAG) is finer than its 6h source: the backfill must
+        # persist the clamped 6h target the scheduler will actually run, not the raw 15min seed
+        dag = DAG.objects.create(team=self.team, name="backfill-clamp", sync_frequency_interval=M15)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H6)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+
+        self.assertEqual(persist_seed_targets(dag), 1)
+        matview.refresh_from_db()
+        self.assertEqual(get_declared_target(matview), H6)
+
+    def test_snaps_non_bucket_seed_down_to_a_finer_bucket(self):
+        # a 45min v1 cadence over a streamed source isn't schedulable; persist the nearest finer
+        # bucket (30min) so declared == effective and reconcile never sees a non-bucket target
+        dag = DAG.objects.create(team=self.team, name="backfill-snap", sync_frequency_interval=M45)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+
+        self.assertEqual(persist_seed_targets(dag), 1)
+        matview.refresh_from_db()
+        self.assertEqual(get_declared_target(matview), M30)

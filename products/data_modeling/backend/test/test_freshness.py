@@ -10,15 +10,19 @@ from products.data_modeling.backend.logic.freshness import (
     InvalidTarget,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
+    all_consumer_ceilings,
+    all_source_floors,
     clamp_to_source_floor,
     compute_effective_cadences,
     declared_target_bounds,
     find_invalid_targets,
+    normalize_seed_target,
     validate_declared_target,
 )
 
 M5 = timedelta(minutes=5)
 M15 = timedelta(minutes=15)
+M30 = timedelta(minutes=30)
 M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
@@ -260,3 +264,50 @@ class TestClampToSourceFloor(TestCase):
             self.assertEqual(changes[0].demanded, effective["a"])
             self.assertEqual(changes[0].source_floor, source_intervals["src"])
             self.assertEqual(changes[0].clamped_to, expected_clamped_to)
+
+
+class TestNormalizeSeedTarget(TestCase):
+    @parameterized.expand(
+        [
+            # already a schedulable bucket within bounds -> unchanged
+            ("bucket_within_bounds", M15, STREAMING, M15),
+            # non-bucket seed snaps down to the nearest finer bucket (fresher is safe)
+            ("non_bucket_snaps_down", M45, STREAMING, M30),
+            # a bucket finer than the source floor coarsens up to the floor
+            ("finer_than_floor_coarsens", M15, H1, H1),
+            # non-bucket over a slow source: snap down then coarsen to the floor
+            ("snaps_then_coarsens_to_floor", M45, H6, H6),
+            # already coarser than the floor -> left alone
+            ("coarser_than_floor_stays", DAY, H6, DAY),
+        ]
+    )
+    def test_normalize(self, _name, seed, source_floor, expected):
+        self.assertEqual(normalize_seed_target(seed, source_floor), expected)
+
+
+class TestBatchBounds(TestCase):
+    @parameterized.expand(
+        [
+            # chain src->a->b: the 6h source floors every descendant
+            ("chain_floors_descendants", [("src", "a"), ("a", "b")], {"src": H6}, "b", H6),
+            # fan-in of two sources: the node inherits the slowest (daily)
+            ("fan_in_takes_slowest_source", [("srcA", "m"), ("srcB", "m")], {"srcA": H6, "srcB": DAY}, "m", DAY),
+            # no ancestor source -> no floor
+            ("no_source_is_streaming", [("a", "b")], {}, "b", STREAMING),
+        ]
+    )
+    def test_source_floors(self, _name, edges, source_intervals, node_id, expected):
+        self.assertEqual(all_source_floors(edges, source_intervals).get(node_id, STREAMING), expected)
+
+    @parameterized.expand(
+        [
+            # a takes the tightest of its two consumers
+            ("tightest_consumer", [("a", "epA"), ("a", "epB")], {"epA": H1, "epB": M15}, "a", M15),
+            # transitive: demand propagates up past an untargeted intermediate
+            ("transitive_demand", [("a", "b"), ("b", "c")], {"c": H1}, "a", H1),
+            # no descendant declares a target -> no ceiling
+            ("no_descendant_target", [("a", "b")], {}, "a", None),
+        ]
+    )
+    def test_consumer_ceilings(self, _name, edges, declared_targets, node_id, expected):
+        self.assertEqual(all_consumer_ceilings(edges, declared_targets).get(node_id), expected)
