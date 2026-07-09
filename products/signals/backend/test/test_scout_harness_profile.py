@@ -6,10 +6,12 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -35,6 +37,7 @@ from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERS
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
     REVIEWER_CORRECTIONS_WINDOW_DAYS,
+    TOP_EVENTS_LOOKBACK_DAYS,
     _business_knowledge,
     _emit_eligibility,
     _existing_inbox_reports,
@@ -56,6 +59,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_reviewer_corrections,
     _recent_surveys,
     _signal_source_configs,
+    _top_events,
 )
 from products.signals.backend.scout_harness.tools.profile import (
     PROFILE_TTL,
@@ -63,7 +67,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -172,6 +176,30 @@ class TestExternalDataSources(BaseTest):
         result = _external_data_sources(self.team)
         assert result[0]["status"] == "Failed"
         assert result[0]["prefix"] == "pg_"
+
+    def test_last_run_at_none_when_never_completed_a_sync(self) -> None:
+        # A source stuck in `Running` that has never completed a sync must read as `last_run_at=None`
+        # so a scout can tell it apart from a healthy source — `status` alone conflates the two. Only
+        # a `Completed` job counts; a `Running` job present here must not populate `last_run_at`.
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="BigQuery", status="Running", prefix="bq_"
+        )
+        ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.RUNNING)
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] is None
+        assert result[0]["latest_error"] is None
+
+    def test_surfaces_last_run_at_and_latest_error(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type="Stripe", status="Completed", prefix="stripe_"
+        )
+        job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status=ExternalDataJob.Status.COMPLETED)
+        ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="charges", latest_error="permission denied for table charges"
+        )
+        result = _external_data_sources(self.team)
+        assert result[0]["last_run_at"] == job.created_at.isoformat()
+        assert result[0]["latest_error"] == "permission denied for table charges"
 
 
 class TestSignalSourceConfigs(BaseTest):
@@ -728,6 +756,29 @@ class TestBusinessKnowledge(BaseTest):
         KnowledgeSource.objects.create(team=other, name="Other", source_type="text", status="ready")
         result = _business_knowledge(self.team)
         assert result["total_count"] == 0
+
+
+class TestTopEvents(BaseTest):
+    @patch("products.signals.backend.scout_harness.profile.builders.execute_hogql_query")
+    def test_rows_carry_window_days_and_windowed_timestamps(self, mock_query: MagicMock) -> None:
+        # Every count/timestamp is over a rolling window, not lifetime — the row must carry
+        # `window_days` and window-scoped timestamp keys so a scout can't misread a thin
+        # in-window count (e.g. during a capture gap) as a genuinely low-volume project.
+        seen = datetime(2026, 7, 1, tzinfo=UTC)
+        mock_query.return_value = SimpleNamespace(results=[["$pageview", 207000, 12000, 40, 30, seen, seen]])
+
+        assert _top_events(self.team) == [
+            {
+                "window_days": TOP_EVENTS_LOOKBACK_DAYS,
+                "event": "$pageview",
+                "count": 207000,
+                "distinct_users": 12000,
+                "recent_24h_count": 40,
+                "recent_24h_users": 30,
+                "first_seen_in_window": seen.isoformat(),
+                "last_seen_in_window": seen.isoformat(),
+            }
+        ]
 
 
 class TestBuildInventory(BaseTest):

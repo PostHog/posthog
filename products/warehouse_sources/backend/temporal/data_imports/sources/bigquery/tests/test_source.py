@@ -808,9 +808,50 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`524098457564.bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
     assert " bigquery_aloalo" not in sql
+    assert " 524098457564" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "524098457564"
+
+
+def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
+    """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
+    reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
+    reject the job with "ProjectId must be non-empty"."""
+    fake_client = mock.MagicMock()
+    fake_client.query.return_value.result.return_value = []
+
+    config = _make_config(
+        project_id="service-account-project",
+        dataset_id="posthog_export",
+        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="dataset-project", enabled=True),
+    )
+    BigQueryImplementation().get_columns(fake_client, config, names=None)
+
+    sql = fake_client.query.call_args.args[0]
+    assert "`dataset-project.posthog_export.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
+
+
+@pytest.mark.parametrize("method_name", ["get_primary_keys", "get_leading_index_columns"])
+def test_bigquery_discovery_qualifies_information_schema_with_dataset_project(method_name):
+    """`get_primary_keys` and `get_leading_index_columns` share the same unqualified-reference
+    defect as `get_columns`, but swallow the error and silently lose PK/index detection. Their
+    INFORMATION_SCHEMA references must carry the dataset project too."""
+    config = _make_config(
+        project_id="service-account-project",
+        dataset_id="posthog_export",
+        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="dataset-project", enabled=True),
+    )
+
+    fake_client = mock.MagicMock()
+    fake_client.query.return_value.result.return_value = []
+
+    getattr(BigQueryImplementation(), method_name)(fake_client, config, tables=["t"])
+
+    sql = fake_client.query.call_args.args[0]
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA" in sql
+    assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
 def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
@@ -821,8 +862,9 @@ def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_primary_keys(fake_client, config, tables=["t"])
 
     sql = fake_client.query.call_args.args[0]
-    assert "`my_dataset`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS" in sql
-    assert " my_dataset`" not in sql
+    assert "`my-project.my_dataset`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS" in sql
+    assert " my_dataset" not in sql
+    assert " my-project" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "my-project"
 
 
@@ -1390,6 +1432,27 @@ def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_erro
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert "Not found: Table" not in other_error
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def test_bigquery_project_not_found_during_sync_is_non_retryable():
+    """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
+    as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid
+    GCP project that hasn't been deleted." — distinct from the table/dataset "Not found" wording. It
+    must be recognised as non-retryable instead of retrying a project that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Project my-proj is not found. Make sure it references "
+        "valid GCP project that hasn't been deleted.; Project id: my-proj"
+    )
+
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a project-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "Not found: Table" not in error_msg
+    assert "was not found in location" not in error_msg
 
 
 def test_bigquery_storage_read_client_disables_grpc_message_size_limit():

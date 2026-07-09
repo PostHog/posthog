@@ -197,7 +197,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 const isBlocked = !canEnable && !evaluation.enabled
                 const blockedReason = !canUseEvaluationType
                     ? 'Sentiment evaluations are not available for this project.'
-                    : 'Trial evaluation limit reached. Add a provider API key to re-enable.'
+                    : 'Add a provider API key to enable this evaluation.'
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
@@ -375,7 +375,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} />
+            <TrialUsageMeter showSettingsLink />
 
             {unhealthyProviderKeysUsedByEvaluations.length > 0 && (
                 <LemonBanner type="warning">

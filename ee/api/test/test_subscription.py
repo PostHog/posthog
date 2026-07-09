@@ -2527,6 +2527,51 @@ class TestAISubscriptionAPI(APILicensedTest):
             )
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            ("prompt_change_clears_plan", {"prompt": "A completely different question about retention?"}, False),
+            ("title_change_keeps_plan", {"title": "Renamed"}, True),
+        ]
+    )
+    def test_editing_prompt_invalidates_frozen_query_plan(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, body, plan_survives
+    ):
+        self._mock_temporal(mock_sync)
+        frozen = {
+            "version": 1,
+            "plan": {
+                "overall_intent": "i",
+                "steps": [
+                    {
+                        "description": "d",
+                        "query_type": "hogql",
+                        "hogql": "SELECT count() FROM events WHERE {{date_range}}",
+                    }
+                ],
+            },
+        }
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan=frozen)
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", body)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert Subscription.objects.get(id=sub_id).ai_query_plan == (frozen if plan_survives else None)
+
+    def test_orm_prompt_edit_also_invalidates_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
+        # The invalidation lives on Subscription.save() (not the serializer), so ORM-path edits —
+        # management commands, future code — can't leave a plan answering the old prompt.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(id=sub_id).update(ai_query_plan={"version": 1, "plan": {}})
+
+        sub = Subscription.objects.get(id=sub_id)
+        sub.prompt = "A different question entirely?"
+        sub.save()
+
+        sub.refresh_from_db()
+        assert sub.ai_query_plan is None
+
     def _enable_access_control_feature(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

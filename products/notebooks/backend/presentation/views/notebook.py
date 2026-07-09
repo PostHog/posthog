@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action
+from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -48,6 +49,7 @@ from posthog.utils import relative_date_parse
 
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
+from products.notebooks.backend.analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
@@ -61,6 +63,7 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -86,6 +89,24 @@ def depluralize(string: str | None) -> str | None:
         return string[:-1]
     else:
         return string
+
+
+def classify_request_source(request: Request) -> tuple[str, dict[str, str | None]]:
+    """Classify a notebook request as a browser action (``ui``) vs a programmatic client (``mcp``/API).
+
+    Session-cookie requests are the browser; anything else (personal API key, OAuth app) is a
+    programmatic client. The PostHog MCP server forwards the client identity so PostHog Code can be
+    told apart from a customer's own MCP client: ``mcp_consumer`` is ``posthog-code``/``posthog-cli``
+    for first-party PostHog Code, and ``mcp_oauth_client`` is the OAuth app name (e.g. Claude) for
+    third-party clients. Shared by the create and read events."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return NotebookCreationSource.UI, {}
+    return NotebookCreationSource.MCP, {
+        "api_key_type": type(authenticator).__name__,
+        "mcp_consumer": request.META.get("HTTP_X_POSTHOG_MCP_CONSUMER"),
+        "mcp_oauth_client": request.META.get("HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"),
+    }
 
 
 _NOTEBOOK_FIELD_HELP_TEXTS = {
@@ -219,6 +240,20 @@ class NotebookSerializer(NotebookMinimalSerializer):
             team_id=team.id,
             user=self.context["request"].user,
             was_impersonated=is_impersonated(request),
+        )
+
+        creation_source, source_props = classify_request_source(request)
+        capture_notebook_created(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team.id,
+            user=request.user,
+            request=request,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+            mcp_consumer=source_props.get("mcp_consumer"),
+            mcp_oauth_client=source_props.get("mcp_oauth_client"),
+            api_key_type=source_props.get("api_key_type"),
         )
 
         return notebook
@@ -919,11 +954,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
+        # Resolve each referenced node to its last-run query (not its live editor text), so a
+        # join recomputes against the definitions that produced the results on screen. Inlining
+        # happens once here, so the run stores a self-contained query and paging re-queries it
+        # without re-resolving refs.
+        ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        code_by_node_id: dict[str, str] = dict(
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("node_id", "code")
+        )
+        last_run_code: dict[str, str | None] = {
+            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
+        }
+        try:
+            resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
+        except SQLV2ReferenceError as e:
+            return Response({"detail": str(e)}, status=400)
+
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
             notebook=notebook,
             node_id=serializer.validated_data["node_id"],
-            code=serializer.validated_data["code"],
+            code=resolved_code,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -934,7 +990,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook_short_id=notebook.short_id,
                     team_id=self.team_id,
                     user_id=user.id if isinstance(user, User) else None,
-                    code=serializer.validated_data["code"],
+                    code=resolved_code,
                 )
             )
         except Exception:

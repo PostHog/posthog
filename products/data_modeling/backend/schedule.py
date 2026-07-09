@@ -28,6 +28,7 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models import Node
 
 if TYPE_CHECKING:
@@ -85,9 +86,7 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            # A cadence-tier schedule id is "{dag_id}:{interval_seconds}"; a legacy id is the
-            # bare DAG id (no colon), which rsplit leaves untouched.
-            dag_ids.add(listing.id.rsplit(":", 1)[0])
+            dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 
