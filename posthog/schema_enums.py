@@ -590,6 +590,11 @@ class ChartDisplayType(StrEnum):
     SLOPE_GRAPH = "SlopeGraph"
 
 
+class Curve(StrEnum):
+    LINEAR = "linear"
+    SMOOTH = "smooth"
+
+
 class ColorMode(StrEnum):
     LIGHT = "light"
     DARK = "dark"

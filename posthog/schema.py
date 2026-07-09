@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     CorrelationType as CorrelationType,
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
+    Curve as Curve,
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
@@ -819,6 +820,16 @@ class ChartSettingsFormatting(BaseModel):
     suffix: str | None = None
 
 
+class ChartStyle(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    curve: Curve | None = Field(
+        default=None,
+        description=("Line interpolation: straight segments or a smoothed curve through the points."),
+    )
+
+
 class ClientToolResultPayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1235,6 +1246,26 @@ class ExperimentMetricOutlierHandling(BaseModel):
     )
 
 
+class ExperimentParameters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users"
+            " but catch smaller changes. Suggest 20–30% for most experiments."
+        ),
+    )
+    variant_notes: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Free-text notes per variant, keyed by variant key. Use to document what"
+            " each variant does or its reroute URL."
+        ),
+    )
+
+
 class ExperimentRunningTimeCalculation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1259,32 +1290,6 @@ class ExperimentRunningTimeCalculation(BaseModel):
     recommended_sample_size: float | None = Field(
         default=None,
         description=("Recommended number of exposed users needed for statistical significance."),
-    )
-
-
-class ExperimentVariant(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(
-        ...,
-        description=(
-            "Variant key. Exactly one variant in feature_flag_variants must use key"
-            " 'control' (lowercase, exactly) — that is the baseline used for analysis"
-            " and the special key the experiment runtime expects. Other variants use"
-            " keys like 'test', 'variant_a', 'variant_b'. Map natural-language names"
-            " ('original', 'A', 'baseline') to 'control'."
-        ),
-    )
-    name: str | None = Field(default=None, description="Human-readable variant name.")
-    rollout_percentage: float | None = None
-    split_percent: float | None = Field(
-        default=None,
-        description=(
-            "Percentage of users assigned to this variant (0–100). All variants must"
-            " sum to 100. One of split_percent (recommended) or rollout_percentage must"
-            " be provided."
-        ),
     )
 
 
@@ -4570,42 +4575,6 @@ class ExperimentMetricBaseProperties(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentParameters(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    feature_flag_variants: list[ExperimentVariant] | None = Field(
-        default=None,
-        description=(
-            "Experiment variants. If specified, must include a variant with key"
-            " 'control' (lowercase). Defaults to a 50/50 control/test split when"
-            " omitted. Minimum 2, maximum 20."
-        ),
-    )
-    minimum_detectable_effect: float | None = Field(
-        default=None,
-        description=(
-            "Minimum detectable effect as a percentage. Lower values need more users"
-            " but catch smaller changes. Suggest 20–30% for most experiments."
-        ),
-    )
-    rollout_percentage: float | None = Field(
-        default=None,
-        description=(
-            "Overall rollout percentage (0-100). Controls what fraction of all users"
-            " enter the experiment. Users outside the rollout never see any variant and"
-            " are excluded from analysis. Default: 100."
-        ),
-    )
-    variant_notes: dict[str, str] | None = Field(
-        default=None,
-        description=(
-            "Free-text notes per variant, keyed by variant key. Use to document what"
-            " each variant does or its reroute URL."
-        ),
-    )
-
-
 class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6560,6 +6529,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
@@ -7346,6 +7316,7 @@ class TrendsFilter(BaseModel):
         ),
     )
     breakdown_histogram_bin_count: float | None = None
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     confidenceLevel: float | None = None
     decimalPlaces: float | None = Field(
         default=None,
@@ -21083,6 +21054,7 @@ class RetentionFilter(BaseModel):
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
     )
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     cohortLabelStartIndex: int | None = Field(
         default=0,
         description=(
@@ -23149,6 +23121,10 @@ class FunnelsFilter(BaseModel):
     breakdownSorting: str | None = Field(
         default=None,
         description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
+    chartStyle: ChartStyle | None = Field(
+        default=None,
+        description=("Chart rendering style overrides (line shape). Only applies to historical-trends funnels."),
     )
     customAggregationTarget: bool | None = Field(
         default=None,

@@ -1044,6 +1044,39 @@ describe('Hog Executor', () => {
             expect(result.error).toContain('has no secret API token configured')
         })
 
+        it('captures exception with team_id when secret API token is missing', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ tags: expect.objectContaining({ team_id: 1 }) })
+            )
+        })
+
+        it('does not capture exception when queue is set up successfully', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: 'test-secret-token',
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
+            await executor.execute(createAccountInvocation())
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+
         it('postHogUpdateAccount queues a PATCH with external_id merged into the body', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
