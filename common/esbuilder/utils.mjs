@@ -46,12 +46,14 @@ export function copySnappyWASMFile(absWorkingDir) {
     }
 }
 
-export function copyRRWebWorkerFiles(absWorkingDir) {
-    // Mirror rrweb's image-bitmap worker sourcemap (shipped from posthog-js) into our dist/
-    // so the sourceMappingURL baked into our bundled rrweb resolves under collectstatic.
+export function copyRRWebWorkerFiles(absWorkingDir, distSubdir = 'dist') {
+    // Mirror rrweb's image-bitmap worker sourcemap (shipped from posthog-js) into the output
+    // dir so the sourceMappingURL baked into our bundled rrweb resolves under collectstatic.
+    // ManifestStaticFilesStorage resolves the reference relative to the referencing file's
+    // directory, so every outdir that bundles rrweb needs its own copy.
     try {
         const rrwebSourceDir = path.resolve(absWorkingDir, 'node_modules/posthog-js/dist')
-        const distDir = path.resolve(absWorkingDir, 'dist')
+        const distDir = path.resolve(absWorkingDir, distSubdir)
         const files = fse.readdirSync(rrwebSourceDir)
         const mapFiles = files.filter((f) => f.startsWith('image-bitmap-data-url-worker-') && f.endsWith('.js.map'))
         mapFiles.forEach((file) => {

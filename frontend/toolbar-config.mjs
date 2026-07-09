@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 
-import { commonConfig, createHashlessEntrypoints, esbuildBuild, isDev } from '@posthog/esbuilder'
+import { commonConfig, copyRRWebWorkerFiles, createHashlessEntrypoints, esbuildBuild, isDev } from '@posthog/esbuilder'
 
 // `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
 // toolbar bundle and its assets can be hosted under a versioned, content-pinned
@@ -236,7 +236,16 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 
     // toolbar-app-<hash>.js -> toolbar-app.js next to it: the loader's version-skew fallback.
     createHashlessEntrypoints(dirname, entrypoints)
-    fs.copyFileSync(entryCss, path.resolve(dirname, 'dist', 'toolbar.css'))
+    // The copy lives one directory up from the entry CSS, so point its sourceMappingURL back
+    // into dist/toolbar/ — collectstatic fails on a sourcemap reference it can't resolve.
+    const entryCssContent = fs
+        .readFileSync(entryCss, 'utf8')
+        .replace(/sourceMappingURL=([^\s*]+\.css\.map)/, 'sourceMappingURL=toolbar/$1')
+    fs.writeFileSync(path.resolve(dirname, 'dist', 'toolbar.css'), entryCssContent)
+
+    // The chunks bundle rrweb, whose inlined worker string carries a sourceMappingURL that
+    // collectstatic resolves relative to dist/toolbar/ — the map must exist there too.
+    copyRRWebWorkerFiles(dirname, 'dist/toolbar')
 
     await esbuildBuild({
         absWorkingDir: dirname,
