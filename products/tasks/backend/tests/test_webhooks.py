@@ -754,12 +754,26 @@ class TestFindTaskRun(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
+            branch="main",
             state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
         )
         result = find_task_run(branch="posthog/instrumentation-ab12cd", repository="posthog/posthog")
         self.assertEqual(result, wizard_run)
         # Same branch name from a foreign repository must not be attributed to this run.
         self.assertIsNone(find_task_run(branch="posthog/instrumentation-ab12cd", repository="acme/other"))
+        # The run's `branch` column holds the checkout base, so a same-repo PR whose head
+        # ref equals it must not claim the wizard run through the plain branch leg.
+        self.assertIsNone(find_task_run(branch="main", repository="posthog/posthog"))
+
+    def test_wizard_head_branch_leg_ignores_terminal_runs(self):
+        # A reopened/re-PR'd wizard branch months later must not fire events on a dead run.
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"wizard_head_branch": "posthog/instrumentation-dead00"},
+        )
+        self.assertIsNone(find_task_run(branch="posthog/instrumentation-dead00", repository="posthog/posthog"))
 
     def test_returns_none_when_no_match(self):
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")

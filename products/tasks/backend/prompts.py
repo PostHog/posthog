@@ -9,6 +9,8 @@ Shell efficiency: optimize for the fewest shell round trips.
 # A .replace() sentinel (not str.format) because the prompt body is full of literal braces.
 WIZARD_HEAD_BRANCH_PLACEHOLDER = "<wizard-head-branch>"
 
+WIZARD_HEAD_BRANCH_PREFIX = "posthog/instrumentation-"
+
 WIZARD_PR_AGENT_PROMPT = f"""
 # Context
 

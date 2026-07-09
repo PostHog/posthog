@@ -15,6 +15,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
 
@@ -36,23 +37,38 @@ def find_task_run(
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
     repository = repository.strip() if repository else None
     if branch and repository:
+        # Wizard runs are excluded here: their `branch` column holds the checkout (base)
+        # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
+        # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(branch=branch, task__repository__iexact=repository)
+            TaskRun.objects.filter(
+                branch=branch,
+                task__repository__iexact=repository,
+                state__wizard_head_branch__isnull=True,
+            )
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
         if task_run:
             return task_run
 
-        # Wizard cloud runs push to a server-generated head branch stored in run state —
-        # TaskRun.branch holds the checkout (base) branch, so the leg above can't match them.
-        task_run = (
-            TaskRun.objects.filter(state__wizard_head_branch=branch, task__repository__iexact=repository)
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
+        # Wizard cloud runs push to a server-generated head branch stored in run state.
+        # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
+        # terminal runs are excluded so a reopened branch can't fire events on a dead run
+        # (post-merge events for bound runs resolve via the pr_url leg above).
+        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
+            task_run = (
+                TaskRun.objects.filter(
+                    state__wizard_head_branch=branch,
+                    task__repository__iexact=repository,
+                    task__deleted=False,
+                )
+                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .select_related(*TASK_RUN_SELECT_RELATED)
+                .first()
+            )
+            if task_run:
+                return task_run
 
     return None
 
@@ -170,11 +186,15 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     """
     if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
         return
-    # Surface the PR to any live UI: without these the output write is invisible until the
-    # client refetches the run (the onboarding progress modal streams, it doesn't poll).
-    # Tolerant for the same reason as the write itself — GitHub retries webhook 5xx.
+    # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
+    # log batches at exactly this moment — and append_log's read-modify-write would race it.
+    # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
     try:
-        task_run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)
+        for event in (
+            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
+            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
+        ):
+            task_run.publish_stream_event(event)
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)

@@ -1028,6 +1028,13 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Same shape for the wizard-run webhook leg `filter(state__wizard_head_branch=...)`;
+            # only wizard runs carry the key, so the index stays tiny.
+            models.Index(
+                KeyTransform("wizard_head_branch", "state"),
+                name="task_run_wizard_branch_idx",
+                condition=models.Q(state__wizard_head_branch__isnull=False),
+            ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
@@ -1434,6 +1441,18 @@ class TaskRun(models.Model):
         backend decides grouping granularity by picking a phase id (e.g.
         `"setup"`, `"pr_create"`).
         """
+        event = self.build_progress_event(step, status, label, group, detail)
+        self.append_log([event])
+        self.publish_stream_event(event)
+
+    def build_progress_event(
+        self,
+        step: str,
+        status: str,
+        label: str,
+        group: str,
+        detail: Optional[str] = None,
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "sessionId": str(self.id),
             "step": step,
@@ -1443,7 +1462,7 @@ class TaskRun(models.Model):
         }
         if detail is not None:
             params["detail"] = detail
-        event = {
+        return {
             "type": "notification",
             "timestamp": django_timezone.now().isoformat(),
             "notification": {
@@ -1452,8 +1471,6 @@ class TaskRun(models.Model):
                 "params": params,
             },
         }
-        self.append_log([event])
-        self.publish_stream_event(event)
 
     def emit_sandbox_output(self, stdout: str, stderr: str, exit_code: int) -> None:
         """Emit sandbox execution output as ACP notification."""

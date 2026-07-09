@@ -64,7 +64,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.prompts import build_wizard_pr_agent_prompt
+from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX, build_wizard_pr_agent_prompt
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -771,7 +771,7 @@ def create_wizard_cloud_run(
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
     """
-    head_branch = f"posthog/instrumentation-{secrets.token_hex(3)}"
+    head_branch = f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
     prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
         team=team,
@@ -1465,6 +1465,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "wizard_config",
+        "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "snapshot_external_id",
         "snapshot_kind",
@@ -3737,6 +3738,12 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         extra_state.update(prev_state.resume_snapshot_carry_state())
+
+        # The resumed agent still pushes the head branch baked into the original prompt, so the
+        # PR webhook must be able to match this run, not the terminal predecessor.
+        prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
+        if prev_wizard_head_branch:
+            extra_state["wizard_head_branch"] = prev_wizard_head_branch
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
