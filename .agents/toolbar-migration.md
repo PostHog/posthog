@@ -4,14 +4,15 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Step 1 (implemented, PR pending review); next up Step 2
+- **Current step**: Step 2 is UNBLOCKED — `src/products.tsx` (and the whole app scene graph) is out of the toolbar bundle graph as of the shim-leak fix below. Next: unstash `toolbar-step2-loader-esm-wip` (expect conflicts in `toolbar-config.mjs` — the working tree's `createToolbarModulePlugin` gained relative/`~/` shim matching that MUST be preserved) and apply the known adjustments in the Step 2 section.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — branch `rafa/toolbar-migration-1-graph-guard`
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071, stacked on Step 1); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (stacked on #69071)
+- **Reorder note (resolved)**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`. The gate was: flip the format only once `products.tsx` leaves the graph. That's now done via two moves in this PR. First, the remaining chains all funneled through one root cause: the kea shims only matched exact alias strings (`scenes/teamLogic`), so relative imports (`dataThemeLogic` → `./teamLogic`) and `~/`-prefixed imports pulled the REAL logics and their whole app graph — fixed with relative + `~/` matching in `createToolbarModulePlugin`, disconnecting `products.tsx`, `scenes.ts`, `teamLogic`, `PersonDisplay`, and `experimentsLogic` in one move. Second, `scenes/urls` itself (imported by lib components shared with the app) is shimmed to the toolbar's parity-tested `~/toolbar/urls` duplicate from Step 3, taking the last products-manifest path out. Bundle graph 8448 → ~1000 files (99 → ~13.5 MiB source), shipped `dist/toolbar.js` 9.95 MB → ~4 MB (was just under the 10 MB CloudFront cliff). Graph budget ratcheted 110 MB → 18 MB.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
 ## Why
 
-The toolbar (`frontend/src/toolbar/`, entry `frontend/src/toolbar/index.tsx`) is built as a single IIFE (`frontend/toolbar-config.mjs`), which force-inlines all 157 dynamic `import()`s in its graph, and it imports the main app — `scenes/urls.ts:5` pulls `~/products` (every product manifest), `~/types` has runtime imports (`lib/Chart`, `lib/api`, an `hls.js`-dragging re-export). Tree shaking can't rescue it (no `sideEffects` fields), so `toolbar-config.mjs` keeps hand-curated denylists + kea shims (`frontend/src/toolbar/shims/`) — which already leak (`scenes/dataThemeLogic.tsx` imports `./teamLogic` relatively, bypassing the exact-string shim). The bundle sits just under the 10MB CloudFront gzip cliff (`frontend/bin/check-toolbar-size.mjs`).
+The toolbar (`frontend/src/toolbar/`, entry `frontend/src/toolbar/index.tsx`) is built as a single IIFE (`frontend/toolbar-config.mjs`), which force-inlines all 157 dynamic `import()`s in its graph, and it imports the main app — `scenes/urls.ts:5` pulls `~/products` (every product manifest), `~/types` has runtime imports (`lib/Chart`, `lib/api`, an `hls.js`-dragging re-export). Tree shaking can't rescue it (no `sideEffects` fields), so `toolbar-config.mjs` keeps hand-curated denylists + kea shims (`frontend/src/toolbar/shims/`) — which leaked until the third PR (`scenes/dataThemeLogic.tsx` imports `./teamLogic` relatively, bypassing the then-exact-string shim; fixed by matching relative and `~/` imports too). Before that fix the bundle sat just under the 10MB CloudFront gzip cliff (`frontend/bin/check-toolbar-size.mjs`); it now ships at ~4.06 MB.
 
 Measured from `frontend/toolbar-esbuild-meta.json` (dev bytes; prod ≈ dev × 0.42):
 
@@ -56,7 +57,9 @@ Work one step per PR (Graphite stack via `gt`; keep the stack shallow — merge 
 
 Done when: CI runs the graph check green with the baseline allowlist.
 
-### Step 2 — loader + ESM code splitting (no import-graph changes)
+### Step 2 — loader + ESM code splitting (GATED: land after `src/products.tsx` leaves the toolbar graph, see reorder note in Status)
+
+Implementation is done and stashed as `toolbar-step2-loader-esm-wip` (loader.ts, two-config build, esbuilder `esbuildBuild` re-export, globals.d.ts). Known adjustments still needed when unstashing: esbuild 0.25 DOES emit per-chunk CSS files — drop the single-CSS assertion in `finalizeToolbarBuild` and instead require the entry CSS (it holds all statically-reachable styles; chunk CSS is dead weight for lazy scenes, but toolbar features must keep their styles statically imported — recheck at Step 7); surface `finalizeToolbarBuild` errors (buildInParallel's catch swallows them silently).
 
 Target layout: `dist/toolbar.js` (~1-2KB classic loader) + `dist/toolbar.css` (single file, esbuild doesn't split CSS) + `dist/toolbar/toolbar-app-<hash>.js` + `dist/toolbar/toolbar-app.js` (hashless fallback) + `dist/toolbar/chunk-*-<hash>.js`.
 
@@ -72,11 +75,15 @@ Target layout: `dist/toolbar.js` (~1-2KB classic loader) + `dist/toolbar.css` (s
 
 Done when: ~30% of the bundle is deferred with no source changes and all guards are green. Known-unsupported: exact-path CSP allowlists (`script-src .../toolbar.js`) — document in the PR.
 
-### Step 3 — split the generated products manifest (biggest graph cut; helps the main app too)
+### Step 3 — toolbar-owned `urls` duplicate (landed before Step 2, see reorder note)
 
-- [ ] `frontend/build-products.mjs`: emit `frontend/src/products-urls.tsx` (only `productUrls` + the per-property imports it already tracks via `keepOnlyImport`) separately from `products.tsx` (scenes/routes/redirects/configuration; re-export `productUrls` for compat)
-- [ ] Repoint `frontend/src/scenes/urls.ts` to `~/products-urls`; strip its value imports (`fileSystemTypes` href loop moves out; `OutputTab` from data-warehouse editor and `DataPipelinesNewSceneKind` become leaf enums or literals)
-- [ ] Delete the retired edges from the Step 1 allowlist; coordinate with the `check-eager-graph.mjs` owners (this also shrinks the app's eager path)
+Approach (revised on review): rather than restructuring the generated products manifest so `scenes/urls` stops dragging it in, the toolbar gets its own deliberately duplicated `frontend/src/toolbar/urls.ts` with only the url helpers it links to, and a parity test keeps it honest. A first version of this PR split `products-urls.tsx` out of the generator; that was reverted as over-engineered — the duplicate + test is simpler to review and keeps the generator untouched.
+
+- [x] `frontend/src/toolbar/urls.ts`: the 12 helpers toolbar code uses (`action(s)`, `experiment(s)`, `featureFlag(s)`, `productTour`, `sessionProfile`, `settings`, `survey(s)`, `webAnalyticsWebVitals`), plus a documented `urlToResource` null stub (the real one walks a matcher tree built from every product manifest; its only toolbar-shipped consumer is Link's drag-to-notebook annotation, inert on customer pages)
+- [x] `frontend/src/toolbar/urls.test.ts`: parity test asserting each helper matches `scenes/urls` byte-for-byte over sample args (the test deliberately crosses the boundary — that's its job); a helper without samples fails
+- [x] All 11 toolbar files import `~/toolbar/urls`; their `-> src/scenes/urls.ts` baseline edges are deleted (47 → 36)
+- [x] The 3 lib files shipped in the toolbar (`TZLabel`, `HeatmapEventsPanel`, `Link`) still import `scenes/urls` — they're shared with the app and can't be repointed; the third PR's `scenes/urls` shim resolves them to the toolbar duplicate at build time, removing their edges and taking `scenes/urls` + the products manifest out of the toolbar graph entirely
+- [ ] Verify the app/exporter eager-graph improvements with the `check-eager-graph` owners
 
 ### Step 4 — `~/types` hygiene
 
@@ -88,7 +95,7 @@ Done when: ~30% of the bundle is deferred with no source changes and all guards 
 
 ### Step 5 — toolbar-owned direct edges
 
-- [ ] `toolbar/experiments/experimentsTabLogic.tsx`: stop importing `scenes/experiments/experimentsLogic`; fetch via `toolbarFetch`
+- [x] `toolbar/experiments/experimentsTabLogic.tsx`: stopped importing `scenes/experiments/experimentsLogic` — the pure status helpers (`getExperimentStatus`/`isLaunched`/`isExperimentPaused`/`hasEnded`) moved to leaf module `scenes/experiments/experimentStatus.ts` (re-exported from experimentsLogic for app importers); data fetching already went via `toolbarApi`
 - [ ] `toolbar/debug/EventDebugMenu.tsx`: move `PanelSettings` from `scenes/session-recordings/components/` to `lib/components/`
 - [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import
 - [ ] `toolbar/actions/StepField.tsx`: move `products/actions/frontend/utils/hints` to `lib/` (or allowlist — it's ~0KB)
@@ -96,9 +103,10 @@ Done when: ~30% of the bundle is deferred with no source changes and all guards 
 ### Step 6 — shared lib → scenes back-edges (each also helps the main app)
 
 - [ ] `lib/lemon-ui/Link/Link.tsx` → `DraggableToNotebook` (drags notebooks → tiptap): invert with a registry/context seam (the flagship shim→DI replacement)
-- [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (bypasses the teamLogic shim today): theme via props/context
+- [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (its `./teamLogic` import is now shimmed, so this edge is boundary-only, not a leak): theme via props/context
 - [ ] `lib/lemon-ui/LemonMarkdown/index.ts`: stop re-exporting `LemonMarkdownWithMermaid` from the barrel (retires the `mermaid` deny for both bundles)
-- [ ] `TZLabel` → teamLogic/urls; `HeatmapEventsPanel` → `PersonDisplay`; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
+- [x] `HeatmapEventsPanel` → `PersonDisplay`: replaced with a plain span (PersonDisplay renders exactly that for a distinct_id-only person with `noPopover`); `TZLabel` → teamLogic edge now shimmed at resolve time (`~/scenes/teamLogic` matching)
+- [ ] `TZLabel` → urls; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
 
 ### Step 7 — lazy boundaries in toolbar source
 

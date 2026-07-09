@@ -525,22 +525,6 @@ accounts: PostgresTable = PostgresTable(
             name="zendesk_id",
             expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
         ),
-        "csm": ExpressionField(
-            name="csm",
-            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
-        ),
-        "account_executive": ExpressionField(
-            name="account_executive",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
-        ),
-        "account_owner": ExpressionField(
-            name="account_owner",
-            expr=parse_expr(
-                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
-            ),
-        ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the account record."
         ),

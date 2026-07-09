@@ -1,3 +1,5 @@
+import json
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,7 +23,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -330,6 +332,216 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
     summary = intent_generation.summarize_intents(intents, team)
     MCPSession.objects.update_or_create(team=team, session_id=session_id, defaults={"intent": summary})
     return summary
+
+
+INTENT_DIGEST_CACHE_TTL = 60 * 60
+
+
+def generate_intent_digest(team: Team) -> contracts.IntentDigest:
+    """Return a project-level LLM digest of what agents are trying to do, for the activity stage.
+
+    Content-addressed cache: the digest is keyed by the current intent corpus, so it only
+    regenerates when new intents arrive (and at most refreshes hourly via the TTL). A project
+    with no recorded intents returns a null digest without an LLM call, so the frontend can
+    fall back to its verbatim list. Raises ``contracts.IntentGenerationUnavailable`` if the
+    LLM is unreachable.
+    """
+    intents = intent_generation.fetch_recent_project_intents(team)
+    if not intents:
+        return contracts.IntentDigest(digest=None, intent_count=0)
+
+    corpus_hash = hashlib.sha256("\n".join(intents).encode()).hexdigest()
+    cache_key = generate_cache_key(team.pk, f"mcp_intent_digest/{corpus_hash}")
+    cached = cache.get(cache_key)
+    if cached:
+        return contracts.IntentDigest(digest=cached, intent_count=len(intents))
+
+    digest = intent_generation.summarize_project_intents(intents, team)
+    cache.set(cache_key, digest, INTENT_DIGEST_CACHE_TTL)
+    return contracts.IntentDigest(digest=digest, intent_count=len(intents))
+
+
+# The activity queries read `properties.*`, which decompresses the properties column for
+# every matching row, and the view is reachable at any project volume. 30 days is
+# effectively all-time for the low-volume servers the activity stage exists for, and a
+# hard cap on the scan for high-volume projects that open the tab.
+ACTIVITY_WINDOW = timedelta(days=30)
+ACTIVITY_TOP_TOOLS_LIMIT = 5
+ACTIVITY_CLIENTS_LIMIT = 6
+ACTIVITY_RECENT_CALLS_LIMIT = 20
+
+_ACTIVITY_STATS_SQL = """
+SELECT
+    countIf(event = {tool_call_event}) AS total_calls,
+    uniqIf(properties.$mcp_tool_name, event = {tool_call_event}) AS distinct_tools,
+    uniqIf($session_id, event = {tool_call_event} AND $session_id != '') AS distinct_sessions,
+    uniqIf(properties.$mcp_client_name, event = {tool_call_event} AND coalesce(properties.$mcp_client_name, '') != '') AS distinct_clients,
+    countIf(event = {tool_call_event} AND coalesce(properties.$mcp_intent, '') != '') AS calls_with_intent,
+    countIf(event = {tool_call_event} AND toString(properties.$mcp_is_error) IN ('true', '1')) AS error_calls,
+    countIf(event = {missing_capability_event}) AS missing_capability_reports
+FROM events
+WHERE event IN ({tool_call_event}, {missing_capability_event}) AND timestamp >= {date_from}
+"""
+
+_ACTIVITY_TOP_TOOLS_SQL = """
+SELECT
+    properties.$mcp_tool_name AS tool,
+    count() AS calls,
+    countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+FROM events
+WHERE event = {tool_call_event} AND properties.$mcp_tool_name IS NOT NULL AND timestamp >= {date_from}
+GROUP BY tool
+ORDER BY calls DESC
+LIMIT {limit}
+"""
+
+_ACTIVITY_CLIENTS_SQL = """
+SELECT
+    properties.$mcp_client_name AS client,
+    count() AS calls
+FROM events
+WHERE event = {tool_call_event} AND timestamp >= {date_from}
+GROUP BY client
+ORDER BY calls DESC
+LIMIT {limit}
+"""
+
+_ACTIVITY_RECENT_CALLS_SQL = """
+SELECT
+    timestamp,
+    properties.$mcp_tool_name AS tool,
+    properties.$mcp_intent AS intent,
+    toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+    if(toString(properties.$mcp_is_error) IN ('true', '1'),
+       coalesce(nullIf(toString(properties.$mcp_error_message), ''), toString(properties.$mcp_response)),
+       NULL) AS error_raw,
+    toFloat(properties.$mcp_duration_ms) AS duration_ms,
+    properties.$mcp_client_name AS client_name
+FROM events
+WHERE event = {tool_call_event} AND timestamp >= {date_from}
+ORDER BY timestamp DESC
+LIMIT {limit}
+"""
+
+
+def _extract_error_message(raw: Any) -> str | None:
+    """Pull the human-readable text out of a failed call's error payload.
+
+    ``$mcp_error_message`` is used verbatim when the SDK set it; otherwise ``$mcp_response``
+    is an MCP content envelope ({"content": [{"type": "text", "text": ...}]}) to unwrap.
+    """
+    value = str(raw).strip() if raw is not None else ""
+    if not value:
+        return None
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        # HogQL's property accessor strips a string value's outer quotes but keeps the
+        # inner escapes; re-wrap to unescape, then parse the payload it encodes.
+        try:
+            parsed = json.loads(json.loads(f'"{value}"'))
+        except (json.JSONDecodeError, ValueError):
+            return value
+    if isinstance(parsed, dict):
+        content = parsed.get("content")
+        if isinstance(content, list):
+            for chunk in content:
+                if isinstance(chunk, dict) and chunk.get("type") == "text" and isinstance(chunk.get("text"), str):
+                    return chunk["text"] or None
+        message = parsed.get("message")
+        if isinstance(message, str) and message:
+            return message
+    return value
+
+
+def _run_activity_query(team: Team, sql: str, name: str, placeholders: dict[str, ast.Constant]) -> list[Any]:
+    query = parse_select(sql, placeholders={**placeholders})
+    with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
+        response = execute_hogql_query(query=query, team=team)
+    return response.results or []
+
+
+def get_activity_overview(team: Team) -> contracts.ActivityOverview:
+    """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
+
+    Always computed fresh: the view's whole point is watching data arrive, so callers
+    poll this endpoint rather than a stale cache.
+    """
+    date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
+    tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
+
+    stats_rows = _run_activity_query(
+        team,
+        _ACTIVITY_STATS_SQL,
+        "mcp_analytics_activity_stats",
+        {
+            "tool_call_event": tool_call_event,
+            "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+            "date_from": date_from,
+        },
+    )
+    stats_row = stats_rows[0] if stats_rows else [0] * 7
+    stats = contracts.ActivityStats(
+        total_calls=_parse_int(stats_row[0]) or 0,
+        distinct_tools=_parse_int(stats_row[1]) or 0,
+        distinct_sessions=_parse_int(stats_row[2]) or 0,
+        distinct_clients=_parse_int(stats_row[3]) or 0,
+        calls_with_intent=_parse_int(stats_row[4]) or 0,
+        error_calls=_parse_int(stats_row[5]) or 0,
+        missing_capability_reports=_parse_int(stats_row[6]) or 0,
+    )
+
+    top_tools = [
+        contracts.ActivityToolRow(tool=str(row[0] or ""), calls=_parse_int(row[1]) or 0, errors=_parse_int(row[2]) or 0)
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_TOP_TOOLS_SQL,
+            "mcp_analytics_activity_top_tools",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+            },
+        )
+    ]
+
+    clients = [
+        contracts.ActivityClientRow(client=str(row[0]) if row[0] else "", calls=_parse_int(row[1]) or 0)
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_CLIENTS_SQL,
+            "mcp_analytics_activity_clients",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+            },
+        )
+    ]
+
+    recent_calls = [
+        contracts.ActivityRecentCall(
+            timestamp=row[0],
+            tool=str(row[1] or ""),
+            intent=str(row[2]) if row[2] else None,
+            is_error=bool(row[3]),
+            error_message=_extract_error_message(row[4]),
+            duration_ms=float(row[5]) if row[5] is not None else None,
+            client_name=str(row[6]) if row[6] else None,
+        )
+        for row in _run_activity_query(
+            team,
+            _ACTIVITY_RECENT_CALLS_SQL,
+            "mcp_analytics_activity_recent_calls",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+            },
+        )
+    ]
+
+    return contracts.ActivityOverview(stats=stats, top_tools=top_tools, clients=clients, recent_calls=recent_calls)
 
 
 def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]:
