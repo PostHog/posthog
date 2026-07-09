@@ -35,7 +35,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import EmailVerifier
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import StripeIntegration
+from posthog.models.integration import GitHubIntegration, StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
@@ -54,7 +54,7 @@ from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, github_grants
 from .authentication import ProvisioningAuthentication
 from .region_proxy import region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_provisioning_signature
@@ -83,12 +83,20 @@ PARTNER_RATE_LIMIT_DEFAULTS: dict[str, int] = {
     "account_requests": 10,
     "token_exchanges": 20,
     "resource_creates": 20,
+    "github_grants": 10,
 }
 PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
     "account_requests": "account_request",
     "token_exchanges": "token_exchange",
     "resource_creates": "resource_created",
+    "github_grants": "github_grant",
 }
+
+# Repo-picker polling budget per grant (the website polls while the visitor installs the
+# GitHub App in another tab). Keyed per grant, so one stuck visitor can't starve others.
+GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX = "provisioning_github_grant_poll:"
+GITHUB_GRANT_POLL_RATE_LIMIT_MAX = 120
+GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS = 3600
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
@@ -790,6 +798,175 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str], region: st
     base = _region_to_host(region).rstrip("/") if region else settings.SITE_URL.rstrip("/")
     params = urlencode({"state": confirmation_secret, "scope": " ".join(scopes)})
     return f"{base}/api/agentic/authorize?{params}"
+
+
+# ---------------------------------------------------------------------------
+# POST /provisioning/github/grants
+# GET  /provisioning/github/grants/:grant_id/repositories
+# GitHub grants for drop-style partner flows: the partner forwards a GitHub OAuth
+# code, we exchange and hold the user tokens server-side, and the partner only
+# ever sees an opaque grant_id. No region proxy: grants are region-local (the
+# partner must call the region that minted the grant).
+# ---------------------------------------------------------------------------
+
+
+def _authenticate_provisioning_partner(request: Request) -> tuple[Response | None, OAuthApplication | None]:
+    """Identify a provisioning partner, requiring one (unlike account_requests'
+    legacy Stripe fallback). Returns (error_response, partner)."""
+    auth = ProvisioningAuthentication()
+    try:
+        result = auth.authenticate(request)
+    except AuthenticationFailed:
+        result = None
+    partner = result[1] if result else None
+    if partner is None:
+        return (
+            Response(
+                {"type": "error", "error": {"code": "unauthorized", "message": "Authentication required"}},
+                status=401,
+            ),
+            None,
+        )
+    return None, partner
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([])
+def github_grants_create(request: Request) -> Response:
+    if error := verify_api_version(request):
+        return error
+
+    auth_error, partner = _authenticate_provisioning_partner(request)
+    if auth_error or partner is None:
+        return auth_error or Response(status=401)
+
+    if not partner.provisioning_can_create_accounts:
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="account_creation_disabled")
+        return Response(
+            {
+                "type": "error",
+                "error": {"code": "forbidden", "message": "Account creation is not enabled for this partner"},
+            },
+            status=403,
+        )
+
+    if error := _enforce_partner_rate_limit(partner, "github_grants"):
+        return error
+
+    code = request.data.get("code")
+    redirect_uri = request.data.get("redirect_uri") or None
+    if not code or not isinstance(code, str):
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="missing_code")
+        return Response(
+            {"type": "error", "error": {"code": "invalid_request", "message": "code is required"}}, status=400
+        )
+
+    authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
+    if authorization is None:
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_exchange_failed")
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "github_exchange_failed",
+                    "message": "Could not exchange the GitHub OAuth code",
+                },
+            },
+            status=502,
+        )
+
+    # A user with no verified email gets a grant with email=null — the partner
+    # collects an email inline instead. Only an access refusal (App permission
+    # misconfiguration) hard-fails, so it can't masquerade as that user state.
+    try:
+        email = github_grants.fetch_primary_email(authorization.access_token)
+    except github_grants.GitHubEmailAccessDenied:
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="email_unavailable")
+        return Response(
+            {
+                "type": "error",
+                "error": {
+                    "code": "email_unavailable",
+                    "message": "GitHub denied reading the user's email addresses",
+                },
+            },
+            status=502,
+        )
+    except requests.RequestException:
+        _capture_provisioning_event("github_grant", "error", partner=partner, error_code="github_unavailable")
+        return Response(
+            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
+            status=502,
+        )
+
+    grant = github_grants.create_grant(partner, authorization, email)
+    _capture_provisioning_event("github_grant", "created", partner=partner, gh_login=grant.gh_login)
+    return Response(
+        {
+            "grant_id": grant.grant_id,
+            "gh_login": grant.gh_login,
+            "email": grant.email,
+            "expires_in": github_grants.GITHUB_GRANT_TTL_SECONDS,
+        }
+    )
+
+
+def _enforce_grant_poll_rate_limit(grant_id: str) -> Response | None:
+    window_index = int(time.time()) // GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS
+    key = f"{GITHUB_GRANT_POLL_RATE_LIMIT_PREFIX}{grant_id}:{window_index}"
+    try:
+        cache.add(key, 0, timeout=GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS)
+        count = cache.incr(key)
+    except (ValueError, ConnectionError, TimeoutError):
+        count = 1
+    if count > GITHUB_GRANT_POLL_RATE_LIMIT_MAX:
+        response = Response(
+            {
+                "type": "error",
+                "error": {"code": "rate_limited", "message": "Too many repository listing requests for this grant"},
+            },
+            status=429,
+        )
+        response["Retry-After"] = str(
+            GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS
+            - (int(time.time()) % GITHUB_GRANT_POLL_RATE_LIMIT_WINDOW_SECONDS)
+        )
+        return response
+    return None
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([])
+def github_grant_repositories(request: Request, grant_id: str) -> Response:
+    if error := verify_api_version(request):
+        return error
+
+    auth_error, partner = _authenticate_provisioning_partner(request)
+    if auth_error or partner is None:
+        return auth_error or Response(status=401)
+
+    grant = github_grants.load_grant(grant_id, partner)
+    if grant is None:
+        return Response(
+            {"type": "error", "error": {"code": "grant_not_found", "message": "Grant not found or expired"}},
+            status=404,
+        )
+
+    if error := _enforce_grant_poll_rate_limit(grant_id):
+        return error
+
+    try:
+        listing = github_grants.list_installations_and_repositories(grant.access_token)
+    except requests.RequestException:
+        _capture_provisioning_event("github_grant", "listing_failed", partner=partner)
+        return Response(
+            {"type": "error", "error": {"code": "github_unavailable", "message": "GitHub request failed"}},
+            status=502,
+        )
+
+    return Response({"gh_login": grant.gh_login, **listing})
 
 
 # ---------------------------------------------------------------------------
