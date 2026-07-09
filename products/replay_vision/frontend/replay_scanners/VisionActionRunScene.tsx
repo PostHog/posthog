@@ -2,10 +2,13 @@ import { useValues } from 'kea'
 
 import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,6 +28,12 @@ export const scene: SceneExport = {
 
 function RecordingsIncluded({ observations }: { observations: readonly RunObservationApi[] }): JSX.Element {
     const columns: LemonTableColumns<RunObservationApi> = [
+        {
+            // Matches the `[N]` citations in the summary above, so a reader can trace a cited theme to its row.
+            title: '#',
+            key: 'index',
+            render: (_, obs) => <span className="text-muted whitespace-nowrap">[{obs.index}]</span>,
+        },
         {
             title: 'Observation',
             key: 'observation',
@@ -70,7 +79,12 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
 }
 
 function VisionActionRunScene(): JSX.Element {
-    const { run, runLoading } = useValues(visionActionRunSceneLogic)
+    const { run, runLoading, summaryMarkdown } = useValues(visionActionRunSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
+        return <NotFound object="page" />
+    }
 
     if (runLoading) {
         return (
@@ -109,7 +123,10 @@ function VisionActionRunScene(): JSX.Element {
 
             {run.synthesized_markdown ? (
                 <LemonCard hoverEffect={false} className="p-4">
-                    <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+                    {/* Same untrusted-content guard as the scanner-page digest card. */}
+                    <LemonMarkdown className="text-base" disableImages>
+                        {summaryMarkdown}
+                    </LemonMarkdown>
                 </LemonCard>
             ) : run.status === 'running' ? (
                 <div className="text-muted italic">This run is in progress — check back shortly for the summary.</div>

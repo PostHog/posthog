@@ -94,52 +94,6 @@ def _build_multiple_choice_query(_DANGEROUS_id_based_key: str, index_based_key: 
     )"""
 
 
-def filter_survey_sent_events_by_unique_submission(survey_id: str, team_id: int | None = None) -> str:
-    """
-    Generates a SQL condition string to filter 'survey sent' events, ensuring uniqueness based on submission ID,
-    using an optimized approach with argMax().
-
-    This handles two scenarios for identifying relevant 'survey sent' events:
-    1. Events recorded before the introduction of `$survey_submission_id` (submission_id is empty/null):
-       All such events are considered unique and will be selected (as they form their own group).
-    2. Events with `$survey_submission_id`:
-       Only the single latest event (by timestamp) for each unique `$survey_submission_id` is selected.
-
-    Args:
-        survey_id: The ID of the survey to filter events for.
-        team_id: Optional team ID to filter events
-
-    Returns:
-        A SQL condition string (part of a WHERE clause) filtering event UUIDs.
-        Example: "uuid IN (SELECT argMax(uuid, timestamp) FROM ... GROUP BY ...)"
-    """
-    # Define the column for submission ID to avoid repetition and enhance readability
-    submission_id_col = get_survey_property_string_expr(SurveyEventProperties.SURVEY_SUBMISSION_ID)
-
-    # Define the grouping key expression. This determines how events are grouped for deduplication.
-    # If $survey_submission_id is present, group by it. Otherwise, group by uuid (making each old event unique).
-    grouping_key_expr = (
-        f"CASE WHEN COALESCE({submission_id_col}, '') = '' THEN toString(uuid) ELSE {submission_id_col} END"
-    )
-
-    extra_filters = ""
-    if team_id is not None:
-        extra_filters += f" AND team_id = {team_id}"
-
-    query = f"""uuid IN (
-        SELECT
-            argMax(uuid, timestamp) -- Selects the UUID of the event with the latest timestamp within each group
-        FROM events
-        WHERE event = '{SurveyEventName.SENT}' -- Filter for 'survey sent' events
-          AND {get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID)} = {escape_clickhouse_string(survey_id)} -- Filter for the specific survey
-          {extra_filters}
-          -- Callers that need bounded deduplication should add the same timestamp filters
-          -- to the outer query and this subquery.
-        GROUP BY {grouping_key_expr} -- Group events by the effective submission identifier
-    )"""
-    return query
-
-
 def get_unique_survey_event_uuids_sql_subquery(
     base_conditions_sql: list[str],
     group_by_prefix_expressions: list[str] | None = None,

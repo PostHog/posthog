@@ -467,6 +467,7 @@ class RemoteConfig(UUIDTModel):
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,
+                timeout=10,
             )
 
             if res.status_code != 200:
@@ -491,6 +492,7 @@ class RemoteConfig(UUIDTModel):
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,
+                timeout=10,
             )
             if res.status_code != 200:
                 raise Exception(f"Failed to purge CDN by tag {tag}: {res.status_code} {res.text}")

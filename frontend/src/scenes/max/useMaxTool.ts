@@ -79,6 +79,7 @@ export function useMaxTool({
             callback,
             clientExecution,
         })
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- context is tracked via contextKey (serialized) so identity churn doesn't re-register the tool
     }, [
         active,
         identifier,
