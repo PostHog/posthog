@@ -1,6 +1,14 @@
+import pytest
+
 from parameterized import parameterized
 
-from products.feature_flags.scripts.region_report import FlagSummary, diff_flags, max_rollout_percentage, summarize_flag
+from products.feature_flags.scripts.region_report import (
+    FlagSummary,
+    diff_flags,
+    max_rollout_percentage,
+    print_flag_only_section,
+    summarize_flag,
+)
 
 
 @parameterized.expand(
@@ -69,3 +77,27 @@ def test_diff_flags_common_flag(
     assert only_us == {}
     assert only_eu == {}
     assert [key for key, _, _ in differences] == (["shared"] if expect_diff else [])
+
+
+def test_print_flag_only_section_markdown_renders_pipe_table(capsys: pytest.CaptureFixture[str]) -> None:
+    flags = {"my-flag": _summary("my-flag")}
+
+    print_flag_only_section("Flags only in US", flags, markdown=True)
+
+    output = capsys.readouterr().out
+    assert "| key | name | active | rollout |" in output
+    assert "| --- | --- | --- | --- |" in output
+    assert "| my-flag | my-flag | True | 100% |" in output
+
+
+def test_print_flag_only_section_markdown_escapes_pipe_in_value(capsys: pytest.CaptureFixture[str]) -> None:
+    flags = {
+        "my-flag": FlagSummary(
+            key="my-flag", name="A | B", active=True, archived=False, max_rollout_percentage=100, is_multivariate=False
+        )
+    }
+
+    print_flag_only_section("Flags only in US", flags, markdown=True)
+
+    output = capsys.readouterr().out
+    assert "A \\| B" in output

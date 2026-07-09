@@ -78,12 +78,21 @@ def _fetch_region(region: str, team_id: int, database_id: int | None) -> dict[st
     default=None,
     help="Write the full comparison as JSON to this file",
 )
+@click.option(
+    "--markdown",
+    "--md",
+    "markdown",
+    is_flag=True,
+    default=False,
+    help="Render tables as GitHub-flavored markdown instead of fixed-width text",
+)
 def flags_compare_regions(
     us_team_id: int,
     eu_team_id: int,
     us_database_id: int | None,
     eu_database_id: int | None,
     output: str | None,
+    markdown: bool,
 ) -> None:
     """Requires `hogli metabase:login --region us` and `--region eu` first."""
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -95,11 +104,15 @@ def flags_compare_regions(
     only_us, only_eu, differences = diff_flags(us_flags, eu_flags)
     common_count = len(us_flags) - len(only_us)
 
-    click.echo("US vs EU feature flag comparison")
-    click.echo(f"US flags: {len(us_flags)}  EU flags: {len(eu_flags)}  Common: {common_count}")
-    print_flag_only_section("Flags only in US", only_us)
-    print_flag_only_section("Flags only in EU", only_eu)
-    print_differences_section(differences)
+    if markdown:
+        click.echo("# US vs EU feature flag comparison")
+        click.echo(f"\n**US flags:** {len(us_flags)} **EU flags:** {len(eu_flags)} **Common:** {common_count}")
+    else:
+        click.echo("US vs EU feature flag comparison")
+        click.echo(f"US flags: {len(us_flags)}  EU flags: {len(eu_flags)}  Common: {common_count}")
+    print_flag_only_section("Flags only in US", only_us, markdown=markdown)
+    print_flag_only_section("Flags only in EU", only_eu, markdown=markdown)
+    print_differences_section(differences, markdown=markdown)
 
     if output:
         write_json_report(output, only_us, only_eu, differences)

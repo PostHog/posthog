@@ -92,58 +92,71 @@ def _sorted_by_key(flags: dict[str, FlagSummary]) -> list[FlagSummary]:
     return sorted(flags.values(), key=lambda f: f.key)
 
 
-def print_section(title: str, count: int, header: str, rows: list[str]) -> None:
+def print_section(
+    title: str, count: int, columns: list[tuple[str, int]], rows: list[list[str]], *, markdown: bool
+) -> None:
+    labels = [label for label, _ in columns]
+    if markdown:
+        print(f"\n### {title} ({count})\n")
+        if not rows:
+            print("_(none)_")
+            return
+        print(_format_markdown_row(labels))
+        print(_format_markdown_row(["---"] * len(labels)))
+        for row in rows:
+            print(_format_markdown_row(row))
+        return
+
     print(f"\n=== {title} ({count}) ===")
     if not rows:
         print("(none)")
         return
-    print(header)
+    widths = [width for _, width in columns]
+    print(_format_columns(labels, widths))
     for row in rows:
-        print(row)
+        print(_format_columns(row, widths))
 
 
 def _format_columns(values: list[str], widths: list[int]) -> str:
     return " ".join(f"{value[:width]:<{width}}" for value, width in zip(values, widths))
 
 
+def _format_markdown_row(values: list[str]) -> str:
+    escaped = [value.replace("|", "\\|") for value in values]
+    return "| " + " | ".join(escaped) + " |"
+
+
 _FLAG_ONLY_COLUMNS = [("key", 45), ("name", 30), ("active", 7), ("rollout", 8)]
 _DIFFERENCES_COLUMNS = [("key", 45), ("US active", 10), ("US rollout", 11), ("EU active", 10), ("EU rollout", 11)]
 
 
-def print_flag_only_section(title: str, flags: dict[str, FlagSummary]) -> None:
-    widths = [width for _, width in _FLAG_ONLY_COLUMNS]
+def print_flag_only_section(title: str, flags: dict[str, FlagSummary], *, markdown: bool = False) -> None:
     rows = [
-        _format_columns(
-            [summary.key, summary.name, str(summary.active), format_pct(summary.max_rollout_percentage)],
-            widths,
-        )
+        [summary.key, summary.name, str(summary.active), format_pct(summary.max_rollout_percentage)]
         for summary in _sorted_by_key(flags)
     ]
-    header = _format_columns([label for label, _ in _FLAG_ONLY_COLUMNS], widths)
-    print_section(title, len(flags), header, rows)
+    print_section(title, len(flags), _FLAG_ONLY_COLUMNS, rows, markdown=markdown)
 
 
-def print_differences_section(differences: list[tuple[str, FlagSummary, FlagSummary]]) -> None:
-    widths = [width for _, width in _DIFFERENCES_COLUMNS]
+def print_differences_section(
+    differences: list[tuple[str, FlagSummary, FlagSummary]], *, markdown: bool = False
+) -> None:
     rows = [
-        _format_columns(
-            [
-                key,
-                str(us.active),
-                format_pct(us.max_rollout_percentage),
-                str(eu.active),
-                format_pct(eu.max_rollout_percentage),
-            ],
-            widths,
-        )
+        [
+            key,
+            str(us.active),
+            format_pct(us.max_rollout_percentage),
+            str(eu.active),
+            format_pct(eu.max_rollout_percentage),
+        ]
         for key, us, eu in differences
     ]
-    header = _format_columns([label for label, _ in _DIFFERENCES_COLUMNS], widths)
     print_section(
         "Flags in both regions with different active state or rollout percentage",
         len(differences),
-        header,
+        _DIFFERENCES_COLUMNS,
         rows,
+        markdown=markdown,
     )
 
 

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli_commands import flags
+from parameterized import parameterized
 
 from products.feature_flags.scripts.region_report import FlagSummary
 
@@ -79,3 +80,23 @@ def test_compare_regions_reports_each_section(monkeypatch: pytest.MonkeyPatch) -
     eu_idx = result.output.index("Flags only in EU")
     assert result.output.index("us-only") < eu_idx
     assert eu_idx < result.output.index("eu-only")
+
+
+@parameterized.expand([("long_flag", "--markdown"), ("short_alias", "--md")])
+def test_compare_regions_markdown_flag_renders_pipe_table(name: str, flag: str) -> None:
+    us_flags = {"us-only": _summary("us-only")}
+    eu_flags: dict[str, FlagSummary] = {}
+
+    with patch.object(
+        flags, "_fetch_flags", lambda region, team_id, database_id: us_flags if region == "us" else eu_flags
+    ):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["flags:compare-regions", "--us-database-id", "34", "--eu-database-id", "34", flag],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "| key | name | active | rollout |" in result.output
+    assert "| --- | --- | --- | --- |" in result.output
+    assert "=== Flags only in US" not in result.output
