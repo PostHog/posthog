@@ -102,6 +102,22 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                 False,
                 "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
             )
+        except gspread.exceptions.APIError as e:
+            # gspread stringifies these as "APIError: [<code>]: <message>", which isn't actionable.
+            # The common case is an uploaded Office file (.xlsx) the Sheets API can't read.
+            api_message = str(e.error.get("message", "")) if isinstance(e.error, dict) else ""
+            if "Office file" in api_message:
+                return (
+                    False,
+                    "This spreadsheet is an uploaded Office file (e.g. .xlsx), which the Google Sheets API "
+                    "can't read. Open it in Google Sheets, use File → Save as Google Sheets, and connect the "
+                    "converted sheet instead.",
+                )
+            return (
+                False,
+                "Google Sheets could not open this spreadsheet. Please check the URL and that it is shared "
+                "with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
+            )
         except Exception as e:
             return False, str(e)
 
@@ -111,7 +127,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Google Sheets",
-            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
+            caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Google_Sheets.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/google-sheets",

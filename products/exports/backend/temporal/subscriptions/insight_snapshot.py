@@ -117,6 +117,36 @@ def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None)
     return query_json
 
 
+def _extract_value_format(query_json: Any) -> dict[str, Any] | None:
+    """Pull the trends Y-axis format (duration, percentage, prefix/postfix) from a query.
+
+    The summarizer uses this to render metric values the way the chart does, so the AI
+    summary reads "4d 4h" instead of a raw "360000". Returns None when no non-default
+    format is configured. Mirrors the trendsFilter fields read by
+    frontend/src/scenes/insights/aggregationAxisFormat.ts.
+    """
+    if not isinstance(query_json, dict):
+        return None
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return None
+    trends_filter = source.get("trendsFilter")
+    if not isinstance(trends_filter, dict):
+        return None
+
+    axis_format = trends_filter.get("aggregationAxisFormat")
+    prefix = trends_filter.get("aggregationAxisPrefix")
+    postfix = trends_filter.get("aggregationAxisPostfix")
+    value_format: dict[str, Any] = {}
+    if axis_format:
+        value_format["format"] = axis_format
+    if prefix:
+        value_format["prefix"] = prefix
+    if postfix:
+        value_format["postfix"] = postfix
+    return value_format or None
+
+
 def _has_comparison_enabled(query_json: Any) -> bool:
     """True if the insight has 'Compare to previous period' turned on.
 
@@ -214,9 +244,11 @@ def build_insight_delivery_snapshot(
             "message": "Insight has no query or convertible filters",
         }
         base["comparison_enabled"] = False
+        base["value_format"] = None
         return base
 
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
+    base["value_format"] = _extract_value_format(query_json)
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

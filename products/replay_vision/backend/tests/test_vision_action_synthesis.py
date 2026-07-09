@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,17 +20,23 @@ from products.replay_vision.backend.tests.helpers import snapshot_for
 _SYNTH_PATH = "products.replay_vision.backend.temporal.vision_actions.synthesis"
 
 
-def _mock_genai(content: str):
-    # genai.Client(...).models.generate_content(...) → object with .text
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_kwargs: SimpleNamespace(text=content)))
-    return SimpleNamespace(Client=lambda **_kwargs: client)
+def _user_message(kwargs: dict) -> str:
+    return next((m["content"] for m in kwargs.get("messages", []) if m["role"] == "user"), "")
+
+
+def _mock_openai(content: str, captured: list[str] | None = None):
+    # OpenAI(...).chat.completions.create(...) → object with .choices[0].message.content
+    def _create(**kwargs) -> SimpleNamespace:
+        if captured is not None:
+            captured.append(_user_message(kwargs))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+    return lambda **_kwargs: client
 
 
 def _no_llm_client(**_kwargs):
     raise AssertionError("LLM should not be called")
-
-
-_NO_LLM = SimpleNamespace(Client=_no_llm_client)
 
 
 class TestVisionActionSynthesis(BaseTest):
@@ -51,7 +58,13 @@ class TestVisionActionSynthesis(BaseTest):
             triggered_by=ObservationTrigger.SCHEDULE,
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
-            scanner_result={"model_output": {"summary": summary, **({"title": title} if title else {})}},
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.SUMMARIZER,
+                    "summary": summary,
+                    **({"title": title} if title else {}),
+                }
+            },
         )
 
     def _action(self, **overrides) -> VisionAction:
@@ -72,10 +85,16 @@ class TestVisionActionSynthesis(BaseTest):
         run.save()
         return run
 
-    def _synthesize(self, action: VisionAction, run: VisionActionRun, llm_content: str = "# Themes\nAll good."):
+    def _synthesize(
+        self,
+        action: VisionAction,
+        run: VisionActionRun,
+        llm_content: str = "# Themes\nAll good.",
+        captured_prompts: list[str] | None = None,
+    ):
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _mock_openai(llm_content, captured_prompts)),
         ):
             return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -96,6 +115,126 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
 
+    def test_labels_each_observation_line_for_citation(self) -> None:
+        # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
+        # observations behind a theme; the frontend resolves those labels back to observation links. A
+        # dropped or misaligned label would break that resolution.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertIn("[obs 1] (", prompts[0])
+        self.assertIn("[obs 2] (", prompts[0])
+        self.assertNotIn("[obs 3]", prompts[0])
+
+    def test_slack_renders_citations_as_observation_links(self) -> None:
+        # The canonical report keeps the raw `[obs N]` markers for the in-app renderer; the Slack payload
+        # resolves them to `<url|[N]>` links so a Slack reader can open the recording behind a cited theme.
+        obs = self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Users hit friction at checkout [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        expected_link = f"<{settings.SITE_URL}/project/{self.team.id}/replay-vision/observations/{obs.id}|[1]>"
+        self.assertIn(expected_link, run.output["slack"])
+        self.assertNotIn("[obs 1]", run.output["slack"])
+
+    def test_slack_drops_unresolvable_citation(self) -> None:
+        # A citation the model invents past the observation count can't resolve to a link, so it's dropped
+        # rather than emitted as a dead label or a link to the wrong recording.
+        self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Friction everywhere [obs 9].")
+
+        run.refresh_from_db()
+        self.assertNotIn("[9]", run.output["slack"])
+        self.assertNotIn("[obs 9]", run.output["slack"])
+
+    def test_caps_runaway_citation_lists(self) -> None:
+        # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
+        # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
+        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        for i in range(10):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+
+        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("[obs "), 6)
+        self.assertIn("[obs 1] [obs 2] [obs 3] [obs 4] [obs 5] [obs 6]", run.synthesized_markdown)
+
+    def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
+        # The report must always state which scanner it's for, how many recordings it covers, and the
+        # window start — prepended in code so it's present regardless of what the LLM returns.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="# Summary\nThemes.")
+
+        run.refresh_from_db()
+        self.assertTrue(
+            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown,
+        )
+        # The header rides into the Slack payload too (bold header → *bold*).
+        self.assertIn("*Summary for summarizer*", run.output["slack"])
+
+    def test_header_flags_sampling_when_window_exceeds_cap(self) -> None:
+        # When the period holds more observations than the cap, the header must say the summary covers
+        # only a sample — otherwise a capped summary reads as if it saw everything.
+        for i in range(3):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action(max_observations=2)
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertIn("sampled 2 of 3 recordings", run.synthesized_markdown)
+
+    def test_summary_header_sanitizes_scanner_name(self) -> None:
+        # A scanner name is free text; markdown/mrkdwn control chars must be stripped so they can't
+        # garble the bold header (the "**" bold regex breaks on an interior "*").
+        self.scanner.name = "Check*out_flow"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+
+    def test_summary_header_defangs_links_in_scanner_name(self) -> None:
+        # A scanner name is free text and lands in the header; a name with link/image markdown must not
+        # become an active external link/image in the delivered report (in-app or Slack).
+        self.scanner.name = "Checkout ![x](https://evil.example/pixel)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertNotIn("](https://evil.example", run.synthesized_markdown)
+        self.assertNotIn("](https://evil.example", run.output["slack"])
+
     def test_persists_only_included_observation_ids(self) -> None:
         # observation_ids must track the summaries actually included — a blank-summary observation is
         # skipped by _fetch_observations, so its id must not land in the persisted list.
@@ -109,6 +248,47 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertEqual(result.observation_count, 1)
         run.refresh_from_db()
         self.assertEqual(run.observation_ids, [str(included.id)])
+
+    def test_samples_across_window_when_over_cap(self) -> None:
+        # Over the action's cap, observations are sampled evenly across the window by recency rank —
+        # not just the newest N — so a busy window still reflects the whole period. With 9 in-window
+        # observations and a cap of 3, the stride (9/3=3) picks recency ranks 0, 3, 6.
+        obs = []
+        for i in range(1, 10):
+            o = self._observation(f"obs {i}", session_id=f"s{i}")
+            ReplayObservation.objects.filter(pk=o.pk).update(created_at=datetime.now(UTC) - timedelta(hours=i))
+            obs.append(o)  # obs[0] is newest (1h ago) … obs[8] is oldest (9h ago)
+        action = self._action(max_observations=3)
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 3)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(obs[0].id), str(obs[3].id), str(obs[6].id)])
+
+    def test_sample_is_deterministic_when_timestamps_tie(self) -> None:
+        # Observations are often bulk-created with identical created_at; without an `-id` tiebreaker
+        # Postgres orders ties arbitrarily and the sampled set (and persisted observation_ids) can drift
+        # run-to-run. With the tiebreak, the window is ordered by (-created_at, -id), so the sample is
+        # stable and predictable. Random UUIDs mean id-desc order differs from insertion order — asserting
+        # the id-desc picks fails if the tiebreak is dropped.
+        tied_at = datetime.now(UTC) - timedelta(hours=1)
+        obs = []
+        for i in range(6):
+            o = self._observation(f"obs {i}", session_id=f"s{i}")
+            ReplayObservation.objects.filter(pk=o.pk).update(created_at=tied_at)
+            obs.append(o)
+        action = self._action(max_observations=3)
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 3)
+        # Ordered by -id (created_at all equal); stride 6/3=2 picks ranks 0, 2, 4 of that order.
+        by_id_desc = sorted((str(o.id) for o in obs), reverse=True)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [by_id_desc[0], by_id_desc[2], by_id_desc[4]])
 
     def test_empty_model_output_skips_without_persisting(self) -> None:
         # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
@@ -131,10 +311,10 @@ class TestVisionActionSynthesis(BaseTest):
         run.observation_count = 5
         run.save()
 
-        # If the LLM were called, this would raise (genai client patched to blow up).
+        # If the LLM were called, this would raise (OpenAI client patched to blow up).
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -168,7 +348,7 @@ class TestVisionActionSynthesis(BaseTest):
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -193,6 +373,72 @@ class TestVisionActionSynthesis(BaseTest):
 
         result = self._synthesize(action, run)
         self.assertEqual(result.observation_count, 1)
+
+    def test_summarizes_reasoning_and_outcome_when_no_summary(self) -> None:
+        # Non-summarizer scanners (monitor/classifier/scorer) emit `reasoning`, not `summary`. The group
+        # summary must fall back to reasoning so those actions don't skip as empty — and must feed the model
+        # the actual outcome (verdict/score/tags) too, not just reasoning it would otherwise have to infer.
+        ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="classified",
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={
+                "model_output": {
+                    "scanner_type": ScannerType.CLASSIFIER,
+                    "reasoning": "user abandoned at the payment step",
+                    "tags": ["abandoned"],
+                }
+            },
+        )
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        result = self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)
+        # The observation's outcome (tags) and its reasoning both reach the model.
+        self.assertIn("tags=abandoned", prompts[0])
+        self.assertIn("user abandoned at the payment step", prompts[0])
+
+    def test_excludes_scanners_the_creator_cannot_read(self) -> None:
+        # The action's bound scanner_ids are user-supplied, so synthesis must filter them through the
+        # creator's RBAC. Without that a creator could bind a same-team scanner they can't read and pull
+        # its recording-derived reasoning/outcome into the summary.
+        hidden = ReplayScanner.objects.create(
+            team=self.team,
+            name="hidden",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "classify"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        self._observation("visible scanner output", session_id="visible")
+        ReplayObservation.objects.create(
+            scanner=hidden,
+            session_id="hidden",
+            scanner_snapshot=snapshot_for(hidden),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": {"scanner_type": ScannerType.CLASSIFIER, "reasoning": "leaked reasoning"}},
+        )
+        action = self._action(selection={"scanner_ids": [str(self.scanner.id), str(hidden.id)]})
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            result = self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertEqual(result.observation_count, 1)
+        self.assertIn("visible scanner output", prompts[0])
+        self.assertNotIn("leaked reasoning", prompts[0])
 
     def test_external_links_are_stripped(self) -> None:
         self._observation("something")
@@ -277,15 +523,15 @@ class TestVisionActionSynthesis(BaseTest):
         captured: dict = {}
 
         def _capturing_client(**_kwargs):
-            def generate_content(**kwargs):
-                captured["human"] = kwargs["contents"]
-                return SimpleNamespace(text="ok")
+            def create(**kwargs):
+                captured["human"] = _user_message(kwargs)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
-            return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _capturing_client),
         ):
             _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -294,6 +540,65 @@ class TestVisionActionSynthesis(BaseTest):
         # The guide is a trusted instruction and must lead, so the fenced untrusted observation
         # block stays the last thing the model reads.
         self.assertLess(human.index("focus on rage clicks"), human.index("<observations>"))
+
+    def _typed_observation(self, model_output: dict, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": model_output},
+        )
+
+    def test_targeting_verdict_only_feeds_matching_observations(self) -> None:
+        matching = self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "yes", "reasoning": "user rage clicked"}, session_id="s1"
+        )
+        self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "no", "reasoning": "calm session"}, session_id="s2"
+        )
+        action = self._action(selection={"verdict": ["yes"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(matching.id)])
+
+    def test_targeting_score_bounds_compare_numerically(self) -> None:
+        # score 10 must satisfy min_score 9 — catches the jsonb bound regressing to text
+        # comparison, where "10" < "9" lexicographically.
+        self._typed_observation({"scanner_type": "scorer", "score": 2, "reasoning": "meh"}, session_id="s1")
+        high = self._typed_observation({"scanner_type": "scorer", "score": 10, "reasoning": "great"}, session_id="s2")
+        action = self._action(selection={"min_score": 9})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(high.id)])
+
+    def test_targeting_tags_match_fixed_or_freeform(self) -> None:
+        fixed = self._typed_observation(
+            {"scanner_type": "classifier", "tags": ["bug"], "reasoning": "hit a bug"}, session_id="s1"
+        )
+        freeform = self._typed_observation(
+            {"scanner_type": "classifier", "tags": [], "tags_freeform": ["slow"], "reasoning": "felt slow"},
+            session_id="s2",
+        )
+        self._typed_observation({"scanner_type": "classifier", "tags": ["ux"], "reasoning": "ux note"}, session_id="s3")
+        action = self._action(selection={"tags": ["bug", "slow"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(set(run.observation_ids), {str(fixed.id), str(freeform.id)})
 
 
 class TestMarkdownToSlack(BaseTest):
@@ -305,13 +610,13 @@ class TestMarkdownToSlack(BaseTest):
         ]
     )
     def test_markdown_converted_to_slack_mrkdwn(self, _label: str, markdown: str, expected: str) -> None:
-        out = _markdown_to_slack(markdown)
+        out = _markdown_to_slack(markdown, team_id=self.team.id, observation_ids=[])
         self.assertIn(expected, out)
         self.assertNotIn("#", out)
         self.assertNotIn("**", out)
 
     def test_truncates_long_text(self) -> None:
-        out = _markdown_to_slack("x" * 50_000)
+        out = _markdown_to_slack("x" * 50_000, team_id=self.team.id, observation_ids=[])
         self.assertLessEqual(len(out), 39_000)
         self.assertIn("truncated", out)
 
@@ -322,7 +627,7 @@ class TestMarkdownToSlack(BaseTest):
 
         padding = "a" * (SLACK_TEXT_MAX - 5)
         evil = "https://evil.example.com/exfil"
-        out = _markdown_to_slack(padding + evil)
+        out = _markdown_to_slack(padding + evil, team_id=self.team.id, observation_ids=[])
         # The host must not appear as a live (unquoted) URL in the output.
         sanitized = out.replace("`https://evil.example.com/exfil`", "")
         self.assertNotIn("https://evil.example.com/exfil", sanitized)

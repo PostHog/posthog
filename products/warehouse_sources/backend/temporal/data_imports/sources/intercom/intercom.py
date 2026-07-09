@@ -72,6 +72,16 @@ def _is_server_error(exc: HTTPError) -> bool:
     return resp is not None and 500 <= resp.status_code < 600
 
 
+def _is_scroll_expired(exc: HTTPError) -> bool:
+    """A companies scroll cursor can be invalidated mid-walk (idle expiry, or a
+    concurrent scroll on the workspace — only one is allowed); the continuation
+    then returns 404. The scroll walk only ever hits `/companies/scroll`, so any
+    404 there is a dead cursor rather than a missing row — distinct from
+    `_is_not_found`, which classifies a vanished child row on a per-row fetch."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 404
+
+
 def _default_headers() -> dict[str, str]:
     return {
         "Accept": "application/json",
@@ -241,16 +251,75 @@ def _resolve_intercom_url(path_or_url: str) -> str:
     return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
 
 
+def _is_rate_limited(exc: HTTPError) -> bool:
+    """Intercom rate-limits per workspace and returns `429` once the window is
+    exhausted. It's transient — the counter resets on a short rolling window —
+    so retrying after a wait clears it. Match on the status, not the URL."""
+    resp = exc.response
+    return resp is not None and resp.status_code == 429
+
+
+def _rate_limit_backoff_seconds(resp: Response, default: float) -> float:
+    """Honor Intercom's `Retry-After` (seconds) on a 429 when present, else fall
+    back to `default`. Intercom sends `Retry-After` on some 429s and always sends
+    `X-RateLimit-Reset`, but a fixed window-sized fallback rides out the bucket
+    regardless, so we key off the simpler signal."""
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), 0.0)
+    except (TypeError, ValueError):
+        return default
+
+
+# Intercom's default limit is 1000 requests/minute, metered in ~10s buckets, so a
+# burst of per-row substream fetches (one GET per company/conversation) can exhaust
+# one bucket and get 429ed. The shared transport retry lists 429 but backs off at
+# most ~2s across its attempts — shorter than the bucket window — so a rate-limited
+# burst surfaces and Temporal re-walks the whole activity. Wait out a bucket inline
+# and retry, capped so sustained pressure still surfaces instead of looping forever.
+_RATE_LIMIT_BACKOFF_SECONDS = 10.0
+_RATE_LIMIT_MAX_RETRIES = 3
+
+
+def _request_with_rate_limit_retry(do_request: Callable[[], Response]) -> dict[str, Any]:
+    """Run an Intercom request, riding out a transient 429 rate limit inline.
+
+    `do_request` performs the call and raises `HTTPError` on a non-2xx. On a 429
+    we back off (honoring `Retry-After` when Intercom sends it) and retry the same
+    request, which is safe: every Intercom call routed through here is a read."""
+    for attempt in range(_RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            return do_request().json()
+        except HTTPError as exc:
+            resp = exc.response
+            if _is_rate_limited(exc) and resp is not None and attempt < _RATE_LIMIT_MAX_RETRIES:
+                wait = _rate_limit_backoff_seconds(resp, _RATE_LIMIT_BACKOFF_SECONDS)
+                logger.warning("intercom_rate_limited_retry", attempt=attempt + 1, backoff_seconds=wait)
+                time.sleep(wait)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
-    response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
-    response.raise_for_status()
-    return response.json()
+    def do() -> Response:
+        response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
+        response.raise_for_status()
+        return response
+
+    return _request_with_rate_limit_retry(do)
 
 
 def _iter_conversations(
@@ -307,6 +376,13 @@ _SCROLL_EXISTS_MAX_RETRIES = 2
 # Temporal retries the activity (which re-opens a fresh scroll).
 _SCROLL_SERVER_ERROR_BACKOFF_SECONDS = 2.0
 _SCROLL_SERVER_ERROR_MAX_RETRIES = 3
+
+# A companies scroll cursor can be invalidated mid-walk: Intercom expires an idle
+# scroll (~1 min) and permits only one open scroll per workspace, so a concurrent
+# sync opening its own scroll kills this one. The continuation then returns 404. A
+# scroll can't be resumed, only restarted from the beginning, so recovery is a full
+# re-walk — safe only where no rows have been emitted yet (see `_drain_company_ids`).
+_SCROLL_EXPIRED_MAX_RETRIES = 2
 
 
 def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> dict[str, Any]:
@@ -387,6 +463,29 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
             return
 
 
+def _drain_company_ids(session: Session) -> list[str]:
+    """Walk the whole companies scroll and collect every id, restarting the walk
+    from the beginning if the scroll cursor expires mid-drain (404 on a
+    continuation — see `_SCROLL_EXPIRED_MAX_RETRIES`).
+
+    Restarting is safe here precisely because the ids are drained up front,
+    before any segment row is yielded downstream: nothing has been written to the
+    destination yet, so a re-walk can't duplicate rows. (The streaming `companies`
+    endpoint can't recover this way — it yields rows as it walks, and the load is
+    full-refresh with no primary-key dedup, so an expired cursor there surfaces
+    and Temporal restarts the whole run from a freshly-wiped table instead.)"""
+    for attempt in range(_SCROLL_EXPIRED_MAX_RETRIES + 1):
+        try:
+            return [company["id"] for company in _iter_companies(session)]
+        except HTTPError as exc:
+            if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
+                logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
+                continue
+            raise
+    # Unreachable: the final attempt either returns or re-raises above.
+    raise AssertionError("unreachable")
+
+
 def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
@@ -397,8 +496,10 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     and a slow stretch of `/companies/{id}/segments` calls between two scroll
     pages lets the cursor lapse — the next continuation then 404s mid-walk.
     Draining first keeps the scroll requests back-to-back so it stays alive;
-    only the ids are held, so the memory cost stays flat regardless of count."""
-    company_ids = [company["id"] for company in _iter_companies(session)]
+    only the ids are held, not the full company payloads, so the memory
+    footprint stays small. If the cursor is still invalidated mid-drain,
+    `_drain_company_ids` restarts the walk from scratch."""
+    company_ids = _drain_company_ids(session)
     for company_id in company_ids:
         try:
             payload = _intercom_get(session, f"/companies/{company_id}/segments")

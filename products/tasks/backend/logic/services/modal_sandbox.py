@@ -26,6 +26,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 
@@ -33,7 +34,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -98,6 +99,7 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -105,10 +107,13 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     ModalTimeoutError,
     ModalConnectionError,
+    ModalServiceError,
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
 )
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -293,7 +298,8 @@ _template_image_lock = threading.Lock()
 
 
 @cached(cache=_template_image_cache, lock=_template_image_lock)
-def _get_template_image(template: SandboxTemplate) -> modal.Image:
+def get_template_base_image(template: SandboxTemplate) -> modal.Image:
+    """The template's base image without local dev mounts — safe to extend with further layers."""
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -305,11 +311,18 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    else:
-        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+        return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    return modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
 
-    return _attach_local_package_mounts(image, template)
+
+def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    return _attach_local_package_mounts(get_template_base_image(template), template)
+
+
+def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
+    # Undecorated import surface: the @cached wrapper on get_template_base_image trips
+    # mypy's cross-module attribute resolution intermittently, so external callers import this.
+    return get_template_base_image(template)
 
 
 @lru_cache(maxsize=3)
@@ -404,10 +417,24 @@ class ModalSandbox(SandboxBase):
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
+            custom_image: modal.Image | None = None
+            if config.custom_image_name:
+                try:
+                    custom_image = _attach_local_package_mounts(
+                        modal.Image.from_name(config.custom_image_name), config.template
+                    )
+                    image = custom_image
+                except Exception as e:
+                    logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
+                    capture_exception(e)
+            used_custom_image = custom_image is not None
             config.snapshot_restored = False
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
-            snapshot_mount_path = config.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+            # No default-fill: a directory snapshot must arrive with an explicit allowed mount
+            # path, or the mount below is refused. Defaulting here would silently re-target a
+            # snapshot that upstream validation invalidated (mount path stripped).
+            snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
             used_snapshot_image = False
 
@@ -473,17 +500,45 @@ class ModalSandbox(SandboxBase):
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
                     config.snapshot_restored = used_snapshot_image
             except Exception as e:
-                if not used_snapshot_image:
+                if not used_snapshot_image and not used_custom_image:
                     raise
-                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                fallback_image = custom_image if used_snapshot_image and custom_image is not None else base_image
+                logger.warning(
+                    f"Failed to create sandbox with {'snapshot' if used_snapshot_image else 'custom'} image, "
+                    f"falling back to {'custom' if fallback_image is custom_image else 'base'} image: {e}"
+                )
                 capture_exception(e)
-                create_kwargs["image"] = base_image
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = False
+                create_kwargs["image"] = fallback_image
+                try:
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
+                except Exception as fallback_error:
+                    if fallback_image is base_image:
+                        raise
+                    logger.warning(
+                        f"Failed to create sandbox with custom image, falling back to base image: {fallback_error}"
+                    )
+                    capture_exception(fallback_error)
+                    create_kwargs["image"] = base_image
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
-                if not hasattr(sb, "mount_image"):
+                # The mount REPLACES the target directory in the running sandbox — over a live
+                # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
+                # and a snapshot's content only fits the path it was captured from. Last-line
+                # guard for snapshot rows whose stored mount path bypassed normalization.
+                if snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+                    logger.warning(
+                        "Refusing to mount directory snapshot at unsupported path; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                elif not hasattr(sb, "mount_image"):
                     logger.warning(
                         "Modal sandbox does not support directory snapshot restore; falling back to base image",
                         extra={
@@ -501,6 +556,26 @@ class ModalSandbox(SandboxBase):
                         )
                         capture_exception(e)
 
+            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
+            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+                logger.warning(
+                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    extra={
+                        "sandbox_id": sb.object_id,
+                        "snapshot_external_id": snapshot_external_id,
+                        "snapshot_kind": snapshot_kind,
+                        "snapshot_mount_path": snapshot_mount_path,
+                    },
+                )
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                config.snapshot_restored = False
+
             if config.metadata:
                 sb.set_tags(config.metadata)
 
@@ -517,6 +592,34 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox executes processes after a snapshot restore (image or mount)."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_RESTORE_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-restore health probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            poll_result: int | str | None
+            try:
+                poll_result = sb.poll()
+            except Exception:
+                poll_result = "unavailable"
+            logger.warning(
+                "Post-restore health probe exited non-zero",
+                extra={"sandbox_id": sb.object_id, "returncode": returncode, "sandbox_poll": str(poll_result)},
+            )
+            return False
+        return True
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> ModalSandbox:
@@ -729,6 +832,7 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -753,6 +857,9 @@ class ModalSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        # Only append when opted in: agent-server builds without the option reject unknown
+        # flags, so default runs (and resumes of old snapshots) must not see it.
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -766,7 +873,7 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -833,6 +940,7 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -876,12 +984,17 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
             runtime_adapter,
@@ -1071,7 +1184,7 @@ class ModalSandbox(SandboxBase):
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, ttl=None)
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")

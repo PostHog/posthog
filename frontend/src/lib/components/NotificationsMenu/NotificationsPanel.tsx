@@ -18,8 +18,14 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, loadedUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
-        useValues(sidePanelNotificationsLogic)
+    const {
+        groups,
+        loadedUnreadCount,
+        inAppUnreadCount,
+        importantChangesLoading,
+        hasMoreNotifications,
+        isLoadingMore,
+    } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
@@ -51,9 +57,17 @@ export function NotificationsPanel(): JSX.Element {
                     )}
                 </button>
             </div>
-            {loadedUnreadCount > 0 && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
-                    Mark all as read
+            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
+                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
+            {hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => markAllAsRead()}
+                    className="ml-auto"
+                    data-attr="notifications-mark-all-read"
+                >
+                    Mark all read
                 </LemonButton>
             )}
         </div>

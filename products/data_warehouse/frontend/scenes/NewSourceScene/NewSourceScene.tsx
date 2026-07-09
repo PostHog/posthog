@@ -88,11 +88,40 @@ export function NewSourceScene(): JSX.Element {
     const sceneRootLogic = newSourceSceneLogic()
     const { availableSources, availableSourcesLoading } = useValues(sceneRootLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
     }
 
+    if (availableSources === null) {
+        return <AvailableSourcesError />
+    }
+
     return <MountedNewSourceScene availableSources={availableSources} />
+}
+
+// The wizard endpoint failed (a timeout, a 5xx, or a 403 for members without data-source
+// access). Without this the scene keeps rendering a bare skeleton indefinitely, which reads
+// as a permanently stuck loading state.
+export function AvailableSourcesError(): JSX.Element {
+    const { load } = useActions(availableSourcesLogic)
+
+    return (
+        <LemonBanner
+            type="error"
+            action={{
+                children: 'Try again',
+                // Retrying flips availableSourcesLoading, which swaps this banner for the
+                // skeleton in the parent guard — so the retry state shows there, not here.
+                onClick: () => void load(),
+            }}
+        >
+            <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
+            <p className="m-0">
+                This can happen if the request timed out or you don't have permission to manage data sources in this
+                project. Try again, or ask an organization admin to check your access.
+            </p>
+        </LemonBanner>
+    )
 }
 
 function MountedNewSourceScene({ availableSources }: { availableSources: Record<string, SourceConfig> }): JSX.Element {
@@ -150,8 +179,12 @@ interface NewSourcesWizardProps {
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
 
-    if (availableSourcesLoading || availableSources === null) {
+    if (availableSourcesLoading) {
         return <LemonSkeleton />
+    }
+
+    if (availableSources === null) {
+        return <AvailableSourcesError />
     }
 
     const sourceWizardLogicProps = {
@@ -216,7 +249,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         const nextButton = (disabledReason?: string | false): JSX.Element => (
             <LemonButton
                 loading={isLoading || manualLinkIsLoading}
-                disabledReason={disabledReason || (!canGoNext && 'You cant click next yet')}
+                disabledReason={disabledReason || (!canGoNext && 'Finish this step to continue')}
                 type="primary"
                 center
                 onClick={() => onSubmit()}
@@ -234,7 +267,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         center
                         data-attr="source-modal-back-button"
                         onClick={onBack}
-                        disabledReason={!canGoBack && 'You cant go back from here'}
+                        disabledReason={!canGoBack && "You can't go back from here"}
                     >
                         Back
                     </LemonButton>

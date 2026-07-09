@@ -18,6 +18,7 @@ declared once in the manifest — there is no object→roles side-table.
 hcl/
   bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
   nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
+  clusters                 # cluster_name -> composing roles; rendered into the manifest check.sh feeds `validate -manifest` to resolve cross-cluster proxies
   roles/shared/            # objects on every role (query_log_archive path + custom_metrics_* sub-views + ops_query_log_archive_mv)
   roles/ops/shared/        # OPS objects on every OPS env
   roles/ops/prod/          # OPS objects on both prod envs only (the metrics suite)
@@ -50,7 +51,9 @@ The convergence gate closes it, in **two steps** that run inside the multinode m
 
 1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
-   cluster (a `--network host` container, or `HCLEXP_BIN` locally).
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
+   `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
+   informational provenance, not gated by `check-live.sh`.
 2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
    `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
    `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
@@ -66,18 +69,22 @@ versa). Fix the migration to match the HCL, or — if the change is intended —
 **enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
 reconciling a new role.
 
-LOGS is compared against `golden/local-<role>.hcl`; until a `local-logs` golden is seeded (introspect
-the live local logs node, then curate), the script skips LOGS with a notice. OPS is enforced via the
-existing `golden/local-ops.hcl`.
+Each managed role is compared against its `golden/local-<role>.hcl`. The local LOGS node runs a
+partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
+`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
 only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
-Some objects reference tables outside the composed set by design (custom_metrics → `system`, the
-qla MV → `system.query_log`, distributed proxies → other clusters) and are listed in `SKIP` in
-`check.sh` so `validate` doesn't flag them.
+A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`
+renders `nodes` + `clusters` into an HCL manifest and runs `validate -manifest -env <env>`, so those
+remotes resolve against their target cluster (existence + column agreement) rather than being
+skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is `local`-only here
+(prod goldens live in posthog-cloud-infra), so `check.sh` passes it via `-cluster` flags — composed
+for `local`, `@absent` elsewhere. A tiny `known_drift_skip` covers real proxy/storage drift pending
+a fix.
 
 ## Making a change (edit HCL → migration)
 
@@ -90,7 +97,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-c0affa0 -help
+  ghcr.io/posthog/chschema:sha-0409212 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in

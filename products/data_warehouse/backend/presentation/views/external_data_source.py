@@ -106,6 +106,7 @@ from products.warehouse_sources.backend.facade.api import (
     validate_source_prefix,
 )
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -121,6 +122,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
+    CDCRepairError,
+    CDCRepairInProgress,
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
@@ -145,6 +148,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
+    repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -913,6 +917,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             else:
                 new_job_inputs.pop(key, None)
 
+        # The OAuth2 integration row pointer is server-managed: pin it to the stored value so an
+        # editor can't repoint the source at a different row (and through it, different credentials).
+        # Re-entered auth_oauth2_* secrets flow into the pinned row during credential validation.
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            existing_oauth2_pointer = existing_job_inputs.get("auth_oauth2_integration_id")
+            if existing_oauth2_pointer:
+                new_job_inputs["auth_oauth2_integration_id"] = existing_oauth2_pointer
+            else:
+                new_job_inputs.pop("auth_oauth2_integration_id", None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -946,9 +960,40 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
             manifest_host_added = bool(new_hosts - existing_hosts)
 
+        # A row-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
+        # tokens live in the bound CustomOAuth2Integration row and are injected at sync time. So
+        # `has_preserved_credentials` never sees a preserved secret for it, yet a host change would
+        # still redirect the row's injected token to the new host. Re-entering every secret the row
+        # holds satisfies the gate the same way typing a password does for other sources: because a
+        # config change makes adoption replace the row's secrets with the typed ones outright (see
+        # _apply_oauth2_material — the rotated-token keep-rule is suspended on config change), only
+        # material the editor provably possesses is ever sent to the new host.
+        bound_integration = None
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            bound_integration = (
+                CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).first()
+            )
+        reentered_oauth2_secrets = False
+        if bound_integration is not None:
+            held_secret_fields = [
+                incoming_field
+                for row_key, incoming_field in (
+                    ("client_secret", "auth_oauth2_client_secret"),
+                    ("refresh_token", "auth_oauth2_refresh_token"),
+                )
+                if bound_integration.sensitive_config.get(row_key)
+            ]
+            reentered_oauth2_secrets = bool(held_secret_fields) and all(
+                bool(incoming_job_inputs.get(field)) for field in held_secret_fields
+            )
+        preserved_oauth2_integration = bound_integration is not None and not reentered_oauth2_secrets
+
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
-            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, gate_sensitive_fields):
+            preserved_credentials = has_preserved_credentials(
+                existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
+            )
+            if preserved_credentials or preserved_oauth2_integration:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
@@ -1043,6 +1088,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
                 )
+            elif isinstance(source, CustomSource):
+                # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                # with the integration bound to it — not another source's, whose token the probe would
+                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                # an as-yet-unbound integration to its creator.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config,
+                    instance.team_id,
+                    source_id=str(instance.pk),
+                    owner_user_id=self.context["request"].user.id,
+                )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
@@ -1056,6 +1112,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
+
+        if job_inputs_were_submitted and isinstance(source, CustomSource):
+            # Credential validation adopts re-entered OAuth2 secrets into the integration row and
+            # rewrites the config (pointer set, static secrets cleared) — re-serialize so job_inputs
+            # stores the pointer and never the raw secrets.
+            validated_job_inputs = source_config.to_dict()
+            for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+                if key in existing_job_inputs:
+                    validated_job_inputs[key] = existing_job_inputs[key]
+            validated_data["job_inputs"] = validated_job_inputs
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -1492,6 +1558,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "check_cdc_prerequisites_for_source",
         "enable_cdc",
         "disable_cdc",
+        "repair_cdc",
         "update_cdc_settings",
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
@@ -1717,6 +1784,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             access_method=access_method,
             direct_query_enabled=direct_query_enabled,
         )
+
+        if source_type_model == ExternalDataSourceType.CUSTOM:
+            # Claim the OAuth2 integration row for the new source right away instead of waiting for the
+            # first sync's trust-on-first-use claim, closing the window where another create by the same
+            # user (matching the same unbound row) could adopt it. The guarded filter makes a lost race
+            # a no-op; sync-time authorization remains the backstop.
+            oauth2_integration_id = (new_source_model.job_inputs or {}).get("auth_oauth2_integration_id")
+            if oauth2_integration_id:
+                CustomOAuth2Integration.objects.for_team(self.team_id).filter(
+                    id=oauth2_integration_id, external_data_source__isnull=True
+                ).update(external_data_source=new_source_model)
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
         # can `if cdc_enabled` without repeating the source-type check.
@@ -1950,6 +2028,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             if row_filters is not None:
+                # Only sources that push filters into their query (SQL WHERE) can honor them — a
+                # saved-but-ignored filter would silently sync unfiltered rows.
+                if not source.supports_row_filters:
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={
+                            "message": f"Row filter not allowed for schema '{schema_name}': "
+                            "row filters are not supported for this source type."
+                        },
+                    )
                 if reason := unsupported_row_filter_reason(
                     is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
@@ -2554,7 +2643,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if secret_ref_response is not None:
             return secret_ref_response
 
-        source_type_model = ExternalDataSourceType(source_type)
+        try:
+            source_type_model = ExternalDataSourceType(source_type)
+        except ValueError:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Unknown source_type '{source_type}'"},
+            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
@@ -2569,6 +2664,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
+        elif isinstance(source, CustomSource):
+            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+            # an unbound integration owned by the requester, or the probe could send another source's token
+            # to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
+            )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
         if not credentials_valid:
@@ -2579,13 +2681,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
+            # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+            )
         except Exception as e:
-            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+                data={"message": error_message},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2690,6 +2799,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if error_response is not None or source_config is None:
             return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
 
+        if isinstance(source, CustomSource):
+            # Validation may have adopted static OAuth2 secrets into an integration row and rewritten
+            # the config to point at it. `_create_external_data_source` below re-parses the raw payload
+            # (it skips the credential gate), so propagate the rewrite onto the payload — the created
+            # source must store the row pointer, never the raw secrets.
+            validated_payload = source_config.to_dict()
+            for key in ("auth_oauth2_integration_id", "auth_oauth2_client_secret", "auth_oauth2_refresh_token"):
+                if validated_payload.get(key):
+                    payload[key] = validated_payload[key]
+                else:
+                    payload.pop(key, None)
+
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
         except NotImplementedError:
@@ -2776,6 +2897,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 self.team_id,
                 serializer.validated_data["resource_name"],
                 serializer.validated_data["limit"],
+                owner_user_id=self.request.user.id,
             )
         except ValueError as e:
             # ManifestValidationError (a ValueError) for manifest/graph/URL issues, or a plain
@@ -2966,6 +3088,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
     ) -> tuple[Response | None, Config | None]:
         """Run the config + live credential gate (including the SSRF host check) for a source payload."""
+        if isinstance(source, CustomSource):
+            # The OAuth2 integration row pointer is server-managed: validation derives it by adopting
+            # the submitted auth_oauth2_* secrets into a row. Never trust a client-supplied pointer on
+            # a pre-create seam — it could reference a row the caller shouldn't consume.
+            payload.pop("auth_oauth2_integration_id", None)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:
             return (
@@ -2980,6 +3107,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
+            )
+        elif isinstance(source, CustomSource):
+            # Create-time validation for an integration-backed manifest may only use an unbound integration
+            # owned by the requester, so the probe can't send another source's token to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
@@ -3446,6 +3579,74 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             instance.save(update_fields=["job_inputs", "updated_at"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "success": {"type": "boolean"},
+                        "schemas_reset": {"type": "integer"},
+                    },
+                },
+                description="CDC repaired; schemas_reset CDC schemas will fully re-sync.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, no active CDC schemas, source looks healthy, or engine-side recreation failed."
+            ),
+            409: OpenApiResponse(description="A repair is already running for this source."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def repair_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Repair CDC on a source whose replication resources were lost.
+
+        Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+        showing the slot/publication missing) — repairing a healthy source would drop its
+        slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+        slot/publication against the stored CDC config, resets every active CDC schema to
+        snapshot mode for a full re-sync (changes since the old slot died are
+        unrecoverable), clears the broken markers, and resumes the paused schedules.
+        Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+        source are rejected with a 409.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        try:
+            schemas_reset = repair_cdc_source(instance)
+        except CDCRepairInProgress as e:
+            return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
+        except CDCRepairError as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure — surface as a 400 without capturing,
+            # mirroring the enable_cdc handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to repair CDC: {e}"},
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not repair CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):

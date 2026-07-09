@@ -1,10 +1,11 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import equal from 'fast-deep-equal'
+import { actions, afterMount, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange } from '~/queries/schema/schema-general'
-import { UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import type { tracingFiltersLogicType } from './tracingFiltersLogicType'
 
@@ -42,8 +43,48 @@ export interface TracingFilters {
     previousWindowOverride: OverlayWindow | null
 }
 
+// The /tracing scene's viewer instance. It is the props default, so uncalled wrappers
+// outside a BindLogic still resolve to the scene's instance during the keyed migration.
+export const TRACING_SCENE_VIEWER_ID = 'default'
+
+export interface TracingFiltersLogicProps {
+    id: string
+    // Filters enforced by the embedding surface (e.g. a person profile traces tab pins a
+    // distinct-id attribute filter so the tab can't fall back to project-wide traces). Kept
+    // entirely separate from the user-editable `filterGroup` — combined with it only at
+    // query-build time via `queryFilterGroup`, so the filter chips never see them and can't
+    // drop the scope. Mirrors the LogsViewer pattern.
+    pinnedFilters?: UniversalFiltersGroup
+}
+
+// Combines the user-editable filterGroup with pinned filters (prepended to the inner AND
+// group). Used at query-build time so the query stays scoped without putting pinned
+// filters into editable state. Same shape as the logs viewer's combineWithPinnedFilters.
+export function combineWithPinnedFilters(
+    filterGroup: UniversalFiltersGroup,
+    pinnedFilters: UniversalFiltersGroup | undefined
+): UniversalFiltersGroup {
+    if (!pinnedFilters?.values?.length) {
+        return filterGroup
+    }
+    const inner = filterGroup.values[0] as UniversalFiltersGroup | undefined
+    const innerValues = inner?.values ?? []
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedFilters.values, ...innerValues],
+            } as UniversalFiltersGroup,
+            ...filterGroup.values.slice(1),
+        ],
+    }
+}
+
 export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
-    path(['products', 'tracing', 'frontend', 'tracingFiltersLogic']),
+    props({ id: TRACING_SCENE_VIEWER_ID } as TracingFiltersLogicProps),
+    key((props) => props.id),
+    path((key) => ['products', 'tracing', 'frontend', 'tracingFiltersLogic', key]),
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -59,6 +100,10 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
          */
         setOverlayWindows: (current: OverlayWindow, previous: OverlayWindow) => ({ current, previous }),
         setFilters: (filters: Partial<TracingFilters>) => ({ filters }),
+        // Mirror of the `pinnedFilters` prop into state so consumers can read it via
+        // useValues without going through the kea selector input-prop machinery
+        // (which doesn't accept optional props).
+        setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
     }),
 
     reducers({
@@ -140,6 +185,12 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 setFilters: (state, { filters }) => filters.previousWindowOverride ?? state,
             },
         ],
+        pinnedFilters: [
+            undefined as UniversalFiltersGroup | undefined,
+            {
+                setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
     }),
 
     selectors({
@@ -176,6 +227,16 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 currentWindowOverride,
                 previousWindowOverride,
             }),
+        ],
+        // The filter group queries must use: the user-editable filterGroup with the
+        // embedder's pinned filters merged in. Everything that builds a request reads
+        // this, never `filters.filterGroup` directly.
+        queryFilterGroup: [
+            (s) => [s.filterGroup, s.pinnedFilters],
+            (
+                filterGroup: UniversalFiltersGroup,
+                pinnedFilters: UniversalFiltersGroup | undefined
+            ): UniversalFiltersGroup => combineWithPinnedFilters(filterGroup, pinnedFilters),
         ],
         utcDateRange: [
             (s) => [s.dateRange],
@@ -215,6 +276,18 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
                 return { startMs: endMs - windowDuration, endMs }
             },
         ],
+    }),
+
+    propsChanged(({ actions, props: logicProps }, oldProps) => {
+        if (!equal(logicProps.pinnedFilters, oldProps.pinnedFilters)) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
+        }
+    }),
+
+    afterMount(({ actions, props: logicProps }) => {
+        if (logicProps.pinnedFilters) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
+        }
     }),
 ])
 

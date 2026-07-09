@@ -1,7 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -16,7 +23,13 @@ import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
 import { MetricStatPanel } from './MetricStatPanel'
-import { LIVE_REFRESH_MS, MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
+import {
+    LIVE_REFRESH_MS,
+    MetricAggregation,
+    metricsViewerLogic,
+    MetricsViewMode,
+    RECOMMENDED_AGGREGATION_BY_TYPE,
+} from './metricsViewerLogic'
 
 const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
     { value: 'chart', label: 'Chart' },
@@ -35,18 +48,9 @@ const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'avg', label: 'Average' },
     { value: 'count', label: 'Count' },
     { value: 'p95', label: 'p95' },
+    { value: 'rate', label: 'Rate (/s)' },
+    { value: 'increase', label: 'Increase' },
 ]
-
-// Recommended aggregation per OTel metric type. Used for an inline hint —
-// we don't auto-switch the user's choice (hint, don't overwrite).
-const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> = {
-    gauge: 'avg',
-    sum: 'sum',
-    counter: 'sum',
-    histogram: 'p95',
-    summary: 'p95',
-    exponential_histogram: 'p95',
-}
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
 const DATE_OPTIONS: DateMappingOption[] = [
@@ -104,6 +108,7 @@ export const MetricsViewer = (): JSX.Element => {
         anomalyBadge,
         liveRefresh,
         queryResultsLoading,
+        queryError,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -263,6 +268,12 @@ export const MetricsViewer = (): JSX.Element => {
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
+                    </div>
+                ) : queryError ? (
+                    <div className="h-full flex items-center justify-center">
+                        <LemonBanner type="error" className="max-w-md">
+                            {queryError}
+                        </LemonBanner>
                     </div>
                 ) : hasResults && viewMode === 'stat' ? (
                     <MetricStatPanel

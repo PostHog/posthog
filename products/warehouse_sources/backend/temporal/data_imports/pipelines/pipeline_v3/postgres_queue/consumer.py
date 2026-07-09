@@ -7,7 +7,9 @@ polling, retry, and recovery mechanics to the v3 batch consumer engine.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from django.db import close_old_connections
@@ -33,10 +35,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    FRESHNESS_WINDOW_SECONDS,
     BatchQueue,
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+    OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -48,6 +52,19 @@ logger = structlog.get_logger(__name__)
 
 ConsumerConfig = BatchConsumerConfig
 
+# Ceiling for the queue-freshness probe, deliberately far below the sweep
+# timeout so a degraded probe can't starve the reconcile sweep it rides on.
+FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+# Errors that fail identically on every attempt. Substring-matched because they
+# surface as generic exceptions; keep entries specific so transients can't match.
+NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
+    # delta-rs decimal precision overflow — the batch's data cannot fit the column
+    "is too large to store in a Decimal128",
+    # schema configured as incremental without a primary key — config error
+    "Primary key required for incremental syncs",
+)
+
 
 class DeltaBatchConsumerAdapter:
     log_prefix: str = ""
@@ -55,6 +72,11 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+
+    def __init__(self, *, use_state: bool = False) -> None:
+        # Readers only: True routes the claim, sweep, freshness, and reconcile
+        # queries through the denormalized state columns.
+        self._use_state = use_state
 
     async def fetch_and_lock(
         self,
@@ -71,6 +93,7 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             lease_ttl_seconds=lease_ttl_seconds,
+            use_state=self._use_state,
         )
 
     async def unlock(
@@ -98,22 +121,15 @@ class DeltaBatchConsumerAdapter:
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None:
-        if error_response is None:
-            await BatchQueue.update_status(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-            )
-            return
-
         await BatchQueue.update_status(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
+            batch_created_at=batch_created_at,
         )
 
     async def fail_run(
@@ -199,7 +215,7 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, use_state=self._use_state)
 
     async def reconcile_failed_runs(
         self,
@@ -210,15 +226,20 @@ class DeltaBatchConsumerAdapter:
         limit: int,
     ) -> None:
         """Mark ExternalDataJobs Failed when their run has a failed queue batch but the app-DB write never landed."""
+        # Piggyback the reconcile cadence for the queue-freshness gauge: same
+        # connection, same periodicity, and isolated so it can't break the sweep.
+        await self._observe_queue_freshness(conn)
+
         refs = await BatchQueue.get_failed_runs(
             conn,
             grace_seconds=grace_seconds,
             lookback_seconds=lookback_seconds,
             limit=limit,
+            use_state=self._use_state,
         )
         for ref in refs:
             try:
-                reconciled = await sync_to_async(_mark_job_failed_if_not_terminal)(
+                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
                     job_id=ref.job_id,
                     team_id=ref.team_id,
                     error=ref.reason or "run failed (reconciled from queue)",
@@ -257,6 +278,33 @@ class DeltaBatchConsumerAdapter:
                     )
                     capture_exception(e)
 
+    async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """Report the age of the oldest batch no consumer has picked up yet.
+
+        This is the loader's data-freshness signal: it rises whenever loading
+        stalls, no matter why — the alert on it fires even when every other
+        health signal looks green. The probe has its own timeout so it cannot
+        eat the reconcile sweep's budget; on timeout the gauge saturates, since
+        a queue DB too degraded to measure freshness must read as stale. Other
+        failures are swallowed-with-capture so a broken probe can't take the
+        sweep down.
+        """
+        try:
+            async with asyncio.timeout(FRESHNESS_PROBE_TIMEOUT_SECONDS):
+                age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn, use_state=self._use_state)
+        except TimeoutError:
+            logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
+                "queue_freshness_probe_timed_out",
+                timeout_seconds=FRESHNESS_PROBE_TIMEOUT_SECONDS,
+            )
+            OLDEST_UNCLAIMED_BATCH_SECONDS.set(FRESHNESS_WINDOW_SECONDS)
+            return
+        except Exception as e:
+            logger.exception("queue_freshness_probe_failed")
+            capture_exception(e)
+            return
+        OLDEST_UNCLAIMED_BATCH_SECONDS.set(age or 0.0)
+
     async def should_process_batch(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -264,6 +312,10 @@ class DeltaBatchConsumerAdapter:
         batch: PendingBatch,
     ) -> bool:
         return True
+
+    def is_retryable_error(self, err: Exception) -> bool:
+        message = str(err)
+        return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
 
     async def after_batch_processed(
         self,
@@ -284,7 +336,7 @@ class BatchConsumer(SharedBatchConsumer):
         super().__init__(
             config=config,
             process_batch=process_batch,
-            adapter=DeltaBatchConsumerAdapter(),
+            adapter=DeltaBatchConsumerAdapter(use_state=config.claim_path == "state"),
             health_reporter=health_reporter,
         )
 
@@ -309,8 +361,12 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     )
 
 
-def _mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
-    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op)."""
+def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:
+    """Mark a non-terminal ExternalDataJob Failed; returns True if it transitioned (terminal jobs are a no-op).
+
+    Public seam shared by the reconcile sweep and the manage_warehouse_queue ops
+    command, so both fail paths agree on the terminal-status check.
+    """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     close_old_connections()
@@ -336,4 +392,5 @@ __all__ = [
     "RECOVERY_INTERVAL_SECONDS",
     "RETRY_BACKOFF_BASE_SECONDS",
     "_group_by_key",
+    "mark_job_failed_if_not_terminal",
 ]

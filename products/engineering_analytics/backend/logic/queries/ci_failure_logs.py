@@ -24,6 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIFailureLogs,
     CIJobFailureLog,
     RepoRef,
+    RunFailureLogs,
 )
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
@@ -132,3 +133,43 @@ def query_ci_failure_logs(
         jobs=jobs,
         truncated=overall_truncated,
     )
+
+
+# Existence probe for the source-authorization check below.
+_RUN_IN_SOURCE = """
+    SELECT 1
+    FROM __RUNS_SOURCE__ AS r
+    WHERE id = {run_id}
+    LIMIT 1
+"""
+
+
+def query_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
+    """Same log substrate as ``query_ci_failure_logs``, keyed directly by one run id — for surfaces
+    that aren't PR-scoped (the default-branch failures feed and the run page)."""
+    # The Logs table is team-scoped, not source-scoped — prove the run exists in the caller's
+    # authorized source before reading its logs, or a known run id would leak another source's logs.
+    in_source = curated.run(
+        _RUN_IN_SOURCE.replace("__RUNS_SOURCE__", curated.run_source()),
+        query_type="engineering_analytics.run_failure_logs_source_check",
+        placeholders={"run_id": ast.Constant(value=run_id)},
+    )
+    if not in_source.results:
+        return RunFailureLogs(run_id=run_id, logs_available=False, jobs=[], truncated=False)
+
+    response = curated.run(
+        _SELECT,
+        query_type="engineering_analytics.run_failure_logs",
+        placeholders={
+            "service_name": ast.Constant(value=_SERVICE_NAME),
+            "run_ids": ast.Constant(value=[str(run_id)]),
+            "line_cap": ast.Constant(value=_LINE_CAP + 1),
+        },
+        workload=Workload.LOGS,
+    )
+    rows = response.results or []
+    overall_truncated = len(rows) > _LINE_CAP
+    jobs = _group_jobs(rows[:_LINE_CAP])
+    if overall_truncated and jobs:
+        jobs[-1] = dataclasses.replace(jobs[-1], truncated=True)
+    return RunFailureLogs(run_id=run_id, logs_available=bool(rows), jobs=jobs, truncated=overall_truncated)

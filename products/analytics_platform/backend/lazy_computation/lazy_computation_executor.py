@@ -311,6 +311,11 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
     202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # The rows/bytes-to-read cap is deterministic for a given window: the data
+    # won't shrink between attempts, so an immediate retry re-scans the same
+    # terabytes only to fail the same way. Fail fast so the caller can fall
+    # back or narrow the window.
+    307,  # TOO_MANY_ROWS_OR_BYTES
     # An OOM won't succeed on an immediate retry with the same window — retrying just
     # adds memory pressure to a cluster that already signaled it's out of memory. Fail
     # fast so the caller can react (e.g. cap the team's window) and fall back.
@@ -371,7 +376,6 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
-    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
     MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
@@ -393,7 +397,6 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
     LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
@@ -1286,13 +1289,18 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL
+    # Print to SQL. Materialization is a system, team-scoped process with no request user, so bypass
+    # warehouse access control to avoid failing closed in this userless context. Caveat: the native
+    # pre-agg table this writes is later read WITHOUT warehouse RBAC, so materialization does not enforce
+    # per-source access on reads — a user with dashboard access can see aggregates from warehouse sources
+    # they can't query directly. Whether the pre-agg read should re-check source access is an open question.
     context = HogQLContext(
         team_id=team.id,
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
         modifiers=create_default_modifiers_for_team(team),
+        bypass_warehouse_access_control=True,
     )
     select_sql, _ = prepare_and_print_ast(
         query,
