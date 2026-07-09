@@ -449,13 +449,26 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // shares its entryKey but lacks the contains label/telemetry);
             // pinned/recent context wrappers get stripped before persisting.
             if (valueIn != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
-                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
+                // Options in curated tabs (MCP properties, internal event properties) declare
+                // the canonical group they commit as. Legacy resolves it via `getItemGroup`
+                // before dispatching, so recents must be recorded under the declared group
+                // here too — otherwise the same property gets near-duplicate Recent rows
+                // across variants (recents dedupe on groupType + value and share storage).
+                const declaredGroup =
+                    !hasRecentContext(item) && stripped && typeof stripped === 'object' && 'group' in stripped
+                        ? groups.find((g) => g.type === stripped.group)
+                        : undefined
+                const sourceGroupType = hasRecentContext(item)
+                    ? item._recentContext.sourceGroupType
+                    : (declaredGroup?.type ?? group.type)
                 const cleanItem = {
                     name: stripped.name,
                     ...(stripped.id ? { id: stripped.id } : {}),
                 }
-                const sourceGroupName = hasRecentContext(item) ? item._recentContext.sourceGroupName : group.name
+                const sourceGroupName = hasRecentContext(item)
+                    ? item._recentContext.sourceGroupName
+                    : (declaredGroup?.name ?? group.name)
                 const propertyFilterFromRecent = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
                 // Defer one tick — keeps the recents write off the
                 // commit's render cycle so React doesn't re-render the
@@ -476,7 +489,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             onChange?.(group, valueIn, item)
             setSearchQuery('')
         },
-        [onChange, setSearchQuery]
+        [groups, onChange, setSearchQuery]
     )
 
     const selectSelected = useCallback(() => {

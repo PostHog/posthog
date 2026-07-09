@@ -3774,13 +3774,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"] = {}
 for key in ["distinct_id", "timestamp", "event", "person_id", "person_mode"]:
     CORE_FILTER_DEFINITIONS_BY_GROUP["event_metadata"][key] = CORE_FILTER_DEFINITIONS_BY_GROUP["metadata"][key]
 
-# The @posthog/mcp SDK captures a known property schema on its events. Mirror those properties
-# into their own group so MCP-scoped pickers can surface the expected schema as a dedicated
-# taxonomic filter category (the way autocapture separates element properties).
-CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"] = {
-    key: value for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items() if key.startswith("$mcp_")
-}
-
 
 def decapitalize_first_word(text: str) -> str:
     """Decapitalize the first word of a string, but leave acronyms and exceptions like `GeoIP` intact."""
@@ -3844,6 +3837,16 @@ for key in SESSION_PROPERTIES_ALSO_INCLUDED_IN_EVENTS:
         ),
         "ignored_in_assistant": True,
     }
+
+
+# The @posthog/mcp SDK captures a known property schema on its events. Mirror those properties
+# into their own group so MCP-scoped pickers can surface the expected schema as a dedicated
+# taxonomic filter category (the way autocapture separates element properties).
+# Keep this below every block that mutates "event_properties", or late additions would
+# silently miss the mirror.
+CORE_FILTER_DEFINITIONS_BY_GROUP["mcp_properties"] = {
+    key: value for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items() if key.startswith("$mcp_")
+}
 
 
 PROPERTY_NAME_ALIASES = {
