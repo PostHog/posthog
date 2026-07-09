@@ -2492,6 +2492,7 @@ def bootstrap_task_run(
         "model": model,
         "reasoning_effort": reasoning_effort,
         "home_quick_action": home_quick_action,
+        "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -3717,6 +3718,10 @@ def run_task(
     if initial_permission_mode is not None:
         extra_state = extra_state or {}
         extra_state["initial_permission_mode"] = initial_permission_mode
+    rtk_enabled = validated_data.get("rtk_enabled")
+    if rtk_enabled is not None:
+        extra_state = extra_state or {}
+        extra_state["rtk_enabled"] = rtk_enabled
 
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()

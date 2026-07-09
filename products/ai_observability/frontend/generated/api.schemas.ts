@@ -437,6 +437,7 @@ export const EvaluationTargetEnumApi = {
  * * `azure_openai` - Azure OpenAI
  * * `together_ai` - Together AI
  * * `minimax` - MiniMax
+ * * `zeabur` - Zeabur AI Hub
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -449,6 +450,7 @@ export const LLMProviderEnumApi = {
     AzureOpenai: 'azure_openai',
     TogetherAi: 'together_ai',
     Minimax: 'minimax',
+    Zeabur: 'zeabur',
 } as const
 
 /**
@@ -2221,7 +2223,8 @@ export interface TaggerModelConfigurationApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2274,7 +2277,8 @@ export interface TaggerModelConfigurationWriteApi {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
-     * * `minimax` - MiniMax */
+     * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub */
     provider: LLMProviderEnumApi
     /**
      * Provider model identifier to use for this tagger.
@@ -2583,6 +2587,7 @@ export const LlmAnalyticsModelsRetrieveProvider = {
     Openai: 'openai',
     Openrouter: 'openrouter',
     TogetherAi: 'together_ai',
+    Zeabur: 'zeabur',
 } as const
 
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }

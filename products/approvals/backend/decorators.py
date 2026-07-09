@@ -4,6 +4,7 @@ from functools import wraps
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import status
@@ -12,9 +13,10 @@ from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
+from posthog.models import Team
 
 from products.approvals.backend.actions.registry import get_action
-from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.notifications import send_approval_requested_notification
 from products.approvals.backend.policies import PolicyDecision, PolicyEngine
@@ -43,13 +45,25 @@ class GateResult:
 def _extract_context(view_or_serializer, request=None) -> tuple[Optional[Any], Optional[Any], Optional[Any]]:
     """Extract request, team, organization from either serializer or viewset."""
     if hasattr(view_or_serializer, "context") and isinstance(view_or_serializer.context, dict):
-        req = view_or_serializer.context.get("request")
-        team = view_or_serializer.context.get("get_team", lambda: None)()
-        org = view_or_serializer.context.get("get_organization", lambda: None)()
+        ctx = view_or_serializer.context
+        req = ctx.get("request")
+        team = ctx.get("get_team", lambda: None)()
+        org = ctx.get("get_organization", lambda: None)()
+        # Internal callers build contexts with team_id/get_team but no get_organization,
+        # so the gate must derive team/org from the instance instead of failing open.
+        if team is None:
+            instance = getattr(view_or_serializer, "instance", None)
+            team = getattr(instance, "team", None)
+            if team is None and ctx.get("team_id"):
+                team = Team.objects.filter(id=ctx["team_id"]).first()
+        if org is None and team is not None:
+            org = team.organization
         return req, team, org
     else:
         team = getattr(view_or_serializer, "team", None)
         org = getattr(view_or_serializer, "organization", None)
+        if org is None and team is not None:
+            org = team.organization
         return request, team, org
 
 
@@ -150,7 +164,15 @@ def _create_change_request(
         request=request,
     )
 
-    send_approval_requested_notification(change_request)
+    # Fire the approval-requested notification only after the surrounding
+    # transaction commits. On the scheduled-change create/update and copy-flags
+    # paths this runs inside a `with transaction.atomic()` block; if that
+    # transaction rolls back (e.g. the ScheduledChange insert fails a constraint),
+    # the CR row is rolled back too, so notifying synchronously would ping an
+    # approver about a change request that no longer exists. on_commit fires
+    # immediately on the autocommit (direct-request) path, so behavior there is
+    # unchanged.
+    transaction.on_commit(lambda: send_approval_requested_notification(change_request))
 
     return change_request
 
@@ -203,8 +225,8 @@ def _evaluate_gate(
         extra={
             "action": action_class.key,
             "user": request.user.id,
-            "method": request.method,
-            "path": request.path,
+            "method": getattr(request, "method", ""),
+            "path": getattr(request, "path", ""),
         },
     )
 
@@ -343,13 +365,13 @@ def _result_to_exception(result: GateResult) -> None:
         raise APIException(result.error_message)
 
     if result.action == "policy_conflict":
-        raise ValidationError(
-            {
-                "code": "policy_conflict",
-                "error": result.error_message,
-                "conflicting_policies": result.conflicting_policies,
-                "guidance": "Split your changes into separate API calls to address each policy independently",
-            }
+        # A plain ValidationError would be flattened by the exceptions-hog handler into a generic
+        # `invalid_input` code, losing the conflict signal. Raise a dedicated exception the ViewSet
+        # renders into the same `policy_conflict` body as the viewset path (see _result_to_response).
+        raise PolicyConflict(
+            conflicting_policies=result.conflicting_policies,
+            message=result.error_message or "This change matches multiple approval policies",
+            guidance="Split your changes into separate API calls to address each policy independently",
         )
 
     if result.action == "duplicate":
@@ -464,6 +486,11 @@ def approval_gate(action_refs: Union[type, str, list]):
             if not actions:
                 return method(self, *args, **kwargs)
 
+            # The approved change is applied through this same serializer; re-gating it
+            # here would block (or duplicate) a change that is already approved.
+            if isinstance(getattr(self, "context", None), dict) and self.context.get("approval_apply"):
+                return method(self, *args, **kwargs)
+
             is_serializer = hasattr(self, "context") and isinstance(self.context, dict) and "request" in self.context
 
             if is_serializer:
@@ -481,18 +508,19 @@ def approval_gate(action_refs: Union[type, str, list]):
             if not _is_approvals_enabled(organization):
                 return method(self, *args, **kwargs)
 
-            # Find first action that matches and has a policy
-            matched_action = None
-            matched_policy = None
-
+            # Collect every action that matches this change AND has an enabled policy — not just
+            # the first. The approved change is applied by replaying the full validated payload
+            # (see actions.feature_flags._apply_create / apply), so a change that trips more than one
+            # policy-backed action (e.g. a create that both enables the flag and sets its rollout)
+            # would satisfy a single policy while the other policies' gated fields sail through
+            # unapproved. Gating on only the first match reopens exactly that bypass.
+            matches: list[tuple[Any, Any]] = []
             for action_class in actions:
                 try:
                     if action_class.detect(request, self, *args, **kwargs):
                         policy = _check_policy_for_action(action_class, team, organization)
                         if policy:
-                            matched_action = action_class
-                            matched_policy = policy
-                            break
+                            matches.append((action_class, policy))
                 except Exception as e:
                     logger.error(
                         "Error in action detect()",
@@ -500,20 +528,38 @@ def approval_gate(action_refs: Union[type, str, list]):
                         exc_info=True,
                     )
 
-            if not matched_action or not matched_policy:
+            if not matches:
                 return method(self, *args, **kwargs)
 
-            # Evaluate the gate with matched action
-            result = _evaluate_gate(
-                action_class=matched_action,
-                request=request,
-                team=team,
-                organization=organization,
-                policy=matched_policy,
-                view_or_serializer=self,
-                args=args,
-                kwargs=kwargs,
-            )
+            if len(matches) > 1:
+                # A single ChangeRequest can only carry one action's approval, but the apply path
+                # replays the whole payload — so we cannot safely gate a change that needs approval
+                # under several policies at once. Reject it (fail closed) and tell the caller to
+                # split it, mirroring the multi-policy conflict handling in _evaluate_gate.
+                logger.warning(
+                    "Change matches multiple policy-backed actions",
+                    extra={"actions": [action_class.key for action_class, _ in matches]},
+                )
+                result = GateResult(
+                    action="policy_conflict",
+                    conflicting_policies=[
+                        {"id": str(policy.id), "name": str(policy), "action_key": action_class.key}
+                        for action_class, policy in matches
+                    ],
+                    error_message="This change requires approval under multiple policies",
+                )
+            else:
+                matched_action, matched_policy = matches[0]
+                result = _evaluate_gate(
+                    action_class=matched_action,
+                    request=request,
+                    team=team,
+                    organization=organization,
+                    policy=matched_policy,
+                    view_or_serializer=self,
+                    args=args,
+                    kwargs=kwargs,
+                )
 
             # Convert result to appropriate output format
             if is_serializer:
