@@ -422,8 +422,14 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=wizard_pr_ready",
         }
 
-    def test_send_wizard_pr_ready_email_skips_when_creator_lost_project_access(
-        self, MockEmailMessage: MagicMock
+    @parameterized.expand(
+        [
+            ("removed_membership", True, False),
+            ("inactive_user", False, True),
+        ]
+    )
+    def test_send_wizard_pr_ready_email_skips_when_creator_cannot_access_project(
+        self, MockEmailMessage: MagicMock, _case_name: str, remove_membership: bool, deactivate_user: bool
     ) -> None:
         _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-former-member@posthog.com")
         team = user.team
@@ -442,7 +448,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": "https://github.com/posthog/posthog-js/pull/1"},
         )
-        OrganizationMembership.objects.filter(organization=team.organization, user=user).delete()
+        if remove_membership:
+            OrganizationMembership.objects.filter(organization=team.organization, user=user).delete()
+        if deactivate_user:
+            user.is_active = False
+            user.save(update_fields=["is_active"])
 
         send_wizard_pr_ready_email(str(run.id))
 
