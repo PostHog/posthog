@@ -129,6 +129,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
         IMAGE_BUILDER = "image_builder", "Image Builder"
+        ALERT = "alert", "Alert"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0004_alertcheck_investigation_task_run_id_and_more

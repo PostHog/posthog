@@ -188,6 +188,32 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         default="notify",
     )
 
+    class InvestigationMode(models.TextChoices):
+        NOTEBOOK = "notebook", "Notebook"
+        POSTHOG_CODE = "posthog_code", "PostHog Code"
+
+    investigation_mode = models.CharField(
+        max_length=16,
+        choices=InvestigationMode.choices,
+        default=InvestigationMode.NOTEBOOK,
+        help_text="How firing alerts are investigated: an in-process notebook agent (detector alerts only) or a PostHog Code task.",
+    )
+    investigation_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Optional org/repo the PostHog Code investigation may open a draft PR against.",
+    )
+    investigation_context = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Free-text owner guidance appended to the investigation prompt.",
+    )
+    investigation_rerun_on_continued_breach = models.BooleanField(
+        default=True,
+        help_text="Re-run the PostHog Code investigation while the alert stays firing, with per-episode backoff.",
+    )
+
     class Meta:
         db_table = "posthog_alertconfiguration"
 
@@ -491,6 +517,14 @@ class AlertCheck(UUIDTModel):
     # with suppress policy) and we skipped dispatching the notification. Surfaced
     # in the UI so users can audit which fires the agent swallowed.
     notification_suppressed_by_agent = models.BooleanField(default=False)
+
+    # Reference to a TaskRun spawned for a PostHog Code investigation. Deliberately
+    # not a FK — tasks is facade-isolated and lives on a separate DB boundary.
+    investigation_task_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="TaskRun spawned for a PostHog Code investigation (reference only; tasks is facade-isolated, no FK).",
+    )
 
     class Meta:
         db_table = "posthog_alertcheck"
