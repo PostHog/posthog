@@ -494,9 +494,23 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
             assert resp.status_code == 402, resp.json()
             body = resp.json()
             assert body["code"] == "quota_limit_exceeded"
-            assert "Monthly Replay vision limit of $0.05 reached" in body["detail"]
+            assert "would exceed your monthly Replay vision limit of $0.05" in body["detail"]
             mock_sync_connect.assert_not_called()
             mock_async_to_sync.assert_not_called()
+
+    def test_returns_402_when_observation_would_exceed_remaining(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Not exhausted (5 of 8 used), but the next 5-credit observation would land at 10 > 8. The precheck
+        # must reject it rather than only blocking once fully exhausted.
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 8):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            assert not compute_quota_snapshot(organization_id=self.organization.id).exhausted
+
+            resp = self.client.post(self.observe_url, data={"session_id": "sess-would-exceed"}, format="json")
+
+            assert resp.status_code == 402, resp.json()
+            mock_sync_connect.assert_not_called()
 
     def test_allows_observe_when_under_quota(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
         mock_sync_connect.return_value = MagicMock()

@@ -47,14 +47,15 @@ def check_team_in_flight_capacity(team_id: int) -> None:
         raise Throttled(detail=f"This team already has {count} observations running. Try again in a few minutes.")
 
 
-def check_observation_quota(organization_id: UUID) -> None:
-    """Raise 402 when the org's monthly credit limit is exhausted."""
+def check_observation_quota(organization_id: UUID, observation_credits: int) -> None:
+    """Raise 402 when starting an observation of this credit cost would exceed the org's monthly limit."""
     snapshot = compute_quota_snapshot(organization_id=organization_id)
-    if snapshot.exhausted and snapshot.credit_limit is not None:
+    if snapshot.would_exceed(observation_credits):
         raise QuotaLimitExceeded(
             detail=(
-                f"Monthly Replay vision limit of ${snapshot.credit_limit / 100:,.2f} reached. "
-                f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
+                f"Starting this observation would exceed your monthly Replay vision limit of "
+                f"${snapshot.credit_limit / 100:,.2f}. Resets {snapshot.period_end.strftime('%b')} "
+                f"{snapshot.period_end.day}."
             )
         )
 

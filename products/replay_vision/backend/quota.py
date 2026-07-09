@@ -50,6 +50,10 @@ class QuotaSnapshot:
     def exhausted(self) -> bool:
         return self.credit_limit is not None and self.credits_used >= self.credit_limit
 
+    def would_exceed(self, credits: int) -> bool:
+        """Whether starting an observation costing `credits` would push usage past the limit (uncapped never does)."""
+        return self.credit_limit is not None and self.credits_used + credits > self.credit_limit
+
 
 def next_month_start(now: datetime) -> datetime:
     """First moment (UTC) of the calendar month following the month containing `now`."""
