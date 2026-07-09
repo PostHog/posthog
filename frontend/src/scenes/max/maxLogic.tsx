@@ -97,9 +97,9 @@ function parseCommandString(options: string): ParsedCommand {
         remaining = colonIndex === -1 ? '' : remaining.slice(colonIndex + 1)
     }
 
-    // Handle auto-run prefix
+    // Handle question prefixes: `!` auto-runs the question, `?` explicitly pre-loads it (same as no prefix)
     const autoRun = remaining.startsWith('!')
-    if (autoRun) {
+    if (autoRun || remaining.startsWith('?')) {
         remaining = remaining.slice(1)
     }
 

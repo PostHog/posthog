@@ -87,6 +87,22 @@ describe('maxLogic', () => {
         })
     })
 
+    it('strips the pre-load prefix without setting autoRun for #panel=max:?Foo', async () => {
+        // `?` is the documented "pre-load only" modifier — the prefix must not leak into the question text
+        sidePanelStateLogic.mount()
+        await expectLogic(sidePanelStateLogic, () => {
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max, '?Foo')
+        }).toDispatchActions(['openSidePanel'])
+
+        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            autoRun: false,
+            question: 'Foo',
+        })
+    })
+
     it('does not reset conversation when 404 occurs during active message generation', async () => {
         router.actions.push('', {}, { panel: 'max' })
         sidePanelStateLogic.mount()
