@@ -222,4 +222,21 @@ describe('close template', () => {
         expect(errorResponse.finished).toBe(true)
         expect(errorResponse.error).toMatch('Error from api.close.com (status 400)')
     })
+
+    it('throws when the contact update request fails', async () => {
+        const searchRequest = await tester.invoke(defaultInputs, {})
+
+        const updateRequest = await tester.invokeFetchResponse(searchRequest.invocation, {
+            status: 200,
+            body: { data: [{ __object_type: 'contact', id: 'cont_123', lead_id: 'lead_456' }] },
+        })
+
+        const errorResponse = await tester.invokeFetchResponse(updateRequest.invocation, {
+            status: 400,
+            body: { error: 'error' },
+        })
+
+        expect(errorResponse.finished).toBe(true)
+        expect(errorResponse.error).toMatch('Error from api.close.com (status 400)')
+    })
 })
