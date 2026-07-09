@@ -9,7 +9,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-Other/Onboarding/Product Selection',
+    title: 'Scenes-Other/Onboarding/Legacy/Product Selection',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1728,9 +1728,11 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         )
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
+        # A None return would read as "enqueue failed" and roll back every
+        # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
             "products.logs.backend.temporal.activities.produce_internal_event",
-            return_value=None,
+            return_value=MagicMock(),
         )
         self._kafka_patcher.start()
         self.addCleanup(self._kafka_patcher.stop)

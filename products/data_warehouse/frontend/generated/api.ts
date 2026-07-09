@@ -614,17 +614,6 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     })
 }
 
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
     return `/api/projects/${projectId}/managed_viewsets/${kind}/`
 }

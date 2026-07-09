@@ -322,13 +322,16 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
 
 
 def _is_connection_limit_error(error: BaseException) -> bool:
-    """True if the source refused a new connection because it's at a connection limit.
+    """True if the source refused a connection because it's at a connection limit.
 
-    Distinct from `_is_connection_dropped_error`: the connection was never established, so this is
-    only meaningful on the connect path (`_connect_with_dropped_retry`), not for mid-stream fetch
-    failures on an already-open connection.
+    Usually a connect-time refusal (`psycopg.OperationalError`), but a pooler that caches an
+    upstream login failure instead reveals the limit on the first query as a `ProtocolViolation`
+    ("server login has been failing, cached error: remaining connection slots are reserved ..."),
+    so match that type too. Distinct from `_is_connection_dropped_error` — the backend connection
+    was never usable — but the same transient capacity class: a slot frees the moment another
+    connection closes, so it stays retryable and is never a `NonRetryableError`.
     """
-    if not isinstance(error, psycopg.OperationalError):
+    if not isinstance(error, psycopg.OperationalError | psycopg.errors.ProtocolViolation):
         return False
     message = " ".join(str(arg) for arg in error.args).lower()
     return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
@@ -344,15 +347,43 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
     etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
     read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
-    user-facing validation path (`get_schemas`, via `_retry_on_connection_dropped` directly)
-    deliberately keeps failing fast on the same connect-time conditions, where a timeout usually means
-    an unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    schema-discovery path retries drops and connection-limit refusals too (via
+    `_is_dropped_or_connection_limit`) but deliberately keeps failing fast on connect-time *timeouts*,
+    where a timeout usually means an unreachable host / unconfigured firewall (see `PostgresErrors`
+    and `get_non_retryable_errors`).
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
+
+
+def _is_dropped_or_connection_limit(error: BaseException) -> bool:
+    """Transient conditions the background schema-discovery retry recovers from in process.
+
+    A mid-stream drop (`_is_connection_dropped_error`) or a connection-limit refusal
+    (`_is_connection_limit_error`). Both are transient — a slot frees as connections close, and a
+    pooler-cached login failure clears once the upstream has capacity — so discovery retries them on
+    a fresh connection instead of failing the activity and surfacing captured error-tracking noise.
+    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
+    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
+    should fail fast rather than burn the retry budget.
+    """
+    return _is_connection_dropped_error(error) or _is_connection_limit_error(error)
+
+
+def _is_recovery_conflict_error(error: BaseException) -> bool:
+    """True if the error is a Postgres hot-standby recovery conflict, at read or connect time.
+
+    A read canceled by the standby surfaces as SerializationFailure (SQLSTATE 40001), but when the
+    standby cancels the *connection's own startup* the failure comes back as a plain
+    OperationalError ("connection failed: ... FATAL: canceling statement due to conflict with
+    recovery") with no SQLSTATE-mapped subclass. Match the stable message so both are recognised.
+    """
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return "conflict with recovery" in " ".join(str(arg) for arg in error.args)
 
 
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
@@ -1194,7 +1225,15 @@ def _schemas_from_conn(
             cursor.execute(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
             )
-        except psycopg.Error:
+        except psycopg.Error as e:
+            # A dropped or connection-limit-refused upstream fails on this first query too — a pooler
+            # surfacing "remaining connection slots are reserved ..." on the first statement. Rolling
+            # that back raises a misleading "the connection is lost" that buries the real cause, so
+            # re-raise the true error and let the discovery retry recover on a fresh connection. A
+            # live engine that merely rejects the SET (e.g. DuckDB) is not a drop/limit: clear the
+            # aborted transaction and fall back to the default timeout.
+            if _is_connection_dropped_error(e) or _is_connection_limit_error(e):
+                raise
             connection.rollback()
 
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
@@ -1284,9 +1323,11 @@ def get_schemas(
     # either on connect or on the first discovery query (e.g. `SELECT version()` in
     # `_is_duckdb_connection`). Retry the whole connect-and-discover cycle on a fresh connection so
     # the retry spans both — otherwise the blip fails the discovery activity and surfaces as
-    # captured error-tracking noise even though the next attempt would succeed. Permanent errors
-    # (auth failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
-    # matches transient drops.
+    # captured error-tracking noise even though the next attempt would succeed. Connection-limit
+    # refusals ("remaining connection slots are reserved", "sorry, too many clients already") are
+    # retried the same way — the customer's database is momentarily out of slots and frees one as
+    # connections close. Permanent errors (auth failures, SSL-required) re-raise immediately because
+    # `_is_dropped_or_connection_limit` matches only transient drops and connection-limit refusals.
     def _connect_and_discover() -> dict[str, PostgresDiscoveredSchema]:
         connection = _connect_to_postgres(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
@@ -1297,7 +1338,10 @@ def get_schemas(
             connection.close()
 
     return _retry_on_connection_dropped(
-        _connect_and_discover, structlog.get_logger(), max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES
+        _connect_and_discover,
+        structlog.get_logger(),
+        max_attempts=_MAX_SETUP_CONNECTION_DROPPED_RETRIES,
+        is_retryable=_is_dropped_or_connection_limit,
     )
 
 
@@ -2064,6 +2108,12 @@ def _has_duplicate_primary_keys(
 
         return row is not None
     except psycopg.errors.QueryCanceled:
+        raise
+    except psycopg.errors.InsufficientPrivilege:
+        # The sync role can't SELECT this table (SQLSTATE 42501, "permission denied for table").
+        # Swallowing it as "no duplicate keys" would be a false negative, and the extraction that
+        # follows fails on the same denial — already surfaced as non-retryable with an actionable
+        # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
         raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
@@ -3133,10 +3183,30 @@ def postgres_source(
                 floor_retries = 0
                 # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
                 # the connect itself is caught by the handlers below. A hot standby can cancel the
-                # connection's own startup with "conflict with recovery" (SerializationFailure) when
-                # we reconnect mid-recovery — opening outside the loop let that escape the whole
-                # fallback even though it's the same transient condition the loop already retries.
+                # connection's own startup with "conflict with recovery" when we reconnect
+                # mid-recovery — opening outside the loop let that escape the whole fallback even
+                # though it's the same transient condition the loop already retries.
                 connection: psycopg.Connection | None = None
+
+                def handle_recovery_conflict(e: BaseException) -> None:
+                    # Shared bookkeeping for a recovery conflict hit either while reading a chunk
+                    # (SerializationFailure) or while (re)connecting for one (the standby cancels the
+                    # connection's own startup). Shrink the chunk toward the floor first; only once
+                    # stuck at the floor count down to the non-retryable abort.
+                    nonlocal chunk_size, successive_errors, floor_retries
+                    successive_errors += 1
+                    reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
+                    if reduced_chunk_size < chunk_size:
+                        chunk_size = reduced_chunk_size
+                        logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
+                        floor_retries = 0
+                    elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
+                        floor_retries += 1
+                        if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
+                            _safe_close_connection(connection)
+                            raise _recovery_conflict_abort_error(floor_retries) from e
+                    time.sleep(min(2 * successive_errors, 30))
+
                 while True:
                     try:
                         if connection is None or connection.closed:
@@ -3179,23 +3249,8 @@ def postgres_source(
                     except psycopg.errors.SerializationFailure as e:
                         if "due to conflict with recovery" not in "".join(e.args):
                             raise
-
                         logger.debug(f"SerializationFailure error: {e}. Retrying chunk at offset {offset}")
-
-                        successive_errors += 1
-                        # Shrink toward the floor first; only once stuck at the floor do we count down to
-                        # the abort.
-                        reduced_chunk_size = _next_recovery_conflict_chunk_size(chunk_size, successive_errors)
-                        if reduced_chunk_size < chunk_size:
-                            chunk_size = reduced_chunk_size
-                            logger.debug(f"Reducing chunk size to {chunk_size} to reduce load on read replica")
-                            floor_retries = 0
-                        elif chunk_size <= _MIN_RECOVERY_CONFLICT_CHUNK_SIZE:
-                            floor_retries += 1
-                            if floor_retries >= _MAX_READ_RECOVERY_CONFLICT_RETRIES:
-                                _safe_close_connection(connection)
-                                raise _recovery_conflict_abort_error(floor_retries) from e
-                        time.sleep(min(2 * successive_errors, 30))
+                        handle_recovery_conflict(e)
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the
@@ -3234,6 +3289,17 @@ def postgres_source(
                             ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
+                        if _is_recovery_conflict_error(e):
+                            # A recovery conflict raised by the (re)connect itself surfaces as a plain
+                            # OperationalError ("connection failed: ... conflict with recovery"), not a
+                            # SerializationFailure, so it bypasses the handler above. Same transient
+                            # condition — drop the dead connection so the loop reopens at the same
+                            # offset, and route it through the shared recovery-conflict retry.
+                            logger.debug(f"Recovery conflict on connect ({e}). Retrying chunk at offset {offset}")
+                            _safe_close_connection(connection)
+                            connection = None
+                            handle_recovery_conflict(e)
+                            continue
                         if not _is_dropped_or_connect_timeout(e):
                             _safe_close_connection(connection)
                             raise

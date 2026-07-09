@@ -1,7 +1,11 @@
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     SlackAgentDesignSignalEmitter,
+    _event_method,
+    _resume_position,
 )
 
 from ee.hogai.sandbox import TURN_COMPLETE_METHOD
@@ -90,9 +94,56 @@ class TestSlackAgentDesignSignalEmitter:
             ("agent_text_delta", "turn two"),
         ]
 
+    def test_seeded_turn_active_does_not_reopen_mid_turn_resume(self) -> None:
+        # A retry that resumes mid-turn seeds turn_active=True, so the first resumed session/update
+        # streams text without emitting a duplicate turn_started.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX, turn_active=True)
+
+        signals = emitter.process(_text_chunk("resumed"))
+
+        assert signals == [("agent_text_delta", "resumed")]
+
     def test_events_before_any_turn_are_ignored(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
 
         # A tool_call without a preceding session/update still opens the turn (it is a
         # session/update itself), but a non-session event must not leak signals.
         assert emitter.process({"type": "keepalive"}) == []
+
+
+class TestEventMethod:
+    def test_returns_notification_method(self) -> None:
+        assert _event_method(_text_chunk("hi")) == "session/update"
+
+    def test_returns_none_without_notification(self) -> None:
+        assert _event_method({"type": "keepalive"}) is None
+
+
+class TestResumePosition:
+    def _with_details(self, details: tuple) -> Any:
+        info = MagicMock()
+        info.heartbeat_details = details
+        return patch(
+            "products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals.activity.info",
+            return_value=info,
+        )
+
+    def test_returns_id_and_turn_state_from_prior_attempt(self) -> None:
+        with self._with_details(("1700-0", True)):
+            assert _resume_position() == ("1700-0", True)
+
+    def test_returns_defaults_on_first_attempt(self) -> None:
+        # No prior heartbeat — resume from the start of the stream with no turn open.
+        with self._with_details(()):
+            assert _resume_position() == (None, False)
+
+    def test_turn_active_defaults_false_when_absent(self) -> None:
+        # A pre-turn-state heartbeat (id only) resumes with no turn open.
+        with self._with_details(("1700-0",)):
+            assert _resume_position() == ("1700-0", False)
+
+    def test_ignores_empty_or_non_string_id(self) -> None:
+        with self._with_details(("", True)):
+            assert _resume_position() == (None, True)
+        with self._with_details((123, False)):
+            assert _resume_position() == (None, False)
