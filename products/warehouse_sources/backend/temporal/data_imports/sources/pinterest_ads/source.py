@@ -54,6 +54,19 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
             "404 Client Error": "Pinterest Ads resource not found. Please check your ad account ID.",
         }
 
+    def get_expected_transient_errors(self) -> list[str]:
+        # Pinterest's API intermittently returns server-side 5xx (mostly 500, some 503) on the
+        # entity and analytics endpoints. The tracked session already retries these, and Temporal
+        # retries the whole activity, so a persistent 5xx is expected upstream flakiness rather than
+        # a bug in our code. Classify it as transient so it is logged at warning level instead of
+        # opening a fresh error-tracking issue on every retry.
+        return [
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
+        ]
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

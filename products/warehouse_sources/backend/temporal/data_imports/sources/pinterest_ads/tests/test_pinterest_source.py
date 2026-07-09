@@ -80,6 +80,17 @@ class TestPinterestAdsSource:
         assert "Failed to validate Pinterest Ads credentials" in error_message
         mock_capture.assert_called_once()
 
+    def test_upstream_5xx_classified_as_expected_transient(self):
+        # Pinterest's API intermittently returns 5xx; these must be classified as expected transient
+        # (retried by Temporal, logged as warnings) rather than non-retryable (which disables the sync).
+        transient = self.source.get_expected_transient_errors()
+        non_retryable = self.source.get_non_retryable_errors()
+
+        for status in ("500", "502", "503", "504"):
+            marker = f"{status} Server Error"
+            assert marker in transient
+            assert marker not in non_retryable
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 

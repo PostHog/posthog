@@ -150,6 +150,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_expected_transient_errors(self) -> list[str]:
+        """Returns partial error messages that are expected transient failures.
+
+        These are still raised so Temporal retries the activity, but they are logged at warning
+        level rather than as unhandled exceptions, so persistent upstream flakiness (e.g. a source
+        API returning 5xx for a while) does not open a fresh error-tracking issue on every retry.
+        Each entry is a substring matched against the error message.
+        """
+
+        return []
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
