@@ -36,13 +36,12 @@ INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
 
 
 class LinkedinAdsTokenRefreshError(Exception):
-    """The stored OAuth token expired and could not be refreshed — only re-authorization recovers it.
-    Its message is already user-facing (see `get_non_retryable_errors`)."""
+    """The stored OAuth token expired and could not be refreshed. Its message is already user-facing
+    (see `get_non_retryable_errors`)."""
 
 
 class LinkedinAdsMissingTokenError(ValueError):
-    """The integration row carries no access token. Subclasses ValueError so existing callers that
-    only expect a ValueError here keep working."""
+    """Subclasses ValueError so callers that only expect a ValueError here keep working."""
 
 
 @dataclass

@@ -112,7 +112,6 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             fields=cast(
                 list[FieldType],
                 [
-                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="linkedin_ads_integration_id",
                         label="LinkedIn Ads account",
@@ -159,7 +158,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             accounts = client.get_accounts()
         except LinkedinAdsApiError as e:
             if e.api_status_code not in (401, 403):
-                # Any other 4xx is a bug in the request we build, not something the user can fix.
+                # Any other status means we built a bad request, which the user cannot fix.
                 raise
             raise IntegrationAccountListingError(
                 "LinkedIn rejected the credentials for this integration. Please re-authorize the "

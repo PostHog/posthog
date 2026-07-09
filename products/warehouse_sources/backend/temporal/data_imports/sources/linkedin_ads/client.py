@@ -70,11 +70,10 @@ class LinkedinAdsDailyRateLimitError(Exception):
 
 
 class LinkedinAdsApiError(Exception):
-    """A non-retryable LinkedIn API response. `api_status_code` lets callers branch on the failure
-    (a 401/403 is a customer-side credential problem) without parsing the message.
+    """A non-retryable LinkedIn API response.
 
-    Deliberately not named `status_code`: drf-exceptions-hog reads that attribute off any escaping
-    exception and would render LinkedIn's status as PostHog's HTTP response status.
+    Not named `status_code`: drf-exceptions-hog reads that attribute off any escaping exception and
+    would render LinkedIn's status as PostHog's HTTP response status.
     """
 
     def __init__(self, message: str, api_status_code: int) -> None:
@@ -128,12 +127,8 @@ class LinkedinAdsClient:
         self.api_version = API_VERSION
 
     def get_accounts(self) -> list[dict[str, Any]]:
-        """Every ad account the authorized member can access.
-
-        `q=search` pages like the other finders (cursor pagination from LinkedIn-Version 202401
-        onwards) and defaults to a page size of ~10, so a member with more accounts than that would
-        otherwise get a silently truncated list. Accounts are few enough to collect eagerly.
-        """
+        """Every ad account the authorized member can access. `q=search` defaults to a page size of
+        ~10, so an unpaginated request silently truncates the list."""
         accounts: list[dict[str, Any]] = []
         for elements, _ in self._make_paginated_request(
             endpoint=LinkedinAdsResource.Accounts,

@@ -10888,8 +10888,6 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         assert "re-authorize" in str(response.json()).lower()
 
     def test_linkedin_non_auth_api_error_is_not_swallowed(self):
-        # A 4xx that isn't a credential problem means we built a bad request — a server bug that must
-        # keep surfacing as a 500 rather than being reported to the user as bad input.
         integration = self._linkedin_integration()
         client = MagicMock()
         client.get_accounts.side_effect = LinkedinAdsApiError("LinkedIn API error (400): bad", 400)
