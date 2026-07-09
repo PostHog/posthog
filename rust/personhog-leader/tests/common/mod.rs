@@ -24,6 +24,7 @@ use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
+use personhog_common::partitioning::partition_for_person;
 use personhog_leader::cache::{CachedPerson, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::service::PersonHogLeaderService;
@@ -41,6 +42,15 @@ pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/post
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
+
+/// Find a person_id whose key hashes to `partition`, so a test can aim a
+/// request at a specific partition while satisfying the leader's partition
+/// validation.
+pub fn person_id_for_partition(team_id: i64, partition: u32) -> i64 {
+    (1..)
+        .find(|pid| partition_for_person(team_id, *pid, NUM_PARTITIONS) == partition)
+        .expect("every partition is reachable from some person_id")
+}
 
 pub async fn test_store(test_name: &str) -> Arc<PersonhogStore> {
     let prefix = format!("/test-{}-{}/", test_name, uuid::Uuid::new_v4());
@@ -84,6 +94,7 @@ pub fn start_coordinator(
             keepalive_interval: Duration::from_secs(3),
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
+            reconcile_interval: Duration::from_millis(500),
         },
         strategy,
         None,
@@ -315,6 +326,7 @@ pub async fn start_leader_pod(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
+        NUM_PARTITIONS,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -378,6 +390,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
+        NUM_PARTITIONS,
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -457,6 +470,7 @@ pub async fn start_leader_with_pg_fallback(
         Some(pool),
         Arc::new(DashMap::new()),
         Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        NUM_PARTITIONS,
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

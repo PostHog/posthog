@@ -34,7 +34,8 @@ from products.replay_vision.backend.api.trigger import (
     check_observation_quota,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
+from products.replay_vision.backend.digest import provision_scanner_digest
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission, is_replay_vision_actions_enabled
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     SamplingMode,
@@ -310,6 +311,10 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
         _refresh_estimate_fail_soft(scanner)
+        # Every scanner starts with a built-in daily digest so the overview has a summary to show.
+        # Flag-gated so teams without the actions feature don't accrue synthesis runs they can't see.
+        if is_replay_vision_actions_enabled(user, team):
+            provision_scanner_digest(scanner, user)
         return scanner
 
     def update(self, instance: ReplayScanner, validated_data: dict[str, Any]) -> ReplayScanner:

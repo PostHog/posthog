@@ -18,6 +18,8 @@ from typing import Literal, TypeVar, cast
 import click
 import requests
 
+from hogli_commands.github_auth import github_headers, github_token
+
 ArtifactMode = Literal["off", "auto", "on"]
 
 GITHUB_REPOSITORY = "PostHog/posthog"
@@ -207,44 +209,6 @@ def restore_schema_dump(
     click.echo(f"Restored {target_db} from {schema_path}")
 
 
-def _github_token() -> str | None:
-    for env_var in ("GH_TOKEN", "GITHUB_TOKEN"):
-        token = os.environ.get(env_var)
-        if token:
-            return token
-
-    gh_path = shutil.which("gh")
-    if gh_path is None:
-        return None
-
-    try:
-        result = subprocess.run(
-            [gh_path, "auth", "token"],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    token = result.stdout.strip()
-    if result.returncode == 0 and token:
-        return token
-    return None
-
-
-def _github_headers(token: str | None) -> dict[str, str]:
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
 def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     workflow_run = raw.get("workflow_run")
     if not isinstance(workflow_run, Mapping):
@@ -307,7 +271,7 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
         response = http.get(
             f"https://api.github.com/repos/{GITHUB_REPOSITORY}/actions/artifacts",
             params={"name": SCHEMA_ARTIFACT_NAME, "per_page": 100, "page": page},
-            headers=_github_headers(token),
+            headers=github_headers(token),
             timeout=30,
         )
         response.raise_for_status()
@@ -345,7 +309,7 @@ def download_schema_artifact(
     http = session or requests.Session()
     response = http.get(
         artifact.archive_download_url,
-        headers=_github_headers(token),
+        headers=github_headers(token),
         stream=True,
         timeout=60,
     )
@@ -406,7 +370,7 @@ def download_latest_compatible_schema(
     base_branch: str = DEFAULT_BASE_BRANCH,
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
-    token = _github_token()
+    token = github_token()
     artifacts = fetch_schema_artifacts(token=token, session=session)
     artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
     if artifact is None:

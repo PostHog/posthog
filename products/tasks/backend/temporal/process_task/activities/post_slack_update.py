@@ -13,6 +13,66 @@ from products.tasks.backend.access import has_tasks_access
 
 logger = get_logger(__name__)
 
+SLACK_TERMINAL_NOTIFIED_STATUS_KEY = "slack_terminal_notified_status"
+SLACK_TERMINAL_NOTIFIED_ERROR_KEY = "slack_terminal_notified_error_message"
+SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT = "[ede_diagnostic] result_type=user"
+SLACK_RECOVERY_STRATEGY_KEY = "slack_recovery_strategy"
+SLACK_RECOVERY_PROMPT_KEY = "slack_recovery_prompt"
+
+SLACK_RECOVERY_STRATEGY_RETRY = "retry"
+SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
+SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
+SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+
+_CONNECT_THEN_REPLAN_MARKERS = (
+    "not connected",
+    "connect github",
+    "connect your github",
+    "connect the missing",
+    "missing connector",
+    "missing integration",
+    "github integration",
+    "oauth",
+    "permission scope",
+    "missing scope",
+    "no connected github",
+    "repository selection expired",
+    # Raised by the fail-closed Slack actor credential paths in
+    # process_task/utils.py and sandbox_credentials.py.
+    "linked github account",
+    "requires an acting user",
+)
+_UNBLOCK_AND_REPLAN_MARKERS = (
+    "infeasible",
+    "cannot complete",
+    "can't complete",
+    "not possible",
+    "missing information",
+    "need more information",
+    "need clarification",
+    "blocked on",
+    "approval request",
+)
+
+_RECOVERY_PROMPTS = {
+    SLACK_RECOVERY_STRATEGY_RETRY: (
+        "Reply in this thread with `retry` to try again from the latest checkpoint, "
+        "or add instructions to change the approach."
+    ),
+    SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN: (
+        "Reply after connecting the missing tool, or tell me to continue without it. "
+        "I'll re-plan against the current connections before continuing."
+    ),
+    SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN: (
+        "Reply with the missing detail or constraint. I'll re-plan with that answer before continuing."
+    ),
+    SLACK_RECOVERY_STRATEGY_CANCELLED: (
+        "Reply in this thread when you want to resume, and include any new direction I should follow."
+    ),
+}
+
+SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+
 
 @dataclass
 class PostSlackUpdateInput:
@@ -67,12 +127,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
-                handler.update_reaction("hedgehog")
-                handler.post_cancelled(task_url)
+                _post_cancelled_once(task_run, handler, task_url)
             elif task_run.status == TaskRun.Status.FAILED:
                 error = task_run.error_message or "Unknown error"
-                handler.update_reaction("x")
-                handler.post_error(error, task_url)
+                _post_error_once(task_run, handler, error, task_url)
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
@@ -85,12 +143,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             else:
                 handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
-            handler.update_reaction("hedgehog")
-            handler.post_cancelled(task_url)
+            _post_cancelled_once(task_run, handler, task_url)
         elif task_run.status == TaskRun.Status.FAILED:
             error = task_run.error_message or "Unknown error"
-            handler.update_reaction("x")
-            handler.post_error(error, task_url)
+            _post_error_once(task_run, handler, error, task_url)
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
@@ -143,6 +199,79 @@ def _post_pr_opened_notification_once(
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
     task_run.task.mark_slack_pr_notified(pr_url)
+
+
+def _is_terminal_notified(task_run: Any, status: str, error: str | None = None) -> bool:
+    from products.tasks.backend.models import TaskRun
+
+    state = task_run.state or {}
+    if state.get(SLACK_TERMINAL_NOTIFIED_STATUS_KEY) != status:
+        return False
+    if status != TaskRun.Status.FAILED:
+        return True
+    return state.get(SLACK_TERMINAL_NOTIFIED_ERROR_KEY) == (error or "")
+
+
+def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    updates = {SLACK_TERMINAL_NOTIFIED_STATUS_KEY: status}
+    if status == TaskRun.Status.FAILED:
+        updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
+        recovery_strategy = _classify_failure_recovery(error or "")
+        updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+    elif status == TaskRun.Status.CANCELLED:
+        updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
+
+    TaskRun.update_state_atomic(task_run.id, updates=updates)
+
+
+def _classify_failure_recovery(error: str) -> str:
+    normalized = error.lower()
+    if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
+    if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN
+    return SLACK_RECOVERY_STRATEGY_RETRY
+
+
+def _failure_recovery_prompt(error: str) -> str:
+    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
+
+
+def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
+    state = task_run.state or {}
+    return bool(state.get("slack_permission_rejected")) and SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT in error
+
+
+def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    if _is_terminal_notified(task_run, TaskRun.Status.FAILED, error):
+        handler.delete_progress()
+        return
+
+    if _is_suppressed_permission_rejection_error(task_run, error):
+        handler.update_reaction("hedgehog")
+        handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
+    else:
+        handler.update_reaction("x")
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
+    _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
+
+
+def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> None:
+    from products.tasks.backend.models import TaskRun
+
+    if _is_terminal_notified(task_run, TaskRun.Status.CANCELLED):
+        handler.delete_progress()
+        return
+
+    handler.update_reaction("hedgehog")
+    handler.post_cancelled(task_url, recovery_hint=_RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED])
+    _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 
 
 def _is_pr_opened_notified(task_run, pr_url: str) -> bool:
