@@ -22449,6 +22449,10 @@
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
                 },
+                "user_access_level": {
+                    "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
+                    "type": ["string", "null"]
+                },
                 "visualOrder": {
                     "description": "Order of object in tree",
                     "type": "number"
@@ -22661,6 +22665,10 @@
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "user_access_level": {
+                    "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
+                    "type": ["string", "null"]
                 },
                 "visualOrder": {
                     "description": "Order of object in tree",
@@ -42440,7 +42448,15 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
+            "enum": [
+                "assistant:write",
+                "canvases:write",
+                "channels:manage",
+                "commands",
+                "files:write",
+                "im:history",
+                "mpim:read"
+            ],
             "type": "string"
         },
         "SlashCommandName": {
