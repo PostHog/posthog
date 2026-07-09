@@ -82,13 +82,15 @@ To connect, create an API application in Pipeliner under **Administration → Un
                         placeholder="",
                         secret=False,
                     ),
+                    # The username is not a user-chosen handle but half of the generated API key
+                    # pair (shown once in Pipeliner), so it is stored and treated as a secret.
                     SourceFieldInputConfig(
                         name="username",
                         label="API username",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="password",

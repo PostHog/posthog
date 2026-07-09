@@ -36,11 +36,13 @@ class TestPipelinerSource:
         field_names = [f.name for f in config.fields]
         assert field_names == ["service_url", "space_id", "username", "password"]
 
-        password_field = config.fields[-1]
-        assert isinstance(password_field, SourceFieldInputConfig)
-        assert password_field.type == SourceFieldInputConfigType.PASSWORD
-        assert password_field.secret is True
-        assert password_field.required is True
+        # Both halves of the generated API key pair are credentials — a non-secret one would be
+        # returned in job_inputs to anyone with source read access.
+        for credential_field in config.fields[-2:]:
+            assert isinstance(credential_field, SourceFieldInputConfig)
+            assert credential_field.type == SourceFieldInputConfigType.PASSWORD
+            assert credential_field.secret is True
+            assert credential_field.required is True
 
     def test_service_url_is_a_connection_host_field(self):
         # Retargeting the service URL must force re-entry of the API key pair — without this an
