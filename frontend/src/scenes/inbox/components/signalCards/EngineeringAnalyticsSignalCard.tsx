@@ -17,7 +17,11 @@ import type { SignalCardEntry, SignalCardProps } from './types'
 type RepoWorkflowExtra = Record<string, unknown> & { repo_owner: string; repo_name: string; workflow_name: string }
 
 /** Every engineering_analytics CI signal carries repo + workflow identity; the rest is per-type. */
-function hasRepoWorkflow(extra: Record<string, unknown>): extra is RepoWorkflowExtra {
+function hasRepoWorkflow(value: unknown): value is RepoWorkflowExtra {
+    if (typeof value !== 'object' || value === null) {
+        return false
+    }
+    const extra = value as Record<string, unknown>
     return (
         typeof extra.repo_owner === 'string' &&
         typeof extra.repo_name === 'string' &&
