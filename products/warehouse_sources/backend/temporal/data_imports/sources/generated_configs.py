@@ -977,7 +977,9 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DockerhubSourceConfig(config.Config):
-    pass
+    username: str
+    personal_access_token: str
+    namespace: str | None = None
 
 
 @config.config
