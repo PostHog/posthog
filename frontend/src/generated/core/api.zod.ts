@@ -9103,17 +9103,21 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
 /**
  * Create a new password for the sharing configuration.
  */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
@@ -9703,32 +9707,40 @@ export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create a new password for the sharing configuration.
  */
-export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create a new password for the sharing configuration.
  */
-export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
@@ -9855,17 +9867,21 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 /**
  * Create a new password for the sharing configuration.
  */
-export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.

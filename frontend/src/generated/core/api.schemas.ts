@@ -2786,6 +2786,9 @@ export interface SharePasswordApi {
     readonly is_active: boolean
 }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -2794,6 +2797,11 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface FileSystemApi {
