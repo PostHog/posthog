@@ -45,8 +45,9 @@ class NoEnabledPerspectivesError(LookupError):
 class LoadedPerspective:
     """A perspective resolved for one run: its per-run index, skill name, and pinned version."""
 
-    # Per-run index (1-based position in the run's enabled, sorted set). A dumb ordinal that scopes
-    # finding ids (`{pass}-{chunk}-{issue}`) — NOT a perspective identity; that is `skill_name`.
+    # Per-run index (1-based slot in the run's enabled, sorted set — a dead skill leaves a hole, so
+    # slots stay stable across same-head_sha resumes). A dumb ordinal that scopes finding ids
+    # (`{pass}-{chunk}-{issue}`) — NOT a perspective identity; that is `skill_name`.
     pass_number: int
     skill_name: str
     # Snapshotted so the sandbox agent's `skill-get` pulls the exact version this run was planned
@@ -84,11 +85,13 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
 
     Seeds the canonical configs first (so a cold user gets the 3 canonicals), then reads the user's
     enabled set and resolves each name to its live `LLMSkill` (latest, non-deleted). `pass_number`
-    is a per-run index over the resolved set sorted by name — a re-run with the same enabled set is
-    deterministic. An enabled perspective with no live skill row (e.g. an archived custom) is
-    skipped with a warning rather than failing the run; restoring the skill resumes it. Raises
-    `NoEnabledPerspectivesError` when nothing resolves — zero enabled (min-1 floor) or every
-    enabled name is dead.
+    is the 1-based slot in the full enabled set sorted by name — NOT an index over the live subset,
+    so a dead skill leaves a hole instead of shifting the others. That keeps each surviving
+    perspective on its `(pass_number, chunk_id)` resume key across same-`head_sha` runs; a shifted
+    index would silently reuse another perspective's persisted review on resume. An enabled
+    perspective with no live skill row (e.g. an archived custom) is skipped with a warning rather
+    than failing the run; restoring the skill resumes it. Raises `NoEnabledPerspectivesError` when
+    nothing resolves — zero enabled (min-1 floor) or every enabled name is dead.
     """
     register_missing_perspective_configs(team_id, acting_user_id)
     # Prefix-scope: perspectives and validators share this table — read only perspective rows here.
@@ -111,7 +114,7 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
         ).values_list("name", "version", "description")
     }
     loaded: list[LoadedPerspective] = []
-    for skill_name in enabled_names:
+    for slot, skill_name in enumerate(enabled_names, start=1):
         resolved = latest_by_name.get(skill_name)
         if resolved is None:
             # Enabled config pointing at a dead skill (e.g. archived from the Skills UI): drop it
@@ -124,9 +127,7 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
             continue
         version, description = resolved
         loaded.append(
-            LoadedPerspective(
-                pass_number=len(loaded) + 1, skill_name=skill_name, version=version, description=description
-            )
+            LoadedPerspective(pass_number=slot, skill_name=skill_name, version=version, description=description)
         )
     if not loaded:
         raise NoEnabledPerspectivesError(

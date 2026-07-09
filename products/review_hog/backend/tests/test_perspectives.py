@@ -242,8 +242,11 @@ class TestLoadPerspectivesForRun(BaseTest):
         with pytest.raises(NoEnabledPerspectivesError):
             load_perspectives_for_run(self.team.id, self.user.id)
 
-    def test_skips_an_enabled_perspective_whose_skill_is_dead_and_reindexes(self) -> None:
-        # An archived custom must drop out of the run (not fail it), and pass numbers stay 1..N.
+    def test_skips_a_dead_perspective_leaving_its_slot_as_a_hole(self) -> None:
+        # An archived custom must drop out of the run (not fail it) WITHOUT shifting the survivors'
+        # pass numbers: (pass_number, chunk_id) is the same-head_sha resume key, so a reindex would
+        # make a surviving perspective silently reuse the dead one's persisted review on resume.
+        # Sorted enabled set: contracts(1), custom-x(2, dead), logic(3), performance(4).
         sync_canonical_perspectives(self.team)
         register_missing_perspective_configs(self.team.id, self.user.id)
         ReviewSkillConfig.objects.for_team(self.team.id).create(
@@ -253,7 +256,7 @@ class TestLoadPerspectivesForRun(BaseTest):
         loaded = load_perspectives_for_run(self.team.id, self.user.id)
 
         assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
-        assert [lp.pass_number for lp in loaded] == list(range(1, len(loaded) + 1))
+        assert [lp.pass_number for lp in loaded] == [1, 3, 4]
 
     def test_enablement_is_per_user(self) -> None:
         # Disabling a perspective for one user must not affect another user's run — enablement is per-USER.
