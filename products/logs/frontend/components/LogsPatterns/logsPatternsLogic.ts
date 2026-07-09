@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { LogsQuery } from '~/queries/schema/schema-general'
@@ -15,10 +16,11 @@ import {
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
-import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
+import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
 import type {
     _LogPatternApi,
     _LogPropertyFilterApi,
+    _LogsPatternsDiffResponseApi,
     _LogsPatternsResponseApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -27,6 +29,11 @@ import type { logsPatternsLogicType } from './logsPatternsLogicType'
 export interface LogsPatternsLogicProps {
     id: string
 }
+
+// 'lastWeek' omits baselineDateRange so the backend defaults to the same window one week
+// earlier (absorbs daily/weekly cycles); 'preceding' compares against the window immediately
+// before the current one (the post-deploy / incident-onset comparison).
+export type PatternsBaselineMode = 'lastWeek' | 'preceding'
 
 // The severity filter is an exact match on these six buckets; a sampled severity outside them
 // (e.g. "notice") can't be expressed, so applying the filter would silently exclude those lines.
@@ -82,6 +89,8 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
 
     actions({
         viewMatchingLogs: (pattern: _LogPatternApi) => ({ pattern }),
+        setCompareEnabled: (enabled: boolean) => ({ enabled }),
+        setBaselineMode: (mode: PatternsBaselineMode) => ({ mode }),
     }),
 
     loaders(({ values }) => ({
@@ -91,16 +100,19 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 loadPatterns: async (debounceMs: number = 0, breakpoint) => {
                     await breakpoint(debounceMs)
                     return await logsPatternsCreate(String(values.currentTeamId), {
-                        query: {
-                            dateRange: values.utcDateRange,
-                            severityLevels: values.filters.severityLevels,
-                            serviceNames: values.filters.serviceNames,
-                            searchTerm: values.filters.searchTerm || undefined,
-                            // Scope mining to the same filters the Logs/sparkline queries use —
-                            // `queryFilterGroup` folds in any pinned filters from an embedded viewer
-                            // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
-                            filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
-                        },
+                        query: values.patternsQueryBody,
+                    })
+                },
+            },
+        ],
+        diffResponse: [
+            null as _LogsPatternsDiffResponseApi | null,
+            {
+                loadDiff: async (debounceMs: number = 0, breakpoint) => {
+                    await breakpoint(debounceMs)
+                    return await logsPatternsDiffCreate(String(values.currentTeamId), {
+                        query: values.patternsQueryBody,
+                        baselineDateRange: values.baselineDateRange,
                     })
                 },
             },
@@ -116,11 +128,60 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                 loadPatterns: () => null,
                 loadPatternsSuccess: () => null,
                 loadPatternsFailure: (_, { error }) => error ?? 'Pattern analysis failed',
+                loadDiff: () => null,
+                loadDiffSuccess: () => null,
+                loadDiffFailure: (_, { error }) => error ?? 'Pattern comparison failed',
+            },
+        ],
+        compareEnabled: [
+            false,
+            {
+                setCompareEnabled: (_, { enabled }) => enabled,
+            },
+        ],
+        baselineMode: [
+            'lastWeek' as PatternsBaselineMode,
+            {
+                setBaselineMode: (_, { mode }) => mode,
             },
         ],
     }),
 
     selectors({
+        // The shared query body for both the mine and the diff — the diff must scope its two
+        // windows with exactly the filters a plain mine would use, or compare mode would
+        // silently answer a different question than the table next to it.
+        patternsQueryBody: [
+            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
+            (filters, utcDateRange, queryFilterGroup) => ({
+                dateRange: utcDateRange,
+                severityLevels: filters.severityLevels,
+                serviceNames: filters.serviceNames,
+                searchTerm: filters.searchTerm || undefined,
+                // Scope mining to the same filters the Logs/sparkline queries use —
+                // `queryFilterGroup` folds in any pinned filters from an embedded viewer
+                // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
+                filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
+            }),
+        ],
+        // Explicit baseline window for 'preceding' mode: the same-length window ending where
+        // the current one starts. 'lastWeek' returns undefined — the backend's default is the
+        // current window shifted back one week, computed from its own resolved bounds.
+        baselineDateRange: [
+            (s) => [s.baselineMode, s.utcDateRange],
+            (mode, utcDateRange): { date_from: string; date_to: string } | undefined => {
+                if (mode !== 'preceding') {
+                    return undefined
+                }
+                const from = dateStringToDayJs(utcDateRange.date_from ?? null) ?? dayjs().subtract(1, 'hour')
+                const to = dateStringToDayJs(utcDateRange.date_to ?? null) ?? dayjs()
+                const windowMs = Math.max(to.diff(from), 0)
+                return {
+                    date_from: from.subtract(windowMs, 'millisecond').toISOString(),
+                    date_to: from.toISOString(),
+                }
+            },
+        ],
         patterns: [
             (s) => [s.patternsResponse],
             (response: _LogsPatternsResponseApi): _LogPatternApi[] => response.patterns,
@@ -151,7 +212,11 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             if (values.viewMode !== 'patterns') {
                 return
             }
-            actions.loadPatterns(300)
+            if (values.compareEnabled) {
+                actions.loadDiff(300)
+            } else {
+                actions.loadPatterns(300)
+            }
         }
         return {
             setDateRange: reload,
@@ -162,6 +227,21 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // Entering compare mode always diffs fresh; leaving it re-mines because the
+            // filters may have changed while the plain response sat unused.
+            setCompareEnabled: ({ enabled }) => {
+                if (enabled) {
+                    actions.loadDiff()
+                } else {
+                    actions.loadPatterns()
+                }
+            },
+            setBaselineMode: () => {
+                if (values.compareEnabled) {
+                    actions.loadDiff()
+                }
+            },
 
             // Pivot to the Logs view scoped to this pattern. The predicate lands in the shared
             // filterGroup like any user-added filter — visible and removable in the filter bar,
