@@ -8,7 +8,6 @@ import pyarrow as pa
 import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
-from aiobotocore.session import ClientCreatorContext
 from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
@@ -23,10 +22,12 @@ from temporalio.common import RetryPolicy
 
 from posthog.models.integration import (
     AwsS3Integration,
+    AwsS3RoleBasedIntegration,
     Integration,
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
 )
+from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -47,7 +48,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 from products.batch_exports.backend.temporal.destinations.constants import (
     S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
-from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -101,6 +102,7 @@ COMPRESSION_EXTENSIONS = {
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 TRACER = trace.get_tracer(__name__)
+SESSION = aioboto3.Session()
 
 
 class UnsupportedFileFormatError(Exception):
@@ -124,7 +126,9 @@ class S3IntegrationNotFoundError(Exception):
         super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 
 
-async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integration | S3CompatibleIntegration:
+async def _get_s3_integration(
+    integration_id: int, team_id: int
+) -> AwsS3RoleBasedIntegration | AwsS3Integration | S3CompatibleIntegration:
     """Fetch an S3-family integration from the database.
 
     The kind is validated on create by the batch export serializer, so the wrong-kind branch is
@@ -138,9 +142,13 @@ async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integra
         raise S3IntegrationNotFoundError(integration_id, team_id)
 
     if integration.kind == Integration.IntegrationKind.AWS_S3:
+        if "aws_role_arn" in integration.config:
+            return AwsS3RoleBasedIntegration(integration)
         return AwsS3Integration(integration)
+
     if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
         return S3CompatibleIntegration(integration)
+
     raise S3CredentialIntegrationError(
         f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
         f"(kind='{integration.kind}')"
@@ -348,6 +356,118 @@ class S3BatchExportResult(BatchExportResult):
     files_uploaded: list[str] = dataclasses.field(default_factory=list)
 
 
+AWSCredentials = tuple[str, str, str]
+
+
+async def get_credentials_using_user_aws_role(
+    aws_role_arn: str,
+    external_id: str,
+    /,
+    session_name: str,
+    bucket_name: str,
+    key_prefix: str,
+    duration: int = 3600,
+    max_attempts: int = 5,
+    delay: int | float = 1.0,
+) -> AWSCredentials:
+    """Attempt to obtain credentials assuming a user-provided AWS role.
+
+    This assumes the pre-configured external AWS role available as the
+    BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN setting is provided to users upon setting
+    up an AWS S3 integration.
+
+    Then, we use credentials from the external AWS role to assume the role
+    provided by our users, finally returning our users credentials.
+
+    Arguments:
+        aws_role_arn: User-provided AWS role ARN. Should have S3 access
+            permissions required for batch exports.
+        external_id: An additional ID provided to users for security.
+        session_name: The name used for both AWS sessions.
+        bucket_name: The bucket we are batch exporting to. Used to narrow down
+            permissions.
+        key_prefix: The key prefix we are batch exporting to. Used to narrow
+            down permissions.
+        duration: Maximum session duration, in seconds (1 hour limit).
+        max_attempts: How many times to attempt to connect. Useful for tests as
+            roles and/or policies may not be immediately available.
+        delay: Initial delay in between connection attempts.
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with SESSION.client("sts") as sts:
+                first_response = await sts.assume_role(
+                    RoleArn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+                    RoleSessionName=session_name,
+                    DurationSeconds=duration,
+                    Policy=json.dumps(
+                        # Narrow permissions to only allow assuming provided role with this
+                        # session.
+                        {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": ["sts:AssumeRole"],
+                                    "Resource": aws_role_arn,
+                                },
+                            ],
+                        }
+                    ),
+                )
+
+        except botocore.exceptions.ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code != "AccessDenied" or attempt == max_attempts:
+                raise
+
+            await asyncio.sleep(min(delay * (2**attempt), 32))
+            continue
+
+        external_session = aioboto3.Session(
+            aws_access_key_id=first_response["Credentials"]["AccessKeyId"],
+            aws_secret_access_key=first_response["Credentials"]["SecretAccessKey"],
+            aws_session_token=first_response["Credentials"]["SessionToken"],
+        )
+        try:
+            async with external_session.client("sts") as sts:
+                second_response = await sts.assume_role(
+                    RoleArn=aws_role_arn,
+                    RoleSessionName=session_name,
+                    DurationSeconds=duration,
+                    ExternalId=external_id,
+                    Policy=json.dumps(
+                        # Narrow permissions to only allow S3 permissions in this session.
+                        {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": ["s3:PutObject", "s3:AbortMultipartUpload"],
+                                    "Resource": f"arn:aws:s3:::{bucket_name}/{key_prefix}/*",
+                                },
+                            ],
+                        }
+                    ),
+                )
+
+        except botocore.exceptions.ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code != "AccessDenied" or attempt == max_attempts:
+                raise
+
+            await asyncio.sleep(min(delay * (2**attempt), 32))
+            continue
+        else:
+            break
+
+    return (
+        second_response["Credentials"]["AccessKeyId"],
+        second_response["Credentials"]["SecretAccessKey"],
+        second_response["Credentials"]["SessionToken"],
+    )
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
@@ -371,22 +491,47 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         data_interval_end=inputs.data_interval_end,
     )
 
-    # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
-    # TODO: require integration
-    if inputs.integration_id is not None:
-        integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
-        inputs.aws_access_key_id = integration.aws_access_key_id
-        inputs.aws_secret_access_key = integration.aws_secret_access_key
-        if isinstance(integration, S3CompatibleIntegration):
-            inputs.endpoint_url = integration.endpoint_url
-
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
     if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
         raise UnsupportedCompressionError(inputs.compression)
 
-    external_logger = EXTERNAL_LOGGER.bind()
+    # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
+    # TODO: require integration
+    aws_access_key_id = inputs.aws_access_key_id
+    aws_secret_access_key = inputs.aws_secret_access_key
+    aws_session_token = inputs.aws_session_token
+    endpoint_url = inputs.endpoint_url
 
+    if inputs.integration_id is not None:
+        integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+
+        if isinstance(integration, AwsS3Integration):
+            aws_access_key_id = integration.aws_access_key_id
+            aws_secret_access_key = integration.aws_secret_access_key
+
+        if isinstance(integration, AwsS3RoleBasedIntegration):
+            team = await Team.objects.aget(id=inputs.team_id)
+            organization_id = str(team.organization_id)
+            aws_access_key_id, aws_secret_access_key, aws_session_token = await get_credentials_using_user_aws_role(
+                integration.aws_role_arn,
+                organization_id,
+                session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
+                bucket_name=inputs.bucket_name,
+                key_prefix=get_key_prefix(
+                    inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+                ),
+            )
+
+        if isinstance(integration, S3CompatibleIntegration):
+            endpoint_url = integration.endpoint_url
+
+    if not aws_access_key_id or not aws_secret_access_key:
+        # At these point these need to be defined: either by us assuming a new
+        # role, by an integration, or by the inputs.
+        raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
+
+    external_logger = EXTERNAL_LOGGER.bind()
     external_logger.info(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start or "START",
@@ -430,12 +575,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             [field.with_nullable(True) for field in record_batch_schema]
         )
 
-        consumer = ConcurrentS3Consumer.from_inputs(
-            s3_inputs=inputs,
-            part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-            max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-        )
-
         json_columns = ("properties", "person_properties", "set", "set_once")
         if inputs.file_format.lower() == "jsonlines":
             transformer = get_json_stream_transformer(
@@ -450,14 +589,47 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        result = await run_consumer_from_stage(
-            queue=queue,
-            consumer=consumer,
-            producer_task=producer_task,
-            transformer=transformer,
-            json_columns=json_columns,
-            records_total=inputs.records_total,
+        session = aioboto3.Session(
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            aws_session_token=aws_session_token,
         )
+
+        config: dict[str, typing.Any] = {
+            # Increase connection pool, so to ensure we're not limited by this
+            "max_pool_connections": settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS * 5,
+            # Set checksum calculation to 'when_required' for compatibility with S3-compatible
+            # services like GCS that don't support AWS's newer checksum features
+            "request_checksum_calculation": "when_required",
+            "response_checksum_validation": "when_required",
+        }
+        if inputs.use_virtual_style_addressing:
+            config["s3"] = {"addressing_style": "virtual"}
+
+        try:
+            async with session.client(
+                "s3", config=AioConfig(**config), region_name=inputs.region, endpoint_url=endpoint_url
+            ) as s3_client:
+                consumer = ConcurrentS3Consumer.from_inputs(
+                    s3_client=s3_client,
+                    s3_inputs=inputs,
+                    part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                    max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+                )
+
+                result = await run_consumer_from_stage(
+                    queue=queue,
+                    consumer=consumer,
+                    producer_task=producer_task,
+                    transformer=transformer,
+                    json_columns=json_columns,
+                    records_total=inputs.records_total,
+                )
+        except ValueError as err:
+            if "Invalid endpoint" in str(err):
+                raise InvalidS3EndpointError(str(err)) from err
+            raise
+
         return S3BatchExportResult(
             bytes_exported=result.bytes_exported,
             records_completed=result.records_completed,
@@ -481,6 +653,7 @@ class ConcurrentS3Consumer(Consumer):
 
     def __init__(
         self,
+        s3_client: "S3Client",
         bucket: str,
         region_name: str,
         prefix: str,
@@ -488,9 +661,6 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        aws_session_token: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -501,11 +671,6 @@ class ConcurrentS3Consumer(Consumer):
         max_concurrent_uploads: int = 5,
     ):
         super().__init__(model=batch_export_model.name if batch_export_model else "events")
-
-        if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
-            isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""
-        ):
-            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
 
         self.bucket = bucket
         self.region_name = region_name
@@ -523,9 +688,6 @@ class ConcurrentS3Consumer(Consumer):
         # TODO: Remove this from here, figure out a different way to obtain an S3 key.
         self.max_file_size_mb = max_file_size_mb
 
-        self.aws_access_key_id = aws_access_key_id
-        self.aws_secret_access_key = aws_secret_access_key
-        self.aws_session_token = aws_session_token
         self.kms_key_id = kms_key_id
         self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
@@ -537,10 +699,7 @@ class ConcurrentS3Consumer(Consumer):
         # already in flight), reported as a span attribute. When this dominates the consumer's
         # consume time, the bottleneck is upload throughput to the destination.
         self._upload_slot_wait_timer = CumulativeTimer()
-
-        self._session = aioboto3.Session()
-        self._s3_client: S3Client | None = None  # Shared S3 client
-        self._s3_client_ctx: ClientCreatorContext[S3Client] | None = None  # Context manager for cleanup
+        self.s3_client = s3_client
 
         # File splitting management
         self.current_file_index = 0
@@ -558,14 +717,13 @@ class ConcurrentS3Consumer(Consumer):
     @classmethod
     def from_inputs(
         cls,
+        s3_client: "S3Client",
         s3_inputs: S3InsertInputs,
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
-        if not s3_inputs.aws_access_key_id or not s3_inputs.aws_secret_access_key:
-            raise InvalidCredentialsError()
-
         return cls(
+            s3_client=s3_client,
             bucket=s3_inputs.bucket_name,
             region_name=s3_inputs.region,
             prefix=s3_inputs.prefix,
@@ -576,52 +734,12 @@ class ConcurrentS3Consumer(Consumer):
             compression=s3_inputs.compression,
             encryption=s3_inputs.encryption,
             max_file_size_mb=s3_inputs.max_file_size_mb,
-            aws_access_key_id=s3_inputs.aws_access_key_id,
-            aws_secret_access_key=s3_inputs.aws_secret_access_key,
-            aws_session_token=s3_inputs.aws_session_token,
             kms_key_id=s3_inputs.kms_key_id,
             endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
             part_size=part_size,
             max_concurrent_uploads=max_concurrent_uploads,
         )
-
-    async def _get_s3_client(self) -> "S3Client":
-        """Get or create the shared S3 client.
-
-        It significantly improves performance to share a single S3 client across all uploads.
-        """
-        if self._s3_client is None:
-            config: dict[str, typing.Any] = {
-                "max_pool_connections": self.max_concurrent_uploads
-                * 5,  # Increase connection pool, so to ensure we're not limited by this
-                # Set checksum calculation to 'when_required' for compatibility with S3-compatible
-                # services like GCS that don't support AWS's newer checksum features
-                "request_checksum_calculation": "when_required",
-                "response_checksum_validation": "when_required",
-            }
-            if self.use_virtual_style_addressing:
-                config["s3"] = {"addressing_style": "virtual"}
-            boto_config = AioConfig(**config)
-
-            try:
-                client_ctx = self._session.client(
-                    "s3",
-                    region_name=self.region_name,
-                    aws_access_key_id=self.aws_access_key_id,
-                    aws_secret_access_key=self.aws_secret_access_key,
-                    aws_session_token=self.aws_session_token,
-                    endpoint_url=self.endpoint_url,
-                    config=boto_config,
-                )
-                self._s3_client = await client_ctx.__aenter__()
-                # Store the context manager for proper cleanup
-                self._s3_client_ctx = client_ctx
-            except ValueError as err:
-                if "Invalid endpoint" in str(err):
-                    raise InvalidS3EndpointError(str(err)) from err
-                raise
-        return self._s3_client
 
     async def finalize_file(self):
         await self._finalize_current_file()
@@ -717,8 +835,6 @@ class ConcurrentS3Consumer(Consumer):
                 self.upload_id,
             )
             current_key = self._get_current_key()
-            client = self._s3_client
-            assert client is not None, "No S3 client, is multi-part initialized?"
 
             # Retry logic for upload_part
             response: UploadPartOutputTypeDef | None = None
@@ -755,7 +871,7 @@ class ConcurrentS3Consumer(Consumer):
                     while response is None:
                         attempt += 1
                         try:
-                            response = await client.upload_part(
+                            response = await self.s3_client.upload_part(
                                 Bucket=self.bucket,
                                 Key=current_key,
                                 PartNumber=part_number,
@@ -903,12 +1019,11 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
 
         current_key = self._get_current_key()
-        client = await self._get_s3_client()
         with TRACER.start_as_current_span(
             "batch_export.s3.create_multipart_upload",
             attributes={"batch_export.s3.file_number": self.current_file_index},
         ):
-            response = await client.create_multipart_upload(
+            response = await self.s3_client.create_multipart_upload(
                 Bucket=self.bucket,
                 Key=current_key,
                 **optional_kwargs,  # type: ignore
@@ -925,19 +1040,10 @@ class ConcurrentS3Consumer(Consumer):
             # Finalize the current/last file
             await self._finalize_current_file()
 
-        except Exception:
-            # Cleanup on error
-            await self._abort()
-            raise
         finally:
             self._finalized = True
             # Final cleanup
             self.current_buffer.clear()
-            # Close the shared S3 client
-            if self._s3_client is not None and self._s3_client_ctx is not None:
-                await self._s3_client_ctx.__aexit__(None, None, None)
-                self._s3_client = None
-                self._s3_client_ctx = None
 
         # If using max file size (and therefore potentially expecting more than one file) upload a manifest file
         # containing the list of files.  This is used to check if the export is complete.
@@ -957,24 +1063,17 @@ class ConcurrentS3Consumer(Consumer):
         files_uploaded: list[str],
         manifest_key: str,
     ):
-        client = await self._get_s3_client()
-
         optional_kwargs = {}
         if self.endpoint_url is None:
             optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
 
         with TRACER.start_as_current_span("batch_export.s3.upload_manifest"):
-            await client.put_object(
+            await self.s3_client.put_object(
                 Bucket=self.bucket,
                 Key=manifest_key,
                 Body=json.dumps({"files": files_uploaded}),
                 **optional_kwargs,  # type: ignore
             )
-
-        if self._s3_client is not None and self._s3_client_ctx is not None:
-            await self._s3_client_ctx.__aexit__(None, None, None)
-            self._s3_client = None
-            self._s3_client_ctx = None
 
     # TODO - maybe we can support upload small files without the need for multipart uploads
     # we just want to ensure we test both versions of the code path
@@ -995,7 +1094,6 @@ class ConcurrentS3Consumer(Consumer):
         sorted_parts = [self.completed_parts[part_num] for part_num in sorted(self.completed_parts.keys())]
 
         current_key = self._get_current_key()
-        client = await self._get_s3_client()
         with TRACER.start_as_current_span(
             "batch_export.s3.complete_multipart_upload",
             attributes={
@@ -1003,7 +1101,7 @@ class ConcurrentS3Consumer(Consumer):
                 "batch_export.s3.num_parts": len(sorted_parts),
             },
         ):
-            await client.complete_multipart_upload(
+            await self.s3_client.complete_multipart_upload(
                 Bucket=self.bucket,
                 Key=current_key,
                 UploadId=self.upload_id,
@@ -1021,8 +1119,9 @@ class ConcurrentS3Consumer(Consumer):
         if self.upload_id:
             upload_id = self.upload_id
             try:
-                client = await self._get_s3_client()
-                await client.abort_multipart_upload(Bucket=self.bucket, Key=self._get_current_key(), UploadId=upload_id)
+                await self.s3_client.abort_multipart_upload(
+                    Bucket=self.bucket, Key=self._get_current_key(), UploadId=upload_id
+                )
             except Exception:
                 self.logger.exception("Best-effort abort of multipart upload %s failed", upload_id)
             finally:

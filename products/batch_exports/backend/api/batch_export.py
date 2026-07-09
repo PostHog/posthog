@@ -38,14 +38,11 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import (
-    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
-    S3CompatibleIntegration,
-    S3CredentialIntegrationError,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -610,12 +607,12 @@ class BatchExportRequestSerializer(serializers.Serializer):
     )
 
 
-# S3-family destinations that may authenticate via an Integration, mapped to the handler that
-# validates the linked integration's kind and credentials. Adding a future S3-family destination
-# (e.g. a first-class GCS-via-S3 type) is a one-line addition here.
-S3_INTEGRATION_HANDLERS: dict[str, type[AwsS3Integration] | type[S3CompatibleIntegration]] = {
-    BatchExportDestination.Destination.AWS_S3: AwsS3Integration,
-    BatchExportDestination.Destination.S3_COMPATIBLE: S3CompatibleIntegration,
+# S3-family destinations that may authenticate via an Integration, mapped to
+# the linked integration's kind. Adding a future S3-family destination (e.g. a
+# first-class GCS-via-S3 type) is a one-line addition here.
+S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
+    BatchExportDestination.Destination.AWS_S3: Integration.IntegrationKind.AWS_S3,
+    BatchExportDestination.Destination.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
 }
 
 
@@ -1165,12 +1162,15 @@ class BatchExportSerializer(serializers.ModelSerializer):
             required_non_empty_inputs = ["bucket_name", "region", "prefix"]
             # Credentials are only required inline when no Integration provides them.
             if integration is None:
-                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key"]
+                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key", "aws_role_arn"]
+
             empty_inputs = []
+
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
                 if value is not None and isinstance(value, str) and value.strip() == "":
                     empty_inputs.append(required_input)
+
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
 
@@ -1180,15 +1180,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if integration is not None:
                 # An Integration only makes sense for the integration-backed S3 types. Reject it on the
                 # legacy "S3" type
-                # TODO: remove this branch once the legacy "S3" destination type is fully removed.
-                if destination_type not in S3_INTEGRATION_HANDLERS:
+                # TODO: remove this branch once the legacy "S3" destination type is fully removed
+                if destination_type not in S3_DESTINATION_TO_INTEGRATION_KIND:
                     raise serializers.ValidationError(
                         f"{destination_type} destinations do not support integration-based credentials."
                     )
-                try:
-                    S3_INTEGRATION_HANDLERS[destination_type](integration)
-                except S3CredentialIntegrationError as e:
-                    raise serializers.ValidationError(str(e))
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
