@@ -161,7 +161,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update.'
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected.'
             ),
         summary_enabled: zod
             .boolean()
@@ -331,7 +331,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update.'
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected.'
             ),
         summary_enabled: zod
             .boolean()
@@ -508,7 +508,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update.'
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected.'
             ),
         summary_enabled: zod
             .boolean()
