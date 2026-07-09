@@ -101,6 +101,7 @@ describe('visionActionsLogic', () => {
             min_score: 1,
             max_score: 5,
             mode: 'group_summary',
+            alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
@@ -132,6 +133,7 @@ describe('visionActionsLogic', () => {
             min_score: null,
             max_score: null,
             mode: 'group_summary',
+            alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
@@ -158,6 +160,7 @@ describe('visionActionsLogic', () => {
             min_score: null,
             max_score: null,
             mode: 'alert',
+            alert_frequency: 'on_breach',
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
@@ -165,11 +168,21 @@ describe('visionActionsLogic', () => {
         }
         const body = buildActionBody(form, 's1')
         expect(body.mode).toEqual('alert')
-        expect(body.alert_config).toEqual({ metric: 'count', operator: 'gte', threshold: 1, window_days: 1 })
+        expect(body.alert_config).toEqual({
+            frequency: 'on_breach',
+            metric: 'count',
+            operator: 'gte',
+            threshold: 1,
+            window_days: 1,
+        })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
         // Alerts check on a fixed hourly cadence; there is no user-facing schedule.
         expect(body.trigger_config).toEqual({ rrule: 'FREQ=HOURLY', timezone: 'UTC' })
         // Alerts never synthesize, so a stale guide from a mode switch must not persist.
         expect(body.synthesis_config).toEqual({ prompt_guide: '' })
+
+        // Every-match alerts carry no threshold machinery — just the frequency and the count metric.
+        const everyMatch = buildActionBody({ ...form, alert_frequency: 'every_match' }, 's1')
+        expect(everyMatch.alert_config).toEqual({ frequency: 'every_match', metric: 'count' })
     })
 })

@@ -11,6 +11,7 @@ import {
     visionActionsPartialUpdate,
 } from '../generated/api'
 import {
+    AlertConfigFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
     VisionAlertMetricEnumApi,
@@ -39,6 +40,7 @@ export interface VisionActionForm {
     max_score: number | null
     // What the action produces; alerts carry a condition instead of synthesizing a summary.
     mode: VisionActionModeEnumApi
+    alert_frequency: AlertConfigFrequencyEnumApi
     alert_metric: VisionAlertMetricEnumApi
     alert_operator: VisionAlertOperatorEnumApi
     alert_threshold: number | null
@@ -57,7 +59,8 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     min_score: null,
     max_score: null,
     mode: VisionActionModeEnumApi.GroupSummary,
-    // "Any match" default: with a targeting filter set, count >= 1 means "whenever one matches".
+    // Default alert flavor: notify about every new match ("every time the result is X, tell me").
+    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
     alert_metric: VisionAlertMetricEnumApi.Count,
     alert_operator: VisionAlertOperatorEnumApi.Gte,
     alert_threshold: 1,
@@ -95,14 +98,18 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
             : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
         selection,
         synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
-        ...(isAlert && form.alert_threshold != null
+        ...(isAlert
             ? {
-                  alert_config: {
-                      metric: form.alert_metric,
-                      operator: form.alert_operator,
-                      threshold: form.alert_threshold,
-                      window_days: form.alert_window_days,
-                  },
+                  alert_config:
+                      form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+                          ? { frequency: form.alert_frequency, metric: VisionAlertMetricEnumApi.Count }
+                          : {
+                                frequency: form.alert_frequency,
+                                metric: form.alert_metric,
+                                operator: form.alert_operator,
+                                threshold: form.alert_threshold ?? 1,
+                                window_days: form.alert_window_days,
+                            },
               }
             : {}),
         delivery_config:

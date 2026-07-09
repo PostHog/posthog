@@ -27,7 +27,7 @@ const existingAlert = {
     name: 'alert-a',
     mode: 'alert',
     selection: { tags: ['rage-click'] },
-    alert_config: { metric: 'count', operator: 'gte', threshold: 3, window_days: 7 },
+    alert_config: { frequency: 'on_breach', metric: 'count', operator: 'gte', threshold: 3, window_days: 7 },
 } as unknown as VisionActionApi
 
 describe('actionEditorSceneLogic', () => {
@@ -85,6 +85,7 @@ describe('actionEditorSceneLogic', () => {
                     min_score: 2,
                     max_score: null,
                     mode: 'group_summary',
+                    alert_frequency: 'every_match',
                     alert_metric: 'count',
                     alert_operator: 'gte',
                     alert_threshold: 1,
@@ -108,6 +109,7 @@ describe('actionEditorSceneLogic', () => {
                 targetingMode: 'filtered',
                 actionForm: expect.objectContaining({
                     mode: 'alert',
+                    alert_frequency: 'on_breach',
                     alert_metric: 'count',
                     alert_operator: 'gte',
                     alert_threshold: 3,
