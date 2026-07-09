@@ -2166,12 +2166,12 @@ class TestTicketResolvedAtStamping(BaseTest):
         # update_fields-limited save is what the API/tasks transition paths use
         ticket.status = Status.RESOLVED
         ticket.save(update_fields=["status", "updated_at"])
-        ticket.refresh_from_db()
+        # re-fetch instead of refresh_from_db so mypy drops its is-None narrowing of resolved_at
+        ticket = Ticket.objects.get(pk=ticket.pk)
         assert ticket.status == Status.RESOLVED
-        resolved_at = ticket.resolved_at
-        assert resolved_at is not None
+        assert ticket.resolved_at is not None
 
         ticket.status = Status.OPEN
         ticket.save(update_fields=["status", "updated_at"])
-        ticket.refresh_from_db()
+        ticket = Ticket.objects.get(pk=ticket.pk)
         assert ticket.resolved_at is None
