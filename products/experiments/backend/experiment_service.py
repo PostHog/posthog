@@ -2270,6 +2270,69 @@ class ExperimentService:
             request=request,
         )
 
+    def unfreeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
+        """Reopen enrollment on an exposure-frozen experiment.
+
+        Inverse of freeze_exposure: strips the snapshot-cohort condition, the freeze keys, and
+        the marker note from every frozen release group, restoring the flag's original targeting
+        — enrolled users keep their variant by deterministic hash, new users can enroll again.
+        Edits made to the frozen groups while frozen (e.g. extra conditions) are preserved; only
+        the snapshot-cohort condition and freeze stamps are removed. Adding a brand-new unstamped
+        group instead reopens enrollment, so that experiment reads as "running" and never reaches
+        this path (see Experiment.is_exposure_frozen). The snapshot cohort is soft-deleted after
+        the flag save so it doesn't accumulate as clutter.
+        """
+        if experiment.is_draft:
+            raise ValidationError("Experiment has not been launched yet.")
+        if experiment.is_stopped:
+            raise ValidationError("Experiment has already ended.")
+        if not experiment.is_exposure_frozen:
+            raise ValidationError("Experiment exposure is not frozen.")
+
+        flag = experiment.feature_flag
+        new_filters, cohort_ids = self._strip_frozen_exposure_from_filters(flag.filters or {})
+
+        flag_serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": new_filters},
+            partial=True,
+            context={
+                "request": request,
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        flag_serializer.is_valid(raise_exception=True)
+        flag_serializer.save()
+
+        # Refresh so the experiment's nested flag reflects the restored filters when serialized.
+        flag.refresh_from_db()
+        experiment.feature_flag = flag
+
+        # Only after the flag no longer references them: soft-delete the now-orphaned snapshots.
+        self._delete_orphaned_snapshot_cohorts(cohort_ids)
+
+        self._report_experiment_exposure_unfrozen(experiment, request=request)
+
+        return experiment
+
+    def _report_experiment_exposure_unfrozen(
+        self,
+        experiment: Experiment,
+        *,
+        request: Any | None = None,
+    ) -> None:
+        if request is None:
+            return
+
+        report_user_action(
+            self.user,
+            "experiment exposure unfrozen",
+            experiment.get_analytics_metadata(),
+            team=experiment.team,
+            request=request,
+        )
+
     # ------------------------------------------------------------------
     # End
     # ------------------------------------------------------------------
