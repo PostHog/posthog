@@ -98,7 +98,7 @@ export const Table = (props: TableProps): JSX.Element => {
             const columnTitle = settings?.display?.label || title || column.name
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
 
-            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+            const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
                 const cell = data[index]
 
                 if (cell.isTransposedHeader) {
@@ -151,6 +151,19 @@ export const Table = (props: TableProps): JSX.Element => {
 
                 // If the color mode is light, but we're in dark mode - then darken the color
                 return lightenDarkenColor(ruleColor, -30)
+            }
+
+            // The `style` and `className` cell callbacks are invoked independently for the same cell,
+            // so memoize per row record to run the HogVM rules (and any captureException) only once.
+            // The cache lives in this per-render closure, so it can't go stale across theme/rule changes.
+            const backgroundByRecord = new WeakMap<TableDataCell<any>[], string | undefined>()
+            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                if (backgroundByRecord.has(data)) {
+                    return backgroundByRecord.get(data)
+                }
+                const backgroundColor = computeConditionalFormattingBackground(data)
+                backgroundByRecord.set(data, backgroundColor)
+                return backgroundColor
             }
 
             return {
