@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
-import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from '../logic/insightAlertsLogic'
 
 export type AlertsButtonProps = LemonButtonProps & {
     insight: Partial<QueryBasedInsightModel>

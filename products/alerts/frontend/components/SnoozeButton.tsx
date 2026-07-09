@@ -1,7 +1,6 @@
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dayjs } from 'lib/dayjs'
 import { formatDate } from 'lib/utils/datetime'
-
-import { DateFilter } from '../DateFilter/DateFilter'
 
 const DATETIME_FORMAT = 'MMM D - HH:mm'
 

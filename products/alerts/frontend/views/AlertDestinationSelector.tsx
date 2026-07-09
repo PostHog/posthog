@@ -1,9 +1,10 @@
 import { INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
-import { buildAlertFilterConfig } from 'lib/utils/alerts'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
+
+import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alerts'
 
 export interface AlertDestinationSelectorProps {
     alertId: string

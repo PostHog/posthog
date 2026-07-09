@@ -8,7 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { InsightThresholdType } from '~/queries/schema/schema-general'
 
-import type { AlertHistoryChartPoint } from '../alertLogic'
+import type { AlertHistoryChartPoint } from '../logic/alertLogic'
 import type { AlertType } from '../types'
 
 export type { AlertHistoryChartPoint }

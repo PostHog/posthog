@@ -4,7 +4,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 
-import { alertsLogic } from './alertsLogic'
+import { alertsLogic } from '../logic/alertsLogic'
 
 export function AlertsFiltersBar(): JSX.Element {
     const { filters } = useValues(alertsLogic)

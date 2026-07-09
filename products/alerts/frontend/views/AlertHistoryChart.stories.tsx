@@ -11,7 +11,7 @@ import {
 import type { QueryBasedInsightModel } from '~/types'
 import type { UserBasicType } from '~/types'
 
-import { CHART_CHECKS_LIMIT } from '../alertLogic'
+import { CHART_CHECKS_LIMIT } from '../logic/alertLogic'
 import type { AlertType } from '../types'
 import { AlertHistoryChart, type AlertHistoryChartPoint } from './AlertHistoryChart'
 

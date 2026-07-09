@@ -7,8 +7,8 @@ import { formatDate } from 'lib/utils/datetime'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
+import type { AlertCheck, AlertType } from '../types'
 import type { alertLogicType } from './alertLogicType'
-import type { AlertCheck, AlertType } from './types'
 
 export const CHART_CHECKS_LIMIT = 50
 export const TABLE_CHECKS_PAGE_SIZE = 25

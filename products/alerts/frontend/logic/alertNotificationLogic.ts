@@ -4,6 +4,11 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { projectLogic } from 'scenes/projectLogic'
+
+import { HogFunctionType, IntegrationType } from '~/types'
+
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -13,11 +18,7 @@ import {
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
-} from 'lib/utils/alerts'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { projectLogic } from 'scenes/projectLogic'
-
-import { HogFunctionType, IntegrationType } from '~/types'
+} from 'products/alerts/frontend/logic/alerts'
 
 import type { alertNotificationLogicType } from './alertNotificationLogicType'
 

@@ -1,7 +1,7 @@
 import { AlertConditionType, InsightsThresholdBounds, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import { AlertConfig, isFunnelsAlertConfig } from '../types'
 import { hasThresholdBounds, valueBreachesBounds } from './alertPreviewShared'
-import { AlertConfig, isFunnelsAlertConfig } from './types'
 
 export interface FunnelAlertPreviewValue {
     label: string | null // breakdown value; null for a non-breakdown funnel

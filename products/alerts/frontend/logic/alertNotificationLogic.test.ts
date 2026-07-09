@@ -1,14 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+
+import { initKeaTests } from '~/test/init'
+import { HogFunctionType } from '~/types'
+
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
-} from 'lib/utils/alerts'
-
-import { initKeaTests } from '~/test/init'
-import { HogFunctionType } from '~/types'
+} from 'products/alerts/frontend/logic/alerts'
 
 import { alertNotificationLogic } from './alertNotificationLogic'
 
