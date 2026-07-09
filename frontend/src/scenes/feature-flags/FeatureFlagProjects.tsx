@@ -98,7 +98,7 @@ const getColumns = ({
             title: 'Status',
             dataIndex: 'active',
             render: (_, record) => {
-                if (!record.flag_id || !record.team_id) {
+                if (record.flag_id == null || record.team_id == null) {
                     return <LemonTag type="default">Unavailable</LemonTag>
                 }
                 return (
@@ -256,7 +256,7 @@ export default function FeatureFlagProjects(): JSX.Element {
     })
 
     const handleToggleFlag = (record: OrganizationFeatureFlag, active: boolean): void => {
-        if (!record.team_id || !record.flag_id) {
+        if (record.team_id == null || record.flag_id == null) {
             return
         }
         toggleProjectFeatureFlagActive(record.team_id, record.flag_id, active)

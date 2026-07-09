@@ -645,7 +645,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
-        toggleProjectFeatureFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
+        toggleProjectFeatureFlagActive: (teamId: number, flagId: number, active: boolean) => ({
+            teamId,
+            flagId,
+            active,
+        }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
