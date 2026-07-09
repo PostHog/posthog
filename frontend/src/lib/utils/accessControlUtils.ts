@@ -216,7 +216,7 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
     }
     if (resource === AccessControlResourceType.SharingConfiguration) {
-        return 'Controls whether users can share resources - dashboards, insights, notebooks, and recordings - with anyone via a public link.'
+        return 'Controls whether users can share resources like dashboards, insights, etc. with anyone via a public link.'
     }
     return null
 }
