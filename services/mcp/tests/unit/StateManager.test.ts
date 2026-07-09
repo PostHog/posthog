@@ -653,10 +653,12 @@ describe('StateManager', () => {
                 name: 'Org 1',
                 available_product_features: [],
             } as any)
+            const userSpy = vi.spyOn(stateManager, 'getCachedOrFetchUser')
 
             const result = await stateManager.getAvailableFeatures()
 
             expect(result).toEqual([])
+            expect(userSpy).not.toHaveBeenCalled()
         })
 
         it('falls back to users/@me features when the org is unreachable and the current org owns the active project', async () => {

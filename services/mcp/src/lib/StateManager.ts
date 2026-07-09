@@ -465,9 +465,7 @@ export class StateManager {
             // getAiConsentGiven.
             const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
             if (user?.organization && project?.organization === user.organization.id) {
-                return extractKeys(
-                    (user.organization as { available_product_features?: unknown }).available_product_features
-                )
+                return extractKeys(user.organization.available_product_features)
             }
             return undefined
         } catch {
