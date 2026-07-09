@@ -24,6 +24,13 @@
         "description": {
             "type": "string"
         },
+        "insight_ids": {
+            "description": "Only used when creating a dashboard: IDs of existing saved insights to add to the new dashboard as tiles. Each insight must belong to the same project and be visible to you. Ignored on updates.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
         "name": {
             "anyOf": [
                 {
