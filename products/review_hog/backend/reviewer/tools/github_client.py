@@ -13,6 +13,7 @@ from typing import Any
 import requests
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,11 @@ def github_api_request(
         source=_SOURCE,
         headers={"Authorization": f"Bearer {token}"},
         installation_id=installation_id,
+        # NORMAL, not the transport's CRITICAL default: a review is automated (nobody blocks on any
+        # single call, and Temporal retries a shed one), so it must not burn the reserve kept for
+        # genuinely interactive traffic on the shared installation budget. Not BATCH either — devs
+        # do wait on the review after a push, so it shouldn't be first in line for shedding.
+        priority=Priority.NORMAL,
         endpoint=endpoint,
         params=params,
         json=json,
