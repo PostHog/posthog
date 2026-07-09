@@ -93,7 +93,7 @@ def validate_credentials(api_key: str) -> bool:
     invalid/unparseable 401 rejects.
     """
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{ELEVENLABS_BASE_URL}/v1/user", headers=_get_headers(api_key), timeout=10
         )
         if response.status_code == 200:
@@ -144,7 +144,7 @@ def get_rows(
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive instead of
     # re-handshaking per request.
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     watermark = _to_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
     guard_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)

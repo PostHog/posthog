@@ -2,8 +2,9 @@ from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.elevenlabs import (
     ElevenLabsResumeConfig,
@@ -45,39 +46,37 @@ def _requests(mock_session: mock.MagicMock) -> list[tuple[str, dict[str, list[st
 
 
 class TestToEpoch:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
-            (None, None),
-            (True, None),
-            (1700000000, 1700000000),
-            (1700000000.9, 1700000000),
-            ("1700000000", 1700000000),
-            ("not-a-number", None),
-            (datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC), 1700000000),
-            (date(2023, 11, 14), 1699920000),
-        ],
+            ("none", None, None),
+            ("bool_true", True, None),
+            ("int", 1700000000, 1700000000),
+            ("float", 1700000000.9, 1700000000),
+            ("numeric_string", "1700000000", 1700000000),
+            ("non_numeric_string", "not-a-number", None),
+            ("aware_datetime", datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC), 1700000000),
+            ("date", date(2023, 11, 14), 1699920000),
+        ]
     )
-    def test_to_epoch(self, value: Any, expected: int | None) -> None:
+    def test_to_epoch(self, _name: str, value: Any, expected: int | None) -> None:
         assert _to_epoch(value) == expected
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, body, expected",
+    @parameterized.expand(
         [
-            (200, {}, True),
+            ("ok_200", 200, {}, True),
             # A genuine key that merely lacks the user_read permission must pass source-create.
-            (401, {"detail": {"status": "missing_permissions", "message": "..."}}, True),
-            (401, {"detail": {"status": "invalid_api_key", "message": "..."}}, False),
-            (401, {"detail": "unexpected shape"}, False),
-            (403, {}, False),
-            (500, {}, False),
-        ],
+            ("missing_permissions", 401, {"detail": {"status": "missing_permissions", "message": "..."}}, True),
+            ("invalid_api_key", 401, {"detail": {"status": "invalid_api_key", "message": "..."}}, False),
+            ("unexpected_detail_shape", 401, {"detail": "unexpected shape"}, False),
+            ("forbidden", 403, {}, False),
+            ("server_error", 500, {}, False),
+        ]
     )
     @mock.patch(TRACKED_SESSION_PATH)
     def test_status_mapping(
-        self, mock_session: mock.MagicMock, status_code: int, body: dict[str, Any], expected: bool
+        self, _name: str, status_code: int, body: dict[str, Any], expected: bool, mock_session: mock.MagicMock
     ) -> None:
         mock_session.return_value.get.return_value = _resp(body, status=status_code)
         assert validate_credentials("key") is expected
@@ -96,8 +95,7 @@ class TestValidateCredentials:
 
 
 class TestGetRowsPagination:
-    @pytest.mark.parametrize(
-        "endpoint, data_key, cursor_param, page_two_body",
+    @parameterized.expand(
         [
             (
                 "history",
@@ -123,16 +121,16 @@ class TestGetRowsPagination:
                 "next_page_token",
                 {"voices": [{"voice_id": "v2"}], "next_page_token": None, "has_more": False},
             ),
-        ],
+        ]
     )
     @mock.patch(TRACKED_SESSION_PATH)
     def test_each_cursor_style_paginates_with_its_own_params(
         self,
-        mock_session: mock.MagicMock,
         endpoint: str,
         data_key: str,
         cursor_param: str,
         page_two_body: dict[str, Any],
+        mock_session: mock.MagicMock,
     ) -> None:
         cursor_response_key = {
             "history": "last_history_item_id",
@@ -335,15 +333,14 @@ class TestElevenLabsSource:
     def test_endpoints_inventory(self) -> None:
         assert ENDPOINTS == ("history", "conversations", "agents", "voices", "models")
 
-    @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key, sort_mode",
+    @parameterized.expand(
         [
             ("history", "history_item_id", "date_unix", "asc"),
             ("conversations", "conversation_id", "start_time_unix_secs", "desc"),
             ("agents", "agent_id", "created_at_unix_secs", "desc"),
             ("voices", "voice_id", None, "desc"),
             ("models", "model_id", None, "desc"),
-        ],
+        ]
     )
     def test_source_response_shape(
         self, endpoint: str, primary_key: str, partition_key: str | None, sort_mode: str
