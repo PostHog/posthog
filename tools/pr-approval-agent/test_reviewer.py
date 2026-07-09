@@ -193,6 +193,23 @@ def test_explore_root_defaults_to_repo_root() -> None:
     assert Reviewer(repo, explore_root=other).explore_root == other
 
 
+def test_copy_diff_into_explore_root_cannot_follow_pr_symlink(tmp_path: Path) -> None:
+    source_diff = tmp_path / "source.patch"
+    source_diff.write_text("diff --git a/file b/file\n")
+    explore_root = tmp_path / "explore"
+    explore_root.mkdir()
+    outside_target = tmp_path / "outside"
+    outside_target.write_text("unchanged")
+    (explore_root / ".pr-review-diff.patch").symlink_to(outside_target)
+
+    copied_diff = Reviewer(tmp_path, explore_root=explore_root)._copy_diff_into_explore_root(source_diff)
+
+    assert copied_diff.parent == explore_root
+    assert copied_diff.name != ".pr-review-diff.patch"
+    assert copied_diff.read_text() == source_diff.read_text()
+    assert outside_target.read_text() == "unchanged"
+
+
 @pytest.mark.parametrize(
     "base_ref, expect_stack_note",
     [

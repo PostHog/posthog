@@ -9,6 +9,7 @@ import os
 import json
 import shutil
 import asyncio
+import tempfile
 import textwrap
 from pathlib import Path
 
@@ -285,6 +286,22 @@ class Reviewer:
         """
         return asyncio.run(self._review(pr, classification, gate_context, diff_path))
 
+    def _copy_diff_into_explore_root(self, diff_path: Path) -> Path:
+        """Copy the diff to a runner-created path the agent can read.
+
+        A predictable worktree path could be a tracked symlink. ``mkstemp``
+        creates a fresh regular file, so PR content cannot redirect this copy.
+        """
+        fd, copied_path = tempfile.mkstemp(prefix=".pr-review-diff-", suffix=".patch", dir=self.explore_root)
+        os.close(fd)
+        copied_diff_path = Path(copied_path)
+        try:
+            shutil.copyfile(diff_path, copied_diff_path)
+        except OSError:
+            copied_diff_path.unlink(missing_ok=True)
+            raise
+        return copied_diff_path
+
     async def _review(
         self, pr: PRData, classification: dict, gate_context: dict, diff_path: Path | None = None
     ) -> dict:
@@ -292,12 +309,13 @@ class Reviewer:
         if diff_path is None:
             diff_path = self._write_diff_file(pr)
         original_diff = diff_path
+        copied_diff_path: Path | None = None
         if self.explore_root != self.repo_root:
             # The agent's file access is scoped to cwd (explore_root); a diff
             # sitting in the master checkout would need an out-of-cwd read the
-            # dontAsk permission mode never grants. Copy it into the worktree —
-            # worktree teardown removes the copy.
-            diff_path = Path(shutil.copyfile(diff_path, self.explore_root / ".pr-review-diff.patch"))
+            # dontAsk permission mode never grants.
+            copied_diff_path = self._copy_diff_into_explore_root(diff_path)
+            diff_path = copied_diff_path
         prompt = self._build_review_prompt(pr, classification, gate_context, diff_path)
 
         # Gate denials and trivial PRs don't need deep exploration —
@@ -417,6 +435,8 @@ class Reviewer:
                     if isinstance(block, ToolUseBlock) and self.verbose:
                         self._log_tool_call(block)
 
+        if copied_diff_path is not None:
+            copied_diff_path.unlink(missing_ok=True)
         if owns_diff:
             original_diff.unlink(missing_ok=True)
 

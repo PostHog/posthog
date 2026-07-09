@@ -29,6 +29,7 @@ jobs:
         needs: [decide-delta, dismiss, dismiss-on-retarget]
         if: >-
             always()
+            && !cancelled()
             && !github.event.pull_request.draft
             && github.event.pull_request.user.type != 'Bot'
             && !contains(github.event.pull_request.user.login, '[bot]')
@@ -94,7 +95,7 @@ jobs:
                     --output-json /tmp/review.json
 
             - name: Post review
-              if: always()
+              if: always() && !cancelled()
               env:
                   # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
                   # reviewer — its approvals count toward branch protection rules,
@@ -112,6 +113,7 @@ jobs:
                   # bullets + folded gate mechanics); fall back to the bare
                   # reasoning when the script predates the field.
                   REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  REVIEWED_BASE_SHA=$(jq -r '.base_sha // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr
@@ -123,11 +125,18 @@ jobs:
                   fi
 
                   if [ "$VERDICT" = "APPROVED" ]; then
+                    CURRENT_REFS=$(gh api "repos/$REPO/pulls/$PR" --jq '[.base.sha, .head.sha] | @tsv')
+                    IFS=$'\t' read -r CURRENT_BASE_SHA CURRENT_HEAD_SHA <<< "$CURRENT_REFS"
+                    if [ "$CURRENT_BASE_SHA" != "$REVIEWED_BASE_SHA" ] || [ "$CURRENT_HEAD_SHA" != "$REVIEWED_SHA" ]; then
+                      echo "PR base or head changed after review; skipping stale approval."
+                      exit 0
+                    fi
+                    APPROVAL_BODY="${REASONING}"$'\n\n<!-- stamphog-approval -->'
                     GH_TOKEN="$GH_TOKEN_APPROVE" gh api \
                       -X POST "repos/$REPO/pulls/$PR/reviews" \
                       "${SHA_ARGS[@]}" \
                       -f event=APPROVE \
-                      -f body="$REASONING"
+                      -f body="$APPROVAL_BODY"
                   else
                     # Non-approve verdicts share ONE sticky comment, updated in
                     # place, instead of a fresh COMMENT review per run. Review
@@ -230,7 +239,7 @@ jobs:
                   fi
 
             - name: Upload evidence
-              if: always()
+              if: always() && !cancelled()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: review-${{ github.event.pull_request.number }}
@@ -348,10 +357,11 @@ jobs:
         # still carry a stale github-actions[bot] approval from before the
         # bot-author gate landed, and it must get dismissed on push. decide-delta
         # is skipped for bots, which routes here via the 'skipped' fail-closed
-        # path. This only ever touches github-actions[bot] approvals, so it's a
-        # no-op when there's nothing to dismiss.
+        # path. This only touches stamphog approvals posted by github-actions[bot]
+        # and is a no-op when there are none.
         if: >-
             always()
+            && !cancelled()
             && github.event.action == 'synchronize'
             && !github.event.pull_request.draft
             && (
@@ -373,11 +383,12 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  # Only dismiss APPROVED reviews made by github-actions[bot] —
-                  # human reviews and non-approval reviews are untouched.
+                  # New approvals carry a hidden marker. Legacy stamphog reviews
+                  # have the gate-mechanics table row, which keeps the transition
+                  # from accidentally retaining an old approval.
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED" and ((.body // "") | contains("<!-- stamphog-approval -->") or contains("| stamphog "))) | .id'
                   )
 
                   for id in "${REVIEW_IDS[@]}"; do
@@ -397,7 +408,6 @@ jobs:
         if: >-
             github.event.action == 'edited'
             && github.event.changes.base != null
-            && !github.event.pull_request.draft
         runs-on: ubuntu-latest
         timeout-minutes: 5
 
@@ -405,8 +415,8 @@ jobs:
             # The dismissal loop below mirrors the `dismiss` job's. Neither job
             # checks out the repo, so factoring it into a shared script would
             # force a checkout into both — more cost than the duplication saves.
-            # If you change the bot-approval selection (the github-actions[bot]
-            # + APPROVED filter), update both jobs in lockstep.
+            # If you change the stamphog-approval selection, update both
+            # dismissal jobs in lockstep.
             - name: Dismiss stale bot approvals on base change
               env:
                   # Same identity (github-actions[bot]) that posted the approval.
@@ -418,7 +428,7 @@ jobs:
 
                   mapfile -t REVIEW_IDS < <(
                       gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
-                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED" and ((.body // "") | contains("<!-- stamphog-approval -->") or contains("| stamphog "))) | .id'
                   )
 
                   for id in "${REVIEW_IDS[@]}"; do

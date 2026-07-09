@@ -123,6 +123,10 @@ _NON_RETRYABLE_PATTERNS = (
 )
 
 
+class WorktreeUnavailableError(RuntimeError):
+    """The PR head tree required for a stacked review could not be created."""
+
+
 def _is_retryable_error(err_msg: str) -> bool:
     """Return True if the error looks like an infrastructure/transient issue
     that is worth retrying (API timeouts, rate limits, overload).
@@ -642,7 +646,7 @@ class Pipeline:
 
     @contextmanager
     def _pr_head_worktree(self):
-        """Yield a detached worktree at the PR head, or None to review from master.
+        """Yield a detached worktree at the PR head, or None for non-stacked PRs.
 
         Only stacked PRs need this: their head contains code from parent PRs
         that aren't on the base branch yet, so without materializing the head
@@ -651,7 +655,8 @@ class Pipeline:
         checkout exactly as before — yield None and skip the full-tree checkout.
         The main checkout stays master (the workflow hardcodes that so a PR can't
         swap the review script), so the worktree is the only place the head tree
-        is materialized. Cleaned up on exit; falls back to None if creation fails.
+        is materialized. Cleaned up on exit; stacked PRs fail closed if creation
+        fails rather than reviewing against the wrong source tree.
 
         SECURITY: the worktree is PR-authored content; isolation from it as
         *configuration* is enforced by setting_sources=[] in Reviewer.
@@ -661,7 +666,21 @@ class Pipeline:
             return
 
         worktree_dir = Path(tempfile.gettempdir()) / f"pr-review-{self.pr_number}-{uuid.uuid4().hex[:8]}"
-        created = False
+        try:
+            symlink_check = subprocess.run(
+                ["git", "ls-tree", "-r", "--full-tree", self.pr.head_sha],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=REPO_ROOT,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeUnavailableError("symlink check timed out") from exc
+        if symlink_check.returncode != 0:
+            raise WorktreeUnavailableError(f"symlink check failed: {symlink_check.stderr.strip()}")
+        if any(line.startswith("120000 ") for line in symlink_check.stdout.splitlines()):
+            raise WorktreeUnavailableError("PR head contains symbolic links")
+
         try:
             result = subprocess.run(
                 ["git", "worktree", "add", "--detach", str(worktree_dir), self.pr.head_sha],
@@ -670,24 +689,28 @@ class Pipeline:
                 timeout=120,
                 cwd=REPO_ROOT,
             )
-            if result.returncode == 0:
-                created = True
-                print(_dim(f"  Exploring PR head in worktree: {worktree_dir}"))
-            else:
-                print(_warn(f"Worktree creation failed, reviewing from master: {result.stderr.strip()}"))
-        except subprocess.TimeoutExpired:
-            print(_warn("Worktree creation timed out, reviewing from master"))
+        except subprocess.TimeoutExpired as exc:
+            raise WorktreeUnavailableError("worktree creation timed out") from exc
+        if result.returncode != 0:
+            raise WorktreeUnavailableError(f"worktree creation failed: {result.stderr.strip()}")
+
+        print(_dim(f"  Exploring PR head in worktree: {worktree_dir}"))
 
         try:
-            yield worktree_dir if created else None
+            yield worktree_dir
         finally:
-            if created:
-                subprocess.run(
+            try:
+                cleanup = subprocess.run(
                     ["git", "worktree", "remove", "--force", str(worktree_dir)],
                     capture_output=True,
+                    text=True,
                     timeout=30,
                     cwd=REPO_ROOT,
                 )
+                if cleanup.returncode != 0:
+                    print(_warn(f"Worktree cleanup failed (ignored): {cleanup.stderr.strip()}"))
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                print(_warn(f"Worktree cleanup failed (ignored): {exc}"))
 
     def _run_reviewer_with_retries(self, reviewer: Reviewer, gate_context: dict, diff_path: Path) -> bool:
         """Call the reviewer with backoff; set self.reviewer_output.
@@ -751,7 +774,8 @@ class Pipeline:
                         "issues": [err_str],
                     }
                 return True
-        return True
+
+        raise AssertionError("review retry loop exhausted without a verdict")
 
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
@@ -765,9 +789,21 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        with self._pr_head_worktree() as explore_root:
-            reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
-            reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
+        try:
+            with self._pr_head_worktree() as explore_root:
+                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
+        except WorktreeUnavailableError as exc:
+            reviewer_unavailable = True
+            self.reviewer_output = {
+                "verdict": "ERROR",
+                "reasoning": (
+                    "The review agent could not create the isolated worktree required to review this stacked PR. "
+                    "The `stamphog` label has been kept; retry after the checkout issue is resolved."
+                ),
+                "risk": "unknown",
+                "issues": [str(exc)],
+            }
 
         llm_verdict = self.reviewer_output.get("verdict", "UNKNOWN")
         print(f"  Verdict: {llm_verdict}")
@@ -902,6 +938,7 @@ class Pipeline:
             "repo": self.pr.repo,
             "title": self.pr.title,
             "author": self.pr.author,
+            "base_sha": self.pr.base_sha,
             "head_sha": self.pr.head_sha,
             "classification": {
                 # .get() not [] — the bot-author REFUSE returns before _classify(),

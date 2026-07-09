@@ -145,14 +145,16 @@ these:
   The head tree already contains the parent PRs' code, so symbols from a
   not-yet-merged parent resolve and aren't flagged as broken imports. The diff
   itself is still computed `base_sha...head_sha`, so the review is scoped to
-  exactly this PR's changes. Worktree creation falls back to reviewing from
-  master if it fails.
+  exactly this PR's changes. If the worktree cannot be created, stamphog
+  returns `ERROR` and retains the label rather than reviewing against the wrong
+  source tree.
   - **Security:** the worktree is PR-authored content. The reviewer runs the
     Agent SDK with `setting_sources=[]` (isolation mode), so it does **not**
     load `.claude/settings.json` hooks (command execution) or `CLAUDE.md`
     (injected instructions) from the head tree. Those files are still readable
     as untrusted _content_ under the anti-injection notice — never as
-    configuration.
+    configuration. Stacked PR heads with tracked symbolic links fail closed,
+    so a PR path cannot resolve outside the worktree.
 
 - **Base retarget dismisses the stale approval.** When a stack's parent merges,
   the child PR is retargeted from the parent branch onto master, changing its

@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock
@@ -61,12 +62,10 @@ def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
     assert pipeline._summarize_assurance()["unresolved_threads"] == 1
 
 
-def test_to_dict_includes_head_sha() -> None:
-    """The post-review workflow step reads head_sha from the JSON output to
-    lock the resulting GitHub review to the sha the LLM actually saw — see
-    `.github/workflows/pr-approval-agent.yml`'s "Post review" step."""
+def test_to_dict_includes_reviewed_base_and_head_shas() -> None:
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="07dfeff14d95be1247e4c8c1065fd958a367389e")
+    pipeline.pr.base_sha = "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"
     pipeline.classification = {"tier": "T1-trivial", "breadth": "narrow"}
     pipeline.gate_results = []
     pipeline.reviewer_output = None
@@ -74,6 +73,7 @@ def test_to_dict_includes_head_sha() -> None:
 
     output = pipeline.to_dict()
 
+    assert output["base_sha"] == "b5412a26ec97b9d97367c7356cfe9d9b836ae3cb"
     assert output["head_sha"] == "07dfeff14d95be1247e4c8c1065fd958a367389e"
 
 
@@ -418,9 +418,10 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
 
 
 class _FakeCompleted:
-    def __init__(self, returncode: int, stderr: str = "") -> None:
+    def __init__(self, returncode: int, stderr: str = "", stdout: str = "") -> None:
         self.returncode = returncode
         self.stderr = stderr
+        self.stdout = stdout
 
 
 def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -447,12 +448,13 @@ def test_pr_head_worktree_yields_path_and_cleans_up(monkeypatch: pytest.MonkeyPa
     assert "--force" in remove
 
 
-def test_pr_head_worktree_falls_back_to_none_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If worktree creation fails, yield None (review from master) and skip removal."""
+def test_pr_head_worktree_fails_closed_on_creation_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
     def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
         calls.append(cmd)
+        if "ls-tree" in cmd:
+            return _FakeCompleted(0)
         return _FakeCompleted(1, stderr="fatal: invalid reference")
 
     monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
@@ -460,11 +462,68 @@ def test_pr_head_worktree_falls_back_to_none_on_failure(monkeypatch: pytest.Monk
     pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
 
-    with pipeline._pr_head_worktree() as explore_root:
-        assert explore_root is None
+    with pytest.raises(review_pr.WorktreeUnavailableError, match="invalid reference"):
+        with pipeline._pr_head_worktree():
+            pass
 
     # No worktree was created, so none is removed.
     assert not any("remove" in c for c in calls)
+
+
+def test_pr_head_worktree_rejects_symlinks(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(cmd)
+        if "ls-tree" in cmd:
+            return _FakeCompleted(0, stdout="120000 blob abcdef\tlink\n")
+        raise AssertionError(f"symlinked PR must not create a worktree: {cmd}")
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="deadbeef", base_ref="feat/parent-branch")
+
+    with pytest.raises(review_pr.WorktreeUnavailableError, match="symbolic links"):
+        with pipeline._pr_head_worktree():
+            pass
+
+    assert len(calls) == 1
+
+
+def test_pr_head_worktree_ignores_cleanup_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(cmd: list[str], **kwargs: object) -> _FakeCompleted:
+        if "remove" in cmd:
+            raise review_pr.subprocess.TimeoutExpired(cmd, timeout=30)
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr(review_pr.subprocess, "run", fake_run)
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
+
+    with pipeline._pr_head_worktree() as explore_root:
+        assert explore_root is not None
+
+
+def test_stacked_worktree_failure_returns_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    @review_pr.contextmanager
+    def unavailable_worktree():
+        raise review_pr.WorktreeUnavailableError("checkout unavailable")
+        yield None
+
+    pipeline = Pipeline(pr_number=7, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="cafe123", base_ref="feat/parent-branch")
+    pipeline.gate_results = []
+    monkeypatch.setattr(pipeline, "_pr_head_worktree", unavailable_worktree)
+    monkeypatch.setattr(pipeline, "_ensure_diff_path", lambda: tmp_path / "diff.patch")
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline._llm_review("PENDING")
+
+    assert pipeline.final_verdict == "ERROR"
+    assert pipeline.reviewer_output is not None
+    assert pipeline.reviewer_output["issues"] == ["checkout unavailable"]
 
 
 def test_pr_head_worktree_skipped_for_non_stacked(monkeypatch: pytest.MonkeyPatch) -> None:
