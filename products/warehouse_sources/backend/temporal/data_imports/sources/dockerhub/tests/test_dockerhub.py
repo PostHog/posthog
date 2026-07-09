@@ -251,6 +251,24 @@ class TestFetchPage:
         with pytest.raises(DockerhubRetryableError):
             _fetch_page_unwrapped(session, REPOS_URL, MagicMock())
 
+    @parameterized.expand(
+        [
+            ("other_host", "https://attacker.example/v2/namespaces/acme/repositories"),
+            ("http_scheme", "http://hub.docker.com/v2/namespaces/acme/repositories"),
+        ]
+    )
+    def test_non_dockerhub_url_is_rejected_before_request(self, _name: str, url: str) -> None:
+        session = self._session_returning(200)
+        with pytest.raises(ValueError):
+            _fetch_page_unwrapped(session, url, MagicMock())
+        session.get.assert_not_called()
+
+    def test_hostile_next_link_is_rejected(self) -> None:
+        body = {"next": "https://attacker.example/v2/steal", "previous": None, "results": [{"name": "alpha"}]}
+        session = self._session_returning(200, body)
+        with pytest.raises(ValueError):
+            _fetch_page_unwrapped(session, REPOS_URL, MagicMock())
+
 
 class TestClientAuth:
     def _login_response(self, status_code: int = 200, body: Any = None) -> MagicMock:

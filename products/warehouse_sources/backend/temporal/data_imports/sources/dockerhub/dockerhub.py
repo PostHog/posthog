@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -14,10 +14,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.
 
 # Management API host (hub.docker.com), distinct from the OCI registry API (registry.hub.docker.com).
 DOCKERHUB_BASE_URL = "https://hub.docker.com"
+# Host the Bearer JWT is scoped to. Every URL we fetch (including verbatim `next` links and resumed
+# cursors) is pinned to this host so a hostile/spoofed response can't redirect the token elsewhere.
+DOCKERHUB_HOST = urlsplit(DOCKERHUB_BASE_URL).netloc
 LOGIN_PATH = "/v2/users/login"
 # Maximum accepted page_size on the v2 list endpoints.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
+
+
+def _require_dockerhub_url(url: str) -> str:
+    # Pagination follows the API's `next` field verbatim, so a compromised or spoofed response could
+    # point `next` at an attacker host and exfiltrate the Bearer JWT. Pin scheme+host to Docker Hub
+    # before any request carries the token; the pinned initial URLs pass trivially.
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.netloc != DOCKERHUB_HOST:
+        raise ValueError(f"Refusing to fetch non-Docker Hub URL: {url}")
+    return url
 
 
 class DockerhubRetryableError(Exception):
@@ -101,7 +114,9 @@ def _fetch_page(
     allow_reauth: bool = True,
 ) -> tuple[list[dict[str, Any]], Optional[str]]:
     # `url` is already absolute — either an initial endpoint URL or a verbatim `next` link, so we
-    # never re-send page params (they're baked into the URL).
+    # never re-send page params (they're baked into the URL). Pin it to Docker Hub first: this is the
+    # single choke point for initial, resumed, and `next`-followed URLs, so the token never leaves.
+    _require_dockerhub_url(url)
     response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -120,7 +135,11 @@ def _fetch_page(
         raise DockerhubRetryableError(f"Docker Hub returned an unexpected payload for {url}: {type(data).__name__}")
 
     next_url = data.get("next")
-    return data["results"], next_url if isinstance(next_url, str) and next_url else None
+    if isinstance(next_url, str) and next_url:
+        # Validate before returning so a hostile `next` is rejected here, not persisted to resume
+        # state and re-tried on the next run.
+        return data["results"], _require_dockerhub_url(next_url)
+    return data["results"], None
 
 
 class DockerHubClient:
