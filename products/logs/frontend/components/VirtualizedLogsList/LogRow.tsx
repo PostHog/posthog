@@ -103,7 +103,9 @@ export function LogRow({
                     isPrettified={isPrettified}
                     onTogglePin={onTogglePin}
                     onTogglePrettify={onTogglePrettify}
-                    showScrollButtons={!wrapBody}
+                    // Scroll buttons drive the message cell's inner scroll — pointless without
+                    // a message column (the flex column) or when wrapping already shows everything
+                    showScrollButtons={!wrapBody && columns.some((col) => col.sizing.type === 'flex')}
                 />
             </div>
             {isExpanded && <ExpandedLogContent log={log} />}

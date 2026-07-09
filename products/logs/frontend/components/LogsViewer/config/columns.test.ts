@@ -1,6 +1,6 @@
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
-import { columnsToCustomColumns, LogsColumnConfig, migrateAttributeColumns } from './columns'
+import { columnsToCustomColumns, LogsColumnConfig, migrateAttributeColumns, normalizeColumns } from './columns'
 
 describe('logs column config', () => {
     describe('columnsToCustomColumns', () => {
@@ -51,6 +51,27 @@ describe('logs column config', () => {
         it('escapes quotes and backslashes so keys cannot break out of the expression string', () => {
             const [migrated] = migrateAttributeColumns({ "we'ird\\key": { order: 0 } })
             expect(migrated.expression).toContain("we\\'ird\\\\key")
+        })
+    })
+
+    describe('normalizeColumns', () => {
+        it('pins message columns last, preserving relative order of the rest', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'm', type: 'message' },
+                { id: 't', type: 'timestamp' },
+                { id: 'c', type: 'custom', expression: 'attributes.a' },
+            ]
+            expect(normalizeColumns(columns).map((c) => c.id)).toEqual(['t', 'c', 'm'])
+        })
+
+        it('is identity when message is already last or absent', () => {
+            const alreadyLast: LogsColumnConfig[] = [
+                { id: 't', type: 'timestamp' },
+                { id: 'm', type: 'message' },
+            ]
+            expect(normalizeColumns(alreadyLast).map((c) => c.id)).toEqual(['t', 'm'])
+            const noMessage: LogsColumnConfig[] = [{ id: 't', type: 'timestamp' }]
+            expect(normalizeColumns(noMessage)).toBe(noMessage)
         })
     })
 })

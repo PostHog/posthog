@@ -209,16 +209,18 @@ export function VirtualizedLogsList({
     // pinned controls column is a configured column; there are no special cases here.
     const columns = useMemo(() => {
         const rendering = { tzLabelFormat, orderBy, onChangeOrderBy, wrapBody, prettifyJson, flexWidthRef }
+        // Move bounds range over movable columns only — message is pinned last and never swaps
+        const movable = columnConfigs.filter((config) => config.type !== 'message')
         return [
             createControlsColumn({ dataSourceRef }),
-            ...columnConfigs.map((config, index) =>
+            ...columnConfigs.map((config) =>
                 createConfiguredColumn({
                     config,
                     alias: aliasById.get(config.id),
                     callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
                     rendering,
-                    isFirst: index === 0,
-                    isLast: index === columnConfigs.length - 1,
+                    isFirst: movable.indexOf(config) === 0,
+                    isLast: movable.length > 0 && movable.indexOf(config) === movable.length - 1,
                 })
             ),
         ]

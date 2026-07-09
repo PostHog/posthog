@@ -45,6 +45,16 @@ export const DEFAULT_LOGS_COLUMNS: LogsColumnConfig[] = [
     { id: 'message', type: 'message' },
 ]
 
+/**
+ * Message is pinned to the end: it's the flex fill column, and the row FAB (whose scroll
+ * buttons drive the message cell) anchors to the row's right edge. Stable within each partition.
+ */
+export function normalizeColumns(columns: LogsColumnConfig[]): LogsColumnConfig[] {
+    const rest = columns.filter((column) => column.type !== 'message')
+    const message = columns.filter((column) => column.type === 'message')
+    return message.length > 0 ? [...rest, ...message] : columns
+}
+
 export function columnLabel(column: LogsColumnConfig): string {
     if (column.name) {
         return column.name
