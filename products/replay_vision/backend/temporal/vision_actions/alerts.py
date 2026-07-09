@@ -165,15 +165,17 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     markdown = strip_external_links_markdown(
         _alert_markdown(action, metric, op, threshold, metric_value, matched_count, observations_qs, window_days)
     )
-    run.synthesized_markdown = markdown
-    run.output = {"slack": _markdown_to_slack(markdown)}
-    run.observation_count = matched_count
-    run.observation_ids = [
+    observation_ids = [
         str(observation_id)
         for observation_id in observations_qs.order_by("-created_at", "-id").values_list("id", flat=True)[
             :MAX_OBSERVATIONS
         ]
     ]
+    run.synthesized_markdown = markdown
+    # Alert messages carry no `[obs N]` citations, so the ids only feed the (no-op) citation pass.
+    run.output = {"slack": _markdown_to_slack(markdown, team_id=team.id, observation_ids=observation_ids)}
+    run.observation_count = matched_count
+    run.observation_ids = observation_ids
     run.save(update_fields=["synthesized_markdown", "output", "observation_count", "observation_ids", "updated_at"])
 
     return EvaluateAlertResult(status=AlertStatus.FIRED, observation_count=matched_count, metric_value=metric_value)
