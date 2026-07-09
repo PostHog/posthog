@@ -1176,6 +1176,84 @@ describe('infiniteListLogic', () => {
         )
     })
 
+    describe('committed selection promotion', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const mountSuggestedList = (props: Record<string, any>): ReturnType<typeof infiniteListLogic.build> =>
+            logicWith({
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters],
+                ...props,
+            })
+
+        it('floats the selected value to the top of its own group list when idle', async () => {
+            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('search term')
+            expect((logic.values.results[1] as { name?: string })?.name).toBe('All events')
+        })
+
+        it('leaves relevance ordering alone while searching', async () => {
+            logic = logicWith({ value: 'other event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            await expectLogic(logic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+                'loadRemoteItemsSuccess',
+            ])
+            const names = logic.values.results.map((item) => (item as { name?: string })?.name)
+            expect(names).toContain('other event')
+            expect(names.indexOf('other event')).toBeGreaterThan(0)
+        })
+
+        it('floats a matching recent to the top of the suggested list without duplicating it', async () => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'event1',
+                item: { name: 'event1' },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'test event',
+                item: { name: 'test event' },
+            })
+
+            const listLogic = mountSuggestedList({ value: 'event1', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+
+            const results = listLogic.values.results
+            expect(hasRecentContext(results[0]) && results[0]._recentContext.sourceValue).toBe('event1')
+            expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
+        })
+
+        it('prepends a synthetic selected row on the suggested list when the selection is not visible', async () => {
+            const listLogic = mountSuggestedList({ value: '$pageview', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results[0]).toMatchObject({
+                name: '$pageview',
+                group: TaxonomicFilterGroupType.Events,
+            })
+        })
+
+        it('skips the synthetic row for id-keyed groups where only the raw id could render', async () => {
+            const listLogic = mountSuggestedList({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.SuggestedFilters],
+                value: 5,
+                groupType: TaxonomicFilterGroupType.Cohorts,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results).toEqual([])
+        })
+    })
+
     describe('contextFilteredRecentItems', () => {
         // Generic wrapper around hasRecentContext so .filter() preserves the input type
         // (the production type guard uses `unknown` which TS can't narrow through Array.filter).

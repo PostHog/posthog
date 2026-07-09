@@ -42,6 +42,7 @@ import {
     pinnedSourceKey,
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
+import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -120,6 +121,14 @@ export interface RowInfo {
  */
 export const NO_ITEM_SELECTED = -1
 
+// Data-warehouse tabs keep their own committed-selection affordance (the pinned,
+// auto-expanded row via `getInitialPinnedRowIndex`), so they are excluded from
+// the generic selection-promotion below.
+const DATA_WAREHOUSE_GROUP_TYPES: TaxonomicFilterGroupType[] = [
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
+]
+
 export function getInitialPinnedRowIndex({
     results,
     taxonomicGroups,
@@ -137,15 +146,11 @@ export function getInitialPinnedRowIndex({
     value: string | number | null | undefined
     isActiveTab: boolean
 }): number | null {
-    const dataWarehouseGroupTypes: TaxonomicFilterGroupType[] = [
-        TaxonomicFilterGroupType.DataWarehouse,
-        TaxonomicFilterGroupType.DataWarehouseSourceTables,
-    ]
     if (
         !isActiveTab ||
-        !dataWarehouseGroupTypes.includes(listGroupType) ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(listGroupType) ||
         groupType === undefined ||
-        !dataWarehouseGroupTypes.includes(groupType) ||
+        !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType) ||
         value == null
     ) {
         return null
@@ -1002,6 +1007,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.isSoleSubstantiveGroup,
                 s.soleGroupHasGetValue,
                 s.taxonomicGroups,
+                s.group,
+                s.groupType,
+                s.value,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -1018,6 +1026,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 isSoleSubstantiveGroup,
                 soleGroupHasGetValue,
                 taxonomicGroups,
+                group,
+                groupType,
+                value,
                 collapseUrlsToContainsRow
             ) => {
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
@@ -1100,6 +1111,59 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 } else {
                     orderedBase = combinedResults
                 }
+                // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
+                // the committed selection floats to the very first row so the user can see
+                // at a glance what is currently picked. While searching, relevance wins.
+                let syntheticSelectedCount = 0
+                if (!searchQuery && value != null && groupType && !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)) {
+                    const selectionKey = groupItemKey(groupType, value)
+                    if (isSuggested && selectionKey) {
+                        // The aggregated list is fully client-side (recents/pinned prefixes),
+                        // so both floating and prepending are safe here.
+                        const selectedIndex = orderedBase.findIndex(
+                            (item) =>
+                                item != null &&
+                                !isSkeletonItem(item) &&
+                                (recentSourceKey(item) === selectionKey || pinnedSourceKey(item) === selectionKey)
+                        )
+                        if (selectedIndex >= 0) {
+                            orderedBase = floatToFront(orderedBase, selectedIndex)
+                        } else {
+                            // The selection isn't among the visible recents/pinned — prepend a
+                            // synthetic row (shaped like a top match, so `getItemGroup` resolves
+                            // its source group) so the user can still verify what's picked.
+                            // Only when the source group round-trips the synthetic back to the
+                            // same value: id-keyed groups (actions, cohorts) would render the
+                            // raw id, which would confuse more than it clarifies.
+                            const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
+                            const synthetic = {
+                                name: String(value),
+                                value,
+                                group: groupType,
+                            } as unknown as TaxonomicDefinitionTypes
+                            if (sourceGroup?.getValue?.(synthetic) === value) {
+                                orderedBase = [synthetic, ...orderedBase]
+                                syntheticSelectedCount = 1
+                            }
+                        }
+                    } else if (!isSuggested && groupType === listGroupType && group?.getValue) {
+                        const getValue = group.getValue
+                        const selectedIndex = orderedBase.findIndex(
+                            (item) => item != null && !isSkeletonItem(item) && getValue(item) === value
+                        )
+                        // Floating shifts every row above the selection down by one, so it is
+                        // only safe when those rows are all loaded — a hole changing display
+                        // position would desync the windowed loader's display-index ->
+                        // remote-offset mapping. When the selection is paginated past (not
+                        // loaded yet), we leave the list alone for the same reason.
+                        if (
+                            selectedIndex > 0 &&
+                            orderedBase.slice(0, selectedIndex).every((item) => item != null && !isSkeletonItem(item))
+                        ) {
+                            orderedBase = floatToFront(orderedBase, selectedIndex)
+                        }
+                    }
+                }
                 // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
                 // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
                 // suggestion first. Everything else keeps its existing order.
@@ -1108,6 +1172,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 return {
                     results: orderedResults,
                     count:
+                        syntheticSelectedCount +
                         keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
