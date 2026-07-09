@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { DEFAULT_PICKER_COLORS } from '~/queries/nodes/DataVisualization/Components/ConditionalFormatting/ConditionalFormattingTab'
 import { DataTableVisualization } from '~/queries/nodes/DataVisualization/DataVisualization'
 import {
     ConditionalFormattingRule,
@@ -8,19 +9,6 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
-
-const PALETTE: { hex: string; name: string }[] = [
-    { hex: '#FFADAD', name: 'Red (default)' },
-    { hex: '#E8A598', name: 'Salmon' },
-    { hex: '#FFD6A5', name: 'Orange' },
-    { hex: '#FFCFD2', name: 'Pink' },
-    { hex: '#FDFFB6', name: 'Yellow' },
-    { hex: '#C1FBA4', name: 'Green' },
-    { hex: '#9BF6FF', name: 'Cyan' },
-    { hex: '#A0C4FF', name: 'Blue' },
-    { hex: '#BDB2FF', name: 'Purple' },
-    { hex: '#FFC6FF', name: 'Magenta' },
-]
 
 // Compiled Hog for the "equals" template (`return value == input`): reads the `value` and `input`
 // globals, compares them (EQ = 11) and returns (RETURN = 38).
@@ -40,7 +28,7 @@ function equalsRule(columnName: string, hex: string, colorMode: 'light' | 'dark'
 
 // One rule per default palette color, for both the "light" and "dark" columns, so every color is
 // exercised as a light-mode-saved rule and a dark-mode-saved rule.
-const conditionalFormatting: ConditionalFormattingRule[] = PALETTE.flatMap(({ hex }) => [
+const conditionalFormatting: ConditionalFormattingRule[] = DEFAULT_PICKER_COLORS.flatMap((hex) => [
     equalsRule('light', hex, 'light'),
     equalsRule('dark', hex, 'dark'),
 ])
@@ -65,7 +53,7 @@ const query: DataVisualizationNode = {
 // Each row shows a color's hex in both the light and dark columns, so the cell text sits on its own
 // color and its legibility is obvious.
 const cachedResults: HogQLQueryResponse<string[][]> = {
-    results: PALETTE.map(({ hex, name }) => [name, hex, hex]),
+    results: DEFAULT_PICKER_COLORS.map((hex) => [hex, hex, hex]),
     columns: ['color', 'light', 'dark'],
     types: [
         ['color', 'String'],
