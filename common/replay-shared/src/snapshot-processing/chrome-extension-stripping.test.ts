@@ -22,6 +22,18 @@ describe('stripChromeExtensionDataFromNode', () => {
         expect(matched.size).toBe(0)
     })
 
+    it.each([
+        ['undefined', undefined],
+        ['null', null],
+        ['a string (undecoded full snapshot data.node)', 'not-a-node'],
+    ])('returns false without throwing when node is %s', (_label, node) => {
+        const matched = new Set<string>()
+        expect(() =>
+            stripChromeExtensionDataFromNode(node as unknown as serializedNodeWithId, needles, matched)
+        ).not.toThrow()
+        expect(stripChromeExtensionDataFromNode(node as unknown as serializedNodeWithId, needles, matched)).toBe(false)
+    })
+
     it('does not throw or match when attributes object lacks relevant keys', () => {
         const node: serializedNodeWithId = {
             type: NodeType.Element,

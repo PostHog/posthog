@@ -138,6 +138,12 @@ export function stripChromeExtensionDataFromNode(
     needles: string[],
     matchedExtensions: Set<string>
 ): boolean {
+    // Guard against a non-object node (e.g. a full snapshot that failed to decompress): the `'childNodes' in node`
+    // check below throws on undefined, and the safelyCheck* helpers already no-op on non-objects anyway.
+    if (!node || typeof node !== 'object') {
+        return false
+    }
+
     let stripped = false
 
     if (safelyCheckCSSAttribute(node, 'textContent', needles, matchedExtensions)) {

@@ -962,4 +962,46 @@ describe('process all snapshots', () => {
             })
         })
     })
+
+    describe('undecodable full snapshot', () => {
+        // A full snapshot whose gzip payload was truncated at capture/ingestion fails to decompress and
+        // reaches processing with `data` still a raw string. Dereferencing `data.node` used to throw,
+        // rejecting the whole pass and leaving the player stuck on "Buffering…" forever. It must instead
+        // be dropped so the recording resolves (as unplayable) rather than hanging.
+        const sessionId = '1234'
+        const source = { source: 'blob_v2', blob_key: '0' } as SessionRecordingSnapshotSource
+        const key = keyForSource(source)
+        const viewport = (): { width: string; height: string; href: string } => ({
+            width: '100',
+            height: '100',
+            href: 'https://example.com',
+        })
+
+        it.each([
+            ['a raw compressed string', 'H4sIAAAAAAAA_truncated' as unknown],
+            ['an object without a node', { foo: 'bar' } as unknown],
+        ])('drops a full snapshot whose data is %s without throwing', async (_label, badData) => {
+            const snapshots = [
+                { windowId: 1, timestamp: 1000, type: 4, data: { width: 100, height: 100, href: 'x' } },
+                { windowId: 1, timestamp: 1001, cv: '2024-10', type: 2, data: badData },
+                { windowId: 1, timestamp: 1002, type: 3, data: { source: 2, positions: [] } },
+            ] as unknown as RecordingSnapshot[]
+
+            let result: RecordingSnapshot[] = []
+            await expect(
+                (async () => {
+                    result = await processAllSnapshots(
+                        [source],
+                        { [key]: { snapshots } },
+                        { snapshots: {} },
+                        viewport,
+                        sessionId
+                    )
+                })()
+            ).resolves.not.toThrow()
+
+            expect(result.some((e) => e.type === 2)).toBe(false)
+            expect(result.some((e) => e.type === 3)).toBe(true)
+        })
+    })
 })

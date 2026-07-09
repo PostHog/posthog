@@ -318,11 +318,28 @@ function processSnapshot(
     }
 
     if (snapshot.type === EventType.FullSnapshot) {
+        const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+
+        // A FullSnapshot whose payload failed to decompress (e.g. truncated at capture/ingestion) still
+        // arrives here with `data` as the raw compressed string — decompressEvent swallows the gunzip error.
+        // Dereferencing `data.node` below would throw, which processAllSnapshots surfaces as an unhandled
+        // rejection that leaves every source stuck unpromoted and the player buffering forever. Drop it
+        // instead: with no usable FullSnapshot the renderability machinery reports the recording unplayable.
+        if (!isObject(fullSnapshot.data) || !isObject(fullSnapshot.data.node)) {
+            throttleCapture(`${sessionRecordingId}-undecodable-full-snapshot`, () => {
+                telemetry.captureException(new Error('Full snapshot could not be decoded'), {
+                    throttleCaptureKey: `${sessionRecordingId}-undecodable-full-snapshot`,
+                    sessionRecordingId,
+                    sourceKey,
+                    feature: 'session-recording-full-snapshot-decoding',
+                })
+            })
+            return
+        }
+
         context.seenFullByWindow[snapshot.windowId] = true
         pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
         context.hasSeenMeta = false
-
-        const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
         if (
             stripChromeExtensionDataFromNode(
