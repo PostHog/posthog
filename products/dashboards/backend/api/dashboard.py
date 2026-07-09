@@ -201,7 +201,7 @@ _tile_serialize_executor = ThreadPoolExecutor(
 )
 
 
-def _tile_serialize_pool_active() -> bool:
+def _tile_serialize_pool_allowed() -> bool:
     """
     Pool threads use separate DB connections, invisible to the test transaction and to
     assertNumQueries, so the pool defaults off under tests; a test that commits its data
@@ -423,7 +423,7 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
     # CONN_MAX_AGE=0 means nothing else closes the connection this thread just used. Tests that
     # opt into the pool via DASHBOARD_TILE_PARALLEL_IN_TESTS still need this cleanup, since the
     # override doesn't change that pool threads use separate, real DB connections.
-    if _tile_serialize_pool_active():
+    if _tile_serialize_pool_allowed():
         close_old_connections()
     try:
         if not chained:
@@ -451,7 +451,7 @@ def serialize_tile_in_worker(tile, order: int, context: dict, chained: bool) -> 
             set_in_context(False)
         return order, tile_data, chained_tasks
     finally:
-        if _tile_serialize_pool_active():
+        if _tile_serialize_pool_allowed():
             close_old_connections()
 
 
@@ -2163,7 +2163,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         chained_tile_refresh_enabled = _org_flag_enabled("chained_dashboard_tile_refresh")
-        parallel_serialization_enabled = _tile_serialize_pool_active() and _org_flag_enabled(
+        parallel_serialization_enabled = _tile_serialize_pool_allowed() and _org_flag_enabled(
             "parallel_dashboard_tile_serialization"
         )
 
