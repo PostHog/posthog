@@ -1,4 +1,5 @@
 import re
+import uuid
 import textwrap
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -8,6 +9,12 @@ from django.db import models
 import structlog
 from temporalio import activity
 
+from posthog.temporal.ai.slack_app.attachments import (
+    PreparedSlackAttachments,
+    build_slack_attachment_prompt_text,
+    get_slack_bot_token,
+    prepare_slack_file_artifacts,
+)
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
@@ -184,6 +191,107 @@ def _with_slack_delivery_constraints(prompt: str, *, canvas_file_artifacts_enabl
         _SLACK_DELIVERY_CONSTRAINTS if canvas_file_artifacts_enabled else _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY
     )
     return f"{constraints}\n{prompt}"
+
+
+def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:
+    return [str(artifact["id"]) for artifact in uploaded_artifacts if artifact.get("id")]
+
+
+def _apply_followup_prefix(user_text: str, prefix: str | None) -> str:
+    """Prefix a cross-user follow-up with the actor's name; substitute a placeholder for file-only messages."""
+    if prefix:
+        return prefix + user_text if user_text else f"{prefix}attached Slack file(s)."
+    return user_text or "Attached Slack file(s)."
+
+
+def _pending_attachment_state_updates(
+    message: str | None,
+    *,
+    uploaded_attachments: list[dict[str, Any]],
+    attachment_skips: list[str],
+) -> dict[str, Any]:
+    """Build the run-state updates that stage attachments for delivery once the sandbox is up."""
+    updates: dict[str, Any] = {}
+    pending_user_message = build_slack_attachment_prompt_text(
+        message,
+        uploaded_artifacts=uploaded_attachments,
+        skipped_messages=attachment_skips,
+    )
+    if pending_user_message:
+        updates["pending_user_message"] = pending_user_message
+    pending_user_artifact_ids = _uploaded_attachment_ids(uploaded_attachments)
+    if pending_user_artifact_ids:
+        updates["pending_user_artifact_ids"] = pending_user_artifact_ids
+    return updates
+
+
+def _post_attachment_rejection_notice(
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    skipped_messages: list[str],
+) -> None:
+    """Tell the thread why nothing was forwarded when every attachment was rejected.
+
+    This is the only delivery mechanism for the skip reasons in that case — without it
+    the agent would be woken (or a whole sandbox provisioned) just to relay a rejection.
+    """
+    skipped = "\n".join(f"- {msg}" for msg in skipped_messages)
+    text = "I couldn't forward that to the agent — no attachment was accepted:\n" + skipped
+    try:
+        slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text)
+    except Exception:
+        logger.warning("slack_attachment_rejection_notice_failed", channel=channel, thread_ts=thread_ts)
+
+
+def _slack_followup_message_id(channel: str, message_ts: str | None, thread_ts: str) -> str:
+    """Deterministic agent-server idempotency key so activity retries can't double-deliver."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog:slack_followup:{channel}:{message_ts or thread_ts}"))
+
+
+def _upload_prepared_slack_attachments(
+    tasks_facade: Any,
+    *,
+    task_run_id: Any,
+    task_id: Any,
+    team_id: int,
+    prepared: PreparedSlackAttachments,
+    channel: str,
+    thread_ts: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    skipped_messages = list(prepared.skipped_messages)
+    if not prepared.artifacts:
+        return [], skipped_messages
+
+    try:
+        result = tasks_facade.upload_task_run_artifacts(
+            task_run_id,
+            task_id,
+            team_id,
+            artifacts=prepared.artifacts,
+        )
+    except Exception:
+        logger.exception(
+            "slack_attachment_upload_failed",
+            task_run_id=str(task_run_id),
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        skipped_messages.append("Slack attachment(s) could not be uploaded to the agent workspace.")
+        return [], skipped_messages
+
+    if result is None:
+        logger.warning(
+            "slack_attachment_upload_run_not_found",
+            task_run_id=str(task_run_id),
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        skipped_messages.append("Slack attachment(s) could not be uploaded to the agent workspace.")
+        return [], skipped_messages
+
+    uploaded, _manifest = result
+    return uploaded, skipped_messages
 
 
 def _build_posthog_code_task_description(
@@ -448,6 +556,26 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
+    # Idempotency guard: this activity runs under a retry policy but its body is
+    # not idempotent — a retry after the mapping write would create a duplicate
+    # task + run, re-upload attachments to it, and repoint the mapping, orphaning
+    # the first task. A mapping for this thread means a prior attempt (or a
+    # concurrent duplicate mention) already created the task; a run left QUEUED
+    # by a crash before the workflow start is recovered by the orphaned-run
+    # janitor sweep.
+    if SlackThreadTaskMapping.objects.filter(
+        integration_id=inputs.integration_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists():
+        logger.info(
+            "posthog_code_task_creation_skipped_existing_mapping",
+            channel=channel,
+            thread_ts=thread_ts,
+            integration_id=inputs.integration_id,
+        )
+        return
+
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
     if block_if_team_over_quota(
@@ -587,6 +715,17 @@ def create_posthog_code_task_for_repo_activity(
     # where the agent finishes and tries to relay before the mapping exists
     task_run = created.latest_run
     if task_run:
+        prepared_attachments = prepare_slack_file_artifacts(event.get("files"), get_slack_bot_token(slack, integration))
+        uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
+            tasks_facade,
+            task_run_id=task_run.id,
+            task_id=created.task_id,
+            team_id=created.team_id,
+            prepared=prepared_attachments,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+
         # `last_forwarded_ts` seeds the follow-up diff watermark — anything
         # strictly newer than this when a follow-up arrives is rendered into a
         # `<slack_thread_context_update>` block so the agent catches up on
@@ -623,14 +762,23 @@ def create_posthog_code_task_for_repo_activity(
         if repo_research_task_id and repo_research_run_id:
             state_updates["repo_research_task_id"] = repo_research_task_id
             state_updates["repo_research_run_id"] = repo_research_run_id
+        if prepared_attachments.has_files:
+            state_updates.update(
+                _pending_attachment_state_updates(
+                    description,
+                    uploaded_attachments=uploaded_attachments,
+                    attachment_skips=attachment_skips,
+                )
+            )
         try:
             tasks_facade.update_task_run_state(task_run.id, updates=state_updates)
         except Exception:
             logger.exception(
-                "posthog_code_persist_mention_workflow_id_failed",
+                "posthog_code_persist_initial_run_state_failed",
                 task_run_id=str(task_run.id),
                 channel=channel,
                 thread_ts=thread_ts,
+                state_keys=sorted(state_updates),
             )
 
     # 3. Now start the workflow
@@ -782,10 +930,17 @@ def forward_posthog_code_followup_activity(
     )
 
     user_text = decode_slack_event_text(slack, integration, event_text)
-    if not user_text:
+    prepared_attachments = prepare_slack_file_artifacts(
+        inputs.event.get("files"), get_slack_bot_token(slack, integration)
+    )
+    if not user_text and not prepared_attachments.has_files:
         return True
-    if followup_user_text_prefix:
-        user_text = followup_user_text_prefix + user_text
+    if not user_text and not prepared_attachments.artifacts:
+        # Every attachment was rejected and there is no text: waking the agent
+        # would deliver a content-free prompt. Surface the skip reasons directly.
+        _post_attachment_rejection_notice(slack, channel, thread_ts, prepared_attachments.skipped_messages)
+        return True
+    user_text = _apply_followup_prefix(user_text, followup_user_text_prefix)
 
     # Catch the agent up on any messages posted in the thread between the last time
     # we forwarded and now. Without this the agent sees only the new follow-up text,
@@ -832,9 +987,38 @@ def forward_posthog_code_followup_activity(
             task_run.id, user_id=actor_user.id, distinct_id=distinct_id
         )
 
-    result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
+    uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
+        tasks_facade,
+        task_run_id=task_run.id,
+        task_id=mapping.task_id,
+        team_id=task_run.team_id,
+        prepared=prepared_attachments,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    user_text = (
+        build_slack_attachment_prompt_text(
+            user_text,
+            uploaded_artifacts=uploaded_attachments,
+            skipped_messages=attachment_skips,
+        )
+        or user_text
+    )
+
+    send_kwargs: dict[str, Any] = {
+        "auth_token": auth_token,
+        "timeout": 90,
+        # Deterministic across activity retries: a retry after a partial failure
+        # (or the in-line resend below) redelivers with the same id, and the
+        # agent-server drops the duplicate instead of applying the message twice.
+        "message_id": _slack_followup_message_id(channel, user_message_ts, thread_ts),
+    }
+    if uploaded_attachments:
+        send_kwargs["artifacts"] = uploaded_attachments
+
+    result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
     if not result.success and result.retryable and result.status_code != 504:
-        result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
+        result = tasks_facade.send_user_message(task_run.id, user_text, **send_kwargs)
 
     if not result.success:
         logger.warning(
@@ -989,10 +1173,17 @@ def _resume_task_with_new_run(
 
     integration = slack.integration
     user_text = decode_slack_event_text(slack, integration, event_text)
-    if not user_text:
+    prepared_attachments = prepare_slack_file_artifacts(
+        inputs.event.get("files"), get_slack_bot_token(slack, integration)
+    )
+    if not user_text and not prepared_attachments.has_files:
         return True
-    if user_text_prefix:
-        user_text = user_text_prefix + user_text
+    if not user_text and not prepared_attachments.artifacts:
+        # Every attachment was rejected and there is no text: provisioning a whole
+        # new sandbox run just to relay the rejection is wasteful — post it directly.
+        _post_attachment_rejection_notice(slack, channel, thread_ts, prepared_attachments.skipped_messages)
+        return True
+    user_text = _apply_followup_prefix(user_text, user_text_prefix)
 
     created_by = mapping.task.created_by
     run_actor = actor_user or created_by
@@ -1066,6 +1257,33 @@ def _resume_task_with_new_run(
             text=_RESUME_ERROR_MSG,
         )
         return True
+
+    uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
+        tasks_facade,
+        task_run_id=new_run.id,
+        task_id=mapping.task_id,
+        team_id=new_run.team_id,
+        prepared=prepared_attachments,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    if prepared_attachments.has_files:
+        pending_updates = _pending_attachment_state_updates(
+            initial_prompt_override,
+            uploaded_attachments=uploaded_attachments,
+            attachment_skips=attachment_skips,
+        )
+        if pending_updates:
+            try:
+                tasks_facade.update_task_run_state(new_run.id, updates=pending_updates)
+            except Exception:
+                logger.exception(
+                    "posthog_code_resume_attachment_state_update_failed",
+                    channel=channel,
+                    thread_ts=thread_ts,
+                    task_id=str(mapping.task_id),
+                    run_id=str(new_run.id),
+                )
 
     slack_thread_context = SlackThreadContext(
         integration_id=inputs.integration_id,
