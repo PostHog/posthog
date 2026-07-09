@@ -20,7 +20,11 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_PRIMARY_SOURCE,
 )
-from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
+from products.marketing_analytics.backend.services.native_integrations import (
+    KEY_TO_NATIVE,
+    iter_custom_source_mappings,
+    lookup_alias,
+)
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -285,6 +289,20 @@ def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
     return mappings.source_to_integration.get(utm_source, utm_source)
 
 
+def _same_default_integration(utm_source: str, source_name: str) -> bool:
+    """True when utm_source and a campaign's source_name resolve to the same native
+    integration via the default-source allowlist (INTEGRATION_DEFAULT_SOURCES).
+
+    This mirrors what the real attribution join accepts — `get_source_identifier_mapping`
+    honors the full default allowlist for a source (e.g. utm_source=facebook attributes
+    to a Meta campaign whose primary source is 'meta'). Without consulting the same
+    allowlist here, the audit would treat those allowlisted aliases as an alternative
+    source and fire a spurious "Source mismatch" warning even though attribution works.
+    """
+    utm_integration = lookup_alias(utm_source)
+    return utm_integration is not None and utm_integration == lookup_alias(source_name)
+
+
 def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
     """Get the campaign value to match against utm_campaign, based on field preference."""
     source_name_lower = campaign.source_name.lower().strip()
@@ -325,6 +343,15 @@ def _build_all_utm_events(
         if primary_source in source_lookup and custom_source not in source_lookup:
             source_lookup[custom_source] = MatchType.MAPPED
 
+    # Native integrations claimed by the campaigns. Any default-allowlisted alias for
+    # one of these (e.g. 'facebook' for a Meta campaign) is an exact source match, the
+    # same way get_source_identifier_mapping accepts the whole allowlist in the join.
+    campaign_integrations: set[str] = set()
+    for campaign in campaigns:
+        integration = lookup_alias(campaign.source_name.lower().strip())
+        if integration is not None:
+            campaign_integrations.add(integration)
+
     result: list[UtmEvent] = []
     for (utm_campaign, utm_source), count in utm_events.items():
         campaign_entry = campaign_lookup.get(utm_campaign)
@@ -336,6 +363,8 @@ def _build_all_utm_events(
             resolved = _resolve_source(utm_source, mappings)
             if resolved in source_lookup:
                 source_match = MatchType.MAPPED if utm_source in mappings.source_to_integration else MatchType.AUTO
+            elif lookup_alias(utm_source) in campaign_integrations:
+                source_match = MatchType.AUTO
 
         result.append(
             UtmEvent(
@@ -391,7 +420,11 @@ def _compute_campaign_stats(
     alt_source_counts: dict[str, int] = {}
     for utm_source, count in source_counts.items():
         resolved_source = _resolve_source(utm_source, mappings)
-        if resolved_source == source_name_lower or utm_source == source_name_lower:
+        if (
+            resolved_source == source_name_lower
+            or utm_source == source_name_lower
+            or _same_default_integration(utm_source, source_name_lower)
+        ):
             exact_count += count
         else:
             alt_source_counts[utm_source] = count
