@@ -326,6 +326,12 @@ def test_retry_on_transient_api_error_does_not_retry_non_transient():
         requests.exceptions.ConnectionError("Connection aborted."),
         requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
         requests.exceptions.ConnectTimeout("Connection timed out."),
+        # A connection reset mid-download surfaces as ChunkedEncodingError, which is a sibling of
+        # ConnectionError in the requests hierarchy (not a subclass), so it must be caught explicitly.
+        requests.exceptions.ChunkedEncodingError(
+            "('Connection broken: ConnectionResetError(104, 'Connection reset by peer')', "
+            "ConnectionResetError(104, 'Connection reset by peer'))"
+        ),
     ],
 )
 def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error):
@@ -346,6 +352,7 @@ def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error)
     [
         requests.exceptions.ConnectionError("Connection aborted."),
         requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+        requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError(104, ...)"),
     ],
 )
 def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(error):
@@ -420,17 +427,23 @@ def test_google_sheets_source_reads_blank_cells_as_null():
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
 
-def test_permission_error_is_non_retryable():
-    """The message we re-raise from gspread's bare PermissionError must be a
-    substring match for one of the source's non-retryable error keys, otherwise
-    we'd retry a 403 forever."""
-    source = GoogleSheetsSource()
-    non_retryable_errors = source.get_non_retryable_errors()
+@pytest.mark.parametrize(
+    "error",
+    [
+        # gspread's bare 403 PermissionError, re-raised with a stable message.
+        pytest.param(PermissionError(_PERMISSION_DENIED_MESSAGE), id="permission_denied"),
+        # Values-read 404s stay a raw APIError (not SpreadsheetNotFound), so str() is
+        # "APIError: [404]: Requested entity was not found." — a deleted/moved/unshared sheet hit mid-read.
+        pytest.param(_api_error(404, "Requested entity was not found.", "NOT_FOUND"), id="entity_not_found_404"),
+    ],
+)
+def test_error_string_matches_a_non_retryable_key(error):
+    """The framework classifies non-retryable errors by substring-matching `str(exc)` against the
+    source's keys. Each error the source surfaces for a permanent failure must match a key, otherwise
+    a deterministic 403/404 gets retried forever."""
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
 
-    raised = PermissionError(_PERMISSION_DENIED_MESSAGE)
-    error_msg = str(raised)
-
-    assert any(key in error_msg for key in non_retryable_errors)
+    assert any(key in str(error) for key in non_retryable_errors)
 
 
 @pytest.mark.parametrize(
