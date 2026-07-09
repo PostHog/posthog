@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { sanitizeString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -12,7 +11,7 @@ import { Properties } from '~/plugin-scaffold'
 import { PreIngestionEvent, ProjectId, Team, TeamId } from '~/types'
 
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
-import { addGroupProperties } from './groups'
+import { addGroupProperties, extractGroupIdentify } from './groups'
 
 const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
 
@@ -108,19 +107,24 @@ async function upsertGroup(
     properties: Properties,
     timestamp: DateTime
 ): Promise<void> {
-    if (!properties['$group_type'] || !properties['$group_key']) {
+    const groupIdentify = extractGroupIdentify(properties)
+    if (!groupIdentify) {
         return
     }
 
-    const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-    const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, timestamp)
+    const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(
+        teamId,
+        projectId,
+        groupIdentify.groupType,
+        timestamp
+    )
     if (groupTypeIndex !== null) {
         await groupStore.upsertGroup(
             teamId,
             projectId,
             groupTypeIndex,
-            sanitizeString(groupKey.toString()),
-            groupPropertiesToSet || {},
+            groupIdentify.groupKey,
+            properties['$group_set'] || {},
             timestamp
         )
     }

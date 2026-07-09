@@ -1,6 +1,6 @@
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { sanitizeString } from '~/common/utils/db/utils'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { extractGroupIdentify } from '~/ingestion/common/steps/event-processing/groups'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { GroupTypeIndex, ProjectId, Team } from '~/types'
@@ -43,13 +43,13 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                     if (event.event.event !== '$groupidentify') {
                         continue
                     }
-                    const properties = event.event.properties
-                    const groupType = properties?.['$group_type']
-                    const groupKey = properties?.['$group_key']
-                    if (!groupType || groupKey === undefined || groupKey === null) {
+                    // Shared with the upsert path so the prefetched cache key is byte-identical
+                    // to the key the upsert will look up.
+                    const groupIdentify = extractGroupIdentify(event.event.properties)
+                    if (!groupIdentify) {
                         continue
                     }
-                    const groupTypeIndex = groupTypesByProject[event.team.project_id]?.[groupType]
+                    const groupTypeIndex = groupTypesByProject[event.team.project_id]?.[groupIdentify.groupType]
                     if (groupTypeIndex === undefined) {
                         continue
                     }
@@ -62,7 +62,7 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                     entries.push({
                         teamId: event.team.id,
                         groupTypeIndex,
-                        groupKey: sanitizeString(groupKey.toString()),
+                        groupKey: groupIdentify.groupKey,
                         batchId: event.groupStoreForBatch.batchId,
                     })
                 }
