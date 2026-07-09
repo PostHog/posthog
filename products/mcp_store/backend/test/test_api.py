@@ -1657,6 +1657,111 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["scope"] == "shared"
 
+    def test_non_owner_cannot_change_tool_approval_shared(self) -> None:
+        from django.utils import timezone
+
+        from posthog.models import User
+
+        from products.mcp_store.backend.models import MCPServerInstallationTool
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+        tool = MCPServerInstallationTool.objects.create(
+            installation=shared,
+            tool_name="delete_everything",
+            approval_state="needs_approval",
+            last_seen_at=timezone.now(),
+        )
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/tools/{tool.tool_name}/"),
+            data={"approval_state": "approved"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        tool.refresh_from_db()
+        assert tool.approval_state == "needs_approval"
+
+    def test_owner_can_change_tool_approval_shared(self) -> None:
+        from django.utils import timezone
+
+        from products.mcp_store.backend.models import MCPServerInstallationTool
+
+        shared = self._create_installation(scope="shared")
+        tool = MCPServerInstallationTool.objects.create(
+            installation=shared,
+            tool_name="safe_tool",
+            approval_state="needs_approval",
+            last_seen_at=timezone.now(),
+        )
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/tools/{tool.tool_name}/"),
+            data={"approval_state": "approved"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        tool.refresh_from_db()
+        assert tool.approval_state == "approved"
+
+    def test_non_owner_cannot_hijack_shared_via_install_template(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        template = MCPServerTemplate.objects.create(
+            name="Shared Template",
+            url="https://mcp.shared-template.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        shared = self._create_installation(
+            user=other,
+            scope="shared",
+            url=template.url,
+            template=template,
+            sensitive_configuration={"api_key": "owner-key"},
+        )
+
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "attacker-key", "scope": "shared"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        shared.refresh_from_db()
+        assert shared.sensitive_configuration["api_key"] == "owner-key"
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_non_owner_cannot_hijack_shared_via_install_custom_oauth(self, mock_discover, _allow) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(
+            user=other,
+            scope="shared",
+            auth_type="oauth",
+            url="https://mcp.shared-oauth.example.com/mcp",
+            sensitive_configuration={"dcr_client_id": "owner-client", "access_token": "owner-token"},
+        )
+
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Hijack",
+                "url": shared.url,
+                "auth_type": "oauth",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        # Guard must fire before any discovery/DCR work touches the row.
+        mock_discover.assert_not_called()
+        shared.refresh_from_db()
+        assert shared.sensitive_configuration["dcr_client_id"] == "owner-client"
+        assert shared.sensitive_configuration["access_token"] == "owner-token"
+
     @ALLOW_URL
     def test_install_custom_defaults_to_personal(self, _mock) -> None:
         response = self.client.post(
