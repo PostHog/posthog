@@ -4,6 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +22,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
+import { ScannerDigestCard } from './components/ScannerDigestCard'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerQualityTab } from './components/ScannerQualityTab'
@@ -47,6 +49,10 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -107,6 +113,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Observations',
                         content: (
                             <div className="flex flex-col gap-6">
+                                {actionsTabEnabled && (
+                                    <ScannerDigestCard scannerId={scannerId} scannerName={scanner.name || ''} />
+                                )}
                                 <ScannerOverview scannerId={scannerId} />
                                 <div className="flex flex-col gap-2">
                                     <SummarizerMaxChat scannerId={scannerId} />
@@ -133,7 +142,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
-                        label: 'Actions',
+                        label: 'Summaries and alerts',
                         content: <VisionActionsTab scannerId={scannerId} />,
                     },
                 ]}

@@ -298,7 +298,8 @@ _template_image_lock = threading.Lock()
 
 
 @cached(cache=_template_image_cache, lock=_template_image_lock)
-def _get_template_image(template: SandboxTemplate) -> modal.Image:
+def get_template_base_image(template: SandboxTemplate) -> modal.Image:
+    """The template's base image without local dev mounts — safe to extend with further layers."""
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
@@ -310,11 +311,18 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
 
     if settings.DEBUG:
         dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
-    else:
-        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
+        return modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    return modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
 
-    return _attach_local_package_mounts(image, template)
+
+def _get_template_image(template: SandboxTemplate) -> modal.Image:
+    return _attach_local_package_mounts(get_template_base_image(template), template)
+
+
+def resolve_template_base_image(template: SandboxTemplate) -> modal.Image:
+    # Undecorated import surface: the @cached wrapper on get_template_base_image trips
+    # mypy's cross-module attribute resolution intermittently, so external callers import this.
+    return get_template_base_image(template)
 
 
 @lru_cache(maxsize=3)
@@ -409,6 +417,17 @@ class ModalSandbox(SandboxBase):
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
+            custom_image: modal.Image | None = None
+            if config.custom_image_name:
+                try:
+                    custom_image = _attach_local_package_mounts(
+                        modal.Image.from_name(config.custom_image_name), config.template
+                    )
+                    image = custom_image
+                except Exception as e:
+                    logger.warning(f"Failed to load custom image {config.custom_image_name}: {e}")
+                    capture_exception(e)
+            used_custom_image = custom_image is not None
             config.snapshot_restored = False
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
@@ -481,14 +500,30 @@ class ModalSandbox(SandboxBase):
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
                     config.snapshot_restored = used_snapshot_image
             except Exception as e:
-                if not used_snapshot_image:
+                if not used_snapshot_image and not used_custom_image:
                     raise
-                logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
+                fallback_image = custom_image if used_snapshot_image and custom_image is not None else base_image
+                logger.warning(
+                    f"Failed to create sandbox with {'snapshot' if used_snapshot_image else 'custom'} image, "
+                    f"falling back to {'custom' if fallback_image is custom_image else 'base'} image: {e}"
+                )
                 capture_exception(e)
-                create_kwargs["image"] = base_image
-                with capture_modal_output_if_debug() as modal_output:
-                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
-                    config.snapshot_restored = False
+                create_kwargs["image"] = fallback_image
+                try:
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
+                except Exception as fallback_error:
+                    if fallback_image is base_image:
+                        raise
+                    logger.warning(
+                        f"Failed to create sandbox with custom image, falling back to base image: {fallback_error}"
+                    )
+                    capture_exception(fallback_error)
+                    create_kwargs["image"] = base_image
+                    with capture_modal_output_if_debug() as modal_output:
+                        sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                        config.snapshot_restored = False
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
                 # The mount REPLACES the target directory in the running sandbox — over a live
@@ -810,6 +845,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
+        rtk_enabled: bool = True,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -820,6 +856,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
+            rtk_enabled=rtk_enabled,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -919,6 +956,7 @@ class ModalSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
+        rtk_enabled: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -972,6 +1010,7 @@ class ModalSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
+            rtk_enabled=rtk_enabled,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

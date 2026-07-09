@@ -37,7 +37,12 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
             client: Any = fakeredis.FakeRedis(server=_get_test_fake_server(redis_url))
         elif redis_url:
-            client = redis.from_url(redis_url, db=0)
+            client = redis.from_url(
+                redis_url,
+                db=0,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+            )
         else:
             client = None
 
@@ -135,7 +140,12 @@ def get_async_client(redis_url: Optional[str] = None):
         # Get (or create) the Redis instance for redis_url
         client = pool_map.get(redis_url)
         if client is None:
-            client = aioredis.from_url(redis_url, db=0)
+            client = aioredis.from_url(
+                redis_url,
+                db=0,
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+                socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+            )
             pool_map[redis_url] = client
 
         return client

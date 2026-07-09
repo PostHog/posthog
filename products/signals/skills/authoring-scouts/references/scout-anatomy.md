@@ -66,6 +66,7 @@ The fleet's specialists all share this shape:
 
 2. **Quick close-out.** A cheap early-exit so a quiet run costs almost nothing: if the watched event is absent from the profile's `top_events` or sitting at baseline (no fresh 24h activity), write one scratchpad entry and stop.
    This keeps idle scouts cheap.
+   `top_events` counts are windowed (each row carries `window_days`), not lifetime — a project whose ingestion recently went dark reads identically to one that never had traffic. Before closing out a busy-looking project as empty on `top_events` thinness alone, rule out a capture gap with a direct `execute-sql` over a longer window (e.g. 30d); only close out when the low volume holds there.
 
    ```text
    key:     not-in-use:<scope>:team{team_id}     # if the surface is absent entirely

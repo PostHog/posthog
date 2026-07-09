@@ -27,7 +27,8 @@ You author reports directly via the report channel (`signals-scout-emit-report` 
 
 ## Quick close-out: is this team big enough to have gaps?
 
-If `top_events` in the project profile is null or shows fewer than ~5 events firing above 100/day, the project is too quiet for observability-gap analysis to surface real recommendations. Write one scratchpad entry:
+If `top_events` in the project profile is null or shows fewer than ~5 events firing above 100/day, the project is too quiet for observability-gap analysis to surface real recommendations.
+`top_events` counts are windowed (each row carries `window_days`), not lifetime, so before closing out on thinness rule out a capture gap: a project whose ingestion recently went dark reads identically to one that never had traffic. If the counts look suspiciously thin for a team that otherwise looks active (configured integrations, saved insights, recent activity), confirm with a direct `execute-sql` over a longer window (e.g. 30d) rather than trusting the profile snapshot — a temporary gap is a capture problem for another surface, not a genuine absence of volume. Only when the low volume holds across that wider window, write one scratchpad entry:
 
 - key: `not-applicable:observability_gaps:team{team_id}`
 - content: brief note ("checked at {timestamp}, top_events count <5 above 100/day, too quiet for gap analysis")

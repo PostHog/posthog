@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -29,6 +29,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { queryVizRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -46,6 +47,73 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
+
+/**
+ * Throttles a canvas chart's redraws while its dashboard tile is resized, instead of repainting on every frame.
+ * Pinning the inner wrapper to a fixed size means the chart's own ResizeObserver only fires when we push a new
+ * size, which we do at most once per {@link RESIZE_REDRAW_THROTTLE_MS}. Unpinning on resize-stop redraws once
+ * at the exact final size.
+ */
+function ResizeThrottledViz({ throttled, children }: { throttled: boolean; children: React.ReactNode }): JSX.Element {
+    const outerRef = useRef<HTMLDivElement>(null)
+    const innerRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        const outer = outerRef.current
+        const inner = innerRef.current
+        if (!throttled || !outer || !inner) {
+            return
+        }
+
+        let lastPush = 0
+        let trailing: ReturnType<typeof setTimeout> | undefined
+
+        const pushSize = (): void => {
+            lastPush = performance.now()
+            const rect = outer.getBoundingClientRect()
+            inner.style.width = `${rect.width}px`
+            inner.style.height = `${rect.height}px`
+        }
+        pushSize()
+
+        const onOuterResize = (): void => {
+            const elapsed = performance.now() - lastPush
+            if (elapsed >= RESIZE_REDRAW_THROTTLE_MS) {
+                if (trailing) {
+                    clearTimeout(trailing)
+                    trailing = undefined
+                }
+                pushSize()
+            } else if (!trailing) {
+                trailing = setTimeout(() => {
+                    trailing = undefined
+                    pushSize()
+                }, RESIZE_REDRAW_THROTTLE_MS - elapsed)
+            }
+        }
+        const observer = new ResizeObserver(onOuterResize)
+        observer.observe(outer)
+
+        return () => {
+            observer.disconnect()
+            if (trailing) {
+                clearTimeout(trailing)
+            }
+            inner.style.width = ''
+            inner.style.height = ''
+        }
+    }, [throttled])
+
+    return (
+        <div ref={outerRef} className={clsx('InsightCard__viz', throttled && 'InsightCard__viz--resizing')}>
+            <div ref={innerRef} className="InsightCard__vizInner">
+                {children}
+            </div>
+        </div>
+    )
+}
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -66,7 +134,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
-    /** While this tile is being resized: unmount the viz so the chart doesn't redraw on every frame. */
+    /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
@@ -262,39 +330,34 @@ function InsightCardInternal(
         return null
     })()
 
-    // Memoize the viz so the (expensive) chart subtree isn't reconciled when the card re-renders only because
-    // react-grid-layout reflowed it — e.g. while a sibling tile is dragged or resized. React reuses the cached
-    // element when these inputs are unchanged, so only the tiles whose data actually changed redraw.
-    const vizContent = useMemo(() => {
-        if (isResizing) {
-            // Skip the chart while resizing — keeping it mounted would redraw the canvas on every frame as the
-            // tile's dimensions change. Remounts from cached results once resizing stops.
-            return <div className="InsightCard__viz" />
-        }
-        if (!isVisible) {
-            return null
+    // Excludes isResizing from the deps so the element stays referentially stable across resize toggles — that's
+    // what lets ResizeThrottledViz throttle the live chart instead of remounting (and reloading) it.
+    const vizInner = useMemo(() => {
+        if (BlockingEmptyState) {
+            return BlockingEmptyState
         }
         return (
-            <div className="InsightCard__viz">
-                {BlockingEmptyState ? (
-                    BlockingEmptyState
-                ) : (
-                    <Query
-                        query={insight.query}
-                        cachedResults={insight}
-                        context={{
-                            insightProps: insightLogicProps,
-                        }}
-                        readOnly
-                        embedded
-                        inSharedMode={placement === DashboardPlacement.Public}
-                        variablesOverride={variablesOverride}
-                        editMode={false}
-                    />
-                )}
-            </div>
+            <Query
+                query={insight.query}
+                cachedResults={insight}
+                context={{
+                    insightProps: insightLogicProps,
+                }}
+                readOnly
+                embedded
+                inSharedMode={placement === DashboardPlacement.Public}
+                variablesOverride={variablesOverride}
+                editMode={false}
+            />
         )
-    }, [isResizing, isVisible, BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+
+    // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
+    const vizContent = isVisible ? (
+        <ResizeThrottledViz throttled={!!isResizing && queryVizRendersToCanvas(insight.query)}>
+            {vizInner}
+        </ResizeThrottledViz>
+    ) : null
 
     return (
         <div
