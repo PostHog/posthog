@@ -1,7 +1,11 @@
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     SlackAgentDesignSignalEmitter,
+    _event_method,
+    _resume_position,
 )
 
 from ee.hogai.sandbox import TURN_COMPLETE_METHOD
@@ -38,6 +42,10 @@ def _tool_call(tool_call_id: str, tool_name: str, file_path: str) -> dict[str, A
 
 def _turn_complete() -> dict[str, Any]:
     return {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}}
+
+
+def _session_prompt() -> dict[str, Any]:
+    return {"type": "notification", "notification": {"method": "session/prompt"}}
 
 
 class TestSlackAgentDesignSignalEmitter:
@@ -78,10 +86,11 @@ class TestSlackAgentDesignSignalEmitter:
         emitter.process(_text_chunk("hi"))
         assert emitter.process(_turn_complete()) == [("turn_completed", None)]
 
-    def test_second_turn_reopens_after_completion(self) -> None:
+    def test_second_turn_reopens_after_idle_prompt(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("turn one"))
         emitter.process(_turn_complete())
+        emitter.process(_session_prompt())  # a new user message arms the next turn
 
         signals = emitter.process(_text_chunk("turn two"))
 
@@ -90,9 +99,89 @@ class TestSlackAgentDesignSignalEmitter:
             ("agent_text_delta", "turn two"),
         ]
 
+    def test_trailing_session_update_after_completion_does_not_reopen(self) -> None:
+        # The agent emits a session/update after turn-complete (mode/command updates, final
+        # consolidations). Without an intervening user prompt it must not open a phantom turn.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("joke"))
+        emitter.process(_session_prompt())  # this turn's prompt, interleaved mid-turn — must not re-arm
+        emitter.process(_turn_complete())
+
+        assert emitter.process(_text_chunk("trailing")) == []
+
+    def test_prompt_during_active_turn_does_not_arm_next(self) -> None:
+        # A prompt that lands mid-turn belongs to the open turn; the following trailing update after
+        # completion still must not reopen.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("answer"))
+        emitter.process(_session_prompt())
+        emitter.process(_text_chunk("more answer"))
+        emitter.process(_turn_complete())
+
+        assert emitter.process(_text_chunk("trailing")) == []
+
+    def test_resumed_emitter_waits_for_prompt_before_opening(self) -> None:
+        # A resumed attempt starts disarmed: a bare session/update must not open a turn until the
+        # next user prompt arrives.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX, awaiting_turn=False)
+
+        assert emitter.process(_text_chunk("stray")) == []
+        emitter.process(_session_prompt())
+        assert emitter.process(_text_chunk("real")) == [
+            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("agent_text_delta", "real"),
+        ]
+
+    def test_seeded_turn_active_does_not_reopen_mid_turn_resume(self) -> None:
+        # A retry that resumes mid-turn seeds turn_active=True, so the first resumed session/update
+        # streams text without emitting a duplicate turn_started.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX, turn_active=True)
+
+        signals = emitter.process(_text_chunk("resumed"))
+
+        assert signals == [("agent_text_delta", "resumed")]
+
     def test_events_before_any_turn_are_ignored(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
 
         # A tool_call without a preceding session/update still opens the turn (it is a
         # session/update itself), but a non-session event must not leak signals.
         assert emitter.process({"type": "keepalive"}) == []
+
+
+class TestEventMethod:
+    def test_returns_notification_method(self) -> None:
+        assert _event_method(_text_chunk("hi")) == "session/update"
+
+    def test_returns_none_without_notification(self) -> None:
+        assert _event_method({"type": "keepalive"}) is None
+
+
+class TestResumePosition:
+    def _with_details(self, details: tuple) -> Any:
+        info = MagicMock()
+        info.heartbeat_details = details
+        return patch(
+            "products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals.activity.info",
+            return_value=info,
+        )
+
+    def test_returns_id_and_turn_state_from_prior_attempt(self) -> None:
+        with self._with_details(("1700-0", True)):
+            assert _resume_position() == ("1700-0", True)
+
+    def test_returns_defaults_on_first_attempt(self) -> None:
+        # No prior heartbeat — resume from the start of the stream with no turn open.
+        with self._with_details(()):
+            assert _resume_position() == (None, False)
+
+    def test_turn_active_defaults_false_when_absent(self) -> None:
+        # A pre-turn-state heartbeat (id only) resumes with no turn open.
+        with self._with_details(("1700-0",)):
+            assert _resume_position() == ("1700-0", False)
+
+    def test_ignores_empty_or_non_string_id(self) -> None:
+        with self._with_details(("", True)):
+            assert _resume_position() == (None, True)
+        with self._with_details((123, False)):
+            assert _resume_position() == (None, False)

@@ -14,7 +14,8 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
@@ -3259,6 +3260,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
+        },
+    })),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (values.dashboardMode !== DashboardMode.Edit || !values.hasUnsavedLayoutChanges) {
+                return false
+            }
+            // Ignore in-page navigations such as opening a side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
+        onConfirm: () => {
+            actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 

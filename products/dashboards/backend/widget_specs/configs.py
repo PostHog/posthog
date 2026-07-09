@@ -33,7 +33,7 @@ SessionReplayOrderBy = Literal[
     "start_time", "activity_score", "recording_duration", "duration", "click_count", "console_error_count"
 ]
 WidgetAssigneeType = Literal["user", "role"]
-ExperimentsWidgetStatus = Literal["draft", "running", "paused", "stopped", "all"]
+ExperimentsWidgetStatus = Literal["draft", "running", "paused", "exposure_frozen", "stopped", "all"]
 ExperimentsWidgetOrderBy = Literal["created_at", "name", "start_date"]
 # Matches the logs scene: `earliest` sorts ascending by timestamp, `latest` (default) descending.
 LogsOrderBy = Literal["latest", "earliest"]

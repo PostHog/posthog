@@ -347,7 +347,12 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("docs/example-snippet.ts", True, id="docs-dir-artifact-extension"),
         pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
         pytest.param("frontend/__snapshots__/scene.storyshot", True, id="storyshot-extension"),
-        pytest.param("posthog/test/__snapshots__/helper.py", False, id="executable-under-snapshots-counted"),
+        # Outside a test dir, an executable under a snapshots dir still counts
+        # (extension-only snapshot exemption). Inside a test dir it is exempt
+        # like any test file: test-only PRs already gate-trust the same content
+        # via T0, and the LLM still reads it in the diff.
+        pytest.param("frontend/__snapshots__/helper.py", False, id="executable-under-snapshots-counted"),
+        pytest.param("posthog/test/__snapshots__/helper.py", True, id="snapshots-inside-test-dir-exempt"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
         pytest.param("products/tasks/frontend/generated/api.ts", True, id="product-generated-dir"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
@@ -363,6 +368,24 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("frontend/src/generated/core/evil.py", False, id="generated-dir-executable-py"),
         pytest.param("frontend/src/generated/core/build.sh", False, id="generated-dir-executable-sh"),
         pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
+        pytest.param("posthog/api/test/test_insight.py", True, id="test-dir-exempt"),
+        pytest.param("frontend/src/scenes/insights/Insight.test.tsx", True, id="dot-test-exempt"),
+        pytest.param("posthog/personhog_client/test_interceptor.py", True, id="bare-pytest-file-exempt"),
+        pytest.param(
+            "common/ingestion/acceptance_tests/test_basic_capture.py", True, id="test-file-in-loose-test-tree-exempt"
+        ),
+        pytest.param("nodejs/src/cdp/_tests/helpers.ts", True, id="underscore-tests-dir-exempt"),
+        pytest.param("posthog/tasks/protest.py", False, id="test-suffix-substring-counted"),
+        pytest.param("posthog/latest/models.py", False, id="latest-dir-counted"),
+        # Runtime packages that merely end in "_test(s)" must not classify as
+        # tests: via the shared predicate that would open the T0 auto-approve
+        # path, not just the size exemption.
+        pytest.param(
+            "products/batch_exports/backend/api/destination_tests/delta.py", False, id="runtime-dir-test-suffix-counted"
+        ),
+        pytest.param(
+            "posthog/temporal/ingestion_acceptance_test/worker.py", False, id="runtime-worker-test-suffix-counted"
+        ),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:
@@ -370,8 +393,9 @@ def test_is_size_exempt(path: str, exempt: bool) -> None:
 
 
 def test_substantive_size_counts_only_non_exempt_files() -> None:
-    # A docs-heavy PR must not be size-denied for its prose, and a code-heavy
-    # PR must not slip under the ceiling by padding with docs.
+    # A docs- or test-heavy PR must not be size-denied for its prose or its
+    # tests, and a code-heavy PR must not slip under the ceiling by padding
+    # with either.
     files = [
         {"filename": "docs/big-rewrite.md", "additions": 2000, "deletions": 500},
         {"filename": "frontend/src/generated/core/api.ts", "additions": 900, "deletions": 900},
@@ -381,8 +405,8 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
 
     lines, file_count = substantive_size(files)
 
-    assert lines == 90
-    assert file_count == 2
+    assert lines == 40
+    assert file_count == 1
 
 
 # ── Dependency manifests without a lockfile ──────────────────────

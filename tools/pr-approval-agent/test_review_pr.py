@@ -358,10 +358,15 @@ def test_title_flags_respect_exempt_paths(
     assert pipeline.classification["title_scrutiny_flags"] == expected_flags
 
 
-def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # A deny-listed PR can't be approved over an in-flight review, so waiting
     # 5 minutes before the inevitable REFUSE is pure runner cost.
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    # Stub the diff production: the review path would otherwise shell out to a real
+    # `git diff` here, whose internal waiting trips the sleep trap below.
+    diff_path = tmp_path / "diff.patch"
+    diff_path.write_text("")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: pytest.fail("gate-denied PR must not wait"))
 
     class _RefusingReviewer:

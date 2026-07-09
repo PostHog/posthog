@@ -31,7 +31,10 @@ export function syncHeadline(progress: InstallationProgress): string {
 }
 
 export function activeStep(steps: InstallationStep[]): InstallationStep | null {
-    return steps.find((s) => s.status === 'in_progress') ?? null
+    const inProgress = steps.filter((s) => s.status === 'in_progress')
+    // Prefer the wizard's own sub-step over the pipeline stage that contains it — "Installing the
+    // SDK" says more than "Running setup wizard" when both are in flight.
+    return inProgress.find((s) => s.source === 'wizard') ?? inProgress[0] ?? null
 }
 
 // The prominent line: the active step's live detail (the wizard's current sub-task) when present,
@@ -55,6 +58,20 @@ export function stepCounts(steps: InstallationStep[]): { completed: number; tota
         completed: steps.filter((s) => s.status === 'completed').length,
         total: steps.length,
     }
+}
+
+// "owner/repo#123" from a GitHub-style PR url, or null when it doesn't parse (self-hosted forges,
+// unexpected shapes) — callers fall back to a generic label. The name makes the CTA concrete: the
+// user may have kicked off runs against more than one repo, and "Review PR" doesn't say which.
+export function prName(url: string): string | null {
+    const match = url.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#]|$)/)
+    return match ? `${match[1]}/${match[2]}#${match[3]}` : null
+}
+
+// The review CTA's label, shared by the inline view and the sync card.
+export function prNameLabel(prUrl: string): string {
+    const name = prName(prUrl)
+    return name ? `Review ${name}` : 'Review PR'
 }
 
 // Accent tone for the whole widget, driven by phase. One accent plus the two terminal colors keeps it
