@@ -81,15 +81,23 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     live query — the cap only takes effect next time.
     """
     pinned = is_team_oom_pinned(team.id)
-    if pinned and "ttl_seconds" in kwargs:
+    if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
-        # Stamp the width cap onto whatever schedule the caller passed: an int/dict gets
-        # parsed with the cap; an already-built TtlSchedule (also accepted by
-        # ensure_precomputed) just gets the cap re-stamped — parse_ttl_schedule can't take one.
+        # Normalize whatever the caller passed into a TtlSchedule so web-wide policy can be
+        # stamped on: an int/dict gets parsed; an already-built TtlSchedule (also accepted
+        # by ensure_precomputed) gets its fields re-stamped via replace().
+        # Every web schedule carries the 24h session pad as `finality_lag_seconds`: a job
+        # computed before `window_end + pad` captured incomplete session metrics and must
+        # not sit on a long band TTL — non-UTC teams' UTC-aligned edge windows can land in
+        # a multi-day band while their pad is still open.
+        finality_lag = SESSION_FORWARD_PAD_MINUTES * 60
         if isinstance(existing, TtlSchedule):
-            kwargs["ttl_seconds"] = replace(existing, max_window_days=OOM_PIN_WINDOW_DAYS)
+            schedule = replace(existing, finality_lag_seconds=finality_lag)
         else:
-            kwargs["ttl_seconds"] = parse_ttl_schedule(existing, team.timezone, max_window_days=OOM_PIN_WINDOW_DAYS)
+            schedule = parse_ttl_schedule(existing, team.timezone, finality_lag_seconds=finality_lag)
+        if pinned:
+            schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
