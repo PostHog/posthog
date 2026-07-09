@@ -2217,6 +2217,19 @@ class TestExperimentService(APIBaseTest):
         assert dup.feature_flag.id != source.feature_flag.id
         assert dup.feature_flag.aggregation_group_type_index == group_index
 
+    def test_duplicate_experiment_inherits_rollout_percentage(self):
+        flag = self._create_flag(key="dup-rollout-source")
+        flag.filters = {**flag.filters, "groups": [{"properties": [], "rollout_percentage": 20}]}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Rollout Source", feature_flag_key="dup-rollout-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-rollout-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.filters["groups"][0]["rollout_percentage"] == 20
+
     # ------------------------------------------------------------------
     # Launch experiment
     # ------------------------------------------------------------------
