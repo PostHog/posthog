@@ -6,7 +6,10 @@ from parameterized import parameterized
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
-from products.review_hog.backend.reviewer.tools.issue_validation import build_validation_prompt
+from products.review_hog.backend.reviewer.tools.issue_validation import (
+    build_validation_followup_prompt,
+    build_validation_prompt,
+)
 from products.review_hog.backend.reviewer.tools.issues_review import build_review_prompt
 from products.review_hog.backend.reviewer.tools.prompt_helpers import load_template_and_schema
 from products.review_hog.backend.reviewer.tools.select_perspectives import generate_selection_prompt
@@ -86,6 +89,10 @@ def _validation_prompt() -> str:
     )
 
 
+def _validation_followup_prompt() -> str:
+    return build_validation_followup_prompt(issue=_issue(), pr_files=[])
+
+
 def _dedup_prompt() -> str:
     template, _ = load_template_and_schema("issue_deduplicator")
     return template.render()
@@ -102,6 +109,7 @@ class TestPromptInjectionGuards:
             ("chunking", _chunking_prompt),
             ("perspective_selection", _selection_prompt),
             ("issue_validation", _validation_prompt),
+            ("issue_validation_followup", _validation_followup_prompt),
             ("issue_deduplicator", _dedup_prompt),
         ]
     )
