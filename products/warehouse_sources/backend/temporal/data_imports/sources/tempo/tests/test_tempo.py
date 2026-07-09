@@ -188,17 +188,26 @@ class TestGetRows:
         assert rows == []
         assert manager.saved == []
 
+    def test_off_host_resume_state_is_rejected(self, monkeypatch: Any) -> None:
+        # Resume state is persisted outside the process; a poisoned next_url must not receive the
+        # credentialed request.
+        bad_url = "https://evil.example.com/4/accounts?offset=100"
+        manager = _FakeResumableManager(TempoResumeConfig(next_url=bad_url))
+        with pytest.raises(ValueError, match="does not stay on the Tempo API host"):
+            self._collect(manager, monkeypatch, {bad_url: ([], None)})
+
 
 class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
+    def _session_returning(
+        self, status_code: int, body: Any = None, url: str = f"{TEMPO_BASE_URL}/worklogs", reason: str = "Error"
+    ) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
         response.ok = status_code < 400
         response.json.return_value = body if body is not None else {"results": [], "metadata": {"count": 0}}
         response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
+        response.url = url
+        response.reason = reason
         session = MagicMock()
         session.get.return_value = response
         return session
@@ -210,9 +219,28 @@ class TestFetchPage:
             _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+    def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
         with pytest.raises(requests.HTTPError):
+            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+
+    def test_http_error_message_strips_query_string_and_keeps_stable_prefix(self) -> None:
+        # The message becomes the schema's latest_error, so it must not embed query params and it
+        # must keep the prefix get_non_retryable_errors() matches on.
+        session = self._session_returning(
+            401, url=f"{TEMPO_BASE_URL}/worklogs?limit=100&updatedFrom=2026-03-01", reason="Unauthorized"
+        )
+        with pytest.raises(
+            requests.HTTPError, match=r"^401 Client Error: Unauthorized for url: https://api\.tempo\.io/4/worklogs$"
+        ):
+            _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
+
+    def test_off_host_next_url_is_rejected(self) -> None:
+        # metadata.next is server-controlled and the session carries the Bearer token, so a next
+        # URL pointing off the Tempo API host must fail instead of being followed.
+        body = {"results": [{"id": 1}], "metadata": {"count": 1, "next": "https://evil.example.com/4/worklogs"}}
+        session = self._session_returning(200, body)
+        with pytest.raises(ValueError, match="does not stay on the Tempo API host"):
             _fetch_page_unwrapped(session, f"{TEMPO_BASE_URL}/worklogs", None, MagicMock())
 
     def test_success_returns_results_and_next_url(self) -> None:

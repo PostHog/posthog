@@ -2,6 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -47,6 +48,25 @@ def _headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
 
 
+def _get_session(api_token: str) -> requests.Session:
+    # allow_redirects=False so a 3xx can't silently move the credentialed request off the
+    # validated host (SSRF). See _NoRedirectSession in common/http/transport.py.
+    return make_tracked_session(headers=_headers(api_token), redact_values=(api_token,), allow_redirects=False)
+
+
+def _ensure_tempo_url(url: str) -> str:
+    """Reject pagination/resume URLs that leave the Tempo API host.
+
+    `metadata.next` is server-controlled and the session carries the Bearer token on every
+    request, so a tampered response or poisoned resume state could otherwise point the
+    credentialed request at an arbitrary host and leak the token. Compare the full origin
+    (scheme + netloc), not a prefix, so look-alike hosts are rejected too."""
+    parts, base = urlsplit(url), urlsplit(TEMPO_BASE_URL)
+    if (parts.scheme, parts.netloc) != (base.scheme, base.netloc):
+        raise ValueError(f"Tempo pagination URL does not stay on the Tempo API host: {parts.netloc!r}")
+    return url
+
+
 def _plans_window() -> tuple[str, str]:
     end = date.today() + timedelta(days=365 * PLANS_WINDOW_YEARS_AHEAD)
     return PLANS_WINDOW_START, end.isoformat()
@@ -54,11 +74,11 @@ def _plans_window() -> tuple[str, str]:
 
 def _format_updated_from(value: Any) -> str:
     # `updatedFrom` accepts "yyyy-MM-dd" or "yyyy-MM-dd'T'HH:mm:ss'Z'" (inclusive); the boundary
-    # row is re-fetched and merge dedupes it on the primary key.
+    # row is re-fetched and merge dedupes it on the primary key. The watermark round-trips from
+    # Tempo's own `updatedAt` (always UTC), so a naive datetime is treated as UTC, not local time.
     if isinstance(value, datetime):
-        if value.tzinfo is not None:
-            value = value.astimezone(UTC)
-        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, date):
         return value.isoformat()
     return str(value)
@@ -123,7 +143,15 @@ def _fetch_page(
 
     if not response.ok:
         logger.error(f"Tempo API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        # raise_for_status() would embed the full request URL (query string included) in the
+        # exception, which is surfaced as the schema's latest_error. Rebuild it from
+        # scheme/host/path only; the "<status> Client Error: <reason> for url: https://api.tempo.io"
+        # prefix stays stable for get_non_retryable_errors() matching.
+        safe = urlsplit(response.url)
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
+            response=response,
+        )
 
     data = response.json()
     # Every list endpoint wraps rows in {"results": [...], "metadata": {...}}; paginated ones set
@@ -133,7 +161,9 @@ def _fetch_page(
 
     metadata = data.get("metadata")
     next_url = metadata.get("next") if isinstance(metadata, dict) else None
-    return data["results"], next_url if isinstance(next_url, str) and next_url else None
+    if not (isinstance(next_url, str) and next_url):
+        return data["results"], None
+    return data["results"], _ensure_tempo_url(next_url)
 
 
 def get_rows(
@@ -146,12 +176,13 @@ def get_rows(
     incremental_field: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = TEMPO_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+    session = _get_session(api_token)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume and resume.next_url:
         logger.debug(f"Tempo: resuming {endpoint} from {resume.next_url}")
-        url = resume.next_url
+        # Resume state is persisted outside the process, so re-validate it before use.
+        url = _ensure_tempo_url(resume.next_url)
         params: Optional[dict[str, Any]] = None
     else:
         url = f"{TEMPO_BASE_URL}{config.path}"
@@ -213,7 +244,7 @@ def check_access(api_token: str, endpoint: str = DEFAULT_PROBE_ENDPOINT) -> tupl
     missing the endpoint's view scope, ``0`` for a connection problem, other HTTP status otherwise.
     """
     config = TEMPO_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+    session = _get_session(api_token)
     try:
         response = session.get(f"{TEMPO_BASE_URL}{config.path}", params=_probe_params(config), timeout=15)
     except Exception as e:
