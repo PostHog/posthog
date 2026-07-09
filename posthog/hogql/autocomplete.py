@@ -36,6 +36,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -206,6 +207,11 @@ def convert_field_or_table_to_type_string(
             constant_type = field_expr.type.resolve_constant_type(context)
 
             return constant_type.print_type()
+        except BaseHogQLError:
+            # Expected: the expression may reference a table/column that isn't resolvable in this
+            # context (e.g. a warehouse view whose source table doesn't exist here). Autocomplete
+            # still works — we just fall back to a generic label instead of reporting noise.
+            return "Expression"
         except Exception as e:
             tracking_error = Exception("Cant resolve expression field in autocomplete")
             tracking_error.__cause__ = e

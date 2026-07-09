@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.schema import (
     AutocompleteCompletionItemKind,
@@ -407,6 +408,27 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         assert suggestion.label == "expr_field"
         assert suggestion.insertText == "expr_field"
         assert suggestion.detail == "DateTime"
+
+    def test_autocomplete_unresolvable_expression_type_degrades_without_capture(self):
+        # A warehouse view can expose an expression column that references a table which isn't
+        # resolvable in the autocomplete context. That's expected: autocomplete falls back to a
+        # generic "Expression" label and must not report the failure to error tracking.
+        database = Database.create_for(team=self.team)
+
+        database.get_table("events").fields["expr_field"] = ast.ExpressionField(
+            name="expr_field",
+            isolate_scope=True,
+            expr=ast.Field(chain=["support_tickets", "id"]),
+        )
+
+        query = "select  from events"
+        with patch("posthog.hogql.autocomplete.capture_exception") as mock_capture:
+            results = self._select(query=query, start=7, end=7, database=database)
+
+        suggestions = list(filter(lambda x: x.label == "expr_field", results.suggestions))
+        assert len(suggestions) == 1
+        assert suggestions[0].detail == "Expression"
+        mock_capture.assert_not_called()
 
     def test_autocomplete_template_strings(self):
         database = Database.create_for(team=self.team)
