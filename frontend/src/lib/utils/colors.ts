@@ -155,29 +155,6 @@ export function lightenDarkenColor(hex: string, pct: number): string {
 }
 
 /**
- * Returns a readable text color (near-black or near-white) for a given background color.
- * Accepts either a hex string ('#RRGGBB') or an 'rgb(r,g,b)' string. Uses relative luminance
- * so text stays legible regardless of the current theme.
- * @param background e.g. '#FFADAD' or 'rgb(255,173,173)'
- */
-export function getContrastingTextColor(background: string): '#111111' | '#ffffff' {
-    let r: number
-    let g: number
-    let b: number
-
-    const rgbMatch = background.match(/rgba?\(([^)]+)\)/)
-    if (rgbMatch) {
-        ;[r, g, b] = rgbMatch[1].split(',').map((v) => parseInt(v.trim(), 10))
-    } else {
-        ;({ r, g, b } = hexToRGB(background))
-    }
-
-    // Perceived luminance (0-255). Below the midpoint, use light text; otherwise dark text.
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return luminance < 140 ? '#ffffff' : '#111111'
-}
-
-/**
  * Gradate color saturation based on its intended strength.
  * This is for visualizations where a data point's color depends on its value.
  * @param color A HEX color to gradate.
