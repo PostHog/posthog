@@ -108,7 +108,9 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
-    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal")
+    # db_default keeps a real Postgres DEFAULT so inserts from code predating
+    # this column (old pods during a rolling deploy) don't hit the NOT NULL.
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal", db_default="personal")
     # Cached per-installation OAuth metadata for custom (non-template) installs. Non-secret.
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)

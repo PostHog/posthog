@@ -20,7 +20,10 @@ class Migration(migrations.Migration):
             model_name="mcpserverinstallation",
             name="scope",
             field=models.CharField(
-                choices=[("personal", "Personal"), ("shared", "Shared")], default="personal", max_length=20
+                choices=[("personal", "Personal"), ("shared", "Shared")],
+                db_default="personal",
+                default="personal",
+                max_length=20,
             ),
         ),
         migrations.AddConstraint(
