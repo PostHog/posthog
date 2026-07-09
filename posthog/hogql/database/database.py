@@ -138,7 +138,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.errors import AccessDeniedError, QueryError, ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -575,7 +575,7 @@ class Database(BaseModel):
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
             if table_name in self._denied_tables:
-                raise QueryError(f"You don't have access to table `{table_name}`.") from e
+                raise AccessDeniedError(f"You don't have access to table `{table_name}`.") from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
