@@ -17,7 +17,6 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 
 import re
 import logging
-import secrets
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -64,7 +63,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX, build_wizard_pr_agent_prompt
+from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -771,7 +770,7 @@ def create_wizard_cloud_run(
     opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
     agent-side PR attribution cannot match.
     """
-    head_branch = f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
+    head_branch = generate_wizard_head_branch()
     prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
         team=team,

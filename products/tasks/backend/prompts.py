@@ -1,3 +1,5 @@
+import secrets
+
 SHELL_EFFICIENCY_INSTRUCTION = """\
 Shell efficiency: optimize for the fewest shell round trips.
 - Batch related commands into one Bash invocation using `&&` (e.g. `npm run typecheck && npm run lint && npm test`).
@@ -10,6 +12,13 @@ Shell efficiency: optimize for the fewest shell round trips.
 WIZARD_HEAD_BRANCH_PLACEHOLDER = "<wizard-head-branch>"
 
 WIZARD_HEAD_BRANCH_PREFIX = "posthog/instrumentation-"
+
+
+def generate_wizard_head_branch() -> str:
+    """A unique PR head branch for a wizard run; the random suffix only prevents
+    collisions with existing branches in the user's repo."""
+    return f"{WIZARD_HEAD_BRANCH_PREFIX}{secrets.token_hex(3)}"
+
 
 WIZARD_PR_AGENT_PROMPT = f"""
 # Context
