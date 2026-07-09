@@ -66,7 +66,7 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
             },
         ],
         promptsLoaded: [
-            false,
+            false as boolean,
             {
                 loadPromptsSuccess: () => true,
             },
