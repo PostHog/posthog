@@ -46,14 +46,11 @@ export function currentTaskLabel(progress: InstallationProgress): string | null 
     if (progress.phase === 'error') {
         return progress.error?.detail ?? 'Something stopped the run'
     }
-    if (progress.phase === 'completed') {
-        if (progress.prMerged) {
-            return 'PR merged, congratulations!'
-        }
-        return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
-    }
     if (progress.prMerged) {
         return 'PR merged, congratulations!'
+    }
+    if (progress.phase === 'completed') {
+        return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
     }
     const step = activeStep(progress.steps)
     if (step) {
