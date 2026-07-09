@@ -46,26 +46,20 @@ class TestCreateExperiment(APIBaseTest):
 
         assert result.description == "Testing the facade layer"
 
-    def test_create_experiment_with_parameters_old_format(self):
-        """Test creating experiment with old format (parameters.feature_flag_variants)."""
+    def test_create_experiment_with_experiment_own_parameters(self):
+        """parameters carries experiment-own keys (variant_notes) and is persisted verbatim."""
         input_dto = CreateExperimentInput(
             name="Test Experiment",
             feature_flag_key="test-flag-3",
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    {"key": "test", "name": "Test", "rollout_percentage": 50},
-                ]
-            },
+            parameters={"variant_notes": {"control": "baseline", "test": "new checkout"}},
         )
 
         result = create_experiment(team=self.team, user=self.user, input_dto=input_dto)
 
-        assert result.name == "Test Experiment"
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.experiments.backend.models.experiment import Experiment
 
-        flag = FeatureFlag.objects.get(id=result.feature_flag_id)
-        assert len(flag.variants) == 2
+        experiment = Experiment.objects.get(id=result.id)
+        assert experiment.parameters == {"variant_notes": {"control": "baseline", "test": "new checkout"}}
 
     @freeze_time("2025-01-01 12:00:00")
     def test_create_experiment_with_start_date(self):
