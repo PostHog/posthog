@@ -18,8 +18,9 @@ from posthog.schema import (
     IntervalType,
 )
 
-from posthog.hogql.constants import get_default_hogql_global_settings
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -203,6 +204,41 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert max(widths) <= PRECOMPUTE_MAX_WINDOW_DAYS
         assert min(job.time_range_start for job in jobs) == datetime(2024, 1, 1, tzinfo=UTC)
         assert max(job.time_range_end for job in jobs) >= datetime(2024, 1, 31, tzinfo=UTC)
+
+    def test_precompute_inserts_spill_group_by_to_disk(self):
+        feature_flag = self.create_feature_flag(key="spill-test")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 3),
+        )
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        _create_person(distinct_ids=["spill_user"], team_id=self.team.pk)
+        self._create_exposure_event("spill_user", feature_flag, "control", datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC))
+
+        self._enable_precomputation()
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+            side_effect=sync_execute,
+        ) as spy_execute:
+            self._run_experiment(experiment, metric)
+
+        insert_settings = [
+            call.kwargs["settings"]
+            for call in spy_execute.call_args_list
+            if str(call.args[0]).lstrip().startswith("INSERT")
+        ]
+        assert insert_settings
+        assert all(
+            settings["max_bytes_before_external_group_by"] == MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+            for settings in insert_settings
+        )
 
     def test_lazy_computed_results_match_direct_scan_multiple_jobs(self):
         feature_flag = self.create_feature_flag(key="multi-job-test")
