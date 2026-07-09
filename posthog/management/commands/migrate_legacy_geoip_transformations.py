@@ -71,7 +71,7 @@ class Command(BaseCommand):
 
             self.stdout.write(f"Processing batch of {len(batch_ids)} transformations...")
 
-            for hog_function in HogFunction.objects.filter(id__in=batch_ids).order_by("id"):
+            for hog_function in HogFunction.objects.filter(id__in=batch_ids).select_related("team").order_by("id"):
                 if dry_run:
                     migrated_count += 1
                     self.stdout.write(

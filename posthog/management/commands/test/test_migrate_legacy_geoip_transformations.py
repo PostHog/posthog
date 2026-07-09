@@ -65,7 +65,8 @@ class TestMigrateLegacyGeoipTransformations(BaseTest):
                 deleted=True,
             )
 
-    def test_migrates_legacy_geoip_in_place_preserving_user_state(self):
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_migrates_legacy_geoip_in_place_preserving_user_state(self, _mock_reload):
         filters_before = HogFunction.objects.get(id=self.legacy_function.id).filters
 
         out = StringIO()
@@ -95,17 +96,17 @@ class TestMigrateLegacyGeoipTransformations(BaseTest):
         self.assertIn("Found 1 legacy GeoIP transformations to migrate", output)
         self.assertIn("Migrated: 1", output)
 
-    def test_migrates_all_rows_across_batches(self):
-        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
-            for i in range(2):
-                HogFunction.objects.create(
-                    team=self.team,
-                    name=f"GeoIP {i}",
-                    type="transformation",
-                    template_id="plugin-posthog-plugin-geoip",
-                    hog="return event",
-                    enabled=True,
-                )
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_migrates_all_rows_across_batches(self, _mock_reload):
+        for i in range(2):
+            HogFunction.objects.create(
+                team=self.team,
+                name=f"GeoIP {i}",
+                type="transformation",
+                template_id="plugin-posthog-plugin-geoip",
+                hog="return event",
+                enabled=True,
+            )
 
         out = StringIO()
         with patch("posthog.management.commands.migrate_legacy_geoip_transformations.BATCH_SIZE", 1):
