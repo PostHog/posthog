@@ -538,6 +538,23 @@ describe('exec tool', () => {
             }
         )
 
+        it('does not leave output_format in `required` when declared as .optional().default() (insight-query order)', async () => {
+            // `.optional().default(...)` nests ZodDefault outermost, which Zod's output-mode
+            // toJSONSchema marks required. Stripping the property without stripping `required`
+            // yields a schema that advertises output_format as required while omitting it.
+            const tool = makeMockTool({
+                schema: z.object({
+                    insightId: z.string(),
+                    output_format: z.enum(['optimized', 'json']).optional().default('optimized'),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info --json mock-tool' })) as string
+            const { inputSchema } = JSON.parse(result)
+            expect(inputSchema.properties).not.toHaveProperty('output_format')
+            expect(inputSchema.required ?? []).not.toContain('output_format')
+        })
+
         it('returns raw JSON when output_format:"json" is passed in the call input', async () => {
             const exec = createExec([makeFormatterTool([])])
             const result = (await exec.handler(mockContext, {

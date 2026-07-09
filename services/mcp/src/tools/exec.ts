@@ -210,7 +210,21 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
         return jsonSchema
     }
     const { output_format: _omitted, ...rest } = properties
-    return { ...jsonSchema, properties: rest }
+    const stripped: Record<string, unknown> = { ...jsonSchema, properties: rest }
+    // Zod's `toJSONSchema` runs in output mode, where a `.optional().default(...)`
+    // field is marked required (it's always present after parsing). Dropping it from
+    // `properties` without also dropping it from `required` leaves the schema
+    // self-contradictory — `info`/`schema` would advertise `output_format` as required
+    // while omitting its definition, so callers cannot construct a valid input.
+    if (Array.isArray(jsonSchema.required)) {
+        const required = (jsonSchema.required as string[]).filter((key) => key !== 'output_format')
+        if (required.length > 0) {
+            stripped.required = required
+        } else {
+            delete stripped.required
+        }
+    }
+    return stripped
 }
 
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
