@@ -190,6 +190,16 @@ is P3 at most. Before filing, confirm it isn't a known-and-accepted slow page in
 host into the `report:`/`pattern:` key so a multi-hostname project doesn't merge the
 marketing and app surfaces (or report a fix aimed at the wrong one).
 
+**Split every candidate page by device before writing the report.** A pooled p75 dilutes a
+device-scoped break: a homepage whose pooled CLS reads ~0.35 can hide mobile at 1.0+ while
+desktop sits lower, and a page's mobile LCP can sit in `poor` while desktop is merely
+`needs-improvement`. One extra pass on the candidate — same filters, `GROUP BY
+properties.$device_type` — names the affected population, sharpens the cause hypothesis (a
+mobile-only layout shift points at responsive breakpoints or late-loading banners, not
+shared bundle weight), and belongs in the report's `evidence`. This is the page-scoped
+counterpart of the site-wide composition split below — there the split rules a finding
+_out_ (population shift), here it makes the finding _sharper_.
+
 #### Improvement opportunity (needs-improvement at scale, especially first run)
 
 Not every finding is a regression or a `poor`-band emergency. If a high-traffic surface
