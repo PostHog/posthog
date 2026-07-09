@@ -55,8 +55,8 @@ export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOne
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -1169,7 +1169,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('account_custom_property')
                                                 .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault
+                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                 )
                                                 .describe(
                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -1226,7 +1226,7 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('workflow_variable')
                                                 .default(
-                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                    logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([
@@ -1339,8 +1339,8 @@ export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValues
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
@@ -2447,7 +2447,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('account_custom_property')
                                                 .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault
+                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                 )
                                                 .describe(
                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -2504,7 +2504,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('workflow_variable')
                                                 .default(
-                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                    logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([
@@ -2684,8 +2684,8 @@ export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValue
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwozeroTypeDefault = `metric_attribute`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `workflow_variable`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault = `account_custom_property`
+export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault = `workflow_variable`
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -3789,7 +3789,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('account_custom_property')
                                                 .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemAccountCustomPropertyTypeDefault
+                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
                                                 )
                                                 .describe(
                                                     'Customer analytics account custom property — the key is the property definition id'
@@ -3846,7 +3846,7 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                             type: zod
                                                 .literal('workflow_variable')
                                                 .default(
-                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwothreeTypeDefault
+                                                    logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofourTypeDefault
                                                 ),
                                             value: zod
                                                 .union([

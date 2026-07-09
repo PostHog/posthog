@@ -52,8 +52,8 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenT
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -1083,9 +1083,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -1140,7 +1138,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1220,8 +1218,8 @@ export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -2250,9 +2248,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -2307,7 +2303,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2358,8 +2354,8 @@ export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -3388,9 +3384,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -3445,7 +3439,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3526,8 +3520,8 @@ export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -4556,9 +4550,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -4613,7 +4605,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -4683,8 +4675,8 @@ export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -5721,9 +5713,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('account_custom_property')
-                                .default(
-                                    errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                                )
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
                                 .describe(
                                     'Customer analytics account custom property — the key is the property definition id'
                                 ),
@@ -5778,7 +5768,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('workflow_variable')
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -6417,8 +6407,8 @@ export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
@@ -7450,9 +7440,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -7507,7 +7495,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7567,8 +7555,8 @@ export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
 
@@ -8599,9 +8587,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(
-                                errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
-                            )
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -8656,7 +8642,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
