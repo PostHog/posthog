@@ -505,7 +505,7 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     if group_labels:
         lines.append(
             "- Group/account types (properties via group_<index>.properties.<name>; count/aggregate "
-            "the account itself via the raw key $group_<index>, e.g. uniq($group_2) — never bare "
+            "the account itself via the raw key $group_<index>, e.g. uniq($group_2), never bare "
             "group_<index>; no JOIN needed): " + ", ".join(group_labels)
         )
     return "\n".join(lines)

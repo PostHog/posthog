@@ -223,10 +223,9 @@ Joined data available WITHOUT writing a JOIN (the engine joins these automatical
 - Group / account properties: `group_<index>.properties.<name>` (e.g. `group_0.properties.name`).
   The index-to-type mapping for this project is listed in <project_context>.
   To COUNT or aggregate the groups/accounts themselves (not a property of theirs), use the raw
-  group-key column `$group_<index>` — note the leading `$` — e.g. `uniq($group_0)` for distinct
-  accounts, or `uniqIf($group_2, event = 'signup')`. Bare `group_<index>` without a trailing
-  `.properties.<name>` is NOT a scalar column: used on its own it fails with
-  "Field not found: group_<index>". Reach for `$group_<index>` whenever you want the account itself.
+  group-key column `$group_<index>` (leading `$`). A bare `group_<index>` without a trailing
+  `.properties.<name>` is NOT a scalar column and fails with "Field not found: group_<index>". See
+  the count-distinct-accounts pattern below.
 - Session attributes: `session.$session_duration` (seconds), `session.$pageview_count`,
   `session.$channel_type`, `session.$entry_pathname`, `session.$is_bounce`, `session.$end_timestamp`.
 Reference these as plain columns inside a single `FROM events` SELECT — never write `JOIN` for them.
@@ -243,7 +242,7 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
   ORDER BY event_count DESC
   LIMIT 50
 
-Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key — never bare
+Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key, never bare
 `group_N`, which is only valid as `group_N.properties.<name>`):
   SELECT
     uniq($group_2) AS accounts,
@@ -351,7 +350,7 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
 - Schema note for "Field not found: group_<index>": to count or aggregate a group/account, the raw
   group-key column is `$group_<index>` with a leading `$` (e.g. `uniq($group_2)`,
   `uniqIf($group_2, cond)`). A bare `group_<index>` is only valid as `group_<index>.properties.<name>`;
-  used as a scalar it does not resolve — replace it with `$group_<index>`. The same `$`-prefixed form
+  used as a scalar it does not resolve; replace it with `$group_<index>`. The same `$`-prefixed form
   applies to person/session keys only via their documented paths, so do not add `$` elsewhere.
 - Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
   `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
