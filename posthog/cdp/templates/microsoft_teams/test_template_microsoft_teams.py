@@ -75,6 +75,10 @@ class TestTemplateMicrosoftTeams(BaseHogFunctionTemplateTest):
                 "https://tenant.environment.api.powerplatform.com/powerautomate/automations/direct/workflows/guid1/triggers/manual/paths/invoke?api-version=1",
                 True,
             ],
+            [
+                "https://tenant.df.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/11/workflows/guid1/triggers/manual/paths/invoke?api-version=1",
+                True,
+            ],
             ["https://webhook.site/def", False],
             [
                 "https://webhook.site/def#https://prod-180.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01",
