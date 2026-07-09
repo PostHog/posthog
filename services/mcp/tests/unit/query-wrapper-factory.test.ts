@@ -306,6 +306,41 @@ describe('createQueryWrapper output_format handling', () => {
     })
 })
 
+describe('createQueryWrapper recording url redaction', () => {
+    const schema = z.object({ kind: z.string() })
+
+    function createMockContext(results: unknown): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({ results }),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('redacts credential-like start_url values for RecordingsQuery', async () => {
+        const context = createMockContext([{ id: 'a', start_url: 'https://x.io/reset?token=secret' }])
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'RecordingsQuery', urlPrefix: '/replay' })()
+
+        const result = (await tool.handler(context, { kind: 'RecordingsQuery' })) as any
+
+        expect(result.results).toEqual([{ id: 'a', start_url: 'https://x.io/reset?token=[REDACTED]' }])
+    })
+
+    it('leaves results untouched for non-recording queries', async () => {
+        const passthrough = [{ start_url: 'https://x.io/p?token=secret' }]
+        const context = createMockContext(passthrough)
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TrendsQuery' })()
+
+        const result = (await tool.handler(context, { kind: 'TrendsQuery' })) as any
+
+        expect(result.results).toBe(passthrough)
+    })
+})
+
 describe('createQueryWrapper actors dispatch', () => {
     function createMockContext(): Context {
         return {

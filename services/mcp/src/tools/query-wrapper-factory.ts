@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { redactRecordingUrls } from '@/lib/redact-url'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -89,12 +90,16 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            // Session-recording `start_url`s are raw captured hrefs that can carry credentials in
+            // query params or fragments. Redact them before results enter the tool output (and thus
+            // scout summaries, feedback events, and agent logs).
+            const results = config.kind === 'RecordingsQuery' ? redactRecordingUrls(data.results) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
             return {
                 query,
-                results: data.results,
+                results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),
             }
