@@ -967,6 +967,7 @@ class InsightSerializer(InsightBasicSerializer):
             return Dashboard.PrivilegeLevel.CAN_VIEW
         return self.user_permissions.insight(insight).effective_privilege_level
 
+    @tracer.start_as_current_span("InsightSerializer.to_representation")
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
 
@@ -1022,17 +1023,18 @@ class InsightSerializer(InsightBasicSerializer):
                         else {}
                     )
                 )
-                query = apply_dashboard_filters_to_dict(
-                    query,
-                    effective_filters,
-                    instance.team,
-                )
+                with tracer.start_as_current_span("InsightSerializer.apply_dashboard_overrides"):
+                    query = apply_dashboard_filters_to_dict(
+                        query,
+                        effective_filters,
+                        instance.team,
+                    )
 
-                query = apply_dashboard_variables_to_dict(
-                    query,
-                    dashboard_variables_override or {},
-                    instance.team,
-                )
+                    query = apply_dashboard_variables_to_dict(
+                        query,
+                        dashboard_variables_override or {},
+                        instance.team,
+                    )
             representation["filters"] = {}
             representation["query"] = query
         else:
@@ -1060,6 +1062,7 @@ class InsightSerializer(InsightBasicSerializer):
         return representation
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived serializer
+    @tracer.start_as_current_span("InsightSerializer.insight_result")
     def insight_result(self, insight: Insight) -> InsightResult:
         from posthog.caching.calculate_results import calculate_for_query_based_insight
 

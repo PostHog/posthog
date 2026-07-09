@@ -2110,6 +2110,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 queryset=AlertConfiguration.objects.select_related("created_by"),
                 to_attr="_prefetched_alerts",
             ),
+            # The nested InsightSerializer reads insight.dashboard_tiles.all() twice per tile
+            # (the dashboard_tiles field and get_dashboards) — without this prefetch that's two
+            # Postgres queries per tile on every dashboard render.
+            Prefetch(
+                "insight__dashboard_tiles",
+                queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+            ),
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
