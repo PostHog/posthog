@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -22,6 +22,9 @@ type RecapEventProperties = Record<string, string | number | boolean | null>
 
 // Matches the existing weekly digest cadence — the recap is the weekly moment, not a custom range.
 const RECAP_DAYS = 7
+
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 const WEB_ANALYTICS_RECAP_DASHBOARD_PARAMS = {
     utm_source: 'web_analytics_recap',
@@ -92,6 +95,9 @@ export const webAnalyticsRecapLogic = kea<webAnalyticsRecapLogicType>([
             },
         ],
     })),
+    reducers({
+        recap: [null as WebAnalyticsRecapResponseApi | null, persistConfig, {}],
+    }),
     listeners(({ values, actions }) => {
         const recapProperties = (): RecapEventProperties => {
             const recap = values.recap
@@ -197,8 +203,10 @@ export const webAnalyticsRecapLogic = kea<webAnalyticsRecapLogicType>([
             },
         }
     }),
-    afterMount(({ actions }) => {
-        actions.loadRecap()
+    afterMount(({ actions, values }) => {
+        if (!values.recap) {
+            actions.loadRecap()
+        }
         actions.recordOpened()
     }),
 ])
