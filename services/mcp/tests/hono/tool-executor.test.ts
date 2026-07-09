@@ -280,11 +280,12 @@ describe('ToolExecutor', () => {
         })
 
         it('honors a render-ui call in single-exec even when this request resolved render-ui off', async () => {
-            // Regression: Anthropic's pooled transport sends `x-anthropic-client`
-            // inconsistently, so a `tools/call` can re-resolve `renderUiEnabled` to false
-            // after a cached `tools/list` advertised render-ui. Re-deriving it per call used
-            // to 404 with "Tool render-ui not found", breaking Claude web/desktop entirely.
-            // In single-exec mode the call must still be served.
+            // Regression: the per-request `renderUiEnabled` decision can flip to false after
+            // a cached `tools/list` advertised render-ui (transient flag-eval fallback, or
+            // the vendor header first appearing mid-session and overriding the user-agent
+            // fallback). Gating the call on it used to 404 with "Tool render-ui not found",
+            // breaking Claude web/desktop entirely. In single-exec mode the call must still
+            // be served.
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(
