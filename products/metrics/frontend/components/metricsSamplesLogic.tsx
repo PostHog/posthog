@@ -73,35 +73,40 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
         aggregateRows: [
             (s) => [s.queryResults, s.metricName],
             (queryResults: MetricsViewerSeries[], metricName: string): MetricsAggregateRow[] =>
-                queryResults.map((series, index) => ({
-                    name: formatSeriesName(series, metricName),
-                    color: seriesColor(index),
-                    latest: series.points.length ? series.points[series.points.length - 1].value : 0,
-                    total: series.points.reduce((sum, point) => sum + point.value, 0),
-                })),
+                queryResults.map((series, index) => {
+                    // Null points are gaps (unrepresentable buckets) — skip them
+                    // rather than counting them as zero.
+                    const values = series.points.map((point) => point.value).filter((value) => value !== null)
+                    return {
+                        name: formatSeriesName(series, metricName),
+                        color: seriesColor(index),
+                        latest: values.length ? values[values.length - 1] : 0,
+                        total: values.reduce((sum, value) => sum + value, 0),
+                    }
+                }),
         ],
     }),
     listeners(({ actions, values }) => ({
         setActiveTab: ({ activeTab }) => {
             if (activeTab === 'samples') {
-                actions.loadSamples()
+                actions.loadSamples({})
             }
         },
         // The viewer's filters are the samples' filters: any change that redraws
         // the chart refreshes the visible samples too, but only when they're shown.
         setMetricName: () => {
             if (values.activeTab === 'samples') {
-                actions.loadSamples()
+                actions.loadSamples({})
             }
         },
         setDateFrom: () => {
             if (values.activeTab === 'samples') {
-                actions.loadSamples()
+                actions.loadSamples({})
             }
         },
         setDateTo: () => {
             if (values.activeTab === 'samples') {
-                actions.loadSamples()
+                actions.loadSamples({})
             }
         },
     })),
