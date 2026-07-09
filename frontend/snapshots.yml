@@ -5994,6 +5994,10 @@ snapshots:
         hash: v1.k794b7964.cc00450e03b730779f839814262f45aeb016075628e7b2e0fa3e49aec6f1fc7f.TF1Ss23Q9i7h6r3Lw4bezladG79Kyif_CYHRGhWsOmg
     scenes-app-insights-sqllinechart--sql-line-chart-trend-line-quill--light:
         hash: v1.k794b7964.c446ceed66b1a6056048603e17712a321d2689665867604245510d335c5fc547.aEjCQVGwfNkQ49GMID3RZuoXhA8T_hAD2xalr1WcXIE
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-dark--dark:
+        hash: v1.k794b7964.6a09bd0fd015c4e072926c1ae2c7aa6e63245d8a202f2115894ad9294966a827.dHUY30WwiPjsAuOOqE5STWSsx4s1yBR_3KVczyNzR6M
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-light--light:
+        hash: v1.k794b7964.d36479c0918232c1699974423947f5e4275220dd73407bb43b61aa5d1db72ce2.wHTxjjrO1gIW4D1_-JQ9Dby_EnWKug6pdte84r-Nvq8
     scenes-app-legal-documents--legal-documents-list--dark:
         hash: v1.k794b7964.9cb90971cdadb1eadf912754aeb2a82d4fcaf5d91aa716a39bed7b324e8f03be.M6963VTBjXD11KLz9OLd6vbdx2IBcrzUYEli26SO2as
     scenes-app-legal-documents--legal-documents-list--light:
