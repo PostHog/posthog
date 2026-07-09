@@ -193,12 +193,20 @@ marketing and app surfaces (or report a fix aimed at the wrong one).
 **Split every candidate page by device before writing the report.** A pooled p75 dilutes a
 device-scoped break: a homepage whose pooled CLS reads ~0.35 can hide mobile at 1.0+ while
 desktop sits lower, and a page's mobile LCP can sit in `poor` while desktop is merely
-`needs-improvement`. One extra pass on the candidate — same filters, `GROUP BY
-properties.$device_type` — names the affected population, sharpens the cause hypothesis (a
-mobile-only layout shift points at responsive breakpoints or late-loading banners, not
-shared bundle weight), and belongs in the report's `evidence`. This is the page-scoped
-counterpart of the site-wide composition split below — there the split rules a finding
-_out_ (population shift), here it makes the finding _sharper_.
+`needs-improvement`. One extra pass on the candidate — same filters, grouped by a
+**whitelisted** device label (`$device_type` is client-supplied telemetry like `$host` /
+`$pathname`; never group by or quote the raw value):
+
+```sql
+if(properties.$device_type IN ('Desktop', 'Mobile', 'Tablet'),
+   properties.$device_type, 'other') AS device
+```
+
+The split names the affected population, sharpens the cause hypothesis (a mobile-only
+layout shift points at responsive breakpoints or late-loading banners, not shared bundle
+weight), and belongs in the report's `evidence`. This is the page-scoped counterpart of
+the site-wide composition split below — there the split rules a finding _out_ (population
+shift), here it makes the finding _sharper_.
 
 #### Improvement opportunity (needs-improvement at scale, especially first run)
 
@@ -308,8 +316,9 @@ If every page's p75 steps together, the cause is rarely page code. Before any fi
 split the recent window by the population that drives vitals:
 
 ```sql
-SELECT properties.$device_type AS device,
-       properties.$geoip_country_code AS country,
+SELECT if(properties.$device_type IN ('Desktop', 'Mobile', 'Tablet'),
+          properties.$device_type, 'other') AS device,  -- whitelist: client-supplied value
+       substring(replaceRegexpAll(coalesce(properties.$geoip_country_code, ''), '[^A-Za-z]', ''), 1, 2) AS country,
        count() AS samples,
        round(quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)), 0) AS lcp_p75
 FROM events
