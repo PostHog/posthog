@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 
@@ -36,6 +37,20 @@ function defaultDateRange(): DateRange {
 }
 
 /**
+ * The summary is an optional aggregation read. Under ClickHouse pressure the query API throttles
+ * (429 "Too many queries are running…") or returns a transient 5xx. Those are expected and the card
+ * can still render the relational issue row without aggregations, so we swallow them rather than let
+ * them bubble up as a handled frontend exception. Genuinely unexpected errors still propagate.
+ */
+function isExpectedSummaryQueryFailure(error: unknown): boolean {
+    if (!(error instanceof ApiError)) {
+        return false
+    }
+    // 429 (throttled / concurrency limit) and any 5xx (capacity, gateway) are transient by nature.
+    return error.status === 429 || (error.status !== undefined && error.status >= 500)
+}
+
+/**
  * Loads the live error tracking issue (relational row + summary aggregations, plus spike events for
  * spiking signals) so the inbox signal card can embed the real issue row read-only. Keyed by
  * issue id + fingerprint so distinct signals don't share state.
@@ -47,6 +62,7 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
 
     actions({
         setMergedToIssueId: (issueId: string | null) => ({ issueId }),
+        setSummaryUnavailable: true,
     }),
 
     reducers({
@@ -56,6 +72,15 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             null as string | null,
             {
                 setMergedToIssueId: (_, { issueId }) => issueId,
+            },
+        ],
+        // True once a summary load was throttled/failed transiently, so the card can show a quiet hint
+        // instead of just a missing sparkline. Reset whenever a fresh summary load starts.
+        summaryUnavailable: [
+            false,
+            {
+                loadSummary: () => false,
+                setSummaryUnavailable: () => true,
             },
         ],
     }),
@@ -81,15 +106,26 @@ export const inboxErrorTrackingIssueLogic = kea<inboxErrorTrackingIssueLogicType
             null as InboxErrorTrackingIssueSummary | null,
             {
                 loadSummary: async () => {
-                    const response = await api.query(
-                        errorTrackingIssueQuery({
-                            issueId: props.issueId,
-                            dateRange: defaultDateRange(),
-                            filterTestAccounts: false,
-                            withAggregations: true,
-                        }),
-                        { refresh: 'blocking' }
-                    )
+                    let response
+                    try {
+                        response = await api.query(
+                            errorTrackingIssueQuery({
+                                issueId: props.issueId,
+                                dateRange: defaultDateRange(),
+                                filterTestAccounts: false,
+                                withAggregations: true,
+                            }),
+                            { refresh: 'blocking' }
+                        )
+                    } catch (error) {
+                        // The aggregation summary is optional; a throttle/5xx shouldn't surface as a
+                        // handled frontend exception. Degrade to the row without a sparkline instead.
+                        if (isExpectedSummaryQueryFailure(error)) {
+                            actions.setSummaryUnavailable()
+                            return null
+                        }
+                        throw error
+                    }
                     if (!response.results.length) {
                         return null
                     }

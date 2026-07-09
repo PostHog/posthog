@@ -64,7 +64,7 @@ function ErrorTrackingSignalCardBody({
     signal: SignalNode
     fingerprint: string
 }): JSX.Element {
-    const { mergedIssue, issueLoading, summaryLoading, mergedFailed, mergedToIssueId } =
+    const { mergedIssue, issueLoading, summaryLoading, summaryUnavailable, mergedFailed, mergedToIssueId } =
         useValues(inboxErrorTrackingIssueLogic)
 
     const linkIssueId = mergedToIssueId ?? signal.source_id
@@ -87,6 +87,10 @@ function ErrorTrackingSignalCardBody({
     return (
         <div className="rounded border bg-surface-primary">
             <ErrorTrackingIssueListRow issue={mergedIssue} canMutateIssues={false} />
+            {summaryUnavailable && (
+                // The aggregation summary was throttled/unavailable; the row still renders without a sparkline.
+                <div className="px-2 pb-1 text-xs text-tertiary">Summary unavailable right now</div>
+            )}
         </div>
     )
 }
