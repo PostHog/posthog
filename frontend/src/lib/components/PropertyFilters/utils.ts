@@ -32,6 +32,7 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PropertyDefinition,
@@ -308,6 +309,9 @@ export function isSpanPropertyFilter(filter?: AnyFilterLike | null): filter is S
         filter?.type === PropertyFilterType.SpanResourceAttribute
     )
 }
+export function isMetricPropertyFilter(filter?: AnyFilterLike | null): filter is MetricPropertyFilter {
+    return filter?.type === PropertyFilterType.MetricAttribute
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -350,6 +354,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
+        isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)
     )
 }
@@ -372,6 +377,7 @@ export function isPropertyFilterWithOperator(
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | WorkflowVariablePropertyFilter {
     return (
@@ -393,6 +399,7 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
             isLogPropertyFilter(filter) ||
+            isMetricPropertyFilter(filter) ||
             isSpanPropertyFilter(filter) ||
             isWorkflowVariablePropertyFilter(filter))
     )
