@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { captureException } from '~/common/utils/posthog'
 import { Team } from '~/types'
 
@@ -92,15 +93,22 @@ registerAsyncFunction('postHogUpdateAccount', {
 
         const team = await getTeamWithSecretToken(context, 'postHogUpdateAccount')
 
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${team.secret_api_token}`,
+        }
+
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
+        }
+
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url: `${context.siteUrl}/api/customer_analytics/external/account`,
             method: 'PATCH',
             body: JSON.stringify({ external_id: externalId, ...updates }),
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${team.secret_api_token}`,
-            },
+            headers,
         })
     },
 
