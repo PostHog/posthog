@@ -1,10 +1,3 @@
----
-name: fixing-process-person-profile-warnings
-description: >
-  Diagnoses and fixes the two `$process_person_profile` ingestion warnings — `invalid_process_person_profile` (non-boolean value, silently ignored and defaulted to true) and `invalid_event_when_process_person_profile_is_false` (`$identify`/`$create_alias`/`$merge_dangerously`/`$groupidentify` dropped because the event disabled person processing).
-  Use when a user asks why person profiles are created despite opting out, why anonymous-event settings aren't taking effect, why identify or group calls have no effect, or when `posthog:ingestion-warnings-list` shows either type.
----
-
 # Fixing the `$process_person_profile` warnings
 
 `$process_person_profile: false` marks an event as anonymous — cheaper, no person profile. Two different mistakes around that flag produce two warnings:
@@ -33,7 +26,3 @@ Decide which intent is real, then make the flag match it:
 ## Verify
 
 Re-run the flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences of either type — and confirm the intended behavior: anonymous events stop creating person profiles, and persons/groups update again where they should.
-
-## Related
-
-- `resolving-ingestion-warnings` — the triage entry point.

@@ -1,10 +1,3 @@
----
-name: fixing-group-key-too-long
-description: >
-  Diagnoses and fixes the `group_key_too_long` ingestion warning — a `$groupidentify` event was dropped because its group key exceeded 400 characters.
-  Use when a user asks why a group isn't appearing or updating, why group analytics are missing an organization, or when `posthog:ingestion-warnings-list` shows `group_key_too_long`.
----
-
 # Fixing `group_key_too_long`
 
 A `$groupidentify` event was **dropped** because its `$group_key` was longer than 400 characters.
@@ -43,5 +36,4 @@ Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-message-size-too-large` — if group _properties_ (not the key) are oversized, they inflate every event tagged with the group.
+- [fixing-message-size-too-large.md](fixing-message-size-too-large.md) — if group _properties_ (not the key) are oversized, they inflate every event tagged with the group.

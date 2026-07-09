@@ -1,11 +1,3 @@
----
-name: fixing-message-size-too-large
-description: >
-  Diagnoses and fixes the `message_size_too_large` ingestion warning — events silently discarded because the final Kafka message exceeded the ~1MB limit after person and group property enrichment.
-  Use when a user asks why events are missing or dropped, why an insight undercounts, when the ingestion warnings page or the `posthog:ingestion-warnings-list` tool shows `message_size_too_large`, or when captures return HTTP 413.
-  Covers the two distinct failure modes (capture-time rejection vs silent pipeline drop), how accumulated person or group properties make small events undeliverable, per-SDK fixes, and how to verify the fix.
----
-
 # Fixing `message_size_too_large`
 
 The event was **dropped during ingestion** — it never reached PostHog's events table — because the fully-enriched Kafka message exceeded the ~1MB size limit.
@@ -60,5 +52,4 @@ Per SDK, the bug usually looks like:
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point covering every warning type; start there when multiple warning types are present.
-- `fixing-person-properties-size-violation` — the same oversized-person-properties root cause, caught at the person store instead of event emit. If you see both warnings for the same distinct IDs, fix the person properties first.
+- [fixing-person-properties-size-violation.md](fixing-person-properties-size-violation.md) — the same oversized-person-properties root cause, caught at the person store instead of event emit. If you see both warnings for the same distinct IDs, fix the person properties first.

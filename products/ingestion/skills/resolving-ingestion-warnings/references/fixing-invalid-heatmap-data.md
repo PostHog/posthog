@@ -1,10 +1,3 @@
----
-name: fixing-invalid-heatmap-data
-description: >
-  Diagnoses and fixes the heatmap ingestion warnings — `invalid_heatmap_data`, `rejecting_heatmap_data_with_invalid_url`, and `rejecting_heatmap_data_with_invalid_items` — raised when an event's `$heatmap_data` payload is malformed, so some or all of its heatmap data was discarded.
-  Use when a user asks why heatmaps are empty or missing clicks for certain pages, or when `posthog:ingestion-warnings-list` shows any of the three heatmap warning types.
----
-
 # Fixing the heatmap data warnings
 
 An event carried a malformed `$heatmap_data` payload. **The event itself survived** — only heatmap data was discarded, so this shows up as heatmaps missing clicks/pages rather than missing events.
@@ -47,7 +40,3 @@ The classic bugs: a `null`/`undefined` URL variable interpolated into the key, a
 ## Verify
 
 Re-run the affected pages/flows, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the heatmap for the affected URLs starts accumulating data again.
-
-## Related
-
-- `resolving-ingestion-warnings` — the triage entry point.

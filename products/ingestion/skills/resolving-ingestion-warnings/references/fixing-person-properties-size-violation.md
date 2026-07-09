@@ -1,11 +1,3 @@
----
-name: fixing-person-properties-size-violation
-description: >
-  Diagnoses and fixes the `person_properties_size_violation` ingestion warning — a person-properties update ($set/$set_once/identify) was rejected because the person's stored properties would exceed PostHog's size limit.
-  Use when a user asks why person properties aren't updating, why a person profile is stale or huge, or when `posthog:ingestion-warnings-list` shows `person_properties_size_violation`.
-  Covers why the limit exists, why the warning undercounts (sampled enforcement), the knock-on effect on event delivery, the three growth patterns (dynamic keying, big payloads, deep nesting) and how to detect each, plus the two-part fix: a code change and a user-approved one-time `$unset` cleanup.
----
-
 # Fixing `person_properties_size_violation`
 
 A person-properties update was **rejected**: applying it would push the person's stored properties past PostHog's size limit (on the order of 1MB of JSON).
@@ -76,5 +68,4 @@ posthog.capture({
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point covering every warning type.
-- `fixing-message-size-too-large` — the event-side symptom of the same inflated-person root cause; fix the person properties first, then confirm events flow.
+- [fixing-message-size-too-large.md](fixing-message-size-too-large.md) — the event-side symptom of the same inflated-person root cause; fix the person properties first, then confirm events flow.

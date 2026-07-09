@@ -1,10 +1,3 @@
----
-name: fixing-ignored-invalid-timestamp
-description: >
-  Diagnoses and fixes the `ignored_invalid_timestamp` ingestion warning — an event's `timestamp` didn't parse, so PostHog kept the event but used the server arrival time instead.
-  Use when a user asks why events appear at the wrong time, why historical imports show up as "now", or when `posthog:ingestion-warnings-list` shows `ignored_invalid_timestamp`.
----
-
 # Fixing `ignored_invalid_timestamp`
 
 An event's `timestamp` property couldn't be parsed, so PostHog **ingested the event with the server's arrival time** instead of the intended one.
@@ -46,5 +39,4 @@ Re-run the flow or a sample of the import, re-query `posthog:ingestion-warnings-
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-event-dropped-too-old` — the other timestamp-related surprise: **valid** but old timestamps (e.g. mobile offline queues flushing days later) dropped by a team-configured threshold.
+- [fixing-event-dropped-too-old.md](fixing-event-dropped-too-old.md) — the other timestamp-related surprise: **valid** but old timestamps (e.g. mobile offline queues flushing days later) dropped by a team-configured threshold.

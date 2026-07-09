@@ -1,11 +1,3 @@
----
-name: fixing-merge-race-condition
-description: >
-  Diagnoses and fixes the `merge_race_condition` ingestion warning — concurrent merge operations collided on the same persons, so one merge attempt was abandoned.
-  Use when a user asks why identified users intermittently show up as separate or duplicate persons, or when `posthog:ingestion-warnings-list` shows `merge_race_condition`.
-  Covers where the concurrency comes from (identify-per-request patterns, parallel workers, retry storms), the "mega person" magnet check, and how to deduplicate identity calls.
----
-
 # Fixing `merge_race_condition`
 
 Too many **concurrent merge operations hit the same persons at once**, and PostHog abandoned one of them to protect consistency.
@@ -48,6 +40,5 @@ Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-cannot-merge-already-identified` — the deterministic merge refusal; identify-per-request patterns often produce both warnings.
-- `fixing-invalid-distinct-ids` — PostHog's blocklist catches common placeholder IDs, but app-specific shared values (org slugs, tenant names) slip past it and build mega persons instead.
+- [fixing-cannot-merge-already-identified.md](fixing-cannot-merge-already-identified.md) — the deterministic merge refusal; identify-per-request patterns often produce both warnings.
+- [fixing-invalid-distinct-ids.md](fixing-invalid-distinct-ids.md) — PostHog's blocklist catches common placeholder IDs, but app-specific shared values (org slugs, tenant names) slip past it and build mega persons instead.

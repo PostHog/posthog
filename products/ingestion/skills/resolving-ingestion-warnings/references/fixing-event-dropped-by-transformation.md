@@ -1,11 +1,3 @@
----
-name: fixing-event-dropped-by-transformation
-description: >
-  Diagnoses and resolves the `event_dropped_by_transformation` ingestion warning — a transformation the team configured returned null and dropped the event.
-  Use when a user asks why specific events are missing while others arrive, whether a transformation is eating events, or when `posthog:ingestion-warnings-list` shows `event_dropped_by_transformation`.
-  Covers telling intentional filtering from an over-broad filter, and reviewing the named transformation.
----
-
 # Fixing `event_dropped_by_transformation`
 
 A **transformation configured by the team** (Data pipelines → Transformations) processed the event and dropped it.
@@ -40,7 +32,3 @@ Dropped events are gone — fixing the filter restores the flow from now on, it 
 ## Verify
 
 Re-run the affected flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — the drop count for that transformation should fall to just the intended matches — and confirm the previously-missing events arrive while known-junk (bots, internal traffic) is still dropped.
-
-## Related
-
-- `resolving-ingestion-warnings` — the triage entry point.

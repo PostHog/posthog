@@ -1,11 +1,3 @@
----
-name: fixing-event-dropped-too-old
-description: >
-  Diagnoses and resolves the `event_dropped_too_old` ingestion warning — an event with a valid timestamp was dropped because it is older than the team's configured `drop_events_older_than` threshold.
-  Use when a user asks why old or offline events are missing, why a historical import didn't land, or when `posthog:ingestion-warnings-list` shows `event_dropped_too_old`.
-  Covers when the drop is working as intended vs. silently discarding legitimate data (mobile offline queues, imports, clock skew), and how to adjust the team setting.
----
-
 # Fixing `event_dropped_too_old`
 
 An event was **dropped by policy**: its timestamp is valid but older than the team's configured `drop_events_older_than` threshold.
@@ -46,5 +38,4 @@ Re-run the flow or import, then re-query `posthog:ingestion-warnings-list` with 
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-ignored-invalid-timestamp` — the other timestamp surprise: _unparseable_ timestamps, kept at server time instead of dropped.
+- [fixing-ignored-invalid-timestamp.md](fixing-ignored-invalid-timestamp.md) — the other timestamp surprise: _unparseable_ timestamps, kept at server time instead of dropped.

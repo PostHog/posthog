@@ -1,11 +1,3 @@
----
-name: fixing-cannot-merge-already-identified
-description: >
-  Diagnoses and fixes the `cannot_merge_already_identified` ingestion warning — an `identify`/`alias` call tried to merge two persons that are both already identified, so PostHog refused the merge and the accounts silently stayed separate.
-  Use when a user asks why two accounts aren't merging, why events are split across duplicate persons, why identify "doesn't work", or when `posthog:ingestion-warnings-list` shows `cannot_merge_already_identified`.
-  Covers how identification and merging work, why the refusal is silent, how to tell a code bug from a duplicate-account situation, and per-SDK fixes.
----
-
 # Fixing `cannot_merge_already_identified`
 
 An `$identify` or `$create_alias` call asked PostHog to merge two persons that are **both already identified**.
@@ -59,5 +51,4 @@ If two persons genuinely are the same human and must be joined, that is a **manu
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point covering every warning type.
-- `fixing-invalid-distinct-ids` — the sibling refusal, where the distinct ID is a placeholder like `undefined`; often the same broken identify callsite produces both.
+- [fixing-invalid-distinct-ids.md](fixing-invalid-distinct-ids.md) — the sibling refusal, where the distinct ID is a placeholder like `undefined`; often the same broken identify callsite produces both.

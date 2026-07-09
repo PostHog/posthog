@@ -1,10 +1,3 @@
----
-name: fixing-cookieless-warnings
-description: >
-  Diagnoses and fixes the cookieless-mode ingestion warnings — `cookieless_missing_timestamp`, `cookieless_timestamp_out_of_range`, `cookieless_missing_user_agent`, `cookieless_missing_ip`, and `cookieless_missing_host` — raised when a cookieless event lacks an ingredient needed to compute its anonymous ID, so the event was dropped.
-  Use when a user asks why cookieless events are missing, why cookieless tracking "doesn't work", or when `posthog:ingestion-warnings-list` shows any `cookieless_*` type.
----
-
 # Fixing the cookieless warnings
 
 A cookieless-mode event was **dropped** because an ingredient required to compute its identity was missing or unusable.
@@ -52,5 +45,4 @@ Re-run the flow, re-query `posthog:ingestion-warnings-list` with a post-fix `sin
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-ignored-invalid-timestamp` — timestamp problems outside cookieless mode (kept at server time instead of dropped).
+- [fixing-ignored-invalid-timestamp.md](fixing-ignored-invalid-timestamp.md) — timestamp problems outside cookieless mode (kept at server time instead of dropped).

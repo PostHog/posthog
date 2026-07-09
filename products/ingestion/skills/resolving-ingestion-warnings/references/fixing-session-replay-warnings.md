@@ -1,10 +1,3 @@
----
-name: fixing-session-replay-warnings
-description: >
-  Diagnoses and fixes the session replay ingestion warnings — `replay_lib_version_too_old`, `message_contained_no_valid_rrweb_events`, and `message_timestamp_diff_too_large` — raised while ingesting recording snapshot data.
-  Use when a user asks why recordings are missing, incomplete, or have gaps, why session replay "stopped working", or when `posthog:ingestion-warnings-list` shows any of these types.
----
-
 # Fixing the session replay warnings
 
 These warnings come from the **session replay ingestion pipeline** — note the two `message_*` types don't say "replay" in their names, but they are replay warnings (category `replay`).
@@ -32,7 +25,3 @@ The symptom side is recordings that never appear or play back with gaps: each dr
 ## Verify
 
 Record a fresh session on the affected app/platform, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the new recording appears (`posthog:query-session-recordings-list`) and plays back complete, without gaps.
-
-## Related
-
-- `resolving-ingestion-warnings` — the triage entry point.

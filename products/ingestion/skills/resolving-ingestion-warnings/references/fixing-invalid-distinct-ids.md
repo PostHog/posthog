@@ -1,10 +1,3 @@
----
-name: fixing-invalid-distinct-ids
-description: >
-  Diagnoses and fixes the invalid distinct ID ingestion warnings — `cannot_merge_with_illegal_distinct_id` (a placeholder like `undefined`, `null`, or `[object Object]` reached an identify/alias call, so the merge was refused) and `skipping_event_invalid_distinct_id` (a distinct ID over 400 characters, so the event was dropped).
-  Use when a user asks why identify or alias isn't linking users, why a person named "undefined" exists, why some events are missing, or when `posthog:ingestion-warnings-list` shows either type.
----
-
 # Fixing the invalid distinct ID warnings
 
 Both warnings are the same bug class: **something that isn't a user identifier reached the distinct ID argument.** The value's shape decides which warning fires:
@@ -46,6 +39,5 @@ Re-run the login/affected flow, re-query `posthog:ingestion-warnings-list` with 
 
 ## Related
 
-- `resolving-ingestion-warnings` — the triage entry point.
-- `fixing-cannot-merge-already-identified` — the other merge refusal; broken identify flows often produce both.
-- `fixing-merge-race-condition` — app-specific shared values (org slugs, tenant names) slip past the placeholder blocklist and build "mega persons" instead.
+- [fixing-cannot-merge-already-identified.md](fixing-cannot-merge-already-identified.md) — the other merge refusal; broken identify flows often produce both.
+- [fixing-merge-race-condition.md](fixing-merge-race-condition.md) — app-specific shared values (org slugs, tenant names) slip past the placeholder blocklist and build "mega persons" instead.

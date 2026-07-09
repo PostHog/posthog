@@ -1,10 +1,3 @@
----
-name: fixing-invalid-ai-token-property
-description: >
-  Diagnoses and fixes the `invalid_ai_token_property` ingestion warning — an `$ai_*` event carried a non-numeric token property (e.g. `$ai_input_tokens: "1,204"`), so the property was nulled.
-  Use when a user asks why LLM analytics token counts or costs are missing or wrong, or when `posthog:ingestion-warnings-list` shows `invalid_ai_token_property`.
----
-
 # Fixing `invalid_ai_token_property`
 
 An AI event (`$ai_generation`, `$ai_span`, …) carried a token property that wasn't a valid number — `$ai_input_tokens`, `$ai_output_tokens`, or a similar count sent as a string, object, or malformed value.
@@ -44,7 +37,3 @@ Guard the missing-usage case (streamed/failed responses): omit the property rath
 ## Verify
 
 Re-run a generation, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm token counts and costs appear for new traces (`posthog:query-llm-traces-list`).
-
-## Related
-
-- `resolving-ingestion-warnings` — the triage entry point.
