@@ -2736,7 +2736,10 @@ class TestGitHubTeamIntegrationComplete:
             sensitive_config={"access_token": "ghs_installation", "user_access_token": "ghu_user"},
         )
         mock_verify.return_value = True
-        mock_from_install.return_value = Integration.objects.create(
+        # The second team's row must not exist before the callback — the dispatcher routes teams
+        # that already have the installation down the refresh path, skipping the ownership check
+        # under test. Create it only when the flow itself calls integration_from_installation_id.
+        mock_from_install.side_effect = lambda installation_id, team_id, user: Integration.objects.create(
             team=second_team,
             kind="github",
             integration_id="12345",
