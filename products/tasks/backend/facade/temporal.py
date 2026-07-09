@@ -17,7 +17,12 @@ from products.tasks.backend.temporal.client import (
     signal_task_followup_message,
 )
 from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
-from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
+from products.tasks.backend.temporal.metrics import (
+    TASKS_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_LATENCY_HISTOGRAM_METRICS,
+    TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
+    TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
+)
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     PostSlackUpdateInput,
     post_slack_update,
@@ -28,6 +33,8 @@ __all__ = [
     "ACTIVITIES",
     "TASKS_LATENCY_HISTOGRAM_BUCKETS",
     "TASKS_LATENCY_HISTOGRAM_METRICS",
+    "TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS",
+    "TASKS_RUN_TOKENS_HISTOGRAM_METRICS",
     "WORKFLOWS",
     "PostSlackUpdateInput",
     "ProcessTaskWorkflow",
