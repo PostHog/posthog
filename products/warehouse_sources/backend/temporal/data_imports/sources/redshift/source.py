@@ -30,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import RedshiftImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    RedshiftImplementation,
+    get_connection_metadata as get_connection_metadata_redshift,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -215,3 +218,10 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     ) -> list[str]:
         """Delegates to `reconcile_redshift_schemas` so direct-query mode also rebuilds DWH tables."""
         return reconcile_redshift_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: RedshiftSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
+        # `require_ssl` keeps signature parity with Postgres/MySQL; the metadata is static
+        # (the engine follows from the source type), so no live connection is needed.
+        return get_connection_metadata_redshift(config)

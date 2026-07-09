@@ -167,6 +167,15 @@ def filter_redshift_incremental_fields(
     return results
 
 
+def get_connection_metadata(config: RedshiftSourceConfig) -> dict[str, str | None]:
+    """Connection metadata persisted on a direct-query source for the HogQL executor."""
+    return {
+        "engine": "redshift",
+        "database": config.database,
+        "schema": config.schema or None,
+    }
+
+
 class JsonAsStringLoader(Loader):
     def load(self, data):
         if data is None:
