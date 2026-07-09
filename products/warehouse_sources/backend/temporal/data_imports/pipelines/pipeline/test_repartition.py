@@ -395,6 +395,30 @@ class TestValidDeltaRowCount:
         assert asyncio.run(repartition_module._valid_delta_row_count(str(path), {})) is None
 
 
+class TestPurgeS3Prefix:
+    """Robustly clearing an S3 prefix underpins every destructive repartition step (temp rebuild, swap
+    live-delete, temp cleanup). A lone recursive delete strands objects on S3-compatible stores, and
+    those strays corrupt a rebuilt temp or a swapped-in live — the DeltaError / row-count-mismatch loops
+    seen in prod."""
+
+    def test_enumerates_and_deletes_every_object(self):
+        # The fix: delete the listed objects explicitly, not only a recursive rm that can leave strays.
+        # A regression back to a bare `_rm(recursive=True)` would drop this list-delete.
+        s3 = SimpleNamespace(
+            _exists=AsyncMock(return_value=True),
+            _find=AsyncMock(return_value=["bucket/t/_delta_log/0.json", "bucket/t/part-0.parquet"]),
+            _rm=AsyncMock(),
+        )
+        asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/t"))
+        s3._rm.assert_any_await(["s3://bucket/t/_delta_log/0.json", "s3://bucket/t/part-0.parquet"])
+
+    def test_noop_when_prefix_absent(self):
+        s3 = SimpleNamespace(_exists=AsyncMock(return_value=False), _find=AsyncMock(), _rm=AsyncMock())
+        asyncio.run(repartition_module._purge_s3_prefix(s3, "s3://bucket/gone"))
+        s3._find.assert_not_awaited()
+        s3._rm.assert_not_awaited()
+
+
 class TestSwapTempIntoLiveGuard:
     def test_refuses_incomplete_temp_without_deleting_live(self):
         # The core safety invariant: a temp that doesn't hold every expected row must never trigger the
@@ -442,7 +466,7 @@ class TestResumeWithInvalidTemp:
             set_partitioning_enabled=Mock(),
             stamp_last_repartition_at=Mock(),
         )
-        s3 = SimpleNamespace(_exists=AsyncMock(return_value=True), _rm=AsyncMock())
+        s3 = SimpleNamespace(_exists=AsyncMock(return_value=True), _rm=AsyncMock(), _find=AsyncMock(return_value=[]))
 
         with (
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
