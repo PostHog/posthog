@@ -1,3 +1,4 @@
+import tempfile
 from collections.abc import Generator
 from datetime import datetime
 from typing import Any
@@ -178,29 +179,35 @@ class BingAdsClient:
         self.authorization_data.customer_id = customer_id
 
         try:
-            reporting_service_manager = reporting.ReportingServiceManager(
-                authorization_data=self.authorization_data,
-                poll_interval_in_milliseconds=REPORT_POLL_INTERVAL_MS,
-                environment=ENVIRONMENT,
-            )
+            # The SDK otherwise defaults every manager to a shared /tmp/BingAdsSDKPython and creates it
+            # with a check-then-makedirs that isn't atomic; two report fetches running concurrently on the
+            # same worker race and one dies with FileExistsError. Give each manager a private, already-created
+            # working directory so the SDK skips that creation path entirely.
+            with tempfile.TemporaryDirectory(prefix="bing_ads_sdk_") as working_directory:
+                reporting_service_manager = reporting.ReportingServiceManager(
+                    authorization_data=self.authorization_data,
+                    poll_interval_in_milliseconds=REPORT_POLL_INTERVAL_MS,
+                    environment=ENVIRONMENT,
+                    working_directory=working_directory,
+                )
 
-            # Build report request using SDK's factory pattern
-            report_request = build_report_request(
-                service_factory=reporting_service_manager._service_client.factory,
-                report_config=report_config,
-                field_names=schema["field_names"],
-                account_id=account_id,
-                start_date=start_date,
-                end_date=end_date,
-            )
+                # Build report request using SDK's factory pattern
+                report_request = build_report_request(
+                    service_factory=reporting_service_manager._service_client.factory,
+                    report_config=report_config,
+                    field_names=schema["field_names"],
+                    account_id=account_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
 
-            # Download and extract CSV from ZIP
-            csv_data = download_and_extract_report_csv(
-                reporting_service_manager=reporting_service_manager,
-                report_request=report_request,
-                report_type=report_config["report_type"],
-                account_id=account_id,
-            )
+                # Download and extract CSV from ZIP
+                csv_data = download_and_extract_report_csv(
+                    reporting_service_manager=reporting_service_manager,
+                    report_request=report_request,
+                    report_type=report_config["report_type"],
+                    account_id=account_id,
+                )
         except Exception as e:
             raise _wrap_with_fault_detail(e, f"Failed to generate {resource.value} report") from e
 

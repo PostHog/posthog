@@ -516,18 +516,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
     },
-    [Scene.Subscriptions]: {
-        projectBased: true,
-        name: 'Subscriptions',
-        iconType: 'inbox',
-        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
-    },
-    [Scene.Subscription]: {
-        projectBased: true,
-        name: 'Subscription',
-        iconType: 'inbox',
-        description: 'View subscription details and delivery history for this project.',
-    },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
@@ -958,14 +946,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
-    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
-    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
-    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
-    // scene → 404 "Subscription not found" with a removeChild reconciliation
-    // error from the racing mounts.
-    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
-    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
-    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
