@@ -212,6 +212,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             // Keep the Operations aggregate in sync with filters/date while that tab is active.
             // Full range: the Operations view always covers the whole selected range, even while
             // a (traces-tab) comparison is active.
+            //
+            // This MUST stay after syncUrlAndRunQuery. When a comparison is active, that call
+            // synchronously runs runQuery, whose listener fires a windowed fetchAggregation();
+            // every fetchAggregation aborts the previous one, so the last dispatched wins. Keeping
+            // the full-range fetch last makes it beat the windowed one deterministically —
+            // otherwise the Operations table would divide by the narrow compare sub-window.
             if (values.activeTracingTab === 'operations') {
                 actions.fetchAggregation({ fullRange: true })
             }
