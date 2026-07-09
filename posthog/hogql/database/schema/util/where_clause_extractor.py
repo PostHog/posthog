@@ -153,13 +153,9 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_not(self, node: ast.Not) -> ast.Expr:
         if self.is_join:
             return ast.Constant(value=True)
-        # This extractor over-approximates in positive polarity: a predicate it can't lift becomes the
-        # constant True, True conjuncts are dropped from ANDs, and an OR containing an unliftable disjunct
-        # collapses to True. Negating such an over-approximation flips it into an under-approximation that
-        # would prune valid rows from the inner aggregation (e.g. `NOT (a OR b OR c)` collapsing to `NOT True`
-        # = False, dropping every session). Buffered timestamp bounds are over-approximations too, so disable
-        # that rewrite while inspecting the operand. Only negate an operand that lifts to an exact predicate;
-        # otherwise fail safe to True and let the outer WHERE do the filtering.
+        # Unliftable predicates fail safe to True; negating that (`NOT (a OR b)` -> `NOT True` = False)
+        # would prune every row. Buffered timestamp bounds are over-approximations too, so ignore them
+        # here. Only negate an operand that lifts exactly; otherwise fail safe to True.
         previous_capture = self.capture_timestamp_comparisons
         self.capture_timestamp_comparisons = False
         try:
@@ -180,8 +176,7 @@ class WhereClauseExtractor(CloningVisitor):
         elif node.name == "not":
             if self.is_join:
                 return ast.Constant(value=True)
-            # Route the `not(...)` call form through visit_not so it gets the same over-approximation
-            # guard as the `ast.Not` node form; otherwise it would fall through and rebuild `not(True)`.
+            # Route the `not(...)` call form through visit_not for the same guard as the `ast.Not` form.
             if len(node.args) == 1:
                 return self.visit_not(ast.Not(expr=node.args[0]))
 
@@ -734,10 +729,8 @@ class HasTombstoneVisitor(TraversingVisitor):
 
 
 class _BooleanConstantFinder(TraversingVisitor):
-    """Detects a boolean True/False constant anywhere in an expression. Such a constant is the sentinel
-    this extractor substitutes for a predicate it can't lift (or produces when simplifying an AND/OR), so
-    its presence means the surrounding expression is a positive-polarity over-approximation that must not
-    be negated."""
+    """Finds a boolean True/False constant anywhere in an expression - the sentinel this extractor
+    substitutes for a predicate it can't lift, marking an over-approximation that must not be negated."""
 
     def __init__(self) -> None:
         super().__init__()
