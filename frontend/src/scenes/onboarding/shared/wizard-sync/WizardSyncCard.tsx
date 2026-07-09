@@ -1,6 +1,7 @@
 import {
     IconCheckCircle,
     IconCloud,
+    IconDashboard,
     IconExpand45,
     IconLaptop,
     IconPullRequest,
@@ -10,9 +11,19 @@ import {
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
-import { currentTaskLabel, formatElapsed, pipClass, stepCounts, syncHeadline, toneTextClass } from './helpers'
+import {
+    currentTaskLabel,
+    formatElapsed,
+    pipClass,
+    prNameLabel,
+    stepCounts,
+    syncHeadline,
+    toneTextClass,
+} from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
+import { DetectedDashboard } from './wizardDashboardLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
 
@@ -48,14 +59,23 @@ export function WizardSyncCard({
     progress,
     elapsedSeconds,
     mode,
+    dashboard,
+    onDashboardClick,
     onExpand,
     onDismiss,
+    dismissTooltip = 'Dismiss',
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
+    /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
+    dashboard?: DetectedDashboard | null
+    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
+    onDashboardClick?: () => void
     onExpand: () => void
     onDismiss?: () => void
+    /** What the X actually does here — "Minimize" while the run is live, "Dismiss" once terminal. */
+    dismissTooltip?: string
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
@@ -118,6 +138,10 @@ export function WizardSyncCard({
                 <ModeChip mode={mode} />
                 <div className="flex items-center gap-1">
                     {progress.prUrl && (
+                        // ph-no-capture: the label carries the customer's repo name and the href
+                        // their PR url — neither may reach autocapture in shared app analytics.
+                        // Truncated: owner + repo can reach ~140 chars and this footer sits inside
+                        // a fixed 340px card next to the mode chip and two icon buttons.
                         <LemonButton
                             size="xsmall"
                             // The PR is the run's payoff: promote it once the run has finished.
@@ -126,8 +150,25 @@ export function WizardSyncCard({
                             targetBlank
                             icon={<IconPullRequest />}
                             onClick={(e) => e.stopPropagation()}
+                            className="ph-no-capture"
+                            tooltip={prNameLabel(progress.prUrl)}
                         >
-                            Review PR
+                            <span className="truncate max-w-32">{prNameLabel(progress.prUrl)}</span>
+                        </LemonButton>
+                    )}
+                    {progress.phase === 'completed' && !progress.prUrl && dashboard && (
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            to={urls.dashboard(dashboard.id)}
+                            icon={<IconDashboard />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onDashboardClick?.()
+                            }}
+                            tooltip="The wizard set this up for you. It fills up as your events arrive"
+                        >
+                            Preview dashboard
                         </LemonButton>
                     )}
                     <LemonButton
@@ -142,8 +183,8 @@ export function WizardSyncCard({
                             size="xsmall"
                             icon={<IconX />}
                             onClick={onDismiss}
-                            tooltip="Dismiss"
-                            aria-label="Dismiss"
+                            tooltip={dismissTooltip}
+                            aria-label={dismissTooltip}
                         />
                     )}
                 </div>

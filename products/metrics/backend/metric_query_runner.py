@@ -9,6 +9,7 @@ pipeline yet.
 """
 
 import re
+import math
 import datetime as dt
 from collections.abc import Sequence
 from typing import Any, Literal
@@ -119,6 +120,16 @@ def _aggregation_expr(name: str) -> ast.Expr:
     if name == "p95":
         return ast.Call(name="quantile", params=[ast.Constant(value=0.95)], args=[value_field])
     raise ValueError(f"Unsupported aggregation: {name!r}")
+
+
+def _finite_or_none(value: float | None) -> float | None:
+    """ClickHouse float aggregates can overflow to inf/-inf (or produce NaN);
+    a non-finite value has no JSON representation and downstream renderers
+    turn it into null anyway. Make the null explicit and deterministic here —
+    consumers render it as a gap."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value
 
 
 _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
@@ -289,7 +300,7 @@ class MetricQueryRunner:
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": row[1 + group_count],
+                    "value": _finite_or_none(row[1 + group_count]),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )
@@ -322,10 +333,15 @@ class MetricQueryRunner:
         for row in response.results:
             bounds = list(row[1 + group_count])
             counts = list(row[3 + group_count])
+            if sum(counts) <= 0:
+                # No computable increase in this bucket (e.g. a cumulative
+                # series' first sample has nothing to diff against). A gap is
+                # honest; a fabricated quantile of 0 reads as "p95 is 0s".
+                continue
             rows.append(
                 {
                     "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
-                    "value": _histogram_quantile(self.quantile, bounds, counts),
+                    "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
                 }
             )

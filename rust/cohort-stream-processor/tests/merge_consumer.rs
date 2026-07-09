@@ -51,7 +51,7 @@ use cohort_stream_processor::producer::{
 };
 use cohort_stream_processor::stage1::{Stage1State, StateVariant, StatefulRecord};
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, Stage1Key, StoreConfig, StoreHandle,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
     TombstoneKey,
 };
 use cohort_stream_processor::workers::{
@@ -464,14 +464,9 @@ fn stage1_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
@@ -765,6 +760,7 @@ async fn keyed_produces_agree_with_partition_of_live() {
                 source_offset: n as i64,
                 leaves: vec![],
                 forward_hops: 0,
+                person_dedup: None,
             })
             .collect();
         let acks = transfer_sink.produce(transfers).await;

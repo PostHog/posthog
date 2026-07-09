@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from llm_gateway.products.config import get_product_config
+from llm_gateway.products.config import CreditBucket, get_product_config
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 
 # Hint the client to back off for a minute. A precise expiry timestamp is
@@ -12,17 +12,19 @@ _RETRY_AFTER_SECONDS = 60
 
 
 class BillableCreditThrottle(Throttle):
-    """Gate billable-product LLM calls on the team's AI credits balance.
+    """Gate ai_credits-billed LLM calls on the team's AI credits balance.
 
     Reads ``ai_credits_exhausted`` from :class:`ThrottleContext`, pre-resolved
-    by the dependency layer (see ``resolve_quota_status``).
+    by the dependency layer (see ``resolve_quota_status``). Products billing
+    into other credit buckets (e.g. posthog_code) are never blocked here —
+    only the ai_credits bucket has gateway-side quota enforcement today.
     """
 
     scope = "billable_credits"
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         config = get_product_config(context.product)
-        if not (config and config.billable):
+        if not (config and config.credit_bucket is CreditBucket.AI_CREDITS):
             return ThrottleResult.allow()
 
         if not context.ai_credits_exhausted:

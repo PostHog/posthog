@@ -348,6 +348,104 @@ class TestHogQLTypeSystem:
             ),
         )
 
+    @pytest.mark.parametrize(
+        "name,arg_types,expected",
+        [
+            # Fixed return types, independent of the element type.
+            (
+                "arrayUniq",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=False),
+            ),
+            (
+                "arrayStringConcat",
+                [ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False))],
+                ast.StringType(nullable=False),
+            ),
+            (
+                "arrayProduct",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.FloatType(nullable=False),
+            ),
+            # Element-preserving: same element type as the input array.
+            (
+                "arrayCumSum",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "arrayResize",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+                    ast.IntegerType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
+            # -PushBack widens the element type to the least common supertype of the array and the value.
+            (
+                "arrayPushBack",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.FloatType(nullable=False),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+            ),
+            (
+                "arrayWithConstant",
+                [ast.IntegerType(nullable=False), ast.StringType(nullable=False)],
+                ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+            ),
+            (
+                "arrayIntersect",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            # reverse is polymorphic identity — same type back, whether string or array.
+            ("reverse", [ast.StringType(nullable=False)], ast.StringType(nullable=False)),
+            (
+                "reverse",
+                [ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))],
+                ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+            # Nullable inputs: array-level nullability propagates so the printer keeps its null wrapper.
+            (
+                "arrayUniq",
+                [ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False))],
+                ast.IntegerType(nullable=True),
+            ),
+            (
+                "arrayIntersect",
+                [
+                    ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=False)),
+            ),
+            (
+                "arrayWithConstant",
+                [ast.IntegerType(nullable=True), ast.StringType(nullable=False)],
+                ast.ArrayType(nullable=True, item_type=ast.StringType(nullable=False)),
+            ),
+            # A nullable appended value flows into the element type; array-level nullability stays
+            # conservative (any argument nullable).
+            (
+                "arrayPushBack",
+                [
+                    ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+                    ast.IntegerType(nullable=True),
+                ],
+                ast.ArrayType(nullable=True, item_type=ast.IntegerType(nullable=True)),
+            ),
+        ],
+    )
+    def test_resolver_infers_array_helper_function_types(
+        self, name: str, arg_types: list[ast.ConstantType], expected: ast.ConstantType
+    ) -> None:
+        assert infer_function_return_type(name, arg_types).return_type == expected
+
     def test_resolver_binds_higher_order_map_lambda_argument_types(self) -> None:
         node = cast(
             ast.SelectQuery,

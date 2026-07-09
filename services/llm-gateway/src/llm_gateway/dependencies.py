@@ -13,6 +13,7 @@ from llm_gateway.auth.service import AuthService, get_auth_service
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
+    CreditBucket,
     check_product_access,
     get_product_config,
     resolve_product_alias,
@@ -163,15 +164,17 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for billable products) AI credits quota in parallel.
+    """Fetch plan info and (for ai_credits-billed products) AI credits quota in parallel.
 
-    Both calls are independent Django roundtrips on cache miss, so for billable
-    products we overlap them. For non-billable products the throttle stack
-    short-circuits regardless of quota state, so we skip the resolver entirely
-    rather than paying for the Redis GET (and the HTTP fallback on cache miss).
+    Both calls are independent Django roundtrips on cache miss, so for products
+    billing into the ai_credits bucket we overlap them. Everything else — unbilled
+    products, and products billing into a bucket without gateway-side quota
+    enforcement (e.g. posthog_code_credits) — short-circuits the throttle stack
+    regardless of quota state, so we skip the resolver entirely rather than paying
+    for the Redis GET (and the HTTP fallback on cache miss).
     """
     product_config = get_product_config(product)
-    if product_config and product_config.billable:
+    if product_config and product_config.credit_bucket is CreditBucket.AI_CREDITS:
         plan_info, quota_status = await asyncio.gather(
             resolve_plan_info(request, user_id, product),
             resolve_quota_status(request, team_id),

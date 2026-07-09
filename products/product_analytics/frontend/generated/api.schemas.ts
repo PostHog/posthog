@@ -305,6 +305,8 @@ export const IntervalTypeApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
 } as const
 
 export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
@@ -717,6 +719,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -771,6 +781,7 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -1147,6 +1158,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1195,6 +1207,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1230,6 +1243,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1276,6 +1290,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1313,6 +1328,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1360,6 +1376,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1397,6 +1414,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1449,6 +1467,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1479,6 +1498,18 @@ export const AggregationAxisFormatApi = {
     Currency: 'currency',
     Short: 'short',
 } as const
+
+export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
+
+export const CurveApi = {
+    Linear: 'linear',
+    Smooth: 'smooth',
+} as const
+
+export interface ChartStyleApi {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: CurveApi | null
+}
 
 export type DetailedResultsAggregationTypeApi =
     (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
@@ -1620,6 +1651,8 @@ export interface TrendsFilterApi {
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
     breakdown_histogram_bin_count?: number | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     confidenceLevel?: number | null
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: number | null
@@ -1720,6 +1753,7 @@ export interface TrendsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1775,6 +1809,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1825,6 +1860,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1860,6 +1896,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1908,6 +1945,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1972,6 +2010,8 @@ export interface FunnelsFilterApi {
     breakdownAttributionValue?: number | null
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string | null
+    /** Chart rendering style overrides (line shape). Only applies to historical-trends funnels. */
+    chartStyle?: ChartStyleApi | null
     /** For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean | null
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
@@ -2053,6 +2093,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2100,6 +2141,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2153,6 +2195,7 @@ export interface FunnelsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2307,6 +2350,7 @@ export interface RetentionEntityApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2334,6 +2378,8 @@ export interface RetentionFilterApi {
     aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
     cohortLabelStartIndex?: number | null
     cumulative?: boolean | null
@@ -2396,6 +2442,7 @@ export interface RetentionQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2528,6 +2575,7 @@ export interface PathsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2596,6 +2644,8 @@ export type StickinessFilterApiResultCustomizations =
     | null
 
 export interface StickinessFilterApi {
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
@@ -2648,6 +2698,7 @@ export interface StickinessQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2736,6 +2787,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2782,6 +2834,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2833,6 +2886,7 @@ export interface LifecycleQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4073,7 +4127,7 @@ export interface Response25Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response26Api {
+export interface Response27Api {
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4098,7 +4152,7 @@ export interface Response26Api {
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
 
-export interface Response27Api {
+export interface Response28Api {
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -4171,6 +4225,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Logs: 'logs',
     LogAttributes: 'log_attributes',
     LogResourceAttributes: 'log_resource_attributes',
+    MetricAttributes: 'metric_attributes',
     Spans: 'spans',
     SpanAttributes: 'span_attributes',
     SpanResourceAttributes: 'span_resource_attributes',
@@ -4236,6 +4291,7 @@ export interface EventsQueryActionStepApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4374,6 +4430,7 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4411,6 +4468,7 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4454,6 +4512,7 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4485,6 +4544,7 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4617,6 +4677,7 @@ export interface FunnelCorrelationActorsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4657,6 +4718,7 @@ export interface ExperimentEventExposureConfigApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -4707,6 +4769,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4752,6 +4815,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5076,6 +5140,7 @@ export interface HogQLFiltersApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5607,6 +5672,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5637,6 +5703,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5674,6 +5741,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5985,6 +6053,7 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6033,6 +6102,7 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6073,6 +6143,7 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6119,6 +6190,7 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6161,6 +6233,7 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6208,6 +6281,7 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6719,6 +6793,7 @@ export interface TracesQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6727,6 +6802,7 @@ export interface TracesQueryApi {
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean | null
     response?: TracesQueryResponseApi | null
+    searchTerm?: string | null
     showColumnConfigurator?: boolean | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -6785,6 +6861,7 @@ export interface TraceQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6793,6 +6870,46 @@ export interface TraceQueryApi {
     response?: TraceQueryResponseApi | null
     tags?: QueryLogTagsApi | null
     traceId: string
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface SessionQueryResponseApi {
+    columns?: string[] | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: LLMTraceApi[]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface SessionQueryApi {
+    dateRange?: DateRangeApi | null
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean | null
+    kind?: 'SessionQuery'
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    response?: SessionQueryResponseApi | null
+    sessionId: string
+    tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -6905,8 +7022,9 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
@@ -6954,8 +7072,8 @@ export type DataTableNodeApiResponse =
     | Response23Api
     | Response24Api
     | Response25Api
-    | Response26Api
     | Response27Api
+    | Response28Api
     | null
 
 export interface DataTableNodeApi {
@@ -7061,6 +7179,7 @@ export interface DataTableNodeApi {
         | ExperimentTrendsQueryApi
         | TracesQueryApi
         | TraceQueryApi
+        | SessionQueryApi
         | EndpointsUsageTableQueryApi
         | AccountsQueryApi
     tags?: QueryLogTagsApi | null
@@ -7481,7 +7600,7 @@ export interface InsightApi {
     readonly alerts: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -7601,7 +7720,7 @@ export interface PatchedInsightApi {
     readonly alerts?: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at?: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
@@ -7788,7 +7907,7 @@ export interface TrendingInsightApi {
     readonly user_access_level: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
     readonly view_count: number
@@ -7958,7 +8077,7 @@ export type InsightsListParams = {
      */
     saved?: boolean
     /**
-     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
+     * Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string
     short_id?: string

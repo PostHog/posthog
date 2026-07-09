@@ -49,6 +49,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -342,6 +343,7 @@ class AssistantQueryExecutor:
                         execution_mode=execution_mode,
                         limit_context=LimitContext.POSTHOG_AI,
                         user=user,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
                     )
 
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread
@@ -444,12 +446,18 @@ class AssistantQueryExecutor:
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
             raise MaxToolRetryableError(err_message)
-        except:
+        except Exception as err:
             elapsed = time.time() - start_time
-            # Catch-all for unexpected errors during query execution
+            # Catch-all for unexpected errors during query execution. Surface the underlying error
+            # text (truncated) so callers can diagnose the failure instead of an opaque message —
+            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8().
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
-            raise Exception("There was an unknown error running this query.")
+            err_message = str(err).strip() or repr(err)
+            max_len = 500
+            if len(err_message) > max_len:
+                err_message = err_message[:max_len] + "… (truncated)"
+            raise Exception(f"There was an unknown error running this query: {err_message}")
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement

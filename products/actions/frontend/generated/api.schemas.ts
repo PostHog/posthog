@@ -30,6 +30,7 @@
  * * `log` - log
  * * `log_attribute` - log_attribute
  * * `log_resource_attribute` - log_resource_attribute
+ * * `metric_attribute` - metric_attribute
  * * `span` - span
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
@@ -62,6 +63,7 @@ export const PropertyFilterTypeEnumApi = {
     Log: 'log',
     LogAttribute: 'log_attribute',
     LogResourceAttribute: 'log_resource_attribute',
+    MetricAttribute: 'metric_attribute',
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -119,6 +121,7 @@ export interface StringPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -189,6 +192,7 @@ export interface NumericPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -255,6 +259,7 @@ export interface ArrayPropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -316,6 +321,7 @@ export interface DatePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -374,6 +380,7 @@ export interface ExistencePropertyFilterApi {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -687,6 +694,10 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 export type ActionsListParams = {
+    /**
+     * Comma-separated list of creator user ids. Returns only actions created by these users.
+     */
+    created_by?: string
     format?: ActionsListFormat
     /**
      * Maximum number of actions to return. Omit to return all.
@@ -697,9 +708,17 @@ export type ActionsListParams = {
      */
     offset?: number
     /**
+     * Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.
+     */
+    ordering?: string
+    /**
      * Case-insensitive substring match on the action name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.
+     */
+    tags?: string
 }
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]
