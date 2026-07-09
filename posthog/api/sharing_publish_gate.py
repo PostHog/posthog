@@ -7,39 +7,27 @@ escalation channel - save a query over a restricted table, publish, read it thro
 public link.
 """
 
-import re
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
 
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.models import Team, User
+from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.notebooks.backend.facade.content import extract_inline_query_nodes
 from products.product_analytics.backend.models.insight import Insight
 
-if TYPE_CHECKING:
-    from posthog.models import Team, User
-    from posthog.models.sharing_configuration import SharingConfiguration
 
-# Must match the denial raised in posthog/hogql/database/database.py `get_table`.
-_ACCESS_DENIED_TABLE = re.compile(r"You don't have access to table `([^`]+)`")
-
-
-def tables_blocked_for_publisher(user: "User", team: "Team", config: "SharingConfiguration") -> list[str]:
-    """Tables that stop the publisher from running the shared artifact's queries.
-
-    Each query is compiled (resolved, not executed) under the publisher's own identity - the
-    same resolution the read path uses - so the gate can't drift from HogQL: whatever a new
-    query kind resolves, it resolves here too. The invariant is "you can publish exactly what
-    you can run": a granted materialized view resolves to its backing table and publishes; a
-    non-materialized view re-resolves through its underlying tables, so a denied table inside
-    it blocks publishing just like it blocks the publisher's own in-app run.
-
-    Non-access compile errors are skipped - a broken query fails for everyone at view time,
-    which is not an access problem. Empty list = safe to publish.
+def tables_blocked_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
+    """
+    Tables that stop the publisher from running the shared artifact's queries.
+    Each query is compiled (resolved, not executed) as the publisher - the same resolution
+    the read path uses. Non-access compile errors don't gate. Empty list = safe to publish.
     """
     queries = _queries_exposed_by(config)
     if not queries:
@@ -60,15 +48,15 @@ def tables_blocked_for_publisher(user: "User", team: "Team", config: "SharingCon
             continue
         try:
             prepare_ast_for_printing(select, context=context, dialect="clickhouse")
-        except Exception as e:
+        except TableAccessDeniedError as e:
+            blocked.add(e.table_name)
+        except Exception:
             # Only access denials gate publishing; anything else is the query's own problem.
-            denied = _ACCESS_DENIED_TABLE.search(str(e))
-            if denied:
-                blocked.add(denied.group(1))
+            continue
     return sorted(blocked)
 
 
-def _queries_exposed_by(config: "SharingConfiguration") -> list[dict[str, Any]]:
+def _queries_exposed_by(config: SharingConfiguration) -> list[dict[str, Any]]:
     queries: list[dict[str, Any]] = []
     insight_ids = config.get_connected_insight_ids()
     if insight_ids:
@@ -82,12 +70,11 @@ def _queries_exposed_by(config: "SharingConfiguration") -> list[dict[str, Any]]:
     return queries
 
 
-def _select_ast_for(
-    query: dict[str, Any], team: "Team", user: "User"
-) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
-    """The query's select AST via its own runner, unwrapping container nodes (DataTableNode,
-    InsightVizNode) the same way process_query_model does. None when the query isn't
-    runner-backed or can't build - not an access problem, so nothing to gate."""
+def _select_ast_for(query: dict[str, Any], team: Team, user: User) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
+    """
+    The query's select AST via its own runner, unwrapping container nodes the same way
+    process_query_model does. None when the query isn't runner-backed or can't build.
+    """
     node: Any = query
     while isinstance(node, dict):
         try:

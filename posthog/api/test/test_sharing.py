@@ -24,7 +24,7 @@ from posthog.api.sharing import (
     shared_url_as_png,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
+from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.filters.filter import Filter
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -33,8 +33,12 @@ from posthog.models.user import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def mock_exporter_template(test_func):
@@ -1756,20 +1760,10 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert not results["wh"].get("error")
 
 
-def _publish_gate_flags(key: str, *args, **kwargs) -> bool:
-    # data-modeling turns on useMaterializedViews, so materialized views resolve to their
-    # backing tables here - the same modifier resolution real execution uses.
-    return key in {"hogql-warehouse-access-control", "data-modeling"}
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_publish_gate_flags))
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
 class TestSharingPublishGate(APIBaseTest):
     def setUp(self):
         super().setUp()
-        from posthog.models import OrganizationMembership
-
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -1795,7 +1789,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-        from ee.models.rbac.access_control import AccessControl
 
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
@@ -1807,8 +1800,6 @@ class TestSharingPublishGate(APIBaseTest):
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
         else:
-            from products.notebooks.backend.models import Notebook
-
             notebook = Notebook.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -1849,7 +1840,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-        from ee.models.rbac.access_control import AccessControl
 
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
@@ -1880,9 +1870,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-
-        from ee.models.rbac.access_control import AccessControl
 
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
