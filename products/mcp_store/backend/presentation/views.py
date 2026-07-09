@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import mixins, renderers, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -411,14 +412,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .order_by("-created_at")
         )
 
-    def _check_shared_ownership(self, installation: MCPServerInstallation) -> Response | None:
-        """Return a 403 response if the current user cannot mutate a shared installation."""
-        if installation.scope == "shared" and installation.user_id != self.request.user.id:
-            return Response(
-                {"detail": "Only the credential owner can modify a shared server."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        # Enforce owner-only mutation of shared rows centrally so every action in
+        # _OWNER_ONLY_ACTIONS is guarded via get_object() — a new owner-only action
+        # only needs to be added to the set, not to re-implement the check inline.
+        super().check_object_permissions(request, obj)
+        if (
+            self.action in self._OWNER_ONLY_ACTIONS
+            and isinstance(obj, MCPServerInstallation)
+            and obj.scope == "shared"
+            and obj.user_id != request.user.id
+        ):
+            raise PermissionDenied("Only the credential owner can modify a shared server.")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
@@ -431,8 +436,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         installation = self.get_object()
-        if error := self._check_shared_ownership(installation):
-            return error
         report_user_action(
             request.user,
             "mcp_store server uninstalled",
@@ -504,8 +507,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         installation = self.get_object()
-        if error := self._check_shared_ownership(installation):
-            return error
         data = request.validated_data
 
         if "is_enabled" in data:
@@ -1242,8 +1243,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     )
     def refresh_tools(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         installation = self.get_object()
-        if error := self._check_shared_ownership(installation):
-            return error
         if not installation.is_enabled:
             return Response({"detail": "Installation is disabled"}, status=status.HTTP_400_BAD_REQUEST)
         try:
