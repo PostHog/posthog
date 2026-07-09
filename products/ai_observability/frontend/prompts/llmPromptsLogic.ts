@@ -65,6 +65,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                     }),
             },
         ],
+        promptsLoaded: [
+            false,
+            {
+                loadPromptsSuccess: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -143,9 +149,9 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
         ],
 
         shouldShowEmptyState: [
-            (s) => [s.count, s.promptsLoading, s.filters],
-            (count, promptsLoading, filters): boolean =>
-                !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
+            (s) => [s.count, s.promptsLoaded, s.promptsLoading, s.filters],
+            (count, promptsLoaded, promptsLoading, filters): boolean =>
+                promptsLoaded && !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
         ],
     }),
 
