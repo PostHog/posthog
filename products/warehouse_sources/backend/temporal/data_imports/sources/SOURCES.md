@@ -227,6 +227,7 @@ the row lists both.
 | mailosaur               | HTTP                        | requests                                                        | ✅                          |
 | marketstack             | HTTP                        | requests                                                        | ✅                          |
 | matomo                  | HTTP                        | requests                                                        | ✅                          |
+| mention                 | HTTP                        | requests                                                        | ✅                          |
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
 | metabase                | HTTP                        | requests                                                        | ✅                          |
 | mixmax                  | HTTP                        | requests                                                        | ✅                          |
@@ -544,7 +545,6 @@ doesn't conflict with concurrent PRs.
 - mantle
 - marketo
 - mendeley
-- mention
 - mercado_ads
 - mercury
 - merge

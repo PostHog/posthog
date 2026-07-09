@@ -1990,7 +1990,7 @@ class MendeleySourceConfig(config.Config):
 
 @config.config
 class MentionSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
