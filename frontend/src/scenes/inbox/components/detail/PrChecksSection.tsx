@@ -62,11 +62,13 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         return null
     }
 
-    const sorted = [...(prChecks ?? [])].sort(
-        (a, b) => VARIANT_ORDER.indexOf(resolveCheckVariant(a)) - VARIANT_ORDER.indexOf(resolveCheckVariant(b))
-    )
-    const failing = sorted.filter((c) => resolveCheckVariant(c) === 'failure').length
-    const pending = sorted.filter((c) => resolveCheckVariant(c) === 'pending').length
+    // Resolve each check's variant once, then sort/count off it — failed first, then in-flight, then
+    // the rest, so the buckets worth a human's attention lead.
+    const sorted = (prChecks ?? [])
+        .map((check) => ({ check, variant: resolveCheckVariant(check) }))
+        .sort((a, b) => VARIANT_ORDER.indexOf(a.variant) - VARIANT_ORDER.indexOf(b.variant))
+    const failing = sorted.filter((c) => c.variant === 'failure').length
+    const pending = sorted.filter((c) => c.variant === 'pending').length
 
     return (
         <DetailSection
@@ -93,8 +95,7 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
                 </div>
             ) : (
                 <ul className="flex flex-col gap-1 m-0 p-0 list-none">
-                    {sorted.map((check, i) => {
-                        const variant = resolveCheckVariant(check)
+                    {sorted.map(({ check, variant }, i) => {
                         const meta = VARIANT_META[variant]
                         const row = (
                             <span className="flex items-center gap-2 min-w-0">

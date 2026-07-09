@@ -567,8 +567,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
         hasImplementationPr: [
             (s) => [s.report],
-            (report: SignalReport | null): boolean =>
-                !!(report?.implementation_pr_url && report.implementation_pr_url.length > 0),
+            (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the

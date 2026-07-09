@@ -2,7 +2,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -2111,27 +2111,9 @@ class SignalReportViewSet(
     )
     @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["task:read"])
     def pr_checks(self, request: Request, *args, **kwargs) -> Response:
-        report = cast(SignalReport, self.get_object())
-        github, repository, pr_number, error = self._github_for_report_pr(report)
-        if error is not None:
-            return error
-        assert github is not None  # `error is None` guarantees a resolved integration
-        try:
-            result = github.get_pull_request_checks(repository, pr_number)
-        except GitHubRateLimitError as e:
-            return github_rate_limited_response(e)
-        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
-            logger.warning("signals pr checks fetch errored", repository=repository, pr_number=pr_number)
-            return Response(
-                {"error": "GitHub could not return the checks for this pull request."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        if not result.get("success"):
-            return Response(
-                {"error": result.get("error") or "GitHub could not return the checks for this pull request."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        return Response({"checks": result["checks"]})
+        return self._pr_github_passthrough(
+            cast(SignalReport, self.get_object()), "get_pull_request_checks", "checks", "checks"
+        )
 
     @extend_schema(
         responses={
@@ -2153,27 +2135,35 @@ class SignalReportViewSet(
     )
     @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["task:read"])
     def pr_comments(self, request: Request, *args, **kwargs) -> Response:
-        report = cast(SignalReport, self.get_object())
+        return self._pr_github_passthrough(
+            cast(SignalReport, self.get_object()), "get_pull_request_comments", "comments", "comments"
+        )
+
+    def _pr_github_passthrough(self, report: SignalReport, fetch_name: str, key: str, noun: str) -> Response:
+        """Shared body for the ``pr_checks`` / ``pr_comments`` actions: resolve the report's PR and the
+        GitHub integration that can read it, call ``fetch_name`` on the client, and return ``{key: ...}``.
+        A missing PR/integration maps to 404, a rate limit to its response, and any other upstream GitHub
+        failure to 502 — an upstream hiccup never 500s the endpoint."""
         github, repository, pr_number, error = self._github_for_report_pr(report)
         if error is not None:
             return error
         assert github is not None  # `error is None` guarantees a resolved integration
         try:
-            result = github.get_pull_request_comments(repository, pr_number)
+            result: dict[str, Any] = getattr(github, fetch_name)(repository, pr_number)
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
-            logger.warning("signals pr comments fetch errored", repository=repository, pr_number=pr_number)
+            logger.warning(f"signals pr {noun} fetch errored", repository=repository, pr_number=pr_number)
             return Response(
-                {"error": "GitHub could not return the comments for this pull request."},
+                {"error": f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
         if not result.get("success"):
             return Response(
-                {"error": result.get("error") or "GitHub could not return the comments for this pull request."},
+                {"error": result.get("error") or f"GitHub could not return the {noun} for this pull request."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        return Response({"comments": result["comments"]})
+        return Response({key: result[key]})
 
     def _github_for_report_pr(self, report: SignalReport) -> tuple[GitHubIntegration | None, str, int, Response | None]:
         """Resolve the report's implementation PR and the GitHub integration that can read it.
