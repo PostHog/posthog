@@ -1,8 +1,8 @@
-// Anchored page sections with a compact title row, plus a sticky jumper that scrolls between them.
+// Anchored page sections with a compact title row.
 
 import { ReactNode } from 'react'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -43,18 +43,5 @@ export function Section({
             </div>
             <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>{children}</div>
         </section>
-    )
-}
-
-export function SectionNav({ items }: { items: { id: string; label: string }[] }): JSX.Element {
-    return (
-        <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-0.5 bg-primary px-1 py-1.5">
-            <span className="mr-1.5 text-xs text-tertiary">Jump to</span>
-            {items.map((item) => (
-                <LemonButton key={item.id} size="xsmall" onClick={() => scrollToSection(item.id)}>
-                    {item.label}
-                </LemonButton>
-            ))}
-        </div>
     )
 }

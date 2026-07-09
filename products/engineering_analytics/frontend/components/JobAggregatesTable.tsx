@@ -172,7 +172,7 @@ export function JobAggregatesTable({
                 },
             ]}
             defaultSorting={{ columnKey: 'cost', order: -1 }}
-            pagination={{ pageSize: 50 }}
+            pagination={{ pageSize: 25 }}
             emptyState="No jobs in the window. The job-level source may not be synced."
             nouns={['job', 'jobs']}
         />

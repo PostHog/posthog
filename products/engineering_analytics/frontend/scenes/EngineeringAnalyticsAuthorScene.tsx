@@ -115,11 +115,10 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                 their CI cost. It carries no per-developer performance/ranking metric (no cycle time, no flaky
                 score): the cost figures are transparent spend, not a scoreboard (SPEC §2). */}
             <div className="flex flex-col gap-4">
-                {/* The scope-bar date picker scopes these cost tiles (and the breakdown below) only — the PR
-                    list stays the author's recent PRs, loaded over a fixed year window. */}
-                {/* The window scopes these tiles by filtering the already-loaded PRs client-side, so a date
-                    change updates them instantly (no skeleton). The skeleton is only for the initial PR
-                    fetch, so the tiles don't flash a zero before the list lands. */}
+                {/* The scope-bar date picker scopes everything below it: these tiles, the PR list, and the
+                    breakdown. Tiles and list re-filter the already-loaded PRs client-side, so a date change
+                    updates them instantly (no skeleton); the skeleton is only for the initial PR fetch, so
+                    the tiles don't flash a zero before the list lands. */}
                 <div className="flex flex-wrap gap-2.5">
                     <MetricTile
                         label="Pull requests opened"
@@ -153,13 +152,13 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
 
                 <Section id="author-prs" title="Pull requests">
                     <PullRequestTable
-                        rows={prs}
+                        rows={windowedRows}
                         loading={prsLoading}
                         sourceId={sourceId}
                         showAuthor={false}
                         showCreated
                         dataAttr="engineering-analytics-author-pr-table"
-                        emptyState={`No pull requests for ${handle} in the last year.`}
+                        emptyState={`No pull requests for ${handle} in the selected window.`}
                     />
                 </Section>
 

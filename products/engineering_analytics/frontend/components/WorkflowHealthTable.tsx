@@ -80,7 +80,7 @@ export interface WorkflowHealthTableProps {
     defaultSorting?: { columnKey: string; order: 1 | -1 } | null
     /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
-    /** Rows per page — 50 by default; the hub passes a small page to stay scannable. */
+    /** Rows per page — the shared 25 by default; the hub passes a small page to stay scannable. */
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
@@ -101,7 +101,7 @@ export function WorkflowHealthTable({
     sourceId,
     defaultSorting = null,
     showCost = false,
-    pageSize = 50,
+    pageSize = 25,
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
     embedded = false,
