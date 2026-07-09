@@ -3872,6 +3872,8 @@ export interface FileSystemEntry {
     tags?: ('alpha' | 'beta')[]
     /** Order of object in tree */
     visualOrder?: number
+    /** Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply */
+    user_access_level?: string | null
 }
 
 export type FileSystemIconType =
