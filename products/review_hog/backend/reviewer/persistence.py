@@ -215,7 +215,18 @@ def load_chunk_set(*, team_id: int, report_id: str, head_sha: str) -> ChunksList
     for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.CHUNK_SET, head_sha):
         assert isinstance(content, ChunkSetArtefact)
         latest = content
-    return ChunksList(chunks=latest.chunks) if latest is not None else None
+    if latest is None:
+        return None
+    try:
+        # Reassembly re-runs ChunksList's list-level invariants (unique chunk ids), which the
+        # per-Chunk artefact parse can't check. An invalid persisted row degrades to "absent, so the
+        # stage re-runs" — the same contract as an unparseable row — instead of crashing resume.
+        return ChunksList(chunks=latest.chunks)
+    except ValidationError as e:
+        logger.warning(
+            "Persisted chunk_set for report %s violates ChunksList invariants; re-chunking: %s", report_id, e
+        )
+        return None
 
 
 def persist_perspective_selection(

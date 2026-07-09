@@ -5,6 +5,7 @@ from posthog.test.base import BaseTest
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
+    ChunkSetArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
@@ -32,6 +33,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 
 _ContentT = TypeVar("_ContentT")
@@ -583,6 +585,26 @@ class TestWorkingState(BaseTest):
         assert loaded is not None
         assert [c.chunk_id for c in loaded.chunks] == [1]
         assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") is None
+
+    def test_chunk_set_with_duplicate_ids_degrades_to_absent_instead_of_crashing(self) -> None:
+        # The unique-chunk_id invariant lives on ChunksList, which the per-Chunk artefact parse never
+        # runs — only load_chunk_set's reassembly does. A bad persisted row (pre-validator local data
+        # or a future writer bug) must degrade like any unparseable row (None → the stage re-runs),
+        # not crash every resume of the turn with a raw ValidationError.
+        ReviewReportArtefact.add_working_state(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            content=ChunkSetArtefact(
+                head_sha="sha-aaa",
+                chunks=[
+                    Chunk(chunk_id=1, files=[FileInfo(filename="a.py")]),
+                    Chunk(chunk_id=1, files=[FileInfo(filename="b.py")]),
+                ],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa") is None
 
     def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
         results = {
