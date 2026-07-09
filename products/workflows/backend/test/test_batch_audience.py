@@ -5,7 +5,11 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import get_batch_audience_count, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    get_batch_audience_count,
+    get_batch_audience_person_ids,
+    use_workflows_batch_audience_query,
+)
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -86,3 +90,13 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    def test_use_flag_defaults_off_when_feature_enabled_raises(self):
+        # Batch sends are a critical path — a Redis/HyperCache blip that makes
+        # posthoganalytics.feature_enabled() throw must fall back to the legacy
+        # audience query, not 500 the preview endpoint or fail the resolver job.
+        with patch(
+            "products.workflows.backend.services.batch_audience.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("HyperCache is down"),
+        ):
+            assert use_workflows_batch_audience_query(self.team) is False
