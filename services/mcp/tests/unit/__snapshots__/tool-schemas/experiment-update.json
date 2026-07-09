@@ -2017,6 +2017,115 @@
             ],
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
+        "feature_flag": {
+            "description": "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input, do not send flag config via the deprecated parameters keys (feature_flag_variants, rollout_percentage). Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100, exactly one key must be the literal string 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).",
+            "properties": {
+                "ensure_experience_continuity": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether the flag persists variant assignment across authentication steps."
+                },
+                "filters": {
+                    "description": "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
+                    "properties": {
+                        "aggregation_group_type_index": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Group type index for group-based feature flags."
+                        },
+                        "groups": {
+                            "description": "Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].",
+                            "items": {
+                                "description": "A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.",
+                                "properties": {
+                                    "properties": {
+                                        "description": "Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.",
+                                        "items": {},
+                                        "maxItems": 0,
+                                        "type": "array"
+                                    },
+                                    "rollout_percentage": {
+                                        "anyOf": [
+                                            {
+                                                "maximum": 100,
+                                                "minimum": 0,
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Percentage of users who enter the experiment (0-100)."
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "multivariate": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "variants": {
+                                            "description": "Variant definitions for multivariate feature flags.",
+                                            "items": {
+                                                "properties": {
+                                                    "key": {
+                                                        "description": "Unique key for this variant.",
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "description": "Human-readable name for this variant.",
+                                                        "type": "string"
+                                                    },
+                                                    "rollout_percentage": {
+                                                        "description": "Variant rollout percentage.",
+                                                        "type": "number"
+                                                    }
+                                                },
+                                                "required": ["key", "rollout_percentage"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["variants"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Multivariate configuration for variant-based rollouts."
+                        },
+                        "payloads": {
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "description": "Optional payload values keyed by variant key.",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "holdout_id": {
             "anyOf": [
                 {
@@ -5569,7 +5678,7 @@
         },
         "stats_config": {},
         "update_feature_flag_params": {
-            "description": "When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.",
+            "description": "When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.",
             "type": "boolean"
         }
     },

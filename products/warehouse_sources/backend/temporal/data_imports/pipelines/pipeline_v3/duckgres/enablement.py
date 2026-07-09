@@ -59,7 +59,7 @@ def duckgres_sink_team_ids() -> list[int] | None:
                 groups={"organization": str(org_id), "project": str(team_id)},
                 group_properties={
                     "organization": {"id": str(org_id)},
-                    "project": {"id": str(team_id)},
+                    "project": {"id": str(team_id), "organization_id": str(org_id)},
                 },
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,

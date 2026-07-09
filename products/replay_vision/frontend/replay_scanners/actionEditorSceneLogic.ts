@@ -28,6 +28,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         setScannerId: (scannerId: string) => ({ scannerId }),
         setScannerName: (scannerName: string) => ({ scannerName }),
         setActionId: (actionId: string) => ({ actionId }),
+        setTargetingMode: (mode: 'all' | 'filtered') => ({ mode }),
         loadAction: (actionId: string) => ({ actionId }),
         loadActionSuccess: (action: VisionActionApi) => ({ action }),
         loadActionFailure: true,
@@ -53,6 +54,16 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             'new' as string,
             {
                 setActionId: (_, { actionId }) => actionId,
+            },
+        ],
+        // Whether the summary covers everything or only matching observations. Explicit state (not
+        // derived from the filter values) so picking "only matching" shows the controls before any
+        // value is chosen.
+        targetingMode: [
+            'all' as 'all' | 'filtered',
+            {
+                setTargetingMode: (_, { mode }) => mode,
+                setActionId: () => 'all',
             },
         ],
         loadedAction: [
@@ -123,12 +134,16 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     forms(({ values }) => ({
         actionForm: {
             defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, integration_id, channel }: VisionActionForm) => ({
+            errors: ({ name, cadence, integration_id, channel, min_score, max_score }: VisionActionForm) => ({
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
                 cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
                 channel: integration_id && !channel ? 'Pick a channel' : undefined,
+                min_score:
+                    min_score != null && max_score != null && min_score > max_score
+                        ? "Min score can't exceed max score"
+                        : undefined,
             }),
             submit: async (form: VisionActionForm) => {
                 const teamId = teamLogic.values.currentTeamId
@@ -159,6 +174,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        setTargetingMode: ({ mode }) => {
+            if (mode === 'all') {
+                // Clear the filter values so a hidden filter can't silently narrow the summary.
+                actions.setActionFormValues({ verdict: [], tags: [], min_score: null, max_score: null })
+            }
+        },
+
         setScannerId: async ({ scannerId }, breakpoint) => {
             // Only fetch the scanner name on the new-action route — the edit title uses the action name instead.
             if (!values.isNew) {
@@ -198,6 +220,14 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
 
         loadActionSuccess: ({ action }) => {
             actions.setScannerId(action.scanner)
+            const selection = action.selection
+            const hasFilter = !!(
+                selection?.verdict?.length ||
+                selection?.tags?.length ||
+                selection?.min_score != null ||
+                selection?.max_score != null
+            )
+            actions.setTargetingMode(hasFilter ? 'filtered' : 'all')
             actions.setActionFormValues({
                 name: action.name,
                 cadence: parseRruleToCadence(action.trigger_config?.rrule),
@@ -205,6 +235,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
+                verdict: action.selection?.verdict ?? [],
+                tags: action.selection?.tags ?? [],
+                min_score: action.selection?.min_score ?? null,
+                max_score: action.selection?.max_score ?? null,
             })
         },
 

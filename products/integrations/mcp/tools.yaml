@@ -198,6 +198,7 @@ tools:
                 - id
                 - kind
                 - display_name
+                - errors
                 - created_at
                 - created_by
     integrations-request-access-create:
