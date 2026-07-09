@@ -295,6 +295,7 @@ the row lists both.
 | reddit_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | rentcast                | HTTP                        | requests                                                        | ✅                          |
+| reply_io                | HTTP                        | requests                                                        | ✅                          |
 | resend                  | HTTP                        | requests                                                        | ✅                          |
 | retently                | HTTP                        | requests                                                        | ✅                          |
 | revenuecat              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -664,7 +665,6 @@ doesn't conflict with concurrent PRs.
 - redis
 - referralhero
 - repairshopr
-- reply_io
 - retail_express
 - revolut_merchant
 - ringcentral
