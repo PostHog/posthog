@@ -328,7 +328,6 @@ function processSnapshot(
         if (!isObject(fullSnapshot.data) || !isObject(fullSnapshot.data.node)) {
             throttleCapture(`${sessionRecordingId}-undecodable-full-snapshot`, () => {
                 telemetry.captureException(new Error('Full snapshot could not be decoded'), {
-                    throttleCaptureKey: `${sessionRecordingId}-undecodable-full-snapshot`,
                     sessionRecordingId,
                     sourceKey,
                     feature: 'session-recording-full-snapshot-decoding',
