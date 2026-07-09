@@ -77,7 +77,6 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
     const { response, responseLoading, responseErrorObject, query, queryId } = useValues(logic)
 
     const validationError = extractValidationError(responseErrorObject)
-    const validationErrorCode = extractValidationErrorCode(responseErrorObject)
     const timeoutError = isTimeoutError(responseErrorObject)
 
     // Empty states that completely replace the graph
@@ -91,7 +90,7 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
                 <InsightValidationError
                     query={query}
                     detail={validationError}
-                    validationErrorCode={validationErrorCode}
+                    validationErrorCode={extractValidationErrorCode(responseErrorObject)}
                 />
             )
         }

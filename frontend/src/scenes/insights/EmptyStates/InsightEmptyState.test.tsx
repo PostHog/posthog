@@ -93,6 +93,13 @@ describe('EmptyStates', () => {
                 'read https://posthog.com/docs/x.',
                 ['https://posthog.com/docs/x'],
             ],
+            [
+                'links the production memory-limit docs URL including its fragment',
+                'see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries',
+                [
+                    'https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries',
+                ],
+            ],
             ['leaves an external URL as plain text', 'go to https://evil.example.com/phish', []],
             ['leaves a lookalike host as plain text', 'open https://posthog.com.evil.com/x here', []],
             ['renders plain detail with no links', 'This query ran out of memory.', []],

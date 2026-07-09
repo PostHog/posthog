@@ -183,13 +183,11 @@ export const getQueryBasedDashboard = (
 }
 
 // Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
-// estimated too expensive to run), 513 (out of memory). Kept in one place so the two extractors and
-// isTimeoutError agree on which statuses are actionable and only isTimeoutError keys on 512 alone.
+// estimated too expensive to run), 513 (out of memory)
 const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
 
 const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
-    (error instanceof ApiError || (error != null && typeof error === 'object' && 'status' in error)) &&
-    VALIDATION_ERROR_STATUSES.has((error as Record<string, any>)?.status)
+    VALIDATION_ERROR_STATUSES.has((error as Record<string, any> | null | undefined)?.status)
 
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (hasValidationErrorStatus(error)) {
