@@ -552,10 +552,8 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force flag-gated behavior on for evals via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # `mcp-sql-schema-discovery` routes warehouse/system-table schema discovery
-        # through `system.information_schema.*` SQL instead of read-data-warehouse-schema
-        # — see eval_system_table_search.py.
-        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-sql-schema-discovery": True}),
+        # No flags currently need forcing on.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)

@@ -14,7 +14,6 @@ from django.test import override_settings
 from django.test.client import Client as HttpClient
 from django.utils import timezone
 
-import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -4456,80 +4455,3 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         existing.refresh_from_db()
         assert existing.config["project_id"] == "original-project"
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
-
-
-class TestGoogleSearchConsoleSitesEndpoint:
-    _SESSION_PATH = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console."
-        "google_search_console.google_search_console_session"
-    )
-    _LIST_SITES_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console.list_sites"
-
-    @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(
-            self.organization, "gsc@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
-        )
-
-    def _create_gsc_integration(self) -> Integration:
-        # No refresh_token → `_ensure_oauth_token_valid` treats the access token as valid and skips refresh.
-        return Integration.objects.create(
-            team=self.team,
-            kind="google-search-console",
-            config={},
-            sensitive_config={"access_token": "ya29.test"},
-            integration_id="gsc_test",
-            created_by=self.user,
-        )
-
-    def _url(self, integration_id: int) -> str:
-        return f"/api/environments/{self.team.pk}/integrations/{integration_id}/google_search_console_sites/"
-
-    @staticmethod
-    def _http_error(status_code: int) -> requests.HTTPError:
-        response = requests.Response()
-        response.status_code = status_code
-        return requests.HTTPError(f"{status_code} Client Error", response=response)
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_auth_error_returns_actionable_400(self, mock_session, mock_list_sites, client: HttpClient):
-        # 401 and 403 both mean the connected account can't read Search Console — the endpoint should
-        # turn either into an actionable 400 rather than letting it surface as an unhandled 500.
-        integration = self._create_gsc_integration()
-        client.force_login(self.user)
-
-        for status_code in (401, 403):
-            mock_list_sites.side_effect = self._http_error(status_code)
-
-            response = client.get(self._url(integration.id))
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-            assert "reconnect your account" in str(response.json()).lower()
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_success_returns_sites(self, mock_session, mock_list_sites, client: HttpClient):
-        integration = self._create_gsc_integration()
-        mock_list_sites.return_value = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
-
-        client.force_login(self.user)
-        response = client.get(self._url(integration.id))
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["sites"] == [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
-
-    @patch(_LIST_SITES_PATH)
-    @patch(_SESSION_PATH)
-    def test_non_auth_http_error_is_not_swallowed(self, mock_session, mock_list_sites, client: HttpClient):
-        # Only 401/403 are converted to a 400 — any other status keeps surfacing as a server error so
-        # a genuine bug isn't masked by the auth handling.
-        integration = self._create_gsc_integration()
-        mock_list_sites.side_effect = self._http_error(500)
-
-        client.force_login(self.user)
-        response = client.get(self._url(integration.id))
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content

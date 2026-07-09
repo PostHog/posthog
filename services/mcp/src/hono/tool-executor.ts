@@ -87,7 +87,7 @@ export class ToolExecutor {
             if (entry.name === EXECUTE_SQL_TOOL_NAME) {
                 return {
                     ...entry,
-                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(),
                 }
             }
             return entry
@@ -392,13 +392,13 @@ export class ToolExecutor {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same flag-aware prompt tools-mode advertises, so the
-        // information_schema steering (or its absence) matches across both modes.
+        // Override it with the same prompt tools-mode advertises, so the
+        // information_schema schema-discovery steering matches across both modes.
         const execTools = state.allTools.map((tool) =>
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
                       ...tool,
-                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(),
                   }
                 : tool
         )

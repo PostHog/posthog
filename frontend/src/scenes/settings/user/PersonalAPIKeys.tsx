@@ -16,6 +16,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -25,7 +26,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PersonalAPIKeyType } from '~/types'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
-import { ScopeAccessRow } from '../shared/ScopeAccessRow'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 

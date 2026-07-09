@@ -128,6 +128,7 @@ __all__ = [
     "create_task_automation",
     "create_task_without_run",
     "create_task_run_connection_token",
+    "create_task_run_living_artifact",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
@@ -135,6 +136,7 @@ __all__ = [
     "delete_sandbox_environment",
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
+    "edit_task_run_living_artifact",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
@@ -155,6 +157,7 @@ __all__ = [
     "get_task_run",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
+    "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
     "get_task_run_stream_info",
     "get_task_summaries",
@@ -167,6 +170,7 @@ __all__ = [
     "list_sandbox_environments",
     "sandbox_custom_images_enabled",
     "list_task_automations",
+    "list_task_run_living_artifacts",
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
@@ -181,6 +185,7 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
+    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
@@ -191,6 +196,7 @@ __all__ = [
     "set_task_run_output",
     "set_task_title",
     "signal_report_queryset",
+    "signal_task_run_permission_response",
     "signal_task_run_user_message",
     "signal_workflow_completion",
     "soft_delete_task",
@@ -1844,8 +1850,17 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 def upload_task_run_artifacts(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
-) -> list[dict] | None:
-    """Write artifact bytes to S3 and append them to the run manifest. Returns the full manifest."""
+) -> tuple[list[dict], list[dict]] | None:
+    """Write artifact bytes to S3 and append them to the run manifest.
+
+    Returns ``(uploaded, manifest)`` — the entries created for ``artifacts`` and the full
+    manifest including them — or ``None`` when the run isn't visible.
+
+    An artifact may carry an explicit ``id``; entries with that id are upserted into the
+    manifest (same-id S3 writes overwrite the same key), so callers that derive ids
+    deterministically get idempotent uploads under retries. Without an ``id`` each call
+    appends a fresh entry.
+    """
     import uuid as uuid_module  # noqa: PLC0415
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -1856,7 +1871,7 @@ def upload_task_run_artifacts(
 
     uploaded: list[dict] = []
     for artifact in artifacts:
-        artifact_id = uuid_module.uuid4().hex
+        artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
 
         content_bytes = artifact["content_bytes"]
@@ -1893,11 +1908,12 @@ def upload_task_run_artifacts(
 
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
-        manifest = list(run.artifacts or [])
+        uploaded_ids = {entry["id"] for entry in uploaded}
+        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
-    return manifest
+    return uploaded, manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -2025,6 +2041,105 @@ def finalize_task_run_artifact_uploads(
         _tag_artifact_object(run, storage_path)
 
     return finalized_entries, None
+
+
+def list_task_run_living_artifacts(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict] | None:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifacts_for_run,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return [serialize_task_artifact(artifact) for artifact in get_task_artifacts_for_run(run)]
+
+
+def get_task_run_living_artifact(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID
+) -> dict | None:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        open_task_artifact,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None
+    serialized = serialize_task_artifact(artifact)
+    serialized["content"] = open_task_artifact(artifact)
+    return serialized
+
+
+def create_task_run_living_artifact(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifact: dict,
+) -> tuple[dict | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        create_living_artifact,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        created = create_living_artifact(run=run, **artifact)
+    except Exception as exc:
+        logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
+        return None, str(exc)
+    return serialize_task_artifact(created), None
+
+
+def edit_task_run_living_artifact(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifact_id: str | UUID,
+    content: str | None = None,
+    content_bytes: bytes | None = None,
+    content_type: str | None = None,
+    source_artifact_id: str | None = None,
+    source_storage_path: str | None = None,
+    name: str | None = None,
+    metadata: dict | None = None,
+) -> tuple[dict | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        edit_living_artifact,
+        get_task_artifact_for_run,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        updated = edit_living_artifact(
+            artifact=artifact,
+            run=run,
+            content=content,
+            content_bytes=content_bytes,
+            content_type=content_type,
+            source_artifact_id=source_artifact_id,
+            source_storage_path=source_storage_path,
+            name=name,
+            metadata=metadata,
+        )
+    except Exception as exc:
+        logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
+        return None, str(exc)
+    return serialize_task_artifact(updated), None
 
 
 def presign_task_run_artifact(
@@ -2196,6 +2311,47 @@ def signal_task_run_user_message(
         signal_task_followup_message(run.workflow_id, content, artifact_ids)
     except Exception:
         logger.exception("Failed to signal follow-up message for task run %s", run.id)
+        return False
+    return True
+
+
+def signal_task_run_permission_response(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    request_id: str,
+    option_id: str,
+    actor_user_id: int,
+    actor_slack_user_id: str | None = None,
+    is_denial: bool = False,
+    denial_message: str | None = None,
+    broker_reason: str | None = None,
+) -> bool | None:
+    """Queue an agent permission response signal on the run's workflow.
+
+    Returns ``True`` on success, ``False`` if signalling failed, ``None`` if the run isn't found.
+    """
+    from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
+        signal_task_permission_response,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    try:
+        signal_task_permission_response(
+            run.workflow_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_user_id,
+            actor_slack_user_id=actor_slack_user_id,
+            is_denial=is_denial,
+            denial_message=denial_message,
+            broker_reason=broker_reason,
+        )
+    except Exception:
+        logger.exception("Failed to signal permission response for task run %s", run.id)
         return False
     return True
 
@@ -4310,8 +4466,13 @@ def send_user_message(
     artifacts: list[dict] | None = None,
     auth_token: str | None = None,
     timeout: int | None = None,
+    message_id: str | None = None,
 ):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox."""
+    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
+
+    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
+    caller may retry delivery so a redelivered message isn't applied twice.
+    """
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         send_user_message as _send,
     )
@@ -4323,6 +4484,8 @@ def send_user_message(
         extra["artifacts"] = artifacts
     if timeout is not None:
         extra["timeout"] = timeout
+    if message_id is not None:
+        extra["message_id"] = message_id
     return _send(run, message, auth_token=auth_token, **extra)
 
 
@@ -4600,3 +4763,33 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+def respond_to_permission_request(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    request_id: str,
+    option_id: str,
+) -> contracts.PermissionResponseResult:
+    """Deliver a human permission decision (from an origin surface like a Slack approval
+    card) to a run's sandbox agent, authenticated as the task creator."""
+    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_permission_response,
+    )
+
+    run = (
+        TaskRun.objects.select_related("task", "task__created_by")
+        .filter(id=run_id, task_id=task_id, team_id=team_id)
+        .first()
+    )
+    if run is None:
+        return contracts.PermissionResponseResult(outcome="not_found")
+    if run.is_terminal:
+        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
+
+    result = send_permission_response(run, request_id=request_id, option_id=option_id)
+    if not result.success:
+        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
+    return contracts.PermissionResponseResult(outcome="sent")
