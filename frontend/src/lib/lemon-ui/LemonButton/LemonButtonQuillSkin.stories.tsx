@@ -6,11 +6,15 @@ import { Button as QuillButton } from '@posthog/quill'
 import { LemonButton } from './LemonButton'
 
 /**
- * Prototype of the "token bridge" migration strategy: `quill-skin.scss` restyles
- * LemonButton to quill's visual language purely via the CSS custom properties it
- * already consumes. The middle column renders the exact same LemonButton code as
- * the left column — only the `data-quill data-quill-skin` wrapper differs. The
- * right column is the real quill Button for comparison.
+ * Prototypes of the two possible "skin bridge" migration directions:
+ *
+ * - `SideBySide` (quill-skin.scss): LemonButton restyled to quill's visual
+ *   language — ship the new look first, migrate code later.
+ * - `ReverseSideBySide` (lemon-skin.scss): quill Button restyled to Lemon's
+ *   current look — migrate code invisibly first, flip the look at the end.
+ *
+ * In both stories the middle column renders the exact same code as its
+ * reference column — only the skin wrapper attribute differs.
  */
 const meta: Meta = {
     title: 'Lemon UI/Lemon Button Quill Skin',
@@ -112,6 +116,25 @@ export const SideBySide: StoryObj = {
             <div className="border rounded p-4" data-quill>
                 <h4 className="mb-4">Quill Button (target)</h4>
                 <QuillExamples />
+            </div>
+        </div>
+    ),
+}
+
+export const ReverseSideBySide: StoryObj = {
+    render: () => (
+        <div className="grid grid-cols-3 gap-4">
+            <div className="border rounded p-4" data-quill>
+                <h4 className="mb-4">Quill Button today</h4>
+                <QuillExamples />
+            </div>
+            <div className="border rounded p-4" data-quill data-lemon-skin>
+                <h4 className="mb-4">Quill Button + lemon skin (same code)</h4>
+                <QuillExamples />
+            </div>
+            <div className="border rounded p-4">
+                <h4 className="mb-4">LemonButton (target)</h4>
+                <LemonExamples />
             </div>
         </div>
     ),

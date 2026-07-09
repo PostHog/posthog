@@ -1,0 +1,177 @@
+/*
+ * PROTOTYPE — Lemon skin for quill (Button only, for now).
+ *
+ * The mirror of quill-skin.scss: restyles quill's Button to LemonUI's current
+ * visual language, so quill components can be adopted inside Lemon scenes with
+ * zero visible change. Under this strategy the code migrates Lemon → quill
+ * invisibly (migration PRs are snapshot-identical), and the new design ships
+ * in one final flip: removing this skin reveals quill's native look app-wide.
+ *
+ * Opt in with a wrapper attribute (alongside `data-quill`, which quill
+ * components need for their tokens anyway):
+ *
+ *     <div data-quill data-lemon-skin>…</div>
+ *
+ * Quill's own rules live in `@layer components`, so these unlayered overrides
+ * win the cascade without specificity hacks — the reverse skin doesn't need
+ * the doubled selectors and !important that quill-skin.scss does.
+ *
+ * Mapping (quill Button variant → Lemon type):
+ *   primary     → primary    (white face, brown border, amber 3D frame below)
+ *   outline     → secondary  (off-white face, grey border, grey frame)
+ *   default     → tertiary   (ghost: transparent, grey fill on hover)
+ *   destructive → secondary + status="danger" (orange text/border, orange frame)
+ *
+ * Lemon's 3D chrome (a bordered frame extending below the button face) is
+ * approximated on quill's single-element markup with two hard box-shadows:
+ * the frame band, plus a 1px spread ring for the border around it.
+ *
+ * Known gaps, acceptable for a prototype:
+ *   - link / link-muted variants and icon-* sizes keep quill's styling
+ *   - no hover-raise / press-sink travel (Lemon moves ±0.5px; static here)
+ *   - focus rings keep quill's style
+ */
+
+[data-lemon-skin] .quill-button {
+    /* Lemon's scale: 6px corners, 14px text, 37px medium height.
+       0.375rem is Lemon's --radius literal — quill's scoped tokens shadow
+       `--radius` (0.58rem) inside [data-quill], so the var can't be used here */
+    font-family: var(--font-button);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.5rem;
+    color: var(--text-3000);
+    border-radius: 0.375rem;
+}
+
+/* ── primary → Lemon primary ──────────────────────────────────────────── */
+
+[data-lemon-skin] .quill-button--variant-primary {
+    color: var(--text-3000-light);
+    background-color: var(--primary-3000-button-bg);
+    border: 1px solid var(--primary-3000-button-border);
+    box-shadow:
+        0 0.1875rem 0 0 var(--primary-3000-frame-bg),
+        0 0.1875rem 0 1px var(--primary-3000-button-border);
+    translate: none;
+}
+
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
+    background-color: var(--primary-3000-button-bg);
+    border-color: var(--primary-3000-button-border-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* ── outline → Lemon secondary ────────────────────────────────────────── */
+
+[data-lemon-skin] .quill-button--variant-outline {
+    background-color: var(--secondary-3000-button-bg);
+    border: 1px solid var(--secondary-3000-button-border);
+    box-shadow:
+        0 0.1875rem 0 0 var(--secondary-3000-frame-bg),
+        0 0.1875rem 0 1px var(--secondary-3000-button-border);
+}
+
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: var(--secondary-3000-button-bg);
+    border-color: var(--secondary-3000-button-border-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):active {
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* ── default (ghost) → Lemon tertiary ─────────────────────────────────── */
+
+[data-lemon-skin] .quill-button--variant-default {
+    background-color: transparent;
+    border: none;
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: var(--color-bg-fill-button-tertiary-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-default:not(:disabled, [aria-disabled='true']):active {
+    background-color: var(--color-bg-fill-button-tertiary-active);
+}
+
+/* ── destructive → Lemon secondary + status="danger" ──────────────────── */
+
+[data-lemon-skin] .quill-button--variant-destructive {
+    color: var(--danger-3000-button-border-hover);
+    background-color: var(--secondary-3000-button-bg);
+    border: 1px solid var(--danger-3000-button-border);
+    box-shadow:
+        0 0.1875rem 0 0 var(--danger-3000-frame-bg),
+        0 0.1875rem 0 1px var(--danger-3000-button-border);
+}
+
+[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+    background-color: var(--secondary-3000-button-bg);
+    border-color: var(--danger-3000-button-border-hover);
+}
+
+[data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):active {
+    box-shadow: none;
+    translate: 0 0.1875rem;
+}
+
+/* ── Sizes → Lemon's xsmall / small / medium / large scale ────────────── */
+
+[data-lemon-skin] .quill-button--size-default {
+    gap: 0.5rem;
+    height: 2.3125rem;
+    padding-inline: 0.75rem;
+    font-size: 0.875rem;
+}
+
+[data-lemon-skin] .quill-button--size-default svg:not([class*='size-']) {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+[data-lemon-skin] .quill-button--size-xs {
+    gap: 0.25rem;
+    height: 1.625rem;
+    padding-inline: 0.375rem;
+    font-size: 0.75rem;
+    border-radius: 0.375rem;
+}
+
+[data-lemon-skin] .quill-button--size-xs svg:not([class*='size-']) {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+[data-lemon-skin] .quill-button--size-sm {
+    gap: 0.5rem;
+    height: 2.0625rem;
+    padding-inline: 0.5rem;
+    font-size: 0.875rem;
+}
+
+[data-lemon-skin] .quill-button--size-sm svg:not([class*='size-']) {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+[data-lemon-skin] .quill-button--size-lg {
+    gap: 0.75rem;
+    height: 3.0625rem;
+    padding-inline: 0.75rem;
+    font-size: 1rem;
+}
+
+[data-lemon-skin] .quill-button--size-lg svg:not([class*='size-']) {
+    width: 1.75rem;
+    height: 1.75rem;
+}
