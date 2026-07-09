@@ -442,13 +442,17 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # A payload missing required keys, rejected up front by the dispatcher.
-            ("invalid_payload", False, {"invalid": "payload"}, "Invalid payload"),
+            # A payload missing required keys, rejected up front by the dispatcher. This payload
+            # was broken from the moment it was created, so it should still reach error tracking.
+            ("invalid_payload", False, {"invalid": "payload"}, "Invalid payload", True),
             # ObjectDoesNotExist via model.objects.get(): the scenario the PR description is
-            # actually about, a scheduled change whose target flag was deleted.
-            ("deleted_flag", True, {"operation": "update_status", "value": True}, "does not exist"),
+            # actually about, a scheduled change whose target flag was deleted after scheduling.
+            # This is expected drift, so it should not be reported to error tracking.
+            ("deleted_flag", True, {"operation": "update_status", "value": True}, "does not exist", False),
             # A bare ValueError classified unrecoverable via isinstance alone (no matching
-            # error-message indicator), unlike the two cases above.
+            # error-message indicator). Like invalid_payload, the payload was broken at creation
+            # time (rollout percentages are self-contained in the payload), so it should still
+            # reach error tracking.
             (
                 "invalid_variant_rollout",
                 False,
@@ -457,6 +461,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
                     "value": {"variants": [{"key": "control", "name": "Control", "rollout_percentage": 50}]},
                 },
                 "Invalid variant rollout percentages",
+                True,
             ),
         ]
     )
@@ -466,8 +471,10 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         delete_flag_before_processing: bool,
         payload: dict[str, Any],
         expected_error_substring: str,
+        should_capture: bool,
     ) -> None:
-        """Test that unrecoverable errors set executed_at, preventing retries, and are not reported to error tracking"""
+        """Test that unrecoverable errors set executed_at, preventing retries, and that only the
+        orphaned-target case is suppressed from error tracking"""
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",
             key="test-unrecoverable-error",
@@ -495,9 +502,13 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         with patch("posthog.tasks.process_scheduled_changes.capture_exception") as mock_capture:
             process_scheduled_changes()
 
-            # Unrecoverable errors are expected and already handled, so they must not be
-            # reported to error tracking (they only add noise)
-            mock_capture.assert_not_called()
+            if should_capture:
+                # A broken payload is a defect worth surfacing, not expected drift.
+                mock_capture.assert_called_once()
+            else:
+                # An orphaned target is expected and already handled, so it must not be
+                # reported to error tracking (it only adds noise).
+                mock_capture.assert_not_called()
 
         # Refresh the scheduled change from database
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)

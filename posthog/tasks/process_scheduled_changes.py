@@ -82,6 +82,20 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     return isinstance(exception, unrecoverable_types)
 
 
+def is_expected_orphaned_target_error(exception: Exception) -> bool:
+    """
+    Determine if an exception means the scheduled change's target record was deleted after the
+    change was scheduled — expected drift, not a code or data defect.
+
+    This is narrower than is_unrecoverable_error on purpose: most unrecoverable errors (invalid
+    payload, unsupported operation, mismatched variant data) mean a broken payload was persisted
+    at creation time and will keep failing forever, which is worth surfacing to error tracking.
+    An orphaned target is the one case where the payload was valid when scheduled and only
+    failed because the world changed underneath it.
+    """
+    return isinstance(exception, ObjectDoesNotExist)
+
+
 def compute_next_run(current: datetime, interval: str) -> datetime:
     """
     Compute the next scheduled run time based on recurrence interval.
@@ -373,13 +387,14 @@ def process_scheduled_changes() -> None:
 
                     scheduled_change.save()
 
-                    # Unrecoverable errors are an expected, already-handled state (e.g. the target
-                    # feature flag was deleted): the failure is recorded on the row and the change is
-                    # marked executed above. Reporting it to error tracking is pure noise, so log it at
-                    # a lower level instead and reserve capture_exception for genuinely unexpected errors.
-                    if is_unrecoverable:
+                    # An orphaned target (e.g. the feature flag was deleted after the change was
+                    # scheduled) is expected drift, already handled via the row's failure_reason
+                    # above, so reporting it to error tracking is pure noise. Other unrecoverable
+                    # errors (invalid payload, unsupported operation, mismatched variant data) mean
+                    # a broken payload reached execution and should stay visible in error tracking.
+                    if is_expected_orphaned_target_error(e):
                         logger.info(
-                            "Scheduled change skipped due to unrecoverable error",
+                            "Scheduled change skipped: target record no longer exists",
                             scheduled_change_id=scheduled_change.id,
                             error=str(e),
                             error_type=e.__class__.__name__,
