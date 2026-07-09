@@ -632,6 +632,82 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getAvailableFeatures', () => {
+        it('returns available_product_features keys from the fetched org when the org is resolvable', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
+                id: 'org-1',
+                name: 'Org 1',
+                available_product_features: [{ key: 'audit_logs' }, { key: 'sso' }],
+            } as any)
+            const userSpy = vi.spyOn(stateManager, 'getCachedOrFetchUser')
+
+            const result = await stateManager.getAvailableFeatures()
+
+            expect(result).toEqual(['audit_logs', 'sso'])
+            expect(userSpy).not.toHaveBeenCalled()
+        })
+
+        it('returns an empty array (not undefined) when the org has no entitled features', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue({
+                id: 'org-1',
+                name: 'Org 1',
+                available_product_features: [],
+            } as any)
+
+            const result = await stateManager.getAvailableFeatures()
+
+            expect(result).toEqual([])
+        })
+
+        it('falls back to users/@me features when the org is unreachable and the current org owns the active project', async () => {
+            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+            // `/api/organizations/{id}/`, so getCachedOrFetchOrg yields undefined.
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: {
+                    id: 'org-1',
+                    name: 'Org 1',
+                    available_product_features: [{ key: 'audit_logs' }],
+                },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAvailableFeatures()
+
+            expect(result).toEqual(['audit_logs'])
+        })
+
+        it('returns undefined when the org has no readable entitlements and no fallback applies', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockResolvedValue({
+                ...mockUser,
+                organization: { id: 'org-other', name: 'Other Org' },
+            })
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue({
+                id: 456,
+                organization: 'org-1',
+            } as any)
+
+            const result = await stateManager.getAvailableFeatures()
+
+            expect(result).toBeUndefined()
+        })
+
+        it('returns undefined (fail open) when the fallback fetches throw', async () => {
+            vi.spyOn(stateManager, 'getCachedOrFetchOrg').mockResolvedValue(undefined)
+            vi.spyOn(stateManager, 'getCachedOrFetchUser').mockRejectedValue(new Error('boom'))
+            vi.spyOn(stateManager, 'getCachedOrFetchProject').mockResolvedValue(undefined)
+
+            const result = await stateManager.getAvailableFeatures()
+
+            expect(result).toBeUndefined()
+        })
+    })
+
     describe('getProjectId', () => {
         it('should return cached projectId if available', async () => {
             await cache.set('projectId', 'cached-project-id')

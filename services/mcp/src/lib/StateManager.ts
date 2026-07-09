@@ -441,4 +441,37 @@ export class StateManager {
             return undefined
         }
     }
+
+    async getAvailableFeatures(): Promise<string[] | undefined> {
+        const extractKeys = (features: unknown): string[] | undefined => {
+            if (!Array.isArray(features)) {
+                return undefined
+            }
+            return features.map((f) => (f as { key?: string }).key).filter((k): k is string => typeof k === 'string')
+        }
+
+        try {
+            const org = await this.getCachedOrFetchOrg()
+            if (org) {
+                const keys = extractKeys((org as { available_product_features?: unknown }).available_product_features)
+                if (keys !== undefined) {
+                    return keys
+                }
+            }
+
+            // Team-scoped tokens can't fetch `/api/organizations/{id}/`. Fall back
+            // to the org embedded in `/api/users/@me/` (exempt from team scoping),
+            // but only when it matches the active project's owning org — mirrors
+            // getAiConsentGiven.
+            const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
+            if (user?.organization && project?.organization === user.organization.id) {
+                return extractKeys(
+                    (user.organization as { available_product_features?: unknown }).available_product_features
+                )
+            }
+            return undefined
+        } catch {
+            return undefined
+        }
+    }
 }

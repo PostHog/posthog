@@ -26,6 +26,7 @@ export interface ApiUser {
         // current org, so the consent flag is always present on the wire; it is
         // optional here because some tests construct partial users.
         is_ai_data_processing_approved?: boolean | null
+        available_product_features?: Array<{ key: string }> | null
     } | null
 }
 
