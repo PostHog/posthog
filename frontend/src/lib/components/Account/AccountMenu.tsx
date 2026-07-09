@@ -19,6 +19,7 @@ import {
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -315,7 +316,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                         <ButtonPrimitive
                             tooltip="Hide navigation and focus on content"
                             tooltipPlacement="right"
-                            onClick={toggleZenMode}
+                            onClick={() => toggleZenMode('account_menu')}
                             menuItem
                         >
                             <IconExpand45 />
@@ -422,6 +423,18 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                                 >
                                     <IconServer />
                                     Instance panel
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.featureFlagsStaffTools()}
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                    data-attr="top-menu-flags-staff-tools"
+                                >
+                                    <IconToggle />
+                                    Flags staff tools
                                 </Link>
                             </DropdownMenuItem>
 

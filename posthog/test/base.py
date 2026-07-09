@@ -5,7 +5,6 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import functools
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -23,13 +22,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import (
-    Client as DjangoTestClient,
-    SimpleTestCase,
-    TestCase,
-    TransactionTestCase,
-    override_settings,
-)
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 # we have to import pendulum for the side effect of importing it
@@ -37,10 +30,7 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import (
-    APIClient,
-    APITestCase as DRFTestCase,
-)
+from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -925,43 +915,6 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
-def _follow_environments_redirect(original_generic):
-    """Make a test client's `generic` follow the /api/environments → /api/projects 307.
-
-    EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
-    `api-environments-redirect` flag evaluates true — which in tests happens whenever a
-    test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
-    the same method and body to the projects path, so test clients do too: tests receive
-    the end response, not the redirect hop. Set `client.follow_environments_redirect =
-    False` to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
-    """
-
-    @functools.wraps(original_generic)
-    def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
-        response = original_generic(self, method, path, data, content_type, secure, **extra)
-        if (
-            getattr(self, "follow_environments_redirect", True)
-            # RequestFactory shares this method but returns requests, not responses
-            and getattr(response, "status_code", None) in (307, 308)
-            and isinstance(path, str)
-            and path.startswith("/api/environments")
-            and response.headers.get("Location", "").startswith("/api/projects")
-        ):
-            response = original_generic(self, method, response.headers["Location"], data, content_type, secure, **extra)
-        return response
-
-    generic._follows_environments_redirect = True  # type: ignore[attr-defined]
-    return generic
-
-
-# Cover every test client, including ones instantiated by hand in product suites —
-# Django's Client inherits `generic` from RequestFactory, so shadow it on the class.
-if not getattr(APIClient.generic, "_follows_environments_redirect", False):
-    APIClient.generic = _follow_environments_redirect(APIClient.generic)  # type: ignore[method-assign]
-if not getattr(DjangoTestClient.generic, "_follows_environments_redirect", False):
-    DjangoTestClient.generic = _follow_environments_redirect(DjangoTestClient.generic)  # type: ignore[method-assign]
-
-
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.
@@ -1040,6 +993,8 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
             get_bloom_filter_lower_index_name,
             get_materialized_columns,
@@ -1050,6 +1005,11 @@ def cleanup_materialized_columns():
     except:
         # EE not available? Skip
         return
+
+    # A prior test may have mutated schema with raw sync_execute, bypassing materialize()/
+    # drop_column() (which self-invalidate) — refresh before deciding what to drop below.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
     def optionally_drop(table, filter=None):
         columns_to_drop = [
@@ -1089,6 +1049,10 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+    # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
+    # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
 
 def get_index_from_explain(
@@ -1300,6 +1264,24 @@ def also_test_with_materialized_columns(
     return decorator
 
 
+# sqlparse.format(reindent=True) is quadratic-ish on large statements (~70ms on a big HogQL
+# listing query) and snapshot-heavy suites format hundreds per run. It's a pure function of the
+# input, and clean_varying_query_parts normalizes team ids/UUIDs/timestamps so the same query
+# shapes recur across tests - cache the formatting. Keys are the full SQL strings, so the cap
+# bounds memory rather than correctness.
+_sqlparse_format_cache: dict[str, str] = {}
+_SQLPARSE_FORMAT_CACHE_MAX_ENTRIES = 2048
+
+
+def _format_sql_for_snapshot(query: str) -> str:
+    formatted = _sqlparse_format_cache.get(query)
+    if formatted is None:
+        formatted = sqlparse.format(query, reindent=True)
+        if len(_sqlparse_format_cache) < _SQLPARSE_FORMAT_CACHE_MAX_ENTRIES:
+            _sqlparse_format_cache[query] = formatted
+    return formatted
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1312,7 +1294,7 @@ class QueryMatchingTest:
         query = clean_varying_query_parts(query, replace_all_numbers)
 
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert _format_sql_for_snapshot(query) == self.snapshot
         except AssertionError:
             diff_lines = "\n".join(self.snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
@@ -1603,12 +1585,48 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
+    @staticmethod
+    def _strip_leading_sql_comments(sql: str) -> str:
+        """Drop leading whitespace and comments (keeping any parens) so head-anchored query
+        filters see the first real token. Equivalent to sqlparse.format(strip_comments=True)
+        for every filter used with capture_queries — all of them match on the statement head —
+        but without paying sqlparse's full-statement lexing (~100ms on large generated SQL)."""
+        i, n, parens = 0, len(sql), []
+        while i < n:
+            char = sql[i]
+            if char.isspace():
+                i += 1
+            elif char == "(":
+                parens.append("(")
+                i += 1
+            elif sql.startswith("/*", i):
+                end = sql.find("*/", i + 2)
+                if end == -1:
+                    break
+                i = end + 2
+            elif sql.startswith("--", i):
+                newline = sql.find("\n", i)
+                if newline == -1:
+                    i = n
+                    break
+                i = newline + 1
+            else:
+                break
+        return "".join(parens) + sql[i:]
+
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
+        """Capture ClickHouse queries that pass query_filter.
+
+        The filter receives the query after stripping leading whitespace and comments (head-only
+        — see _strip_leading_sql_comments). All built-in filters (capture_select_queries,
+        capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
+        pass a filter that matches on mid-statement text; it will not see comments embedded there.
+        """
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
-            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+            if query_filter(self._strip_leading_sql_comments(query)):
                 queries.append(query)
             return original_client_execute(query, *args, **kwargs)
 
@@ -1627,6 +1645,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
+    # Test infrastructure runs a single-node ClickHouse, so ON CLUSTER only adds
+    # distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
+    # the outcome — strip it from TRUNCATEs.
+    # If a CI variant ever runs multi-replica this strip must be removed or gated; without it,
+    # TRUNCATE without ON CLUSTER only touches the connected node and leaves others dirty.
+    statements = [
+        re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", stmt) if stmt.lstrip().upper().startswith("TRUNCATE") else stmt
+        for stmt in statements
+    ]
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
@@ -1655,6 +1683,18 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
 
 
 def reset_clickhouse_database() -> None:
+    # Dropping tables below removes their materialized columns behind the metadata cache's back,
+    # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
+    try:
+        from ee.clickhouse.materialized_columns.columns import (  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
+        )
+
+        for _mat_table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(_mat_table)
+    except ModuleNotFoundError:
+        pass
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
@@ -1982,7 +2022,7 @@ class HogQLSnapshotExtension(AmberSnapshotExtension):
     def serialize(cls, data, **kwargs):
         """Serialize the HogQL query."""
         # Format the query for readability
-        formatted = sqlparse.format(data, reindent=True)
+        formatted = _format_sql_for_snapshot(data)
         return f"'''\n{formatted}\n'''\n"
 
 

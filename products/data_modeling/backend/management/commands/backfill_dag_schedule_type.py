@@ -26,10 +26,21 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        found, updated, failed = _backfill_schedule_type(dry_run)
+        found, already_stamped, updated, failed = _backfill_schedule_type(dry_run)
         verb = "would stamp" if dry_run else "stamped"
-        logger.info("Backfill complete", execute_dag_schedules=found, updated=updated, failed=failed, dry_run=dry_run)
-        self.stdout.write(f"execute-dag schedules found: {found}; {verb}: {updated}; failed: {failed}")
+        stamped = found - already_stamped if dry_run else updated
+        logger.info(
+            "Backfill complete",
+            execute_dag_schedules=found,
+            already_stamped=already_stamped,
+            updated=updated,
+            failed=failed,
+            dry_run=dry_run,
+        )
+        self.stdout.write(
+            f"execute-dag schedules found: {found}; already stamped: {already_stamped}; "
+            f"{verb}: {stamped}; failed: {failed}"
+        )
 
 
 async def _updater(input: ScheduleUpdateInput) -> ScheduleUpdate:
@@ -40,9 +51,10 @@ async def _updater(input: ScheduleUpdateInput) -> ScheduleUpdate:
 
 
 @async_to_sync
-async def _backfill_schedule_type(dry_run: bool) -> tuple[int, int, int]:
+async def _backfill_schedule_type(dry_run: bool) -> tuple[int, int, int, int]:
     temporal = await async_connect()
     found = 0
+    already_stamped = 0
     updated = 0
     failed = 0
     async for listing in await temporal.list_schedules():
@@ -53,6 +65,9 @@ async def _backfill_schedule_type(dry_run: bool) -> tuple[int, int, int]:
         ):
             continue
         found += 1
+        if listing.typed_search_attributes.get(POSTHOG_SCHEDULE_TYPE_KEY) == DATA_MODELING_EXECUTE_DAG_WORKFLOW:
+            already_stamped += 1
+            continue
         if dry_run:
             continue
         try:
@@ -61,4 +76,4 @@ async def _backfill_schedule_type(dry_run: bool) -> tuple[int, int, int]:
         except Exception:
             failed += 1
             logger.exception("Error stamping schedule", schedule_id=listing.id)
-    return found, updated, failed
+    return found, already_stamped, updated, failed

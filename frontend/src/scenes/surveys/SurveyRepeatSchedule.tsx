@@ -176,7 +176,7 @@ function SurveyIterationOptions(): JSX.Element {
                                         <div className="text-xs text-muted">
                                             {survey.iteration_count === 1
                                                 ? 'This survey will only be shown once (no repeats).'
-                                                : `This survey will be shown now, then ${survey.iteration_count - 1} more ${pluralize(survey.iteration_count - 1, 'time', 'times', false)} with ${pluralize(survey.iteration_frequency_days, 'day')} between each.`}
+                                                : `This survey runs for ${survey.iteration_count} iterations of ${pluralize(survey.iteration_frequency_days, 'day')} each, counted from the launch date. Each user can respond once per iteration.`}
                                         </div>
                                     )}
                                 </div>

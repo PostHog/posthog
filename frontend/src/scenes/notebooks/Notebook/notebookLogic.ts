@@ -78,6 +78,7 @@ import {
     collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
+    collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -95,6 +96,7 @@ import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookNodeId,
     getMarkdownNotebookTextContent,
@@ -104,6 +106,7 @@ import {
     serializeMarkdownNotebookComponent,
 } from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { buildNotebookOpenedEvent } from './notebookAnalytics'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
@@ -139,6 +142,44 @@ function keepNewestNotebookResponse(current: NotebookType | null, incoming: Note
     }
 
     return incoming.version < current.version ? current : incoming
+}
+
+function convertNotebookContentForRender(
+    content: JSONContent | null | undefined,
+    markdownNotebooksEnabled: boolean
+): JSONContent | null | undefined {
+    if (!markdownNotebooksEnabled || isMarkdownNotebookContent(content)) {
+        return content
+    }
+
+    // Content-less notebooks (a fresh scratchpad or canvas) start as empty markdown
+    // notebooks instead of falling back to the legacy TipTap editor.
+    if (!content) {
+        return buildMarkdownNotebookContent('')
+    }
+
+    return buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content))
+}
+
+/**
+ * Markdown notebooks never mount the TipTap editor, so the generic insertion actions append
+ * serialized markdown blocks to the markdown source instead. Returns null when the notebook
+ * isn't a markdown notebook, so callers fall through to the TipTap editor path.
+ */
+function appendContentToMarkdownNotebook(
+    notebookContent: JSONContent,
+    insertedContent: JSONContent | JSONContent[] | string
+): JSONContent | null {
+    if (!isMarkdownNotebookContent(notebookContent)) {
+        return null
+    }
+    // The converter serializes the children of a doc, so a single leaf node (e.g. a dropped
+    // resource) must be wrapped in an array to be serialized itself.
+    const normalizedContent =
+        typeof insertedContent === 'string' || Array.isArray(insertedContent) || insertedContent.type === 'doc'
+            ? insertedContent
+            : [insertedContent]
+    return appendMarkdownNotebookBlock(notebookContent, convertNotebookContentToMarkdown(normalizedContent))
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -977,30 +1018,28 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly, s.localContent, s.notebook],
-            (
-                featureFlags: Record<string, string | boolean>,
-                isLocalOnly: boolean,
-                localContent: JSONContent | null,
-                notebook: NotebookType | null
-            ): boolean =>
+            (s) => [s.featureFlags, s.isLocalOnly, s.content],
+            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean, content: JSONContent): boolean =>
                 !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] &&
                 !isLocalOnly &&
-                !isMarkdownNotebookContent(localContent || notebook?.content),
+                !isMarkdownNotebookContent(content),
         ],
         markdownRealtimeEnabled: [
-            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook],
+            (s) => [(_, props) => props, s.mode, s.isLocalOnly, s.notebook, s.content, s.featureFlags],
             (
                 props: NotebookLogicProps,
                 mode: NotebookLogicMode,
                 isLocalOnly: boolean,
-                notebook: NotebookType | null
+                notebook: NotebookType | null,
+                content: JSONContent,
+                featureFlags: Record<string, string | boolean>
             ): boolean =>
                 mode === 'notebook' &&
                 !props.cachedNotebook &&
                 !isLocalOnly &&
                 !!notebook &&
-                isMarkdownNotebookContent(notebook.content),
+                (isMarkdownNotebookContent(notebook.content) ||
+                    (!!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS] && isMarkdownNotebookContent(content))),
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1059,10 +1098,15 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         content: [
-            (s) => [s.notebook, s.localContent, s.previewContent],
-            (notebook, localContent, previewContent): JSONContent => {
-                // We use the local content is set otherwise the notebook content
-                return previewContent || localContent || notebook?.content || []
+            (s) => [s.notebook, s.localContent, s.previewContent, s.featureFlags],
+            (
+                notebook: NotebookType | null,
+                localContent: JSONContent | null,
+                previewContent: JSONContent | null,
+                featureFlags: Record<string, string | boolean>
+            ): JSONContent => {
+                const content = previewContent || localContent || notebook?.content
+                return convertNotebookContentForRender(content, !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]) || []
             },
         ],
         markdownEditorMarkdown: [(s) => [s.content], (content): string => getMarkdownNotebookMarkdown(content)],
@@ -1169,6 +1213,7 @@ export const notebookLogic = kea<notebookLogicType>([
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
         duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
         hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
+        sqlV2NodeSummaries: [(s) => [s.content], (content) => collectSqlV2Nodes(content)],
         dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
@@ -1559,8 +1604,16 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     let insertionPosition = 0
                     let nextNode = values.editor?.nextNode(insertionPosition)
                     while (nextNode) {
@@ -1574,8 +1627,16 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         pasteAfterLastNode: async ({ content }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     const endPosition = values.editor?.getEndPosition() || 0
                     values.editor?.pasteContent(endPosition, content)
                 }
@@ -1583,8 +1644,17 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         insertAfterLastNodeOfType: async ({ content, nodeType, knownStartingPosition }) => {
             await runWhenEditorIsReady(
-                () => !!values.editor && (values.isLocalOnly || !!values.notebook),
+                () =>
+                    (values.isLocalOnly || !!values.notebook) &&
+                    (!!values.editor || isMarkdownNotebookContent(values.content)),
                 () => {
+                    // Markdown notebooks have no node positions — append at the end instead.
+                    const markdownContent = appendContentToMarkdownNotebook(values.content, content)
+                    if (markdownContent) {
+                        actions.setLocalContent(markdownContent)
+                        return
+                    }
+
                     let insertionPosition = knownStartingPosition
                     let nextNode = values.editor?.nextNode(insertionPosition)
                     while (nextNode && values.editor?.hasChildOfType(nextNode.node, nodeType)) {
@@ -1849,6 +1919,9 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.editor) {
                 return
             }
+            if (values.previewContent) {
+                return
+            }
             const jsonContent = values.editor.getJSON()
 
             actions.setLocalContent(jsonContent)
@@ -1903,10 +1976,29 @@ export const notebookLogic = kea<notebookLogicType>([
         saveNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
         },
-        loadNotebookSuccess: () => {
+        loadNotebookSuccess: ({ notebook }) => {
+            if (
+                notebook &&
+                isMarkdownNotebookContent(notebook.content) &&
+                values.localContent &&
+                !isMarkdownNotebookContent(values.localContent)
+            ) {
+                actions.clearLocalContent()
+            }
             actions.scheduleNotebookRefresh()
             actions.maybeLoadComments()
             actions.processPendingMarkdownStreamEvents()
+
+            // `notebook opened` is a human/browser open — capture once per mount. This listener
+            // also runs on every polling refresh (scheduleNotebookRefresh above), so gate on a
+            // per-instance flag; the flag resets on remount, so revisiting counts as a new open.
+            if (!cache.hasCapturedOpen) {
+                const openedEvent = buildNotebookOpenedEvent(values.notebook, values.user, values.isShared)
+                if (openedEvent) {
+                    cache.hasCapturedOpen = true
+                    posthog.capture('notebook opened', openedEvent)
+                }
+            }
         },
         loadNotebookFailure: () => {
             actions.processPendingMarkdownStreamEvents()
@@ -1914,7 +2006,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
         exportJSON: () => {
             const file = new File(
-                [JSON.stringify(values.editor?.getJSON(), null, 2)],
+                [JSON.stringify(values.editor?.getJSON() ?? values.content, null, 2)],
                 `${slugify(values.title ?? 'untitled')}.ph-notebook.json`,
                 { type: 'application/json' }
             )
