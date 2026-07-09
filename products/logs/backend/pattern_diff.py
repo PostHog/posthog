@@ -74,8 +74,11 @@ def diff_patterns(
     current_groups = _group_by_fingerprint(current)
     baseline_groups = _group_by_fingerprint(baseline)
 
-    def above_floor(share: float, pattern: dict) -> bool:
-        return share >= new_min_share or _has_error_severity(pattern)
+    def above_floor(share: float, group: list[dict]) -> bool:
+        # Error severity is checked across every template in the group, not just the
+        # representative: within-run fingerprint collision can bury a genuinely new
+        # error-severity template behind a larger non-error one.
+        return share >= new_min_share or any(_has_error_severity(p) for p in group)
 
     entries = []
     for fingerprint, group in current_groups.items():
@@ -84,7 +87,7 @@ def diff_patterns(
         baseline_group = baseline_groups.get(fingerprint)
 
         if baseline_group is None:
-            entries.append(_entry("new" if above_floor(share, pattern) else "unchanged", pattern))
+            entries.append(_entry("new" if above_floor(share, group) else "unchanged", pattern))
             continue
 
         base_raw, base_estimated, base_share = _group_totals(baseline_group)
@@ -111,7 +114,7 @@ def diff_patterns(
             continue
         pattern = _representative(group)
         _raw, base_estimated, base_share = _group_totals(group)
-        if above_floor(base_share, pattern):
+        if above_floor(base_share, group):
             entries.append(_entry("gone", pattern, baseline_estimated=base_estimated, baseline_share=base_share))
 
     order = {"new": 0, "rate_shift": 1, "gone": 2, "unchanged": 3}

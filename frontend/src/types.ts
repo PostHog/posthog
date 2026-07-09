@@ -79,6 +79,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -4367,12 +4368,6 @@ export interface OrganizationFeatureFlagsCopyBody {
     disable_copied_flag?: boolean
 }
 
-export type OrganizationFeatureFlags = {
-    flag_id: FeatureFlagType['id']
-    team_id: TeamType['id']
-    active: FeatureFlagType['active']
-}[]
-
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',
@@ -4833,6 +4828,12 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    /**
+     * Draft flag config for an unsaved experiment, in the flag's own input shape. Client-only:
+     * `toExperimentWritePayload` extracts it into the `feature_flag` write field and strips it.
+     * Saved experiments read flag config from `feature_flag` (the read projection) instead.
+     */
+    feature_flag_config?: ExperimentFeatureFlagInputApi
     exposure_cohort?: number
     exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
@@ -4846,12 +4847,9 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
-        aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
-        rollout_percentage?: number
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string

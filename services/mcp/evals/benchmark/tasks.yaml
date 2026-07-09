@@ -57,9 +57,8 @@ tasks:
     - id: warehouse-schema-tables
       category: data-schema
       intent: 'What tables are available in our data warehouse, and what columns do they have?'
-      expected_tools: [read-data-warehouse-schema]
-      acceptable_tools: [execute-sql]
-      success_criteria: 'Enumerates warehouse tables with column details.'
+      expected_tools: [execute-sql]
+      success_criteria: 'Enumerates warehouse tables with column details via system.information_schema.'
 
     # --- product-analytics ---------------------------------------------------
     - id: trends-weekly-active-users
