@@ -37,6 +37,16 @@ class TestMetricAPI(APIBaseTest):
         assert Metric.objects.for_team(self.team.id).count() == 1
         assert self.client.get(f"{self.url}mrr/").json()["description"] == "v2"
 
+    def test_refine_via_post_preserves_omitted_definition(self) -> None:
+        definition = {"kind": "HogQLQuery", "query": "select count() from events"}
+        self.client.post(self.url, {"name": "mrr", "description": "v1", "definition": definition}, format="json")
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = self.client.get(f"{self.url}mrr/").json()
+        assert body["description"] == "v2"
+        assert body["definition"]["kind"] == "HogQLQuery"
+        assert body["referenced_table_names"] == ["events"]
+
     def test_name_addressed_detail_routes(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
 

@@ -22,6 +22,17 @@ from ..models import METRIC_NAME_REGEX, Metric
 from .validation import validate_metric_definition
 
 
+class _Unset:
+    """Sentinel for upsert fields the caller did not supply: kept as-is on refine, defaulted on create.
+
+    A plain ``None`` default cannot express this because ``None`` is a legitimate value for
+    ``definition``/``confidence``/``owner`` (an explicit clear), distinct from "not provided".
+    """
+
+
+_UNSET = _Unset()
+
+
 def _canonical_definition(
     definition: Optional[dict], team: Team, user: Optional[User]
 ) -> tuple[Optional[dict], list[str]]:
@@ -48,34 +59,43 @@ def upsert_metric(
     user: Optional[User],
     name: str,
     description: str,
-    display_name: str = "",
-    unit: str = "",
-    owner: Optional[User] = None,
-    definition: Optional[dict] = None,
-    created_source: CreatedSource = CreatedSource.USER,
-    ai_model: str = "",
-    confidence: Optional[float] = None,
-    reasoning: str = "",
+    display_name: str | _Unset = _UNSET,
+    unit: str | _Unset = _UNSET,
+    owner: User | None | _Unset = _UNSET,
+    definition: dict | None | _Unset = _UNSET,
+    created_source: CreatedSource | _Unset = _UNSET,
+    ai_model: str | _Unset = _UNSET,
+    confidence: float | None | _Unset = _UNSET,
+    reasoning: str | _Unset = _UNSET,
 ) -> Metric:
-    """Create a metric, or refine/resurrect the one already holding ``name`` for this team."""
+    """Create a metric, or refine/resurrect the one already holding ``name`` for this team.
+
+    Refine is a partial merge: only the fields the caller supplies are written, so a refine that
+    omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
+    resetting it. On create, omitted fields fall back to the model defaults (``owner`` to ``user``).
+    """
     if not re.match(METRIC_NAME_REGEX, name or ""):
         raise ValidationError(
             {"name": "Name must start with a letter and contain only letters, numbers, and underscores."}
         )
 
-    canonical_def, referenced = _canonical_definition(definition, team, user)
-    fields = {
-        "description": description,
-        "display_name": display_name,
-        "unit": unit,
-        "owner": owner or user,
-        "definition": canonical_def,
-        "referenced_table_names": referenced,
-        "created_source": created_source,
-        "ai_model": ai_model,
-        "confidence": confidence,
-        "reasoning": reasoning,
-    }
+    fields: dict[str, object] = {"description": description}
+    for key, value in (
+        ("display_name", display_name),
+        ("unit", unit),
+        ("owner", owner),
+        ("created_source", created_source),
+        ("ai_model", ai_model),
+        ("confidence", confidence),
+        ("reasoning", reasoning),
+    ):
+        if not isinstance(value, _Unset):
+            fields[key] = value
+
+    if not isinstance(definition, _Unset):
+        canonical_def, referenced = _canonical_definition(definition, team, user)
+        fields["definition"] = canonical_def
+        fields["referenced_table_names"] = referenced
 
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
@@ -87,7 +107,11 @@ def upsert_metric(
                     _resurrect_or_refine(existing, fields)
                     return existing
                 return Metric.objects.for_team(team.id).create(
-                    team=team, name=name, created_by=user, status=MetricStatus.PROPOSED, **fields
+                    team=team,
+                    name=name,
+                    created_by=user,
+                    status=MetricStatus.PROPOSED,
+                    **{"owner": user, **fields},
                 )
         except IntegrityError:
             # A concurrent writer created (team, name) first; refine that row instead of failing.

@@ -15,7 +15,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from ..facade import api
-from ..facade.enums import CreatedSource
 from ..facade.models import Metric
 from .serializers import MetricSerializer
 
@@ -36,18 +35,19 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        # Pass only the fields the client actually sent, so an upsert that refines an existing metric
+        # leaves omitted fields (a stored definition, provenance, ...) untouched rather than resetting them.
+        optional = {
+            key: data[key]
+            for key in ("display_name", "unit", "definition", "created_source", "ai_model", "confidence", "reasoning")
+            if key in data
+        }
         metric = api.upsert_metric(
             team=self.team,
             user=request.user,
             name=data["name"],
             description=data["description"],
-            display_name=data.get("display_name", ""),
-            unit=data.get("unit", ""),
-            definition=data.get("definition"),
-            created_source=data.get("created_source", CreatedSource.USER),
-            ai_model=data.get("ai_model", ""),
-            confidence=data.get("confidence"),
-            reasoning=data.get("reasoning", ""),
+            **optional,
         )
         return Response(self.get_serializer(metric).data, status=status.HTTP_201_CREATED)
 

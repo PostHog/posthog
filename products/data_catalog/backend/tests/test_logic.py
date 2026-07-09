@@ -30,6 +30,20 @@ class TestMetricUpsert(BaseTest):
         assert Metric.objects.for_team(self.team.id).count() == 1
         assert Metric.objects.for_team(self.team.id).get().description == "v2"
 
+    def test_refine_leaves_unspecified_fields_untouched(self) -> None:
+        self._upsert(
+            "mrr",
+            created_source=CreatedSource.AI_GENERATED,
+            ai_model="claude",
+            definition={"kind": "HogQLQuery", "query": "select count() from events"},
+        )
+        refined = self._upsert("mrr", description="v2")
+        assert refined.description == "v2"
+        assert refined.definition["kind"] == "HogQLQuery"
+        assert refined.referenced_table_names == ["events"]
+        assert refined.created_source == CreatedSource.AI_GENERATED
+        assert refined.ai_model == "claude"
+
     def test_upsert_resurrects_soft_deleted_as_proposed(self) -> None:
         metric = self._upsert("mrr")
         Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(status=MetricStatus.APPROVED)
