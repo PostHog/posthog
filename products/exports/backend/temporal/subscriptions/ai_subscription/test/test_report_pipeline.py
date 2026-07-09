@@ -45,8 +45,9 @@ _ALL_FAILED_RUN = (
     ["### s0\n\n_Query failed to run (ExposedHogQLError)_"],
     1,
     [QueryStepDiagnostic("s0", "SELECT bad", False, "ExposedHogQLError")],
+    ["SELECT count() FROM events WHERE {{date_range}}"],
 )
-_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)])
+_OK_RUN = (["### s\n\nok"], 0, [QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)], ["SELECT 1"])
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
@@ -112,6 +113,7 @@ async def test_successful_report_emits_slo_success(
             QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None),
             QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
         ],
+        ["SELECT 1", "SELECT 2"],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
@@ -139,6 +141,7 @@ async def test_degraded_report_still_synthesizes(
         ["### s0\n\n_Query failed to run (ExposedHogQLError) — metric not computed, not empty data._"],
         1,
         [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+        ["SELECT 1"],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
@@ -171,6 +174,7 @@ async def test_synthesis_failure_wrapped_with_stage(
         ["### s0\n\nok"],
         0,
         [QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+        ["SELECT 1"],
     )
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
@@ -225,7 +229,7 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics, _ = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     assert diagnostics[0].ok is False
@@ -263,6 +267,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
         ["### s0\n\nfailed"],
         1,
         [QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError")],
+        ["SELECT 1"],
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
@@ -282,13 +287,17 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics, final_hogql = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None
+    )
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
     # The diagnostic tracks the fixed query (current_hogql), not the original SELECT 1.
     assert diagnostics[0].ok is True
     assert diagnostics[0].hogql == "SELECT fixed"
+    # The freezable form is the post-fix query — freezing the original would re-run the fix every reuse.
+    assert final_hogql == ["SELECT fixed"]
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -300,7 +309,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # degrade rather than burn the retry budget on an identical query.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics, _ = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
@@ -392,7 +401,7 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     # NEITHER LLM pass the live path uses — build_enriched_prompt wraps both the planner and the
     # event-selection model, so asserting it's never called proves both are skipped.
     mock_frozen.return_value = _spec(steps=1)
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)], ["SELECT 1"])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
@@ -417,12 +426,63 @@ async def test_unfrozen_run_returns_plan_to_persist(
     # dict is what build_frozen_prompt validates back on reuse, so this guards the persist↔reuse contract.
     spec = _spec_with_window_placeholder()
     mock_bep.return_value = spec
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        [spec.plan.steps[0].hogql],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.plan_to_persist == {"version": AI_QUERY_PLAN_VERSION, "plan": spec.plan.model_dump()}
+
+
+@pytest.mark.parametrize(
+    "fixed_hogql,expected_frozen_hogql",
+    [
+        # The fix LLM rewrote the step and the rerun succeeded: the frozen plan must carry the post-fix
+        # query, or every reused delivery replays the broken original and re-bills the fix LLM.
+        pytest.param(
+            "SELECT uniq(person_id) FROM events WHERE {{date_range}}",
+            "SELECT uniq(person_id) FROM events WHERE {{date_range}}",
+            id="post_fix_hogql_is_frozen",
+        ),
+        # The fixer stripped the window placeholder: the guard applies to the post-fix text, so nothing
+        # is frozen — freezing it would cement an unbounded scan.
+        pytest.param("SELECT uniq(person_id) FROM events", None, id="fix_without_placeholder_not_frozen"),
+    ],
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_freeze_carries_post_fix_hogql(
+    mock_bep: MagicMock,
+    mock_executor_cls: MagicMock,
+    mock_fix: AsyncMock,
+    mock_chat: MagicMock,
+    _mock_capture: MagicMock,
+    fixed_hogql: str,
+    expected_frozen_hogql: str | None,
+) -> None:
+    mock_bep.return_value = _spec_with_window_placeholder()
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(
+        side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
+    )
+    mock_fix.return_value = fixed_hogql
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    if expected_frozen_hogql is None:
+        assert result.plan_to_persist is None
+    else:
+        assert result.plan_to_persist is not None
+        assert result.plan_to_persist["version"] == AI_QUERY_PLAN_VERSION
+        assert result.plan_to_persist["plan"]["steps"][0]["hogql"] == expected_frozen_hogql
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -500,7 +560,12 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
     # the delivery — otherwise a schema change would auto-disable every frozen subscription.
     mock_bep.return_value = _spec_with_window_placeholder()
-    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_run.return_value = (
+        ["### s0\n\nok"],
+        0,
+        [QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+        ["SELECT count() FROM events WHERE {{date_range}}"],
+    )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(

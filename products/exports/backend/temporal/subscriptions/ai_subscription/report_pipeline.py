@@ -197,7 +197,7 @@ async def generate_ai_report(
             else:
                 spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
                 freshly_planned = True
-            rendered_results, failed_count, diagnostics = await _execute_plan(
+            rendered_results, failed_count, diagnostics, final_step_hogql = await _execute_plan(
                 spec, team, user, window, trace_correlation_id
             )
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
@@ -230,6 +230,7 @@ async def generate_ai_report(
             report = _all_queries_failed_notice(total_steps) + report
         plan_to_persist = _plan_to_freeze(
             spec.plan,
+            final_step_hogql=final_step_hogql,
             freshly_planned=freshly_planned,
             failed_count=failed_count,
             total_steps=total_steps,
@@ -246,6 +247,7 @@ async def generate_ai_report(
 def _plan_to_freeze(
     plan: QueryPlan,
     *,
+    final_step_hogql: list[str],
     freshly_planned: bool,
     failed_count: int,
     total_steps: int,
@@ -257,14 +259,19 @@ def _plan_to_freeze(
         return None
     if total_steps and failed_count >= total_steps:
         return None
-    if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in plan.steps):
+    # Freeze each step's final HogQL (post any fix-LLM rewrite) — freezing the planner's original would
+    # replay the broken query and re-run the fix LLM on every reused delivery.
+    frozen_plan = plan.model_copy(deep=True)
+    for step, final_hogql in zip(frozen_plan.steps, final_step_hogql, strict=True):
+        step.hogql = final_hogql
+    if not all(any(token in step.hogql for token in WINDOW_PLACEHOLDERS) for step in frozen_plan.steps):
         logger.warning(
             "ai_report.plan_missing_window_placeholder_not_frozen",
             trace_correlation_id=trace_correlation_id,
         )
         return None
     # Versioned envelope: bumping AI_QUERY_PLAN_VERSION lazily re-plans every frozen subscription.
-    return {"version": AI_QUERY_PLAN_VERSION, "plan": plan.model_dump()}
+    return {"version": AI_QUERY_PLAN_VERSION, "plan": frozen_plan.model_dump()}
 
 
 async def _plan(
@@ -306,7 +313,7 @@ async def _execute_plan(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic], list[str]]:
     try:
         return await _run_steps(spec, team, user, window, trace_correlation_id)
     except Exception as exc:
@@ -376,7 +383,7 @@ async def _run_steps(
     user: User,
     window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
-) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
+) -> tuple[list[str], int, list[QueryStepDiagnostic], list[str]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
     # Cap simultaneous ClickHouse scans per report; excess steps queue until a slot frees.
     step_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_STEPS)
@@ -388,10 +395,12 @@ async def _run_steps(
         max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
     )
 
-    async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+    async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic, str]:
         # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
         # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
+        # The third element is the window-agnostic HogQL the caller should freeze: the post-fix form for a
+        # step that succeeded, the planner's original for a step that failed (so a broken rewrite isn't kept).
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope
@@ -410,6 +419,7 @@ async def _run_steps(
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
                     QueryStepDiagnostic(description=safe_description, hogql=executable_hogql, ok=True, error_type=None),
+                    current_hogql,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -458,18 +468,20 @@ async def _run_steps(
                 error_type=type_name,
                 human_readable_error=_safe_error_message(last_exc) if last_exc is not None else None,
             ),
+            step.hogql,
         )
 
-    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+    async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic, str]:
         # Hold a slot for the whole step (query + any fix/rerun) so concurrent ClickHouse load stays bounded.
         async with step_semaphore:
             return await run_step(step)
 
     step_results = await asyncio.gather(*(run_step_bounded(step) for step in spec.plan.steps))
-    rendered = [text for text, _ in step_results]
-    diagnostics = [diag for _, diag in step_results]
+    rendered = [text for text, _, _ in step_results]
+    diagnostics = [diag for _, diag, _ in step_results]
+    final_hogql = [hogql for _, _, hogql in step_results]
     failed_count = sum(1 for diag in diagnostics if not diag.ok)
-    return rendered, failed_count, diagnostics
+    return rendered, failed_count, diagnostics, final_hogql
 
 
 async def _arequest_hogql_fix(
