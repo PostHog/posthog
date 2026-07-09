@@ -14,7 +14,6 @@ import type {
     PatchedSubscriptionApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
-    SubscriptionPreviewDispatchApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     SubscriptionsSummaryQuotaRetrieve200,
@@ -143,21 +142,6 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getSubscriptionsPreviewCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/subscriptions/${id}/preview/`
-}
-
-export const subscriptionsPreviewCreate = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<SubscriptionPreviewDispatchApi> => {
-    return apiMutator<SubscriptionPreviewDispatchApi>(getSubscriptionsPreviewCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 

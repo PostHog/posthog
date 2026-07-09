@@ -174,9 +174,6 @@ tools:
             - resource_name
             - insight_short_id
             - invite_message
-    subscriptions-preview-create:
-        operation: subscriptions_preview_create
-        enabled: false
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

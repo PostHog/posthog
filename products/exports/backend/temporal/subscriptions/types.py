@@ -49,7 +49,6 @@ class SubscriptionTriggerType:
     SCHEDULED = "scheduled"  # Regular cron-based delivery
     TARGET_CHANGE = "target_change"  # Target changed (previous_value is the old target)
     MANUAL = "manual"  # User clicked "Test delivery"
-    PREVIEW = "preview"  # In-app preview run: generates the report, never delivers
 
 
 @dataclasses.dataclass
@@ -168,20 +167,14 @@ class DeliverSubscriptionResult:
 
 
 @dataclasses.dataclass
-class PreviewAISubscriptionWorkflowInputs:
-    """Inputs for the one-off preview workflow. The API pre-creates the delivery row
-    (so it can return the id for polling) and passes it here."""
-
-    subscription_id: int
-    delivery_id: uuid.UUID
-
-
-@dataclasses.dataclass
 class GenerateAIReportInputs:
     subscription_id: int
     # The report markdown is written onto this SubscriptionDelivery row rather than
     # returned on the wire — it can exceed Temporal's ~2 MiB payload cap.
     delivery_id: uuid.UUID
+    # Manual runs ("Test delivery") never auto-disable the subscription on terminal failures —
+    # the owner is actively debugging it, and disabling mid-iteration fights them.
+    trigger_type: str = SubscriptionTriggerType.SCHEDULED
 
 
 @dataclasses.dataclass

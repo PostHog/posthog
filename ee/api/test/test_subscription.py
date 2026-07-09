@@ -2897,67 +2897,6 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    def test_preview_dispatches_workflow_and_returns_delivery_id(self, mock_is_cloud, mock_flag, mock_sync):
-        # Preview is async: 202 + a delivery row id to poll, one preview workflow dispatched, and no
-        # delivery workflow ("handle-subscription-value-change") anywhere in sight.
-        mock_client = self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for("ai_prompt")
-        mock_client.start_workflow.reset_mock()  # ignore the create-time workflow
-
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        delivery = SubscriptionDelivery.objects.get(pk=response.json()["delivery_id"])
-        assert delivery.trigger_type == "preview"
-        assert delivery.status == SubscriptionDelivery.Status.STARTING
-        assert delivery.temporal_workflow_id == f"preview-ai-subscription-{sub_id}"
-        mock_client.start_workflow.assert_awaited_once()
-        call = mock_client.start_workflow.await_args
-        assert call.args[0] == "preview-ai-subscription"
-        assert call.args[1].delivery_id == delivery.id
-        assert call.kwargs["id"] == f"preview-ai-subscription-{sub_id}"
-
-    @parameterized.expand(
-        [
-            ("already_running", WorkflowAlreadyStartedError("wf", "preview-ai-subscription"), status.HTTP_409_CONFLICT),
-            ("dispatch_error", RuntimeError("temporal down"), status.HTTP_500_INTERNAL_SERVER_ERROR),
-        ]
-    )
-    def test_preview_dispatch_failure_deletes_pending_delivery_row(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, dispatch_error, expected_status
-    ):
-        # A failed dispatch must not leave an orphaned "starting" row behind — the frontend would poll
-        # it forever and the history would show a run that never existed.
-        mock_client = self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for("ai_prompt")
-        mock_client.start_workflow.side_effect = dispatch_error
-
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
-
-        assert response.status_code == expected_status, response.json()
-        assert not SubscriptionDelivery.objects.filter(subscription_id=sub_id, trigger_type="preview").exists()
-
-    @parameterized.expand(
-        [
-            ("deleted", "ai_prompt", "deleted", status.HTTP_404_NOT_FOUND),
-            ("non_ai", "insight", None, status.HTTP_400_BAD_REQUEST),
-            ("no_query_access", "ai_prompt", "restrict_query_access", status.HTTP_403_FORBIDDEN),
-        ]
-    )
-    def test_preview_guards(self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, setup, expected_status):
-        mock_client = self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for(resource_kind)
-        if setup == "deleted":
-            Subscription.objects.filter(pk=sub_id).update(deleted=True)
-        elif setup == "restrict_query_access":
-            self._restrict_query_access()
-        mock_client.start_workflow.reset_mock()
-
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
-
-        assert response.status_code == expected_status, response.json()
-        mock_client.start_workflow.assert_not_awaited()
-
     def test_query_plan_readable_for_query_viewer(self, mock_is_cloud, mock_flag, mock_sync):
         # Seed the DB with the pipeline's envelope; the API must serve the unwrapped bare plan —
         # the frontend editor reads .steps directly and never sees the {version, plan} internals.

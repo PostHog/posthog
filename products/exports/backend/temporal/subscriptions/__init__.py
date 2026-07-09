@@ -7,14 +7,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
-    generate_ai_subscription_preview,
-    generate_ai_subscription_report,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
-    PreviewAISubscriptionWorkflow,
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
@@ -25,7 +21,6 @@ WORKFLOWS = [
     HandleSubscriptionValueChangeWorkflow,
     ProcessSubscriptionWorkflow,
     ProcessAISubscriptionWorkflow,
-    PreviewAISubscriptionWorkflow,
 ]
 
 ACTIVITIES = [
@@ -34,7 +29,6 @@ ACTIVITIES = [
     create_export_assets,
     deliver_subscription,
     generate_ai_subscription_report,
-    generate_ai_subscription_preview,
     advance_next_delivery_date,
     create_delivery_record,
     update_delivery_record,

@@ -13,9 +13,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     subscriptionsDeliveriesList,
-    subscriptionsDeliveriesRetrieve,
     subscriptionsPartialUpdate,
-    subscriptionsPreviewCreate,
     subscriptionsRetrieve,
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
@@ -23,7 +21,6 @@ import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
     SubscriptionApiAiQueryPlan,
-    SubscriptionDeliveryApi,
     SubscriptionsDeliveriesListStatus,
 } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -42,10 +39,6 @@ export const FEEDBACK_THANKS_DISPLAY_MS = 1000
 
 export type QueryPlan = NonNullable<SubscriptionApiAiQueryPlan>
 export type QueryPlanStep = QueryPlan['steps'][number]
-
-export const PREVIEW_POLL_INTERVAL_MS = 2000
-// Matches the preview workflow's generate-activity cap; past this the row will never leave "starting".
-export const PREVIEW_POLL_TIMEOUT_MS = 10 * 60 * 1000
 
 // The window placeholders the backend substitutes at run time (spec_generator.render_window_filter)
 // aren't valid HogQL, so the plan editor validates against a copy with these stand-ins. Each stand-in
@@ -144,16 +137,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 regeneratePlanSuccess: () => ({}),
             },
         ],
-        // A preview rendered from a plan that no longer exists (regenerated) or just changed (saved)
-        // is misleading; so is a stale one lingering after a failed run. Clear it in all three cases.
-        preview: [
-            null as SubscriptionDeliveryApi | null,
-            {
-                previewSubscriptionFailure: () => null,
-                saveQueryPlanSuccess: () => null,
-                regeneratePlanSuccess: () => null,
-            },
-        ],
     }),
     loaders(({ values, props }) => ({
         subscription: [
@@ -198,38 +181,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                     return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, {
                         ai_query_plan: null,
                     })
-                },
-            },
-        ],
-        preview: [
-            null as SubscriptionDeliveryApi | null,
-            {
-                clearPreview: () => null,
-                // Preview runs in the background: dispatch returns the delivery row id, then poll that
-                // row until the workflow finishes (same DB-row polling pattern as exported assets).
-                previewSubscription: async (_: void, breakpoint) => {
-                    const numericId = parseInt(props.id, 10)
-                    if (!Number.isFinite(numericId)) {
-                        return null
-                    }
-                    const teamId = String(getCurrentTeamId())
-                    const { delivery_id } = await subscriptionsPreviewCreate(teamId, numericId)
-                    const deadline = Date.now() + PREVIEW_POLL_TIMEOUT_MS
-                    while (true) {
-                        await breakpoint(PREVIEW_POLL_INTERVAL_MS)
-                        const delivery = await subscriptionsDeliveriesRetrieve(teamId, numericId, delivery_id)
-                        if (delivery.status !== 'starting') {
-                            if (delivery.status === 'failed' && !delivery.ai_report) {
-                                const message = (delivery.error as { message?: unknown } | null)?.message
-                                throw new Error(typeof message === 'string' ? message : 'Preview failed')
-                            }
-                            // A failed-but-degraded run still carries the report + diagnostics — render it.
-                            return delivery
-                        }
-                        if (Date.now() > deadline) {
-                            throw new Error('Preview timed out')
-                        }
-                    }
                 },
             },
         ],
@@ -374,15 +325,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         regeneratePlanFailure: ({ errorObject }) => {
             const detail = errorObject?.detail
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not regenerate plan')
-        },
-        // Refresh the history table so the preview run shows up there too.
-        previewSubscriptionSuccess: () => {
-            void actions.loadDeliveriesPage(null)
-        },
-        previewSubscriptionFailure: ({ errorObject }) => {
-            const detail = errorObject?.detail
-            const message = errorObject instanceof Error ? errorObject.message : undefined
-            lemonToast.error(typeof detail === 'string' ? detail : (message ?? 'Could not generate preview'))
         },
         saveQueryPlanSuccess: () => {
             lemonToast.success('Query plan saved')

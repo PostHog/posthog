@@ -18,7 +18,6 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     build_ai_subscription_report,
-    preview_ai_subscription_report,
     send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
@@ -40,6 +39,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     GenerateAIReportInputs,
     GenerateAIReportResult,
     RecipientResult,
+    SubscriptionTriggerType,
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
@@ -223,10 +223,28 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             query_error_types=error_types,
         )
 
+    # Auto-disable exists to stop a broken sub re-firing every schedule tick; a manual "Test
+    # delivery" is the owner actively debugging — disabling under them fights the iteration loop.
+    is_manual_run = inputs.trigger_type == SubscriptionTriggerType.MANUAL
+
     # Consent is gated once here, before any LLM cost — creation-time gates don't catch an
     # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
     if not subscription.team.organization.is_ai_data_processing_approved:
         LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
+        if is_manual_run:
+            return GenerateAIReportResult(
+                aborted=True,
+                recipient_results=[
+                    RecipientResult(
+                        recipient=subscription.target_value,
+                        status="failed",
+                        error={
+                            "message": AI_CONSENT_REVOKED_DISABLE_REASON.description,
+                            "type": "ConsentRevoked",
+                        },
+                    )
+                ],
+            )
         aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
 
@@ -288,6 +306,8 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
                 error={"message": str(exc), "type": "PromptRejectedError"},
             )
         ]
+        if is_manual_run:
+            return GenerateAIReportResult(aborted=True, recipient_results=recipient_results)
         aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
 
@@ -298,43 +318,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         failed_step_count=failed_count,
         total_step_count=total_count,
         query_error_types=error_types,
-    )
-
-
-@temporalio.activity.defn
-async def generate_ai_subscription_preview(inputs: GenerateAIReportInputs) -> GenerateAIReportResult:
-    # Preview counterpart of generate_ai_subscription_report: same generation pipeline, but strictly
-    # side-effect-free on the subscription — no auto-disable, no credit-based reschedule, no plan
-    # persistence. Terminal conditions raise non-retryable so the workflow records FAILED with the
-    # reason instead of mutating the subscription the owner is actively debugging.
-    # Idempotency on Temporal redispatch: a prior attempt's report means the LLM already ran — don't re-bill.
-    snapshot = await _load_snapshot(inputs.delivery_id)
-    if _snapshot_report(snapshot) is not None:
-        await LOGGER.ainfo("generate_ai_subscription_preview.already_generated", subscription_id=inputs.subscription_id)
-        failed_count, total_count, error_types = _snapshot_diagnostic_counts(snapshot)
-        return GenerateAIReportResult(
-            failed_step_count=failed_count, total_step_count=total_count, query_error_types=error_types
-        )
-
-    subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "team", "team__organization").get,
-        thread_sensitive=False,
-    )(pk=inputs.subscription_id)
-
-    if not subscription.team.organization.is_ai_data_processing_approved:
-        raise ApplicationError("AI data processing consent has been revoked for this organization.", non_retryable=True)
-
-    try:
-        report_result = await preview_ai_subscription_report(subscription)
-    except PromptRejectedError as exc:
-        # Structurally permanent (no creator, prompt fails sanitization, malformed stored plan) —
-        # retrying just re-bills the LLM for the same rejection.
-        raise ApplicationError(str(exc), non_retryable=True) from exc
-
-    await _persist_ai_report(inputs.delivery_id, report_result, subscription.prompt)
-    failed_count, total_count, error_types = _report_diagnostic_counts(report_result)
-    return GenerateAIReportResult(
-        failed_step_count=failed_count, total_step_count=total_count, query_error_types=error_types
     )
 
 

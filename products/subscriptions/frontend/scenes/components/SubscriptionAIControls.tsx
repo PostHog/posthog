@@ -2,44 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCollapse, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 
 import { subscriptionSceneLogic, substituteWindowPlaceholders } from '../subscriptionSceneLogic'
 import type { QueryPlanStep } from '../subscriptionSceneLogic'
-import { GeneratedQueries } from './SubscriptionAiReportDelivery'
-
-/** The report a preview run produced, plus its per-step generated queries — rendered from the preview's
- * delivery row (same shape the history viewer uses), never sent to recipients. */
-function PreviewResult(): JSX.Element | null {
-    const { preview } = useValues(subscriptionSceneLogic)
-    const { clearPreview } = useActions(subscriptionSceneLogic)
-    if (!preview) {
-        return null
-    }
-    const diagnostics = preview.ai_report_diagnostics ?? []
-    return (
-        <div className="flex flex-col gap-4 rounded border p-3">
-            <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
-                    Preview (not delivered)
-                </div>
-                <LemonButton
-                    type="tertiary"
-                    size="xsmall"
-                    onClick={clearPreview}
-                    data-attr="subscription-clear-preview"
-                >
-                    Clear preview
-                </LemonButton>
-            </div>
-            <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
-                <LemonMarkdown>{preview.ai_report || '_No report content was generated._'}</LemonMarkdown>
-            </div>
-            {diagnostics.length > 0 ? <GeneratedQueries diagnostics={diagnostics} /> : null}
-        </div>
-    )
-}
 
 /** View + edit the frozen query plan: each step's description (read-only) and HogQL (editable, with
  * Monaco HogQL highlighting; validation runs against a placeholder-substituted copy of the text). */
@@ -105,13 +71,13 @@ function FrozenQueryPlanEditor({ steps }: { steps: QueryPlanStep[] }): JSX.Eleme
 }
 
 /**
- * Owner controls for an AI (prompt) subscription's frozen query plan: preview what would be delivered
- * (without sending), regenerate the plan from the prompt (clearing the frozen one), and view/edit the
- * frozen queries.
+ * Owner controls for an AI (prompt) subscription's frozen query plan: regenerate the plan from the
+ * prompt (clearing the frozen one) and view/edit the frozen queries. Verify changes with a test
+ * delivery — the report (and its generated queries) lands in the delivery history below.
  */
 export function SubscriptionAIControls(): JSX.Element {
-    const { subscription, previewLoading, subscriptionLoading } = useValues(subscriptionSceneLogic)
-    const { previewSubscription, regeneratePlan } = useActions(subscriptionSceneLogic)
+    const { subscription, subscriptionLoading } = useValues(subscriptionSceneLogic)
+    const { regeneratePlan } = useActions(subscriptionSceneLogic)
 
     const steps = subscription?.ai_query_plan?.steps ?? []
 
@@ -139,16 +105,6 @@ export function SubscriptionAIControls(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             size="small"
-                            onClick={() => previewSubscription()}
-                            loading={previewLoading}
-                            disabledReason={previewLoading ? 'Generating preview…' : null}
-                            data-attr="subscription-preview"
-                        >
-                            Preview
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
                             onClick={confirmRegenerate}
                             loading={subscriptionLoading}
                             disabledReason={subscriptionLoading ? 'Working…' : null}
@@ -159,11 +115,10 @@ export function SubscriptionAIControls(): JSX.Element {
                     </div>
                 </div>
                 <p className="text-sm text-secondary m-0">
-                    Preview generates the report in the background and shows what would be delivered without sending it
-                    (this can take a couple of minutes). Regenerate plan discards the frozen plan so the next report is
-                    planned fresh from your prompt.
+                    Regenerate plan discards the frozen plan so the next report is planned fresh from your prompt. Use a
+                    test delivery to see the resulting report — it sends to the configured recipients and appears in the
+                    history below with its generated queries.
                 </p>
-                <PreviewResult />
                 {steps.length > 0 ? (
                     <div className="flex flex-col gap-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-secondary">

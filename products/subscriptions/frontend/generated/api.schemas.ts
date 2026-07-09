@@ -498,11 +498,6 @@ export interface PatchedSubscriptionApi {
     ai_query_plan?: PatchedSubscriptionApiAiQueryPlan
 }
 
-export interface SubscriptionPreviewDispatchApi {
-    /** The SubscriptionDelivery row the preview report will land on; poll it for the result. */
-    delivery_id: string
-}
-
 /**
  * * `starting` - Starting
  * * `completed` - Completed

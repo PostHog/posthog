@@ -38,7 +38,7 @@ from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.rate_limit import SubscriptionPreviewThrottle, SubscriptionTestDeliveryThrottle
+from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -58,12 +58,10 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     sanitize_prompt,
 )
-from products.exports.backend.temporal.subscriptions.insight_snapshot import build_initial_content_snapshot
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
-    PreviewAISubscriptionWorkflowInputs,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -1034,15 +1032,6 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     )
 
 
-class SubscriptionPreviewDispatchSerializer(serializers.Serializer):
-    # Response shape for the preview action: the workflow runs in the background and writes the report
-    # onto this delivery row (trigger_type=preview, never sent to recipients). Poll it via the
-    # deliveries endpoint until status leaves "starting".
-    delivery_id = serializers.UUIDField(
-        help_text="The SubscriptionDelivery row the preview report will land on; poll it for the result."
-    )
-
-
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1135,7 +1124,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
-        # Existing subscription (update / test-delivery / preview): resolve its kind by pk, team-scoped.
+        # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         # Body-less POST actions never carry a prompt key, so they deliberately fall through to here.
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
@@ -1308,95 +1297,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         )
 
         return Response(status=status.HTTP_202_ACCEPTED)
-
-    @extend_schema(
-        request=None,
-        responses={
-            202: SubscriptionPreviewDispatchSerializer,
-            400: OpenApiResponse(description="Subscription is not an AI prompt subscription"),
-            409: OpenApiResponse(description="A preview is already running for this subscription"),
-        },
-    )
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="preview",
-        throttle_classes=[SubscriptionPreviewThrottle],
-        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions also require
-        # query:read (preview runs the AI HogQL pipeline). A static required_scopes would short-circuit it.
-    )
-    def preview(self, request, **kwargs):
-        # Dispatch a one-off Temporal workflow that generates the report WITHOUT delivering: no send
-        # function is reachable from the preview workflow and the freshly-planned plan is deliberately
-        # not persisted. The result lands on a SubscriptionDelivery row (trigger_type=preview) that the
-        # caller polls via the deliveries endpoint — same shape the delivery history viewer renders.
-        # A disabled subscription can still be previewed: nothing is sent, and previewing is the natural
-        # way to debug it before re-enabling.
-        subscription = self.get_object()
-        if subscription.deleted:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        if not subscription.prompt:  # get_object() is already team-scoped; AI subs are prompt-backed
-            return Response(
-                {"detail": "Only AI prompt subscriptions can be previewed."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Deterministic workflow id (no run suffix): a concurrent second preview collides with
-        # WorkflowAlreadyStartedError → 409, mirroring test_delivery.
-        workflow_id = f"preview-ai-subscription-{subscription.id}"
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=subscription,
-            team_id=subscription.team_id,
-            temporal_workflow_id=workflow_id,
-            idempotency_key=f"preview-{uuid.uuid4()}",
-            trigger_type=SubscriptionTriggerType.PREVIEW,
-            target_type=subscription.target_type,
-            target_value=subscription.target_value,
-            content_snapshot=build_initial_content_snapshot(subscription),
-            status=SubscriptionDelivery.Status.STARTING,
-        )
-        try:
-            temporal = sync_connect()
-            asyncio.run(
-                temporal.start_workflow(
-                    "preview-ai-subscription",
-                    PreviewAISubscriptionWorkflowInputs(
-                        subscription_id=subscription.id,
-                        delivery_id=delivery.id,
-                    ),
-                    id=workflow_id,
-                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                )
-            )
-        except WorkflowAlreadyStartedError:
-            delivery.delete()
-            return Response(
-                {"detail": "A preview is already running for this subscription"},
-                status=status.HTTP_409_CONFLICT,
-            )
-        except Exception as e:
-            delivery.delete()
-            capture_exception(e)
-            return Response(
-                {"detail": "Failed to schedule preview"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
-            event="subscription_preview_scheduled",
-            properties={
-                **get_request_analytics_properties(request),
-                "subscription_id": subscription.id,
-                "team_id": subscription.team_id,
-                "temporal_workflow_id": workflow_id,
-            },
-            groups=groups(None, subscription.team),
-        )
-        return Response(
-            SubscriptionPreviewDispatchSerializer({"delivery_id": delivery.id}).data,
-            status=status.HTTP_202_ACCEPTED,
-        )
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):

@@ -16,7 +16,6 @@ import {
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import {
-    PREVIEW_POLL_INTERVAL_MS,
     WINDOW_PLACEHOLDER_STAND_INS,
     subscriptionSceneLogic,
     substituteWindowPlaceholders,
@@ -351,104 +350,6 @@ describe('subscriptionSceneLogic', () => {
         captureSpy.mockRestore()
     })
 
-    it('dispatches a preview and polls the delivery row until it finishes', async () => {
-        const startingRow = { id: 'd-prev', status: 'starting', ai_report: null, ai_report_diagnostics: null }
-        const completedRow = {
-            id: 'd-prev',
-            status: 'completed',
-            ai_report: '# Weekly report',
-            ai_report_diagnostics: [{ description: 'Daily signups', hogql: 'SELECT 1', ok: true, error_type: null }],
-        }
-        let previewCalls = 0
-        let pollCalls = 0
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
-                    200,
-                    { results: [], next: null, previous: null },
-                ],
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/d-prev/`]: () => {
-                    pollCalls += 1
-                    return [200, pollCalls === 1 ? startingRow : completedRow]
-                },
-            },
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/preview/`]: () => {
-                    previewCalls += 1
-                    return [202, { delivery_id: 'd-prev' }]
-                },
-            },
-        })
-        initKeaTests()
-
-        const logic = subscriptionSceneLogic({ id: '3' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        // Fake timers so the poll's breakpoint delays are driven by the test, not real time.
-        jest.useFakeTimers()
-        logic.actions.previewSubscription()
-        await jest.advanceTimersByTimeAsync(0)
-        for (let i = 0; i < 2; i++) {
-            await jest.advanceTimersByTimeAsync(PREVIEW_POLL_INTERVAL_MS)
-        }
-        jest.useRealTimers()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(previewCalls).toEqual(1)
-        expect(pollCalls).toEqual(2)
-        expect(logic.values.preview?.ai_report).toEqual('# Weekly report')
-        expect(logic.values.previewLoading).toBe(false)
-
-        await expectLogic(logic, () => {
-            logic.actions.clearPreview()
-        }).toFinishAllListeners()
-        expect(logic.values.preview).toBeNull()
-
-        logic.unmount()
-    })
-
-    it('clears the preview when the preview run fails', async () => {
-        const failedRow = {
-            id: 'd-prev',
-            status: 'failed',
-            ai_report: null,
-            ai_report_diagnostics: null,
-            error: { message: 'The prompt was rejected', type: 'PreviewFailed' },
-        }
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
-                    200,
-                    { results: [], next: null, previous: null },
-                ],
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/d-prev/`]: () => [200, failedRow],
-            },
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/preview/`]: () => [202, { delivery_id: 'd-prev' }],
-            },
-        })
-        initKeaTests()
-
-        const logic = subscriptionSceneLogic({ id: '3' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        jest.useFakeTimers()
-        logic.actions.previewSubscription()
-        await jest.advanceTimersByTimeAsync(0)
-        await jest.advanceTimersByTimeAsync(PREVIEW_POLL_INTERVAL_MS)
-        jest.useRealTimers()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.preview).toBeNull()
-        expect(logic.values.previewLoading).toBe(false)
-
-        logic.unmount()
-    })
-
     it('applies pending query-plan edits and saves them, resetting the editor', async () => {
         let savedBody: any = null
         useMocks({
@@ -528,9 +429,8 @@ describe('subscriptionSceneLogic', () => {
         }).toFinishAllListeners()
         expect(patchBody).toEqual({ ai_query_plan: null })
         expect(logic.values.subscription?.ai_query_plan).toBeNull()
-        // A regenerated plan invalidates pending edits and any rendered preview.
+        // A regenerated plan invalidates pending edits.
         expect(logic.values.queryPlanEdits).toEqual({})
-        expect(logic.values.preview).toBeNull()
 
         logic.unmount()
     })

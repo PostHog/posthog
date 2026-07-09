@@ -172,7 +172,7 @@ def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | Non
     Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
-async def build_ai_subscription_report(subscription: Subscription, *, persist_plan: bool = True) -> AiReportResult:
+async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False
     )(subscription)
@@ -189,7 +189,7 @@ async def build_ai_subscription_report(subscription: Subscription, *, persist_pl
         trace_correlation_id=subscription.id,
     )
 
-    if persist_plan and result.plan_to_persist is not None:
+    if result.plan_to_persist is not None:
         try:
             await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
                 subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
@@ -206,18 +206,6 @@ async def build_ai_subscription_report(subscription: Subscription, *, persist_pl
             capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
 
     return result
-
-
-async def preview_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    """Run the AI report generation pipeline for a preview — no delivery, no persistence.
-
-    Same generation path as `build_ai_subscription_report` but deliberately side-effect-free on the
-    subscription: it never persists the freshly-planned `ai_query_plan` (the query_plan API field is
-    the explicit write path) and the caller never invokes a send function. The returned report
-    markdown + per-step diagnostics let an owner see what the subscription would produce — including
-    the generated HogQL — without emailing/Slacking anyone.
-    """
-    return await build_ai_subscription_report(subscription, persist_plan=False)
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
@@ -376,7 +364,6 @@ async def send_slack_ai_subscription_report(
 
 __all__ = [
     "build_ai_subscription_report",
-    "preview_ai_subscription_report",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",

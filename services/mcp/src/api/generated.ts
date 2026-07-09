@@ -53589,11 +53589,6 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
-    export interface SubscriptionPreviewDispatch {
-      /** The SubscriptionDelivery row the preview report will land on; poll it for the result. */
-      delivery_id: string;
-    }
-
     /**
      * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
      */
