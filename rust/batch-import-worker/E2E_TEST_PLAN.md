@@ -4,14 +4,13 @@ A phased plan for end-to-end tests of the batch import worker against realistic 
 Each phase is independently landable and sized for a single agent session.
 Work through phases in order; within a phase, work items are ordered by dependency.
 
-## Motivation: the incident this must catch
+## Motivation: the failure class this must catch
 
-A production Mixpanel import (job `019f423a-dd29-0000-9f90-6903f3a08269`, prod-US, 2026-07-08) paused with
-`Invalid JSON syntax ... expected value at line 1 column 1` at byte 0 of a chunk at offset 8,999,445.
-The customer's data was fine. Root cause:
+A Mixpanel import paused with `Invalid JSON syntax ... expected value at line 1 column 1` at byte 0 of a chunk several MB into a day's part.
+The source data was fine. Root cause:
 
-1. The worker downloaded day `2022-01-24` from Mixpanel's export API (61,637,636 compressed bytes), parsed the first ~9 MB chunk, and committed `current_offset: 8999445`.
-2. A deploy replaced the pod mid-part. The new pod re-downloaded the same day and got a **different byte stream** (61,923,426 bytes; a third attempt got 61,921,537). Mixpanel's export output is not byte-stable between calls (event ordering shifts, late data arrives).
+1. The worker downloaded one day from Mixpanel's export API, parsed the first chunk, and committed the consumed decompressed-byte offset.
+2. A deploy replaced the pod mid-part. The new pod re-downloaded the same day and got a **different byte stream** (repeat downloads of the same range returned different compressed sizes each time). Mixpanel's export output is not byte-stable between calls (event ordering shifts, late data arrives).
 3. The saved offset, valid only for download #1's stream, landed mid-line in download #2. The first "line" of the chunk was a JSON fragment, so parsing failed at byte 0.
 
 The failure mode family: **decompressed-byte offsets are only meaningful against the exact byte stream they were committed against**.
