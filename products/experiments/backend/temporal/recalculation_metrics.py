@@ -50,7 +50,7 @@ EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS = [
 
 # Schedule-to-start latency is the queue-pressure signal: how long an activity sat in the task queue before
 # a worker picked it up. Buckets reach 30m (vs 5m for execution latency) because queue wait under backlog is
-# unbounded by the activity timeout — it's exactly the regime this histogram exists to observe.
+# unbounded by the activity timeout; that is exactly the regime this histogram exists to observe.
 EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS = (
     "experiment_metrics_recalculation_activity_schedule_to_start_latency",
 )
