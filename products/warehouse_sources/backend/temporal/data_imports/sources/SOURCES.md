@@ -331,6 +331,7 @@ the row lists both.
 | teamtailor              | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| testrail                | HTTP                        | requests                                                        | ✅                          |
 | thinkific               | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | tmdb                    | HTTP                        | requests                                                        | ✅                          |
@@ -693,7 +694,6 @@ doesn't conflict with concurrent PRs.
 - tawk_to
 - teachable
 - tempo
-- testrail
 - thinkific_courses
 - thrive_learning
 - ticketmaster

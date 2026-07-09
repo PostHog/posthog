@@ -3289,7 +3289,9 @@ class TemporalIOSourceConfig(config.Config):
 
 @config.config
 class TestrailSourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    api_key: str
 
 
 @config.config
