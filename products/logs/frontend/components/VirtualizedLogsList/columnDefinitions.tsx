@@ -11,11 +11,17 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
+import {
+    LOGS_COLUMN_REGISTRY,
+    LogsColumnConfig,
+    columnLabel,
+} from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
 import { MessageCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/MessageCell'
 import {
     CHECKBOX_WIDTH,
+    DEFAULT_ATTRIBUTE_COLUMN_WIDTH,
     EXPAND_WIDTH,
     MESSAGE_MIN_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
@@ -185,44 +191,63 @@ export function createTimestampColumn(params: {
     }
 }
 
-export function createAttributeColumn(params: {
-    attributeKey: string
-    width: number
-    onResize?: (attributeKey: string, width: number) => void
-    onRemove?: (attributeKey: string) => void
-    onMove?: (attributeKey: string, direction: 'left' | 'right') => void
+export interface ConfiguredColumnCallbacks {
+    onResize?: (id: string, width: number) => void
+    onRemove?: (id: string) => void
+    onMove?: (id: string, direction: 'left' | 'right') => void
+}
+
+/** Read a server-computed custom column value off the raw row by its canonical alias. */
+function customColumnValue(log: ParsedLogMessage, alias: string | undefined): string {
+    if (!alias) {
+        return ''
+    }
+    const value = (log.originalLog as unknown as Record<string, unknown>)[alias]
+    return value == null ? '' : String(value)
+}
+
+/**
+ * Generic resizable column driven by a LogsColumnConfig: built-in types resolve client-side
+ * from row fields via the registry; custom columns read the server-computed value keyed by
+ * `alias`. Custom values render through AttributeCell so the special-case renderers
+ * (PersonDisplay for distinct-id keys, ViewRecordingButton for session-id keys) keep working.
+ */
+export function createConfiguredColumn(params: {
+    config: LogsColumnConfig
+    alias?: string
+    callbacks: ConfiguredColumnCallbacks
     isFirst: boolean
     isLast: boolean
 }): VirtualizedTableColumn<ParsedLogMessage> {
-    const { attributeKey, width, onResize, onRemove, onMove, isFirst, isLast } = params
+    const { config, alias, callbacks, isFirst, isLast } = params
+    const { onResize, onRemove, onMove } = callbacks
+    const title = columnLabel(config)
+    const width = config.width ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
     const totalWidth = width + RESIZER_HANDLE_WIDTH
 
+    const semanticKey = config.type === 'custom' ? (config.name ?? config.expression ?? '') : config.type
+    const getValue =
+        config.type === 'custom'
+            ? (log: ParsedLogMessage): string => customColumnValue(log, alias)
+            : LOGS_COLUMN_REGISTRY[config.type].getValue
+
     return {
-        key: `attr:${attributeKey}`,
-        title: attributeKey,
+        key: `col:${config.id}`,
+        title,
         sizing: { type: 'resizable', width, minWidth: MIN_ATTRIBUTE_COLUMN_WIDTH },
-        render: (log) => {
-            const attrValue = log.attributes[attributeKey] ?? log.resource_attributes[attributeKey]
-            return (
-                <AttributeCell
-                    attributeKey={attributeKey}
-                    value={attrValue != null ? String(attrValue) : ''}
-                    width={totalWidth}
-                />
-            )
-        },
+        render: (log) => <AttributeCell attributeKey={semanticKey} value={getValue(log)} width={totalWidth} />,
         renderHeader: () => (
             <ResizableElement
                 defaultWidth={totalWidth}
                 minWidth={MIN_ATTRIBUTE_COLUMN_WIDTH + RESIZER_HANDLE_WIDTH}
                 maxWidth={Infinity}
-                onResize={(newWidth) => onResize?.(attributeKey, newWidth - RESIZER_HANDLE_WIDTH)}
+                onResize={(newWidth) => onResize?.(config.id, newWidth - RESIZER_HANDLE_WIDTH)}
                 className="flex items-center h-full shrink-0 group/header"
                 innerClassName="h-full"
             >
                 <div className="flex items-center pr-3 gap-1 h-full w-full">
-                    <span className="truncate flex-1" title={attributeKey}>
-                        {attributeKey}
+                    <span className="truncate flex-1" title={title}>
+                        {title}
                     </span>
                     {(onRemove || onMove) && (
                         <LemonMenu
@@ -232,7 +257,7 @@ export function createAttributeColumn(params: {
                                           label: 'Move left',
                                           icon: <IconArrowLeft />,
                                           disabledReason: isFirst ? 'Already at the start' : undefined,
-                                          onClick: () => onMove(attributeKey, 'left'),
+                                          onClick: () => onMove(config.id, 'left'),
                                       }
                                     : null,
                                 onMove
@@ -240,7 +265,7 @@ export function createAttributeColumn(params: {
                                           label: 'Move right',
                                           icon: <IconArrowRight />,
                                           disabledReason: isLast ? 'Already at the end' : undefined,
-                                          onClick: () => onMove(attributeKey, 'right'),
+                                          onClick: () => onMove(config.id, 'right'),
                                       }
                                     : null,
                                 onRemove
@@ -248,7 +273,7 @@ export function createAttributeColumn(params: {
                                           label: 'Remove column',
                                           icon: <IconTrash />,
                                           status: 'danger' as const,
-                                          onClick: () => onRemove(attributeKey),
+                                          onClick: () => onRemove(config.id),
                                       }
                                     : null,
                             ]}

@@ -6,22 +6,17 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { uuid } from 'lib/utils/dom'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { AttributeColumnConfig, LogsOrderBy, ParsedLogMessage } from '../../types'
-import { columnsToCustomColumns, DEFAULT_LOGS_COLUMNS, LogsColumnConfig } from './config/columns'
+import { LogsOrderBy, ParsedLogMessage } from '../../types'
+import { attributeLookupExpression, LogsColumnConfig } from './config/columns'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import type { logsViewerLogicType } from './logsViewerLogicType'
 import { logsViewerSettingsLogic } from './logsViewerSettingsLogic'
-
-// Helper to get next order value for a new column
-const getNextOrder = (config: Record<string, AttributeColumnConfig>): number => {
-    const orders = Object.values(config).map((c) => c.order)
-    return orders.length > 0 ? Math.max(...orders) + 1 : 0
-}
 
 export interface VisibleLogsTimeRange {
     date_from: string
@@ -79,7 +74,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             logsViewerDataLogic({ id }),
             ['parsedLogs as logs', 'logsLoading'],
             logsViewerConfigLogic({ id }),
-            ['orderBy'],
+            ['orderBy', 'columns', 'customColumns'],
         ],
         actions: [
             logsViewerSettingsLogic,
@@ -90,6 +85,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             ['addFilter'],
             logsViewerDataLogic({ id }),
             ['setLogs', 'clearLogs'],
+            logsViewerConfigLogic({ id }),
+            ['setColumns', 'addColumn', 'removeColumn', 'setColumnWidth', 'moveColumn'],
         ],
     })),
 
@@ -122,18 +119,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // Attribute breakdowns (per-log)
         toggleAttributeBreakdown: (logId: string, attributeKey: string) => ({ logId, attributeKey }),
 
-        // Attribute columns (show attributes as columns in the log list)
+        // Show/hide an attribute as a column in the log list (facade over the typed column model)
         toggleAttributeColumn: (attributeKey: string) => ({ attributeKey }),
-        removeAttributeColumn: (attributeKey: string) => ({ attributeKey }),
-        setAttributeColumnWidth: (attributeKey: string, width: number) => ({ attributeKey, width }),
-        moveAttributeColumn: (attributeKey: string, direction: 'left' | 'right') => ({ attributeKey, direction }),
-
-        // Typed columns (unified column model — dormant until the rendering cutover)
-        setColumns: (columns: LogsColumnConfig[]) => ({ columns }),
-        addColumn: (column: LogsColumnConfig) => ({ column }),
-        removeColumn: (id: string) => ({ id }),
-        setColumnWidth: (id: string, width: number) => ({ id, width }),
-        moveColumn: (id: string, direction: 'left' | 'right') => ({ id, direction }),
 
         // Row height recomputation (triggered by child components when content changes)
         recomputeRowHeights: (logIds?: string[]) => ({ logIds }),
@@ -227,75 +214,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         return { ...state, [logId]: updated }
                     }
                     return { ...state, [logId]: [...current, attributeKey] }
-                },
-            },
-        ],
-
-        // Attribute columns config (order, width, etc.)
-        attributeColumnsConfig: [
-            {} as Record<string, AttributeColumnConfig>,
-            { persist: true },
-            {
-                toggleAttributeColumn: (state, { attributeKey }) => {
-                    if (attributeKey in state) {
-                        const { [attributeKey]: _, ...rest } = state
-                        return rest
-                    }
-                    return { ...state, [attributeKey]: { order: getNextOrder(state) } }
-                },
-                removeAttributeColumn: (state, { attributeKey }) => {
-                    const { [attributeKey]: _, ...rest } = state
-                    return rest
-                },
-                setAttributeColumnWidth: (state, { attributeKey, width }) => {
-                    if (!(attributeKey in state)) {
-                        return state
-                    }
-                    return { ...state, [attributeKey]: { ...state[attributeKey], width } }
-                },
-                moveAttributeColumn: (state, { attributeKey, direction }) => {
-                    if (!(attributeKey in state)) {
-                        return state
-                    }
-                    const entries = Object.entries(state) as [string, AttributeColumnConfig][]
-                    const sorted = entries.sort(([, a], [, b]) => a.order - b.order)
-                    const index = sorted.findIndex(([key]) => key === attributeKey)
-                    const targetIndex = direction === 'left' ? index - 1 : index + 1
-                    if (targetIndex < 0 || targetIndex >= sorted.length) {
-                        return state
-                    }
-                    // Swap orders
-                    const [targetKey] = sorted[targetIndex]
-                    return {
-                        ...state,
-                        [attributeKey]: { ...state[attributeKey], order: state[targetKey].order },
-                        [targetKey]: { ...state[targetKey], order: state[attributeKey].order },
-                    }
-                },
-            },
-        ],
-
-        // Unified typed-column model. Read by nothing yet — the table still renders from
-        // attributeColumnsConfig until the rendering cutover, which will also migrate the
-        // legacy persisted state into this shape (see config/columns.ts).
-        columns: [
-            DEFAULT_LOGS_COLUMNS,
-            { persist: true },
-            {
-                setColumns: (_, { columns }) => columns,
-                addColumn: (state, { column }) => [...state, column],
-                removeColumn: (state, { id }) => state.filter((column) => column.id !== id),
-                setColumnWidth: (state, { id, width }) =>
-                    state.map((column) => (column.id === id ? { ...column, width } : column)),
-                moveColumn: (state, { id, direction }) => {
-                    const index = state.findIndex((column) => column.id === id)
-                    const targetIndex = direction === 'left' ? index - 1 : index + 1
-                    if (index === -1 || targetIndex < 0 || targetIndex >= state.length) {
-                        return state
-                    }
-                    const next = [...state]
-                    ;[next[index], next[targetIndex]] = [next[targetIndex], next[index]]
-                    return next
                 },
             },
         ],
@@ -432,37 +350,21 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         logsCount: [(s) => [s.logs], (logs: ParsedLogMessage[]): number => logs.length],
 
-        // Derived: ordered array of attribute column keys
+        // Attribute keys shown as columns (custom columns carry the key as their name) —
+        // consumed by the export logic for CSV/server export column lists
         attributeColumns: [
-            (s) => [s.attributeColumnsConfig],
-            (config: Record<string, AttributeColumnConfig>): string[] =>
-                Object.entries(config)
-                    .sort(([, a], [, b]) => a.order - b.order)
-                    .map(([key]) => key),
-        ],
-
-        // Derived: width lookup for attribute columns
-        attributeColumnWidths: [
-            (s) => [s.attributeColumnsConfig],
-            (config: Record<string, AttributeColumnConfig>): Record<string, number> =>
-                Object.fromEntries(
-                    Object.entries(config)
-                        .filter(([, c]) => c.width !== undefined)
-                        .map(([key, c]) => [key, c.width as number])
-                ),
+            (s) => [s.columns],
+            (columns: LogsColumnConfig[]): string[] =>
+                columns
+                    .filter((column) => column.type === 'custom')
+                    .map((column) => column.name ?? column.expression ?? ''),
         ],
 
         isAttributeColumn: [
-            (s) => [s.attributeColumnsConfig],
-            (config: Record<string, AttributeColumnConfig>) =>
-                (attributeKey: string): boolean =>
-                    attributeKey in config,
-        ],
-
-        // Lowered wire value for LogsQuery.customColumns — undefined until a custom column exists
-        customColumns: [
             (s) => [s.columns],
-            (columns: LogsColumnConfig[]): string[] | undefined => columnsToCustomColumns(columns),
+            (columns: LogsColumnConfig[]) =>
+                (attributeKey: string): boolean =>
+                    columns.some((column) => column.type === 'custom' && column.name === attributeKey),
         ],
 
         // Selection selectors
@@ -598,7 +500,16 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             actions.setSelectedLogIds(newSelection)
         },
         toggleAttributeColumn: ({ attributeKey }) => {
-            if (attributeKey in values.attributeColumnsConfig) {
+            const existing = values.columns.find((column) => column.type === 'custom' && column.name === attributeKey)
+            if (existing) {
+                actions.removeColumn(existing.id)
+            } else {
+                actions.addColumn({
+                    id: uuid(),
+                    type: 'custom',
+                    name: attributeKey,
+                    expression: attributeLookupExpression(attributeKey),
+                })
                 posthog.capture('logs column added', { attribute_key: attributeKey })
             }
         },
