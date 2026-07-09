@@ -10,7 +10,7 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import { buildAppStubHtml } from '@/resources/ui-apps'
+import { buildAppStubHtml, buildUiAppResourceMeta } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
 
@@ -178,15 +178,7 @@ export class ResourceCatalog {
 
         for (const app of UI_APPS) {
             const html = buildAppStubHtml(app.appDir, baseUrl)
-
-            const uiMetadata: Record<string, unknown> = {}
-            const resourceDomains = [baseUrl]
-            const connectDomains: string[] = []
-            if (analyticsBaseUrl) {
-                connectDomains.push(analyticsBaseUrl)
-                resourceDomains.push(analyticsBaseUrl)
-            }
-            uiMetadata.csp = { connectDomains, resourceDomains }
+            const meta = buildUiAppResourceMeta(baseUrl, analyticsBaseUrl)
 
             this.uiAppResources.push({
                 name: app.name,
@@ -198,7 +190,7 @@ export class ResourceCatalog {
                 uri: app.uri,
                 mimeType: RESOURCE_MIME_TYPE,
                 text: html,
-                _meta: { ui: uiMetadata },
+                _meta: meta,
             })
         }
     }

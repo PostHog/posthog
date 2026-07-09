@@ -136,6 +136,7 @@ describe('ui-apps', () => {
             const result = await handler(new URL('ui://posthog/debug.html'))
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toContain('https://mcp.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toContain('https://mcp.posthog.com')
         })
 
         it('includes analytics URL in CSP when set', async () => {
@@ -153,6 +154,8 @@ describe('ui-apps', () => {
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toContain('https://us.i.posthog.com')
             expect(result.contents[0]._meta.ui.csp.connectDomains).toContain('https://us.i.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toContain('https://us.i.posthog.com')
+            expect(result.contents[0]._meta['openai/widgetCSP'].connect_domains).toContain('https://us.i.posthog.com')
         })
 
         it('omits analytics URL from CSP when not set', async () => {
@@ -167,6 +170,8 @@ describe('ui-apps', () => {
 
             expect(result.contents[0]._meta.ui.csp.resourceDomains).toEqual(['https://mcp.posthog.com'])
             expect(result.contents[0]._meta.ui.csp.connectDomains).toEqual([])
+            expect(result.contents[0]._meta['openai/widgetCSP'].resource_domains).toEqual(['https://mcp.posthog.com'])
+            expect(result.contents[0]._meta['openai/widgetCSP'].connect_domains).toEqual([])
         })
 
         it('resource handler returns stub HTML with correct base URL', async () => {
