@@ -1018,11 +1018,16 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                     raise ValidationError({"insights": ["Must be a comma-separated list of integer insight IDs."]})
                 queryset = queryset.filter(insight_id__in=insight_ids)
             elif key == "dashboard_tiles":
-                # Subscriptions on insights that are tiles of the given dashboard, resolved server-side
-                # so the overview's "Insights" tab never depends on which tiles the client happens to
-                # have loaded into memory. The default DashboardTile manager already skips deleted rows.
+                # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
+                # so the overview's "Insights" tab never depends on which tiles the client happens to have
+                # loaded into memory. The default DashboardTile manager skips deleted tiles/dashboards; we
+                # also drop soft-deleted insights and scope to the team, matching the tile set the sibling
+                # dashboard-export validation resolves.
                 tile_insight_ids = DashboardTile.objects.filter(
-                    dashboard_id=request_params["dashboard_tiles"], insight_id__isnull=False
+                    dashboard_id=request_params["dashboard_tiles"],
+                    dashboard__team_id=self.team_id,
+                    insight_id__isnull=False,
+                    insight__deleted=False,
                 ).values_list("insight_id", flat=True)
                 queryset = queryset.filter(insight_id__in=tile_insight_ids)
             elif key == "dashboard":

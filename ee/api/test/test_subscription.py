@@ -1466,26 +1466,38 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert mixed.status_code == status.HTTP_200_OK
         assert {r["id"] for r in mixed.json()["results"]} == {first_id}
 
+    def _insight(self, **kwargs) -> Insight:
+        return Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user, **kwargs
+        )
+
     def test_list_subscriptions_filter_by_dashboard_tiles(self):
         # The filter resolves the dashboard's tile insights server-side, so it returns subscriptions on
         # tiled insights without the client passing any insight IDs (fixes the overview's flaky Insights tab).
-        tiled_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user
-        )
+        tiled_insight = self._insight()
         self.dashboard.tiles.create(insight=tiled_insight)
         on_tile_id = self._create_subscription(title="On tile", insight=tiled_insight.id).json()["id"]
 
-        off_dashboard_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user
-        )
-        self._create_subscription(title="Off dashboard", insight=off_dashboard_insight.id)
+        # A tiled insight that has since been soft-deleted must drop out (mirrors the old client-side guard).
+        deleted_insight = self._insight()
+        self.dashboard.tiles.create(insight=deleted_insight)
+        self._create_subscription(title="On deleted insight", insight=deleted_insight.id)
+        deleted_insight.deleted = True
+        deleted_insight.save()
 
-        res = self.client.get(
-            f"/api/projects/{self.team.id}/subscriptions/",
-            {"dashboard_tiles": self.dashboard.id},
-        )
+        # A subscription on an insight that is not a tile of this dashboard must be excluded.
+        self._create_subscription(title="Off dashboard", insight=self._insight().id)
+
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id})
         assert res.status_code == status.HTTP_200_OK
         assert {r["id"] for r in res.json()["results"]} == {on_tile_id}
+
+    def test_list_subscriptions_filter_by_dashboard_tiles_empty_dashboard(self):
+        # A dashboard with no insight tiles resolves to an empty set rather than erroring.
+        self._create_subscription(title="Unrelated", insight=self._insight().id)
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id})
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["results"] == []
 
     @parameterized.expand(
         [
