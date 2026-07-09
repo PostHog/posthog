@@ -51,10 +51,11 @@ class SlackAgentDesignSignalEmitter:
     """Converts a run's sandbox ACP event stream into the per-turn signals that drive
     ``SlackAgentDesignRelayWorkflow`` on the parent ``ProcessTaskWorkflow``.
 
-    Stateful per run: a turn is bracketed from the first ``session/update`` until the
-    turn-complete notification, and tool-call ids are de-duplicated for the lifetime of the
-    run (the set is not cleared between turns). This mirrors the inline fan-out in
-    ``relay_sandbox_events._relay_loop`` — keep the two in sync.
+    Stateful per run: a turn is bracketed from the first ``session/update`` after a user
+    ``session/prompt`` until the turn-complete notification, and tool-call ids are de-duplicated
+    for the lifetime of the run (the set is not cleared between turns). The inline fan-out in
+    ``relay_sandbox_events._relay_loop`` shares this bracketing but still opens on any
+    ``session/update`` — it needs the same prompt gate to stop trailing updates opening phantom turns.
     """
 
     def __init__(
