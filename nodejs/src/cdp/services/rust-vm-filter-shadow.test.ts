@@ -118,6 +118,30 @@ describe('RustVmFilterShadow', () => {
             expect(await outcomeCounts()).toEqual({ match: 2, result_mismatch: 1 })
         })
 
+        it('dispatches distinct-bytecode groups concurrently, not one after another', async () => {
+            const filterA: HogBytecode = ['_H', 1, 29]
+            const filterB: HogBytecode = ['_H', 1, 30]
+            shadow.capture(capture('fn-a', { uuid: 'a1' }, node(true), filterA))
+            shadow.capture(capture('fn-b', { uuid: 'b1' }, node(true), filterB))
+
+            // Each native batch stays pending until we release it. A serial flush would await the
+            // first before dispatching the second, so only one call would exist at the checkpoint;
+            // concurrent dispatch means both are in flight before either resolves.
+            const releases: Array<() => void> = []
+            mockHogvmNode.executeBatch.mockImplementation(
+                () => new Promise((resolve) => releases.push(() => resolve([{ result: true, durationUs: 5 }])))
+            )
+
+            const flushed = shadow.flush()
+            await Promise.resolve()
+
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(2)
+
+            releases.forEach((release) => release())
+            await flushed
+            expect(await outcomeCounts()).toEqual({ match: 2 })
+        })
+
         it('a failing rust batch resolves the flush, counts rust_error, and does not affect other groups', async () => {
             const filterA: HogBytecode = ['_H', 1, 29]
             const filterB: HogBytecode = ['_H', 1, 30]

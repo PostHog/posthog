@@ -230,8 +230,8 @@ export class RustVmFilterShadow {
         }
 
         // Group by bytecode reference: the hog function manager caches functions, so every event
-        // that ran the same filter shares the exact same bytecode array. Grouping lets each group
-        // run as one parallel rust batch, which is where the rayon win shows up.
+        // that ran the same filter shares the exact same bytecode array. Each group runs as one
+        // rust batch that fans its events out over rayon (`parallel: true`).
         const byBytecode = new Map<HogBytecode, FilterShadowCapturedInvocation[]>()
         for (const item of items) {
             const group = byBytecode.get(item.bytecode)
@@ -242,50 +242,62 @@ export class RustVmFilterShadow {
             }
         }
 
-        for (const [bytecode, group] of byBytecode.entries()) {
-            filterShadowFlushSize.observe({ scope: 'bytecode' }, group.length)
-            let rustResults: RustExecResult[] = []
-            const stopTimer = filterShadowBatchDuration.startTimer()
-            try {
-                rustResults = await module_.executeBatch(
-                    bytecode,
-                    group.map((item) => parseJSON(item.globalsJson)),
-                    { parallel: true, maxSteps: RUST_MAX_STEPS }
-                )
-            } catch (error) {
-                logger.warn('🦀', 'Rust HogVM filter shadow batch failed', {
-                    functionId: group[0].functionId,
-                    error: String(error),
-                })
-            } finally {
-                stopTimer()
-            }
+        // Run the groups concurrently, not one after another: each `executeBatch` is a napi
+        // AsyncTask off the JS event loop, so distinct filters execute in parallel with each other
+        // while every group also fans its own events out over rayon internally. This is where the
+        // full parallelism the shadow is measuring actually happens.
+        await Promise.all(
+            Array.from(byBytecode.entries()).map(([bytecode, group]) => this.executeGroup(module_, bytecode, group))
+        )
+    }
 
-            let mismatchLogged = false
-            group.forEach((item, index) => {
-                const rust: RustExecResult | undefined = rustResults[index]
-                filterShadowExecutionDuration.observe({ vm: 'node' }, item.node.durationMs)
-                if (rust) {
-                    filterShadowExecutionDuration.observe({ vm: 'rust' }, rust.durationUs / 1000)
-                }
-                const outcome = classifyFilterShadowOutcome(item.node, rust)
-                filterShadowComparison.inc({ outcome })
-                // One example per bytecode group per flush is enough to identify a diverging filter
-                // without flooding the logs; replay its bytecode offline for the actual diff.
-                if ((outcome === 'result_mismatch' || outcome === 'status_mismatch') && !mismatchLogged) {
-                    mismatchLogged = true
-                    logger.warn('🦀', 'Rust HogVM filter shadow divergence', {
-                        outcome,
-                        functionId: item.functionId,
-                        teamId: item.teamId,
-                        nodeMatch: item.node.match,
-                        nodeError: item.node.error,
-                        rustResult: rust?.result,
-                        rustError: rust?.error,
-                    })
-                }
+    private async executeGroup(
+        module_: HogvmNodeModule,
+        bytecode: HogBytecode,
+        group: FilterShadowCapturedInvocation[]
+    ): Promise<void> {
+        filterShadowFlushSize.observe({ scope: 'bytecode' }, group.length)
+        let rustResults: RustExecResult[] = []
+        const stopTimer = filterShadowBatchDuration.startTimer()
+        try {
+            rustResults = await module_.executeBatch(
+                bytecode,
+                group.map((item) => parseJSON(item.globalsJson)),
+                { parallel: true, maxSteps: RUST_MAX_STEPS }
+            )
+        } catch (error) {
+            logger.warn('🦀', 'Rust HogVM filter shadow batch failed', {
+                functionId: group[0].functionId,
+                error: String(error),
             })
+        } finally {
+            stopTimer()
         }
+
+        let mismatchLogged = false
+        group.forEach((item, index) => {
+            const rust: RustExecResult | undefined = rustResults[index]
+            filterShadowExecutionDuration.observe({ vm: 'node' }, item.node.durationMs)
+            if (rust) {
+                filterShadowExecutionDuration.observe({ vm: 'rust' }, rust.durationUs / 1000)
+            }
+            const outcome = classifyFilterShadowOutcome(item.node, rust)
+            filterShadowComparison.inc({ outcome })
+            // One example per bytecode group per flush is enough to identify a diverging filter
+            // without flooding the logs; replay its bytecode offline for the actual diff.
+            if ((outcome === 'result_mismatch' || outcome === 'status_mismatch') && !mismatchLogged) {
+                mismatchLogged = true
+                logger.warn('🦀', 'Rust HogVM filter shadow divergence', {
+                    outcome,
+                    functionId: item.functionId,
+                    teamId: item.teamId,
+                    nodeMatch: item.node.match,
+                    nodeError: item.node.error,
+                    rustResult: rust?.result,
+                    rustError: rust?.error,
+                })
+            }
+        })
     }
 
     private getModule(): HogvmNodeModule | null {
