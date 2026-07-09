@@ -23,6 +23,7 @@ import re
 import json
 import hashlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -546,3 +547,17 @@ def sync_canonical_authoring(team: Team, *, prune: bool = False) -> SyncResult:
         prefix=REVIEW_HOG_AUTHORING_PREFIX,
         prune=prune,
     )
+
+
+def seed_canonicals_tolerantly(team_id: int, sync: Callable[[Team], SyncResult]) -> None:
+    """Cold-team seed for API reads: run one canonical sync, swallowing failures.
+
+    The run path syncs (with prune) at the start of every review, but a team that has never run one
+    has no `LLMSkill` rows — its config menus would render empty and selects would 404. The config
+    viewsets call this before querying so the canonicals exist from the first read. Tolerant: a
+    malformed canonical on disk must not break a config endpoint.
+    """
+    try:
+        sync(Team.objects.get(id=team_id))
+    except Exception:
+        logger.warning("review_hog: canonical seed failed (%s)", getattr(sync, "__name__", "sync"), exc_info=True)

@@ -109,6 +109,20 @@ class TestReviewBlindSpotsConfigAPI(APIBaseTest):
         assert config.team_id == self.team.id
         assert config.enabled is True
 
+    def test_cold_team_can_select_the_canonical_immediately(self) -> None:
+        # Canonical LLMSkill rows used to be created only on the review-run path, so selecting the
+        # canonical blind-spots skill on a team that never ran a review 404ed. The select must seed.
+        cold = Team.objects.create(organization=self.organization, name="cold")
+
+        res = self.client.patch(
+            f"/api/projects/{cold.id}/review_hog/blind_spots/{REVIEW_HOG_BLIND_SPOTS_SKILL_NAME}/",
+            {"active": True},
+            format="json",
+        )
+
+        assert res.status_code == 200
+        assert res.json()["active"] is True
+
     @parameterized.expand(
         [
             ("llm_skill_read_allowed", ["llm_skill:read"], 200),

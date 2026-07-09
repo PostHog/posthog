@@ -14,6 +14,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewSkillConfig
+from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_validation
 from products.review_hog.backend.reviewer.skill_loader import (
     REVIEW_HOG_VALIDATION_PREFIX,
     register_missing_validation_config,
@@ -88,6 +89,9 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # live on the canonical team, so an unresolved id would render an empty menu.
         team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        # A team that never ran a review has no LLMSkill rows yet — seed the canonical or the
+        # menu renders empty until the first run.
+        seed_canonicals_tolerantly(team_id, sync_canonical_validation)
         register_missing_validation_config(team_id, user_id)
         active_by_name = dict(
             ReviewSkillConfig.objects.for_team(team_id, canonical=True)
@@ -132,6 +136,9 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # 500s on the unique constraint from the second call on.
         team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        # Same cold-team seed as list(): selecting the canonical before the team's first review
+        # would 404 without it.
+        seed_canonicals_tolerantly(team_id, sync_canonical_validation)
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
         if skill is None:
             raise NotFound(f"No validator skill '{skill_name}' on this project")

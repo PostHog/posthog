@@ -11,6 +11,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.review_hog.backend.models import ReviewSkillConfig
+from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_perspectives
 from products.review_hog.backend.reviewer.skill_loader import (
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     register_missing_perspective_configs,
@@ -80,6 +81,9 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         # live on the canonical team, so an unresolved id would render an empty menu.
         team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        # A team that never ran a review has no LLMSkill rows yet — seed the canonicals or the
+        # menu renders empty until the first run.
+        seed_canonicals_tolerantly(team_id, sync_canonical_perspectives)
         register_missing_perspective_configs(team_id, user_id)
         # Prefix-scope: validators share this table, so only join perspective rows to the menu.
         enabled_by_name = dict(
@@ -126,6 +130,9 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         # 500s on the unique constraint from the second call on.
         team_id = resolve_effective_team_id(self.team_id)
         user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        # Same cold-team seed as list(): a canonical toggled before the team's first review would
+        # 404 without it.
+        seed_canonicals_tolerantly(team_id, sync_canonical_perspectives)
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
         if skill is None:
             raise NotFound(f"No perspective skill '{skill_name}' on this project")

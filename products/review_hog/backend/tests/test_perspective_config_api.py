@@ -111,6 +111,16 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         assert config.team_id == self.team.id
         assert config.enabled is True
 
+    def test_cold_team_first_list_seeds_the_canonical_menu(self) -> None:
+        # Canonical LLMSkill rows used to be created only on the review-run path, so a team that
+        # never ran a review rendered an empty, unusable perspective menu. The first list must seed.
+        cold = Team.objects.create(organization=self.organization, name="cold")
+
+        res = self.client.get(f"/api/projects/{cold.id}/review_hog/perspectives/")
+
+        assert res.status_code == 200
+        assert {i["skill_name"] for i in res.json()} >= set(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+
     @parameterized.expand(
         [
             ("llm_skill_read_allowed", ["llm_skill:read"], 200),
