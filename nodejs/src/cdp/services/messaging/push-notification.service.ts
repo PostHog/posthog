@@ -58,43 +58,56 @@ export class PushNotificationService {
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: true })
         const addLog = createAddLogFunction(result.logs)
 
-        let success = false
-        // A push is "skipped" (not failed) when the person has no registered device token —
-        // there's nothing to deliver, but it isn't an error either. Tracked separately so the
-        // push_sent metric only reflects notifications we actually handed off to FCM/APNS.
-        let skipped = false
-
-        try {
-            const integration = await this.integrationManager.get(params.integrationId)
-            if (!integration || integration.team_id !== invocation.teamId) {
-                throw new Error('Push notification integration not found')
-            }
-
-            if (integration.kind === 'firebase') {
-                skipped = !(await this.executeFcm(result, params, integration, invocation))
-            } else if (integration.kind === 'apns') {
-                skipped = !(await this.executeApns(result, params, integration, invocation))
-            } else {
-                throw new Error(`Unsupported push integration kind: ${integration.kind}`)
-            }
-
-            success = true
-        } catch (error) {
-            addLog('error', error.message)
-            result.error = error.message
+        const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed'): void => {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                instance_id: invocation.state.actionId || invocation.id,
+                metric_kind: 'other',
+                metric_name: metricName,
+                count: 1,
+            })
         }
 
-        result.invocation.state.vmState!.stack.push({ success })
+        // Fan out to every selected channel here rather than looping sendPushNotification in the hog
+        // template — a hog function only runs one async call per invocation, so a per-channel loop in
+        // hog would only ever deliver to the first channel. Each channel is isolated: one failing must
+        // not abort the others.
+        let errorCount = 0
+        let firstError: string | undefined
+        for (const integrationId of params.integrationIds) {
+            try {
+                const integration = await this.integrationManager.get(integrationId)
+                if (!integration || integration.team_id !== invocation.teamId) {
+                    throw new Error('Push notification integration not found')
+                }
 
-        const metricName = !success ? 'push_failed' : skipped ? 'push_skipped' : 'push_sent'
-        result.metrics.push({
-            team_id: invocation.teamId,
-            app_source_id: invocation.parentRunId ?? invocation.functionId,
-            instance_id: invocation.state.actionId || invocation.id,
-            metric_kind: 'other',
-            metric_name: metricName,
-            count: 1,
-        })
+                let sent: boolean
+                if (integration.kind === 'firebase') {
+                    sent = await this.executeFcm(result, params, integration, invocation)
+                } else if (integration.kind === 'apns') {
+                    sent = await this.executeApns(result, params, integration, invocation)
+                } else {
+                    throw new Error(`Unsupported push integration kind: ${integration.kind}`)
+                }
+
+                // A channel with no registered device token for this recipient is skipped, not failed.
+                pushMetric(sent ? 'push_sent' : 'push_skipped')
+            } catch (error) {
+                errorCount++
+                firstError = firstError ?? error.message
+                addLog('error', error.message)
+                pushMetric('push_failed')
+            }
+        }
+
+        // Only surface an error (which lets the action retry) when every channel failed — a partial
+        // success must not retry, or it would re-deliver to the channels that already succeeded.
+        const success = errorCount < params.integrationIds.length
+        if (!success) {
+            result.error = firstError
+        }
+        result.invocation.state.vmState!.stack.push({ success })
 
         return result
     }

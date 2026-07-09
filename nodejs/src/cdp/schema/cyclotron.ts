@@ -117,7 +117,7 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
     type: z.literal('sendPushNotification'),
-    integrationId: z.number(),
+    integrationIds: z.array(z.number()),
     distinctId: z.string(),
     payload: PushNotificationPayloadSchema,
     max_tries: z.number().optional(),

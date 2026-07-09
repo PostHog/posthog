@@ -39,7 +39,7 @@ const createSendPushNotificationInvocation = (
 
     invocation.queueParameters = {
         type: 'sendPushNotification',
-        integrationId: 1,
+        integrationIds: [1],
         distinctId: 'test-distinct-id',
         payload: {
             title: 'Test notification',
@@ -461,6 +461,60 @@ describe('PushNotificationService', () => {
 
             expect(result.error).toBeTruthy()
             expect(result.error).toContain('InvalidProviderToken')
+        })
+    })
+
+    describe('multiple channels', () => {
+        const apnsIntegration = {
+            id: 2,
+            team_id: 1,
+            kind: 'apns' as const,
+            config: { key_id: 'KEY123', team_id: 'TEAM456', bundle_id: 'com.example.app' },
+            sensitive_config: { signing_key: testEcKey },
+        }
+        const ok200 = {
+            fetchError: null,
+            fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+            fetchDuration: 10,
+        }
+
+        it('delivers to every channel in the list, not just the first', async () => {
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : apnsIntegration)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            await service.executeSendPushNotification(invocation)
+
+            // The bug: a per-channel loop in hog only ran once, so only the first channel delivered.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(2)
+            const urls = mockTrackedFetch.mock.calls.map((c: any) => c[0].url)
+            expect(urls.some((u: string) => u.includes('fcm.googleapis.com'))).toBe(true)
+            expect(urls.some((u: string) => u.includes('push.apple.com'))).toBe(true)
+        })
+
+        it('keeps delivering to healthy channels when one channel errors', async () => {
+            const brokenApns = { ...apnsIntegration, config: {}, sensitive_config: {} }
+            ;(integrationManager.get as jest.Mock).mockImplementation((id: number) =>
+                Promise.resolve(id === 1 ? firebaseIntegration : brokenApns)
+            )
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('fcm-token'),
+            })
+            invocation.queueParameters = { ...invocation.queueParameters, integrationIds: [1, 2] } as any
+            mockTrackedFetch.mockResolvedValue(ok200)
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            // FCM still delivers though the APNS channel throws; a partial success is not a hard error.
+            expect(mockTrackedFetch).toHaveBeenCalledTimes(1)
+            expect(mockTrackedFetch.mock.calls[0][0].url).toContain('fcm.googleapis.com')
+            expect(result.error).toBeUndefined()
         })
     })
 })

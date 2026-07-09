@@ -47,17 +47,16 @@ if (not inputs.channels or length(inputs.channels) == 0) {
     throw Error('No push channel configured. Select at least one channel.')
 }
 
-// Send through each selected channel. The recipient only has a device token for the platform they
-// registered, so channels for other platforms record push_skipped rather than delivering twice.
-for (let channel in inputs.channels) {
-    let res := sendPushNotification({
-        'integrationId': channel.$integration_id,
-        'distinctId': inputs.distinctId,
-        'payload': payload
-    })
-    if (not res.success) {
-        throw Error(f'Failed to send push notification: {res.error}')
-    }
+// Fan out to every selected channel inside the async function: a hog function only runs one async
+// call per invocation, so pass all channel integration ids in a single call. The recipient only has a
+// device token for the platform they registered, so other channels record push_skipped.
+let res := sendPushNotification({
+    'integrationIds': arrayMap(channel -> channel.$integration_id, inputs.channels),
+    'distinctId': inputs.distinctId,
+    'payload': payload
+})
+if (not res.success) {
+    throw Error(f'Failed to send push notification: {res.error}')
 }
 `,
     inputs_schema: [
