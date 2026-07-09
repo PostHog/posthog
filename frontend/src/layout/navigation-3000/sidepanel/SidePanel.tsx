@@ -124,11 +124,9 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
 
-    // If the selected tab is no longer available (e.g. navigating away from a scene
-    // with Settings or Info), fall back to Info if it's available, otherwise close.
-    // Never fall back to Max: it's the AI assistant and must only open from an explicit
-    // trigger. A #panel hash replayed from the URL before the scene registers its Info tab
-    // would otherwise flip the panel to Max on every page load.
+    // Selected tab no longer available (e.g. navigated away from a scene with Settings/Info):
+    // fall back to Info if available, else close. Never fall back to Max — the AI assistant must
+    // only open from an explicit trigger, not because a tab wasn't registered yet at load.
     useEffect(() => {
         if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
             if (enabledTabs.includes(SidePanelTab.Info)) {

@@ -168,13 +168,9 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
-        // Legacy scene-panel behaviour: auto-expand the local details panel for draft surveys.
-        // Never auto-open the global side panel in UX_REMOVE_SIDEPANEL mode. During the initial
-        // load the scene holds the NEW_SURVEY placeholder, whose null start_date makes
-        // isSurveyDraft true even for a launched survey, so this ran on every survey load. It wrote
-        // #panel=info into the URL, and because the scene's Info tab isn't registered yet at first
-        // paint the side panel's fallback flipped it to the Max/AI panel (#panel=max) on every
-        // refresh. The side panel must only open from an explicit trigger (openDraftDetails).
+        // Don't auto-open the global side panel: it fired on every survey load (the NEW_SURVEY
+        // placeholder makes isSurveyDraft briefly true even for launched surveys) and the side
+        // panel's fallback then flipped it to the Max/AI panel. Open only via openDraftDetails.
         if (isRemovingSidePanel) {
             return
         }
