@@ -122,7 +122,7 @@ const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilt
 const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
     group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
 
-const resolveDate = (value: string | null | undefined): string | null => {
+export const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
     }
