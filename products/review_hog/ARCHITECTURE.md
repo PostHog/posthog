@@ -319,6 +319,12 @@ schema-failure class, killed structurally by structured outputs).
   entering dedup, inclusive). Above a gate the stage takes the previous sandbox path with the same
   prompt, pinned to the one-shot model via the `CHUNKING_*` / `DEDUP_*` trios (Sonnet 5 @ xhigh) — so
   the delivery path never changes which model judges the stage.
+- **Dedup also gates on prior turns' findings (2026-07-09):** `load_prior_findings_with_verdicts` feeds
+  every earlier turn's finding + validator ruling into the dedup pre-filter and prompt
+  (`<prior_findings>`), so a re-found dismissed/below-threshold problem dies at dedup instead of burning
+  another validation turn. Discovery already sees the same set as `COVERED_FINDINGS`; this is the
+  enforcement backstop when a perspective re-raises anyway. No carry-forward yet — a suppressed re-find
+  is absent from the new turn's finding set (the old turn's rows keep it).
 - **Executor:** `reviewer/sandbox/direct_llm.py` → `run_oneshot_review(...)` —
   `get_async_anthropic_gateway_client(product="review_hog")` (product registered in
   `posthog/llm/gateway_client.py` + the llm-gateway config), `ONESHOT_MODEL = "claude-sonnet-5"` with

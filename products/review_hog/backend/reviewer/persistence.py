@@ -542,22 +542,27 @@ def load_prior_findings(*, team_id: int, report_id: str, before_run_index: int) 
     Fed to the review prompt as the "already covered" set so a re-review skips ground a prior turn
     found — including low-priority ones we keep but never post as comments.
     """
-    findings: dict[str, ReviewIssueFinding] = {}
-    rows = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING)
-        .order_by("created_at", "id")
-    )
-    for row in rows:
-        try:
-            content = parse_artefact_content(row.type, row.content)
-        except ArtefactContentValidationError as e:
-            logger.warning("Skipping unparseable issue_finding artefact %s: %s", row.id, e)
-            continue
-        assert isinstance(content, ReviewIssueFinding)
-        if content.run_index < before_run_index:
-            findings[content.issue_key] = content
-    return list(findings.values())
+    return [
+        finding
+        for finding, _ in load_prior_findings_with_verdicts(
+            team_id=team_id, report_id=report_id, before_run_index=before_run_index
+        )
+    ]
+
+
+def load_prior_findings_with_verdicts(
+    *, team_id: int, report_id: str, before_run_index: int
+) -> list[tuple[ReviewIssueFinding, ValidationVerdict | None]]:
+    """`load_prior_findings`' set paired with each finding's latest verdict (None while unjudged).
+
+    Feeds dedup's prior-findings gate: the ruling travels with the finding, so a re-found problem is
+    dropped with its settled judgment attached instead of re-entering validation.
+    """
+    bundle = load_findings_bundle(team_id=team_id, report_ids=[report_id])
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]] = []
+    for run_index in range(1, before_run_index):
+        pairs.extend(bundle.turn(report_id, run_index))
+    return pairs
 
 
 def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) -> None:

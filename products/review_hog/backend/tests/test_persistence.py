@@ -19,6 +19,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_perspective_results,
     load_pr_snapshot,
     load_prior_findings,
+    load_prior_findings_with_verdicts,
     load_run_issues,
     load_run_validations,
     load_valid_findings,
@@ -515,6 +516,32 @@ class TestLoadPriorFindings(BaseTest):
             f.title for f in load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=2)
         ] == ["run-1 issue"]
         assert load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=1) == []
+
+    def test_with_verdicts_pairs_each_prior_finding_with_its_ruling(self) -> None:
+        # Dedup drops a re-found problem citing the earlier ruling — pairing the wrong verdict (or a
+        # current-turn finding) would suppress fresh issues or re-litigate settled ones.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        judged = _issue("1-1-1", file="a.py", title="judged")
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[judged], run_index=1)
+        persist_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[_issue("1-1-2", file="b.py", title="unjudged")],
+            run_index=1,
+        )
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=judged,
+            validation=IssueValidation(is_valid=False, argumentation="not real"),
+            run_index=1,
+        )
+
+        pairs = load_prior_findings_with_verdicts(team_id=self.team.id, report_id=report_id, before_run_index=2)
+
+        by_title = {finding.title: verdict for finding, verdict in pairs}
+        assert by_title["judged"] is not None and by_title["judged"].is_valid is False
+        assert by_title["unjudged"] is None
 
 
 # The per-turn working-state rows that back the DB-driven resume.

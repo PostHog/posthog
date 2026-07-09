@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_ONESHOT_MAX_FINDINGS,
@@ -34,6 +35,25 @@ def _issue(issue_id: str, file: str, start: int, end: int | None) -> Issue:
     )
 
 
+def _prior_finding(
+    file: str, start: int, end: int, *, dismissed: bool
+) -> tuple[ReviewIssueFinding, ValidationVerdict | None]:
+    finding = ReviewIssueFinding(
+        issue_key=f"1-{file}-{start}",
+        run_index=1,
+        title="prior finding",
+        file=file,
+        lines=[LineRange(start=start, end=end)],
+        body="previously found problem",
+        suggestion="fix",
+        priority=IssuePriority.SHOULD_FIX,
+    )
+    verdict = (
+        ValidationVerdict(issue_key=finding.issue_key, is_valid=False, argumentation="not real") if dismissed else None
+    )
+    return finding, verdict
+
+
 def _prior_comment(path: str, line: int, user: str) -> PRComment:
     # A prior inline comment. The dedup never branches on the author — it's passed to the LLM as
     # context only.
@@ -57,7 +77,7 @@ def test_select_dedup_candidates_partitions_by_position() -> None:
         _issue("1-2", "src/config.py", 23, 25),  # isolated
     ]
 
-    candidates, unique = _select_dedup_candidates(issues, prior_comment_ranges=[])
+    candidates, unique = _select_dedup_candidates(issues, prior_ranges=[])
 
     assert {c.id for c in candidates} == {"1-1", "2-1"}
     assert {u.id for u in unique} == {"1-2"}
@@ -67,9 +87,7 @@ def test_select_dedup_candidates_collision_with_prior_comment() -> None:
     # A lone issue becomes a candidate when a prior bot comment sits inside its line range.
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
 
-    candidates, unique = _select_dedup_candidates(
-        issues, prior_comment_ranges=[("src/auth.py", LineRange(start=47, end=47))]
-    )
+    candidates, unique = _select_dedup_candidates(issues, prior_ranges=[("src/auth.py", LineRange(start=47, end=47))])
 
     assert {c.id for c in candidates} == {"1-1"}
     assert unique == []
@@ -81,7 +99,7 @@ def test_select_dedup_candidates_prior_comment_in_other_file_does_not_collide() 
 
     candidates, unique = _select_dedup_candidates(
         issues,
-        prior_comment_ranges=[
+        prior_ranges=[
             ("src/other.py", LineRange(start=47, end=47)),
             ("src/auth.py", LineRange(start=99, end=99)),
         ],
@@ -120,7 +138,7 @@ def test_multiline_comment_collides_across_its_whole_range() -> None:
     inside = _issue("1-1", "src/auth.py", 12, 14)
     outside = _issue("1-2", "src/auth.py", 30, 31)
 
-    candidates, unique = _select_dedup_candidates([inside, outside], prior_comment_ranges=[rng])
+    candidates, unique = _select_dedup_candidates([inside, outside], prior_ranges=[rng])
 
     assert {c.id for c in candidates} == {"1-1"}
     assert {u.id for u in unique} == {"1-2"}
@@ -143,6 +161,7 @@ async def test_deduplicate_empty_issues_returns_empty_without_llm(pr_metadata: P
             issues=[],
             pr_metadata=pr_metadata,
             pr_comments=[],
+            prior_findings=[],
             branch="test-branch",
             repository="test/repo",
         )
@@ -171,6 +190,7 @@ async def test_deduplicate_no_positional_collision_keeps_all_without_llm(pr_meta
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
+            prior_findings=[],
             branch="test-branch",
             repository="test/repo",
         )
@@ -197,6 +217,7 @@ async def test_deduplicate_drops_llm_flagged_duplicate_keeps_isolated(pr_metadat
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
+            prior_findings=[],
             branch="test-branch",
             repository="test/repo",
         )
@@ -221,6 +242,30 @@ async def test_deduplicate_prior_comment_makes_issue_a_candidate(pr_metadata: PR
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=comments,
+            prior_findings=[],
+            branch="test-branch",
+            repository="test/repo",
+        )
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_prior_turn_finding_makes_issue_a_candidate(pr_metadata: PRMetadata) -> None:
+    # A re-found problem an earlier turn already ruled on must reach the LLM dedup (which drops it)
+    # even with no other issue or comment nearby — otherwise it re-enters validation every turn.
+    issues = [_issue("1-1", "src/auth.py", 45, 50)]
+    prior = [_prior_finding("src/auth.py", 46, 48, dismissed=True)]
+    dedup = IssueDeduplication(duplicates=[DuplicateIssue(id="1-1")])
+
+    with patch(f"{_MODULE}.run_oneshot_review", create_mock_run_sandbox_review(dedup)):
+        result = await deduplicate_issues(
+            team_id=1,
+            user_id=1,
+            issues=issues,
+            pr_metadata=pr_metadata,
+            pr_comments=[],
+            prior_findings=prior,
             branch="test-branch",
             repository="test/repo",
         )
@@ -255,6 +300,7 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
+            prior_findings=[],
             branch="test-branch",
             repository="test/repo",
         )
@@ -295,6 +341,7 @@ async def test_deduplicate_propagates_llm_failure(pr_metadata: PRMetadata) -> No
             issues=issues,
             pr_metadata=pr_metadata,
             pr_comments=[],
+            prior_findings=[],
             branch="test-branch",
             repository="test/repo",
         )

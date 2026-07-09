@@ -64,6 +64,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_perspective_selection,
     load_pr_snapshot,
     load_prior_findings,
+    load_prior_findings_with_verdicts,
     load_run_issues,
     load_run_validations,
     load_valid_findings,
@@ -887,6 +888,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     )
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for deduplication", non_retryable=True)
+    # Prior turns' findings (with rulings) join the dedup gate: a re-found dismissed/below-threshold
+    # problem dies here instead of burning another validation turn. Discovery already gets the same
+    # set as COVERED_FINDINGS; this is the enforcement backstop when a perspective re-raises anyway.
+    prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
+    )
     async with Heartbeater():
         survivors = await deduplicate_issues(
             team_id=input.team_id,
@@ -894,6 +901,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             issues=issues,
             pr_metadata=snapshot.pr_metadata,
             pr_comments=snapshot.pr_comments,
+            prior_findings=prior_findings,
             branch=input.branch,
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),

@@ -1,6 +1,7 @@
 import json
 import logging
 
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_ONESHOT_MAX_FINDINGS,
@@ -44,15 +45,15 @@ def _comment_range(comment: PRComment) -> tuple[str, LineRange] | None:
 
 
 def _select_dedup_candidates(
-    issues: list[Issue], prior_comment_ranges: list[tuple[str, LineRange]]
+    issues: list[Issue], prior_ranges: list[tuple[str, LineRange]]
 ) -> tuple[list[Issue], list[Issue]]:
     """Split issues into (dedup candidates, definitely-unique) by deterministic position.
 
-    Only an issue that shares a file and overlapping lines with another issue — or with a prior
-    review comment — can be a duplicate, so the rest skip the LLM dedupe entirely. This keeps the
-    single dedupe call small as the number of perspectives grows, and never drops a positionally isolated
-    finding. Whether two positionally-colliding issues are *actually* duplicates is still left to
-    the content-aware LLM.
+    Only an issue that shares a file and overlapping lines with another issue — or with prior
+    coverage (a review comment, or an earlier turn's finding) — can be a duplicate, so the rest skip
+    the LLM dedupe entirely. This keeps the single dedupe call small as the number of perspectives
+    grows, and never drops a positionally isolated finding. Whether two positionally-colliding
+    issues are *actually* duplicates is still left to the content-aware LLM.
     """
     candidates: list[Issue] = []
     unique: list[Issue] = []
@@ -61,18 +62,32 @@ def _select_dedup_candidates(
             i != j and issue.file == other.file and _ranges_overlap(issue.lines, other.lines)
             for j, other in enumerate(issues)
         )
-        collides_with_comment = any(
-            path == issue.file and _ranges_overlap(issue.lines, [comment_range])
-            for path, comment_range in prior_comment_ranges
+        collides_with_prior = any(
+            path == issue.file and _ranges_overlap(issue.lines, [prior_range]) for path, prior_range in prior_ranges
         )
-        (candidates if collides_with_issue or collides_with_comment else unique).append(issue)
+        (candidates if collides_with_issue or collides_with_prior else unique).append(issue)
     return candidates, unique
 
 
+def _prior_finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict | None) -> dict:
+    """One prior finding as prompt data: its content plus how the earlier turn's validator ruled."""
+    payload = finding.model_dump(
+        mode="json", include={"title", "file", "lines", "body", "suggestion", "priority", "source_perspective"}
+    )
+    if verdict is None:
+        payload["prior_ruling"] = "not validated (the earlier turn did not finish judging it)"
+    elif verdict.is_valid:
+        payload["prior_ruling"] = "validated as a real issue in an earlier review turn"
+    else:
+        payload["prior_ruling"] = f"dismissed by the validator: {verdict.argumentation}"
+    return payload
+
+
 _SYSTEM_PROMPT = """You are a senior code reviewer removing duplicate findings from a pull-request review.
-A finding is a duplicate only when it raises the same concrete problem as another finding or a prior
-inline comment — not merely because it shares a file or line. Once findings address the same concrete
-problem, collapse them aggressively and keep only the single most comprehensive one.
+A finding is a duplicate only when it raises the same concrete problem as another finding, a prior
+inline comment, or an earlier review turn's already-ruled-on finding — not merely because it shares a
+file or line. Once findings address the same concrete problem, collapse them aggressively and keep
+only the single most comprehensive one.
 
 IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema."""
 
@@ -84,6 +99,7 @@ async def deduplicate_issues(
     issues: list[Issue],
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
+    prior_findings: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
     branch: str,
     repository: str,
     workflow_id_prefix: str | None = None,
@@ -91,21 +107,26 @@ async def deduplicate_issues(
     """Deduplicate the in-scope issues and return the survivors (the canonical post-dedup set).
 
     A deterministic positional pre-filter keeps positionally-isolated findings without an LLM call;
-    only file+line colliders (vs another finding or any prior inline comment) reach the single LLM
-    dedupe call, which also drops findings a prior inline comment already raised — from any reviewer,
-    bot or human, ReviewHog's own included. The dedupe prompt is pure text (no code context), so
-    within the one-shot gate that call is a direct gateway call; only an over-limit finding set
-    falls back to the sandbox.
+    only file+line colliders (vs another finding, any prior inline comment, or an earlier turn's
+    finding) reach the single LLM dedupe call. That call drops findings a prior inline comment
+    already raised — from any reviewer, bot or human, ReviewHog's own included — and findings the
+    previous turn already found and ruled on (`prior_findings`, each with its validator verdict),
+    so a still-present dismissed/below-threshold issue doesn't burn another validation turn. The
+    dedupe prompt is pure text (no code context), so within the one-shot gate that call is a direct
+    gateway call; only an over-limit finding set falls back to the sandbox.
     """
     if not issues:
         logger.info("No issues found to deduplicate.")
         return []
 
-    prior_comment_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
+    prior_ranges = [pos for c in pr_comments if (pos := _comment_range(c)) is not None]
+    prior_ranges += [(f.file, lr) for f, _ in prior_findings for lr in f.lines]
     if pr_comments:
         authors = sorted({c.user for c in pr_comments})
         logger.info(f"Deduping against {len(pr_comments)} prior inline comment(s) from authors: {authors}")
-    candidates, unique = _select_dedup_candidates(issues, prior_comment_ranges)
+    if prior_findings:
+        logger.info(f"Deduping against {len(prior_findings)} prior-turn finding(s)")
+    candidates, unique = _select_dedup_candidates(issues, prior_ranges)
     logger.info(
         f"Deduplication: {len(candidates)} positional candidate(s); "
         f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
@@ -119,6 +140,7 @@ async def deduplicate_issues(
         CLAUDE_CODE_CONTEXT="",  # No specific code context needed for deduplication
         PR_CONTEXT=json.dumps(pr_metadata.model_dump(mode="json"), indent=2),
         PRIOR_COMMENTS_JSON=json.dumps([c.model_dump(mode="json") for c in pr_comments], indent=2),
+        PRIOR_FINDINGS_JSON=json.dumps([_prior_finding_payload(f, v) for f, v in prior_findings], indent=2),
         ISSUES_JSON=json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2),
         DEDUPLICATION_SCHEMA=schema.strip(),
     )
