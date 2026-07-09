@@ -2955,7 +2955,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SafetyCultureSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
