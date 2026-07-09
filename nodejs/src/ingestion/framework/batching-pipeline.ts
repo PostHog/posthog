@@ -22,7 +22,7 @@ export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>
  * What a beforeBatch pipeline produces. Hooks may enrich elements (values or
  * contexts) and the batch context, but must return exactly as many elements as
  * they received — batch completion tracking counts messages, so a changed
- * element count is a contract violation and the feed is rejected.
+ * element count is a broken framework invariant and feed() throws.
  */
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
     elements: OkResultWithContext<TInput, CInput>[]
@@ -88,8 +88,8 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  * - feed() with zero elements is a no-op that returns ok — no batch is
  *   registered and no hooks run (a zero-message batch could never complete).
  * - feed() runs beforeBatch which returns enriched elements (same count as
- *   fed — count changes are rejected) and side effects. Elements are tagged
- *   with messageId, then fed to the sub-pipeline.
+ *   fed — count changes throw) and side effects. Elements are tagged with
+ *   messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -208,14 +208,15 @@ export class BatchingPipeline<
 
         // beforeBatch may enrich elements and batch context but must not change
         // the element count: a shrunken batch (worst case zero elements) could
-        // never complete and would leak its concurrentBatches slot forever. A
-        // count change is a contract violation, so reject the feed loudly.
+        // never complete and would leak its concurrentBatches slot forever.
+        // That's a broken framework invariant, not an outcome a driver may
+        // handle, so throw instead of returning a FeedResult — mirroring
+        // BaseBatchPipeline's count-mismatch throw for batch steps. Nothing has
+        // been registered yet, so the throw leaves no phantom batch behind.
         if (mappedElements.length !== elements.length) {
-            return {
-                ok: false,
-                kind: 'before_batch_failed',
-                reason: `beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`,
-            }
+            throw new Error(
+                `batching_pipeline beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`
+            )
         }
 
         const messageIds: number[] = []
