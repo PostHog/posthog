@@ -1101,6 +1101,9 @@ export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
     Paused = 'paused',
+    // Running with enrollment frozen to the already-exposed cohort while metrics keep flowing.
+    // Derived from the feature flag, not stored — see Experiment.is_exposure_frozen.
+    ExposureFrozen = 'exposure_frozen',
     Stopped = 'stopped',
 }
 
@@ -1133,6 +1136,7 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -1231,6 +1235,11 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface MetricPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.MetricAttribute
+    operator: PropertyOperator
+}
+
 export type SpanPropertyFilterType =
     | PropertyFilterType.Span
     | PropertyFilterType.SpanAttribute
@@ -1292,6 +1301,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | WorkflowVariablePropertyFilter
@@ -4237,6 +4247,10 @@ export interface FeatureFlagGroupType {
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
     aggregation_group_type_index?: integer | null
+    /** Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition. */
+    exposure_frozen?: boolean
+    /** Snapshot cohort the exposure freeze AND'd into this group's properties. */
+    exposure_frozen_cohort?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -4267,6 +4281,12 @@ export interface FeatureFlagFilters {
     payloads?: Record<string, JsonType>
     early_exit?: boolean
     feature_enrollment?: boolean
+    /** Experiment holdout exclusion, evaluated by the flag matcher before release conditions. */
+    holdout?: { id: number; exclusion_percentage: number } | null
+    /** Legacy holdout representation, also evaluated before release conditions. */
+    holdout_groups?: FeatureFlagGroupType[] | null
+    /** Early access enrollment conditions, evaluated before release conditions. */
+    super_groups?: FeatureFlagGroupType[] | null
 }
 
 export interface FeatureFlagBasicType {
@@ -4689,6 +4709,7 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
