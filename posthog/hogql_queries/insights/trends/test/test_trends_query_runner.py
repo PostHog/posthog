@@ -526,6 +526,90 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(expected_days, response.results[0]["days"])
         self.assertEqual(expected_data, response.results[0]["data"])
 
+    def _run_days_of_week_query(
+        self, interval: IntervalType, days_of_week: list[int], date_from: str, date_to: str
+    ) -> Any:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
+            interval=interval,
+        )
+        return TrendsQueryRunner(team=self.team, query=query).calculate()
+
+    def test_days_of_week_filters_events_and_day_buckets(self):
+        # 2020-01-06 is a Monday
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-06T12:00:00Z",  # Monday
+                                "2020-01-07T12:00:00Z",  # Tuesday
+                                "2020-01-11T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [1, 2], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(["2020-01-06", "2020-01-07"], response.results[0]["days"])
+        self.assertEqual([1, 1], response.results[0]["data"])
+        self.assertEqual(2, response.results[0]["count"])
+
+    def test_days_of_week_restricts_events_within_longer_buckets(self):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=[
+                                "2020-01-11T12:00:00Z",  # Saturday
+                                "2020-01-12T12:00:00Z",  # Sunday
+                                "2020-01-15T12:00:00Z",  # Wednesday
+                                "2020-02-08T12:00:00Z",  # Saturday
+                            ],
+                        )
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.MONTH, [6, 7], "2020-01-01", "2020-02-29")
+
+        self.assertEqual(["2020-01-01", "2020-02-01"], response.results[0]["days"])
+        self.assertEqual([2, 1], response.results[0]["data"])
+
+    def test_days_of_week_uses_project_timezone(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[
+                        # 06:00 UTC Sunday = 22:00 Saturday in US/Pacific
+                        Series(event="$pageview", timestamps=["2020-01-12T06:00:00Z"]),
+                    ],
+                    properties={},
+                )
+            ]
+        )
+
+        response = self._run_days_of_week_query(IntervalType.DAY, [6], "2020-01-06", "2020-01-12")
+
+        self.assertEqual(1, response.results[0]["count"])
+        self.assertEqual(["2020-01-11"], response.results[0]["days"])
+
     def test_trends_days(self):
         self._create_test_events()
 

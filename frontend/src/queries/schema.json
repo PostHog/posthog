@@ -17570,6 +17570,20 @@
                     "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
                     "type": ["string", "null"]
                 },
+                "daysOfWeek": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/integer"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Restrict the query to events occurring on these ISO days of week (1=Monday … 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
+                },
                 "explicitDate": {
                     "default": false,
                     "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",

@@ -981,32 +981,6 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class DateRange(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    date_from: str | None = Field(
-        default=None,
-        description=(
-            "Start of the date range. Accepts ISO 8601 timestamps (e.g.,"
-            " 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks"
-            " ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last"
-            " month), -1yStart (start of last year)."
-        ),
-    )
-    date_to: str | None = Field(
-        default=None,
-        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
-    )
-    explicitDate: bool | None = Field(
-        default=False,
-        description=(
-            "Whether the date_from and date_to should be used verbatim. Disables"
-            " rounding to the start and end of period."
-        ),
-    )
-
-
 class DatetimeDay(RootModel[AwareDatetime]):
     root: AwareDatetime
 
@@ -4301,6 +4275,40 @@ class DatabaseSchemaTableCommon(BaseModel):
     name: str
     row_count: float | None = None
     type: DatabaseSchemaTableType
+
+
+class DateRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str | None = Field(
+        default=None,
+        description=(
+            "Start of the date range. Accepts ISO 8601 timestamps (e.g.,"
+            " 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks"
+            " ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last"
+            " month), -1yStart (start of last year)."
+        ),
+    )
+    date_to: str | None = Field(
+        default=None,
+        description=('End of the date range. Same format as date_from. Omit or null for "now".'),
+    )
+    daysOfWeek: list[int] | None = Field(
+        default=None,
+        description=(
+            "Restrict the query to events occurring on these ISO days of week (1=Monday"
+            " … 7=Sunday), evaluated in the project timezone. Omit or empty for all"
+            " days. Only applied by insight queries."
+        ),
+    )
+    explicitDate: bool | None = Field(
+        default=False,
+        description=(
+            "Whether the date_from and date_to should be used verbatim. Disables"
+            " rounding to the start and end of period."
+        ),
+    )
 
 
 class Day(RootModel[int]):

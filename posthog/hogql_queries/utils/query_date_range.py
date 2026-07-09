@@ -213,6 +213,33 @@ class QueryDateRange:
             start += delta
         return values
 
+    def days_of_week(self) -> Optional[list[int]]:
+        days = self._date_range.daysOfWeek if self._date_range else None
+        if not days:
+            return None
+        valid_days = sorted({day for day in days if 1 <= day <= 7})
+        if not valid_days or len(valid_days) == 7:
+            return None
+        return valid_days
+
+    def day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> Optional[ast.Expr]:
+        """`toDayOfWeek(ts, 0, tz) IN (...)` — evaluated in the project timezone, mode 0 is ISO (1=Mon…7=Sun)."""
+        days = self.days_of_week()
+        if days is None:
+            return None
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Call(
+                name="toDayOfWeek",
+                args=[
+                    timestamp_field,
+                    ast.Constant(value=0),
+                    ast.Constant(value=str(self._timezone_info)),
+                ],
+            ),
+            right=ast.Tuple(exprs=[ast.Constant(value=day) for day in days]),
+        )
+
     def date_to_as_hogql(self) -> ast.Expr:
         return ast.Call(
             name="assumeNotNull",
