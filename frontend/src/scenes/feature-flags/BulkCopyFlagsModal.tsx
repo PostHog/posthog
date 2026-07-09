@@ -233,9 +233,13 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                         organization.
                     </p>
                     <LemonBanner type="warning">
-                        If a flag with the same key already exists in a destination project, it will be overwritten with
-                        the copied configuration. Flags referencing static cohorts get an empty copy of the cohort if
-                        none with the same name exists in the destination, since its persons might not exist there.
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>If a flag with the same key exists in a destination, it will be overwritten.</li>
+                            <li>
+                                If your flag uses a static cohort, it will get an empty cohort if a cohort with the same
+                                name does not exist in the destination.
+                            </li>
+                        </ul>
                     </LemonBanner>
                     {bulkCopyParams.sourceSelectable && (
                         <div className="space-y-1">
