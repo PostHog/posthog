@@ -8,8 +8,11 @@ import pytest
 
 from click.testing import CliRunner
 from hogli_commands.signed_commits import (
+    PublishError,
     RawDiffEntry,
     _build_file_changes,
+    _commit_entries,
+    _origin_repo,
     git_publish_signed,
     mode_violations,
     parse_raw_diff,
@@ -27,10 +30,11 @@ class TestPureHelpers:
         ("raw", "expected"),
         [
             ("feat: one liner", ("feat: one liner", "")),
-            ("feat: subject\n\nbody line 1\nbody line 2\n", ("feat: subject", "body line 1\nbody line 2")),
+            ("feat: subject\n\nbody line 1\nbody line 2", ("feat: subject", "body line 1\nbody line 2")),
+            ("fix: x\nRefs PROJ-123", ("fix: x", "Refs PROJ-123")),
             ("subject\n\n\n", ("subject", "")),
         ],
-        ids=["subject_only", "subject_and_body", "trailing_newlines"],
+        ids=["subject_only", "subject_and_body", "no_blank_line_before_body", "trailing_newlines"],
     )
     def test_split_commit_message(self, raw: str, expected: tuple[str, str]) -> None:
         assert split_commit_message(raw) == expected
@@ -56,20 +60,22 @@ class TestPureHelpers:
             (_entry("120000", "100644", "T", "link"), True),
             (_entry("000000", "160000", "A", "sub"), True),
             (_entry("100644", "100755"), True),
+            (_entry("100755", "100644"), True),
             (_entry("000000", "100755", "A", "bin/new"), True),
             (_entry("100644", "100644"), False),
             (_entry("100755", "100755"), False),
-            (_entry("100755", "100644"), False),
+            (_entry("100755", "000000", "D", "bin/old"), False),
         ],
         ids=[
             "symlink_added",
             "symlink_replaced",
             "submodule_added",
             "chmod_plus_x",
+            "chmod_minus_x",
             "new_executable",
             "plain_modify",
-            "executable_modify",
-            "chmod_minus_x",
+            "executable_content_edit",
+            "executable_deleted",
         ],
     )
     def test_mode_violations(self, entry: RawDiffEntry, violates: bool) -> None:
@@ -80,15 +86,49 @@ def _run_git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
 
 
-def _init_repo(repo: Path) -> None:
+def _init_repo(repo: Path, branch: str = "master") -> None:
     repo.mkdir(exist_ok=True)
-    _run_git(repo, "init", "-q", "-b", "master")
+    _run_git(repo, "init", "-q", "-b", branch)
     _run_git(repo, "config", "user.email", "test@example.com")
     _run_git(repo, "config", "user.name", "Test")
     _run_git(repo, "config", "commit.gpgsign", "false")
     (repo / "a.txt").write_text("one\n")
     _run_git(repo, "add", "a.txt")
     _run_git(repo, "commit", "-q", "-m", "init")
+
+
+def _add_bare_origin(repo: Path, branch: str, *, set_head: bool) -> None:
+    origin = repo.parent / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", branch, str(origin)], check=True, capture_output=True)
+    _run_git(repo, "remote", "add", "origin", str(origin))
+    _run_git(repo, "push", "-q", "origin", branch)
+    if set_head:
+        _run_git(repo, "remote", "set-head", "origin", branch)
+
+
+class TestOriginRepo:
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("git@github.com:PostHog/posthog.git", "PostHog/posthog"),
+            ("https://github.com/PostHog/posthog", "PostHog/posthog"),
+            ("ssh://git@github.com/PostHog/posthog.git", "PostHog/posthog"),
+            ("git@corp-github.com:org/repo.git", None),
+            ("https://mygithub.com/org/repo", None),
+        ],
+        ids=["ssh_scp", "https", "ssh_url", "lookalike_scp_host", "lookalike_https_host"],
+    )
+    def test_host_anchoring(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str, expected: str | None
+    ) -> None:
+        _init_repo(tmp_path)
+        _run_git(tmp_path, "remote", "add", "origin", url)
+        monkeypatch.chdir(tmp_path)
+        if expected is None:
+            with pytest.raises(PublishError):
+                _origin_repo()
+        else:
+            assert _origin_repo() == expected
 
 
 class TestBuildFileChanges:
@@ -102,7 +142,7 @@ class TestBuildFileChanges:
         _run_git(tmp_path, "commit", "-q", "-m", "change")
         monkeypatch.chdir(tmp_path)
 
-        changes = _build_file_changes("HEAD")
+        changes = _build_file_changes(_commit_entries("HEAD"), "HEAD")
 
         assert changes["deletions"] == [{"path": "a.txt"}]
         by_path = {a["path"]: a["contents"] for a in changes["additions"]}
@@ -111,12 +151,21 @@ class TestBuildFileChanges:
 
 
 class TestGuardRails:
-    def test_refuses_default_branch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _init_repo(tmp_path)
-        monkeypatch.chdir(tmp_path)
+    @pytest.mark.parametrize(
+        ("branch", "set_head"),
+        [("master", True), ("main", False)],
+        ids=["origin_head_set", "main_without_origin_head"],
+    )
+    def test_refuses_default_branch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, branch: str, set_head: bool
+    ) -> None:
+        repo = tmp_path / "repo"
+        _init_repo(repo, branch=branch)
+        _add_bare_origin(repo, branch, set_head=set_head)
+        monkeypatch.chdir(repo)
         result = CliRunner().invoke(git_publish_signed, [])
         assert result.exit_code != 0
-        assert "Refusing to publish directly to master" in result.output
+        assert f"Refusing to publish directly to {branch}" in result.output
 
     def test_refuses_detached_head(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _init_repo(tmp_path)
@@ -134,3 +183,12 @@ class TestGuardRails:
         result = CliRunner().invoke(git_publish_signed, [])
         assert result.exit_code != 0
         assert "merge is in progress" in result.output
+
+    def test_git_failure_surfaces_stderr_not_traceback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _init_repo(tmp_path)
+        _run_git(tmp_path, "checkout", "-q", "-b", "feature")
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(git_publish_signed, [])
+        assert result.exit_code != 0
+        assert "`git ls-remote --symref origin HEAD` failed:" in result.output
+        assert result.exc_info is not None and result.exc_info[0] is SystemExit
