@@ -136,9 +136,16 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
         )
         .pipe(createPrepareEventStep())
-        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options), {
-            retry: { tries: 5, sleepMs: 100, name: 'process_groups' },
-        })
+        .pipe(
+            topHog(createProcessGroupsStep(teamManager, groupTypeManager, options), [
+                timer('process_groups_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.preparedEvent.distinctId,
+                    partition: String(input.message.partition),
+                })),
+            ]),
+            { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
+        )
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(

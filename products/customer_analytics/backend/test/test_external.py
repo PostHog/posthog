@@ -31,6 +31,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.csm_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
             team_id=self.team.id, name="CSM"
         )
+        self.csm_key = str(self.csm_definition.id)
         self.url = "/api/customer_analytics/external/account"
         csp_enabled = patch(
             "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
@@ -148,7 +149,7 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def test_patch_assigns_relationship_and_returns_it(self):
         response = self._patch(
-            {"external_id": "acme-1", "relationships": {"CSM": {"type": "user", "id": self.user.id}}}
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": self.user.id}}}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -160,7 +161,7 @@ class TestExternalAccountAPI(APIBaseTest):
     def test_patch_null_ends_active_assignment(self):
         self._assign_csm(self.user)
 
-        response = self._patch({"external_id": "acme-1", "relationships": {"CSM": None}})
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: None}})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["relationships"], {})
         self.assertEqual(self._active_csm_user_ids(), [])
@@ -170,7 +171,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.save(update_fields=["_properties"])
 
         response = self._patch(
-            {"external_id": "acme-1", "relationships": {"CSM": {"type": "user", "id": self.user.id}}}
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": self.user.id}}}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["properties"]["stripe_customer_id"], "cus_123")
@@ -183,21 +184,23 @@ class TestExternalAccountAPI(APIBaseTest):
         ]
     )
     def test_patch_rejects_invalid_assignee(self, _name, assignee):
-        response = self._patch({"external_id": "acme-1", "relationships": {"CSM": assignee}})
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: assignee}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(self._active_csm_user_ids(), [])
 
-    def test_patch_rejects_unknown_definition_name(self):
+    def test_patch_rejects_non_uuid_key(self):
         response = self._patch({"external_id": "acme-1", "relationships": {"AE": {"type": "user", "id": self.user.id}}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "AE: no relationship definition with this name")
+        self.assertEqual(response.json()["error"], "AE: no relationship definition with this ID")
 
     def test_patch_rejects_non_member_user(self):
         other_org = Organization.objects.create(name="Outsiders")
         outsider = User.objects.create_and_join(other_org, "outsider@example.com", None)
-        response = self._patch({"external_id": "acme-1", "relationships": {"CSM": {"type": "user", "id": outsider.id}}})
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": outsider.id}}}
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "CSM: user is not a member of this organization")
+        self.assertEqual(response.json()["error"], f"{self.csm_key}: user is not a member of this organization")
         self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_adds_tags_by_default(self):
@@ -234,7 +237,7 @@ class TestExternalAccountAPI(APIBaseTest):
             response = self._patch(
                 {
                     "external_id": "acme-1",
-                    "relationships": {"CSM": {"type": "user", "id": self.user.id}},
+                    "relationships": {self.csm_key: {"type": "user", "id": self.user.id}},
                     "tags": ["enterprise"],
                 }
             )
@@ -272,6 +275,14 @@ class TestExternalAccountAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_capture.assert_not_called()
+
+    def test_patch_rejects_unknown_uuid_key(self):
+        unknown_uuid = "00000000-0000-0000-0000-000000000099"
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {unknown_uuid: {"type": "user", "id": self.user.id}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(unknown_uuid, response.json()["error"])
 
 
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):

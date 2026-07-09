@@ -25689,17 +25689,6 @@ export namespace Schemas {
       notes: string[];
     }
 
-    export interface GoogleSearchConsoleSite {
-      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-      siteUrl: string;
-      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-      permissionLevel: string;
-    }
-
-    export interface GoogleSearchConsoleSitesResponse {
-      sites: GoogleSearchConsoleSite[];
-    }
-
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -26698,6 +26687,7 @@ export namespace Schemas {
      * * `posthog_business_hours` - posthog_business_hours
      * * `non_failure_status_codes` - non_failure_status_codes
      * * `customer_analytics_account_properties` - customer_analytics_account_properties
+     * * `customer_analytics_account_relationships` - customer_analytics_account_relationships
      */
     export type InputsSchemaItemTypeEnum = typeof InputsSchemaItemTypeEnum[keyof typeof InputsSchemaItemTypeEnum];
 
@@ -26718,6 +26708,7 @@ export namespace Schemas {
       PosthogBusinessHours: 'posthog_business_hours',
       NonFailureStatusCodes: 'non_failure_status_codes',
       CustomerAnalyticsAccountProperties: 'customer_analytics_account_properties',
+      CustomerAnalyticsAccountRelationships: 'customer_analytics_account_relationships',
     } as const;
 
     export type InputsSchemaItemChoicesItem = { [key: string]: unknown };
@@ -29178,6 +29169,37 @@ export namespace Schemas {
     export interface IntegrationAccessRequestResponse {
       /** Whether the access request was accepted and the project admins were notified. */
       success: boolean;
+    }
+
+    /**
+     * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+     * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+     * and one frontend selector work across all platforms.
+     */
+    export interface IntegrationAccount {
+      /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+      value: string;
+      /** Primary human-readable label for the account. */
+      display_name: string;
+      /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+      is_primary: boolean;
+      /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+      badges: string[];
+      /**
+         * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+         * @nullable
+         */
+      group: string | null;
+      /**
+         * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+         * @nullable
+         */
+      secondary_text: string | null;
+    }
+
+    export interface IntegrationAccountsResponse {
+      /** All accounts the connected integration can access. */
+      accounts: IntegrationAccount[];
     }
 
     /**
@@ -58097,9 +58119,9 @@ export namespace Schemas {
       is_monotonic: boolean;
       /** Service that emitted the metric. */
       service_name: string;
-      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      /** Trace this emission belongs to (hex, same form the tracing product uses); empty if none. Use it to pivot to the trace. */
       trace_id: string;
-      /** Span this emission belongs to; empty if none. */
+      /** Span this emission belongs to (hex); empty if none. */
       span_id: string;
       /** Per-emission attributes (high-cardinality labels on the data point). */
       attributes: _MetricEventSampleAttributes;
@@ -58192,7 +58214,7 @@ export namespace Schemas {
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
       dateTo?: string;
       /**
-         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.
          * @maxLength 255
          */
       traceId?: string;
@@ -59999,6 +60021,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
@@ -66878,6 +66911,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type ExternalDataSourcesStoredCredentialsListParams = {
