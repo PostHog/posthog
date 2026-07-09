@@ -180,9 +180,11 @@ export function serializeNode(node: NotebookBlockNode): string {
 function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
-        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
-            '\n'
-        )
+        const linePrefix = node.blockquote ? '> ' : ''
+        return [
+            `${linePrefix}${'#'.repeat(node.level ?? 1)} ${firstLine}`,
+            ...followingLines.map((followingLine) => `${linePrefix}${escapeMarkdownLineStart(followingLine)}`),
+        ].join('\n')
     }
     if (node.type === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
@@ -612,12 +614,28 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
             return parseBlockquotedComponentBlock(lines, lineIndex)
         }
 
+        // The heading marker needs its trailing space (`> ## `), which stripBlockquoteMarker trims.
+        const quotedHeadingMatch = line.replace(/^\s*>\s?/, '').match(HEADING_REGEX)
+        if (quotedHeadingMatch) {
+            return {
+                node: {
+                    id: '',
+                    type: 'heading',
+                    level: quotedHeadingMatch[1].length as NotebookTextBlockNode['level'],
+                    blockquote: true,
+                    children: parseInlineMarkdown(quotedHeadingMatch[2]),
+                },
+                nextLineIndex: lineIndex + 1,
+            }
+        }
+
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
         while (
             nextLineIndex < lines.length &&
             lines[nextLineIndex].trim().startsWith('>') &&
             !isListLine(stripBlockquoteMarker(lines[nextLineIndex])) &&
+            !HEADING_REGEX.test(lines[nextLineIndex].replace(/^\s*>\s?/, '')) &&
             !COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(lines[nextLineIndex]))
         ) {
             quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))

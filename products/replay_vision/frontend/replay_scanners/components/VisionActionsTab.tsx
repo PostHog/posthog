@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -104,13 +104,16 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
             title: 'Name',
             key: 'name',
             render: (_, action) => (
-                <Link
-                    className="font-semibold"
-                    to={urls.replayVisionAction(action.id)}
-                    data-attr="vision-action-view-runs"
-                >
-                    {action.name}
-                </Link>
+                <span className="flex items-center gap-2">
+                    <Link
+                        className="font-semibold"
+                        to={urls.replayVisionAction(action.id)}
+                        data-attr="vision-action-view-runs"
+                    >
+                        {action.name}
+                    </Link>
+                    {action.is_scanner_digest && <LemonTag type="highlight">Default</LemonTag>}
+                </span>
             ),
         },
         {

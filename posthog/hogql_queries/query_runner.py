@@ -88,7 +88,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -1999,15 +1998,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
-        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
-        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
-        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
-        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
-        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
-        # cluster. Remove with the transform.
-        if geoip_dict_fallback_team_in_env(self.team.pk):
-            payload["geoip_dict_fallback"] = True
-
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
         # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
@@ -2026,7 +2016,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
         return sorted(restricted)
