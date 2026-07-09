@@ -1196,7 +1196,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
         [
             # name, execution_mode, expected_mode, expected_cache_age_seconds
             (
-                "force_blocking_downgrades_with_min_age_threshold",
+                "force_blocking_downgrades_with_staleness_window_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),

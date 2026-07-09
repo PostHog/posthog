@@ -47,6 +47,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
@@ -553,10 +554,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
             )
 
+    @mock_exporter_template
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
         # Un-mocked end-to-end regression test: exercises the real process_query_dict ->
         # process_query_model -> query_runner.run() chain that the mocked assertions above
-        # never execute the body of.
+        # never execute the body of. A 200 alone doesn't prove this: insight_result's
+        # broad except Exception swallows calculation crashes into a query_status error
+        # and still renders 200, so assert the embedded result actually computed.
         filter_dict = {"events": [{"id": "$pageview"}]}
 
         insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "name": "insight"})
@@ -566,6 +570,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(valid_url, data={"refresh": "force_blocking"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        exported = self._parse_exported_data(response.content.decode())
+        query_status = exported["insight"]["query_status"] or {}
+        self.assertFalse(query_status.get("error"), query_status)
+        self.assertIsNotNone(exported["insight"]["result"])
+
+    @staticmethod
+    def _parse_exported_data(html: str) -> dict:
+        start_marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(start_marker) + len(start_marker)
+        end = html.index("</script>", start)
+        outer = json.loads(html[start:end])
+        return json.loads(outer) if isinstance(outer, str) else outer
 
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
