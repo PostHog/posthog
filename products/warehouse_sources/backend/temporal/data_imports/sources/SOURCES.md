@@ -195,6 +195,7 @@ the row lists both.
 | instatus                | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | intruder                | HTTP                        | requests                                                        | ✅                          |
+| invoiced                | HTTP                        | requests                                                        | ✅                          |
 | invoiceninja            | HTTP                        | requests                                                        | ✅                          |
 | ip2whois                | HTTP                        | requests                                                        | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
@@ -517,7 +518,6 @@ doesn't conflict with concurrent PRs.
 - instagram
 - instantly
 - interzoid
-- invoiced
 - jamf_pro
 - jobber
 - judgeme_reviews
