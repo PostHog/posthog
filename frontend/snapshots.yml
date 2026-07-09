@@ -5982,6 +5982,10 @@ snapshots:
         hash: v1.k794b7964.d4921e1d896775d1f98056f5bc1c57c9b7ca0be8951e14a0f3229e7b77dc2472.W3I3GvNATojXlZJp04S-XFH3DfLBUNb7lJ1-lr-rW9g
     scenes-app-insights-side-panel-actions--unsaved-insight--light:
         hash: v1.k794b7964.1509a0b35b8b28d5a721d77a7f1ae7e166057624f7db16331216264e581e2f6e.V-NDMPceHNP8iL5m7RVrATBNmdh4zjdetX_KW6UQg5g
+    scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--dark:
+        hash: v1.k794b7964.52d791fc7eb98cf6dcd1a5bee6b116b602ac0a12eb00ce9e91bff37507f287ee.97PQFvm6wL2rjbzNZ-7-ie9sXB6RUpuS7j_aqEeCmCE
+    scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--light:
+        hash: v1.k794b7964.7b8d49b9b0520e77193d4daa6ac01ab65a68b2317ce647bbdf1d68a8765da8ad.IvWMtHjUu9iH5XiCPh77GgiSYJGtT5ERO_opo82cDe0
     scenes-app-insights-sqllinechart--sql-line-chart--dark:
         hash: v1.k794b7964.de80c9b4dac120fbbaca7e49026f65cdb77e19c4a53f734a3840c53a5573218c.CWJMQGhmxj5sAShfvws2pIRo9cBU8K7GILzcPsmkXhI
     scenes-app-insights-sqllinechart--sql-line-chart--light:
