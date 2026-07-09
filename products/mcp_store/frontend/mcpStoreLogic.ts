@@ -54,8 +54,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
         openAddCustomServerModalWithDefaults: (defaults: Partial<CustomServerFormValues>) => ({ defaults }),
         closeAddCustomServerModal: true,
         toggleServerEnabled: ({ id, enabled }: { id: string; enabled: boolean }) => ({ id, enabled }),
-        shareInstallation: ({ id }: { id: string }) => ({ id }),
-        unshareInstallation: ({ id }: { id: string }) => ({ id }),
         setInstallations: (installations: MCPServerInstallationApi[]) => ({ installations }),
         installTemplate: ({ templateId }: { templateId: string }) => ({ templateId }),
         loadInstallationTools: ({ installationId }: { installationId: string }) => ({ installationId }),
@@ -263,6 +261,31 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     lemonToast.success('Server uninstalled')
                     return values.installations.filter((i: MCPServerInstallationApi) => i.id !== installationId)
                 },
+                // Both refetch rather than patching the row in place: unsharing another
+                // member's row (admin reclaim) makes it their personal install, which
+                // must drop out of the requester's list entirely.
+                shareInstallation: async ({ id }: { id: string }) => {
+                    try {
+                        await api.mcpServerInstallations.share(id)
+                        lemonToast.success('Server shared with the project')
+                    } catch (e: any) {
+                        lemonToast.error(e.detail || 'Failed to share server')
+                        throw e
+                    }
+                    const response = await api.mcpServerInstallations.list()
+                    return response.results as MCPServerInstallationApi[]
+                },
+                unshareInstallation: async ({ id }: { id: string }) => {
+                    try {
+                        await api.mcpServerInstallations.unshare(id)
+                        lemonToast.success('Server is now personal')
+                    } catch (e: any) {
+                        lemonToast.error(e.detail || 'Failed to unshare server')
+                        throw e
+                    }
+                    const response = await api.mcpServerInstallations.list()
+                    return response.results as MCPServerInstallationApi[]
+                },
             },
         ],
         installationTools: [
@@ -377,24 +400,6 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                         i.id === id ? { ...i, is_enabled: !enabled } : i
                     )
                 )
-            }
-        },
-        shareInstallation: async ({ id }) => {
-            try {
-                await api.mcpServerInstallations.share(id)
-                lemonToast.success('Server shared with the project')
-                actions.loadInstallations()
-            } catch (e: any) {
-                lemonToast.error(e.detail || 'Failed to share server')
-            }
-        },
-        unshareInstallation: async ({ id }) => {
-            try {
-                await api.mcpServerInstallations.unshare(id)
-                lemonToast.success('Server is now personal')
-                actions.loadInstallations()
-            } catch (e: any) {
-                lemonToast.error(e.detail || 'Failed to unshare server')
             }
         },
         installTemplate: async ({ templateId }) => {

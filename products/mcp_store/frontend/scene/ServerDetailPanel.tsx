@@ -215,6 +215,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
         shareInstallation,
         unshareInstallation,
     } = useActions(mcpStoreLogic)
+    const { installationsLoading } = useValues(mcpStoreLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Member,
@@ -322,6 +323,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                             type="secondary"
                             size="small"
                             icon={<IconShare />}
+                            loading={installationsLoading}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: `Share "${installation.name}" with the project?`,
@@ -352,6 +354,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                         <LemonButton
                             type="secondary"
                             size="small"
+                            loading={installationsLoading}
                             onClick={() => unshareInstallation({ id: installation.id })}
                             tooltip="Convert back to a personal server, visible only to its owner."
                         >
@@ -364,6 +367,7 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
                             status="danger"
                             size="small"
                             icon={<IconTrash />}
+                            loading={installationsLoading}
                             onClick={() => uninstallServer(installation.id)}
                             disabledReason={removeDisabledReason}
                         >
