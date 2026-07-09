@@ -45,7 +45,7 @@ export class RustVmExecutor {
     public execute(
         invocation: CyclotronJobInvocationHogFunction,
         sensitiveValues: string[]
-    ): CyclotronJobInvocationResult | null {
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
             rustVmExecution.inc({ outcome: 'fallback_unavailable' })

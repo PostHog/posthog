@@ -13,9 +13,9 @@ export interface HogExecResult {
     error?: string
     durationUs: number
     /** Messages from print() calls, in call order, capped at 24 entries. */
-    logs: string[]
+    logs?: string[]
     /** True when print() was called past the cap and messages were dropped. */
-    logsTruncated: boolean
+    logsTruncated?: boolean
 }
 
 export interface ExecuteBatchOptions {
