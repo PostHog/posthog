@@ -645,6 +645,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        toggleProjectFeatureFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
@@ -989,6 +990,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false as boolean,
             {
                 setDisableCopiedFlag: (_, { disableCopiedFlag }) => disableCopiedFlag,
+            },
+        ],
+        projectFlagToggleTargetId: [
+            null as number | null,
+            {
+                toggleProjectFeatureFlagActive: (_, { flagId }) => flagId,
+                updateProjectFeatureFlagActiveSuccess: () => null,
+                updateProjectFeatureFlagActiveFailure: () => null,
             },
         ],
         scheduleDateMarker: [
@@ -1483,6 +1492,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        projectFeatureFlagActiveUpdate: [
+            null as FeatureFlagType | null,
+            {
+                updateProjectFeatureFlagActive: async ({
+                    teamId,
+                    flagId,
+                    active,
+                }: {
+                    teamId: number
+                    flagId: number
+                    active: boolean
+                }) => {
+                    const savedFlag = await api.update(`api/projects/${teamId}/feature_flags/${flagId}`, {
+                        active,
+                    })
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
         relatedInsights: [
             [] as QueryBasedInsightModel[],
             {
@@ -1945,6 +1974,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
+        updateProjectFeatureFlagActiveSuccess: ({ projectFeatureFlagActiveUpdate }) => {
+            if (projectFeatureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${projectFeatureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                actions.loadProjectsWithCurrentFlag()
+            }
+        },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
                 lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
@@ -2369,6 +2404,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 action as any,
                 previousState
             )
+        },
+        toggleProjectFeatureFlagActive: async ({ teamId, flagId, active }) => {
+            await actions.updateProjectFeatureFlagActive({ teamId, flagId, active })
         },
     })),
     selectors({
