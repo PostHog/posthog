@@ -819,6 +819,160 @@ class TestS3CompatibleIntegration:
         assert response.json()["detail"] == expected_error_message
 
 
+class TestSnowflakeIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_password_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "snowflake"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "prod-snowflake"
+        assert integration.config == {
+            "name": "prod-snowflake",
+            "account": "myorg-myaccount",
+            "user": "posthog_svc",
+            "authentication_type": "password",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        # The credential value must never surface anywhere in the API response (sensitive_config is
+        # not a serializer field; this guards against a leak into config or any other exposed field).
+        # Note the word "password" legitimately appears as the non-secret authentication_type.
+        response_body = json.dumps(response.json())
+        assert "secret" not in response_body
+
+    def test_create_with_keypair_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "prod-snowflake",
+                    "account": "myorg-myaccount",
+                    "user": "posthog_svc",
+                    "authentication_type": "keypair",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+                    "private_key_passphrase": "phrase",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.config["authentication_type"] == "keypair"
+        assert integration.sensitive_config == {
+            "private_key": "-----BEGIN PRIVATE KEY-----\nxxx\n-----END PRIVATE KEY-----",
+            "private_key_passphrase": "phrase",
+        }
+        response_body = json.dumps(response.json())
+        assert "private_key" not in response_body
+        assert "PRIVATE KEY" not in response_body
+        assert "phrase" not in response_body
+
+    def test_create_rejects_duplicate_name(self, client: HttpClient):
+        client.force_login(self.user)
+        payload = {
+            "kind": "snowflake",
+            "config": {
+                "name": "prod-snowflake",
+                "account": "myorg-myaccount",
+                "user": "posthog_svc",
+                "authentication_type": "password",
+                "password": "secret",
+            },
+        }
+
+        first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        second = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "An integration named 'prod-snowflake' already exists" in second.json()["detail"]
+        assert Integration.objects.filter(team=self.team, integration_id="prod-snowflake").count() == 1
+
+    def test_create_rejects_malformed_account(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "snowflake",
+                "config": {
+                    "name": "bad",
+                    "account": "https://myaccount.snowflakecomputing.com",
+                    "user": "posthog_svc",
+                    "authentication_type": "password",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "invalid account identifier" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            (
+                {"account": "a", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            (
+                {"name": "n", "user": "u", "password": "p"},
+                "Name, account, and user must be provided",
+            ),
+            ({}, "Name, account, and user must be provided"),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "password"},
+                "Password is required",
+            ),
+            (
+                {"name": "n", "account": "a", "user": "u", "authentication_type": "keypair"},
+                "Private key is required",
+            ),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "snowflake", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
