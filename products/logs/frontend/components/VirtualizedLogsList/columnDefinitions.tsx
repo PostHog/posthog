@@ -260,8 +260,6 @@ export function createConfiguredColumn(params: {
     const title = columnLabel(config)
 
     if (config.type === 'message') {
-        // Pinned to the end (see normalizeColumns) — removable, but never movable
-        const messageCallbacks = { ...callbacks, onMove: undefined }
         return {
             key: `col:${config.id}`,
             title,
@@ -282,7 +280,13 @@ export function createConfiguredColumn(params: {
                     <span className="truncate" title={title}>
                         {title}
                     </span>
-                    <ColumnHeaderMenu config={config} callbacks={messageCallbacks} isFirst={isFirst} isLast={isLast} />
+                    {/* Pinned to the end (see normalizeColumns) — removable, but never movable */}
+                    <ColumnHeaderMenu
+                        config={config}
+                        callbacks={{ ...callbacks, onMove: undefined }}
+                        isFirst={isFirst}
+                        isLast={isLast}
+                    />
                 </div>
             ),
         }

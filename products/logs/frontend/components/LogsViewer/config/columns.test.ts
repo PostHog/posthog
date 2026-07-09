@@ -64,12 +64,14 @@ describe('logs column config', () => {
             expect(normalizeColumns(columns).map((c) => c.id)).toEqual(['t', 'c', 'm'])
         })
 
-        it('is identity when message is already last or absent', () => {
+        it('returns the same reference when message is already last or absent', () => {
+            // Identity matters: reducers call this on every mutation, and a fresh array in the
+            // steady state would defeat referential-equality checks downstream
             const alreadyLast: LogsColumnConfig[] = [
                 { id: 't', type: 'timestamp' },
                 { id: 'm', type: 'message' },
             ]
-            expect(normalizeColumns(alreadyLast).map((c) => c.id)).toEqual(['t', 'm'])
+            expect(normalizeColumns(alreadyLast)).toBe(alreadyLast)
             const noMessage: LogsColumnConfig[] = [{ id: 't', type: 'timestamp' }]
             expect(normalizeColumns(noMessage)).toBe(noMessage)
         })

@@ -17,6 +17,7 @@ export interface LogRowProps {
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
+    hasMessageColumn: boolean
     onTogglePin: (log: ParsedLogMessage) => void
     onClick?: () => void
     rowWidth?: number
@@ -41,6 +42,7 @@ export function LogRow({
     pinned,
     showPinnedWithOpacity,
     wrapBody,
+    hasMessageColumn,
     onTogglePin,
     onClick,
     rowWidth,
@@ -104,8 +106,8 @@ export function LogRow({
                     onTogglePin={onTogglePin}
                     onTogglePrettify={onTogglePrettify}
                     // Scroll buttons drive the message cell's inner scroll — pointless without
-                    // a message column (the flex column) or when wrapping already shows everything
-                    showScrollButtons={!wrapBody && columns.some((col) => col.sizing.type === 'flex')}
+                    // a message column or when wrapping already shows everything
+                    showScrollButtons={!wrapBody && hasMessageColumn}
                 />
             </div>
             {isExpanded && <ExpandedLogContent log={log} />}
