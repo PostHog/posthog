@@ -1842,7 +1842,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             new_source_model.save(update_fields=["connection_metadata", "updated_at"])
         source_schemas_by_name = {schema.name: schema for schema in source_schemas}
         schema_names = [schema.name for schema in source_schemas]
-        default_source_schema = source_config.to_dict().get("schema")
+        source_config_dict = source_config.to_dict()
+        default_source_schema = source_config_dict.get("schema")
+        default_source_catalog = source_config_dict.get("database")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         payload_schemas = payload.get("schemas", None)
@@ -2032,7 +2034,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
-                        default_catalog=source_config.to_dict().get("database"),
+                        default_catalog=default_source_catalog,
                     )
                 )
             elif is_direct_redshift:
@@ -2041,7 +2043,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         schema_name=schema_name,
                         source_schema=source_schema,
                         default_schema=default_source_schema,
-                        default_catalog=source_config.to_dict().get("database"),
+                        default_catalog=default_source_catalog,
                     )
                 )
             else:

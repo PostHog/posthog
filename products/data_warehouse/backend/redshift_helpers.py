@@ -21,21 +21,19 @@ from products.data_warehouse.backend.direct_redshift import (
     hide_direct_redshift_table,
     upsert_direct_redshift_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import sql_schema_metadata
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
     extract_available_column_names,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
     prune_enabled_columns,
+    sql_schema_metadata,
 )
 
 if TYPE_CHECKING:
@@ -183,14 +181,17 @@ def reconcile_redshift_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every Redshift row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
     default_catalog = get_default_redshift_catalog(source)
     default_schema = get_default_redshift_schema(source)
     schema_models = {
-        s.name: s for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+        s.name: s
+        for s in ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related(
+            "table"
+        )
     }
 
     schema_models_by_location: dict[RedshiftSourceLocation, ExternalDataSchema] = {}
@@ -286,10 +287,14 @@ def reconcile_redshift_schemas(
         return []
 
     stale_names: list[str] = []
-    stale = ExternalDataSchema.objects.filter(
-        Q(team_id=team_id, source_id=source.id),
-        Q(deleted=False) | Q(table__deleted=False),
-    ).exclude(name__in=source_schema_names)
+    stale = (
+        ExternalDataSchema.objects.filter(
+            Q(team_id=team_id, source_id=source.id),
+            Q(deleted=False) | Q(table__deleted=False),
+        )
+        .exclude(name__in=source_schema_names)
+        .select_related("table")
+    )
     for s in stale:
         hide_direct_redshift_table(s.table)
         if not s.deleted:

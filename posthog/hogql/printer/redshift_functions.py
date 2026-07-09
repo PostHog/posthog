@@ -102,9 +102,11 @@ _REDSHIFT_ONLY_HANDLERS: dict[str, Callable[[list[str]], str]] = {
 REDSHIFT_FUNCTION_RENAMES_LOWER: dict[str, str] = {
     name: target
     for name, target in POSTGRES_FUNCTION_RENAMES_LOWER.items()
-    if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS and name not in _REDSHIFT_ONLY_HANDLERS
+    if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS
 }
 
+# visit_call dispatches handlers before renames and passthrough, so the Redshift-only handlers
+# shadow any inherited Postgres mapping for the same name.
 REDSHIFT_FUNCTION_HANDLERS_LOWER: dict[str, Callable[[list[str]], str]] = {
     **{
         name: handler
@@ -114,6 +116,4 @@ REDSHIFT_FUNCTION_HANDLERS_LOWER: dict[str, Callable[[list[str]], str]] = {
     **_REDSHIFT_ONLY_HANDLERS,
 }
 
-REDSHIFT_PASSTHROUGH_FUNCTIONS: frozenset[str] = _without_unsupported(POSTGRES_PASSTHROUGH_FUNCTIONS) - frozenset(
-    _REDSHIFT_ONLY_HANDLERS
-)
+REDSHIFT_PASSTHROUGH_FUNCTIONS: frozenset[str] = _without_unsupported(POSTGRES_PASSTHROUGH_FUNCTIONS)

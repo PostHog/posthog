@@ -62,6 +62,7 @@ _LAZY = {
     "get_primary_key_columns": "sources.postgres.postgres",
     "source_requires_ssl": "sources.postgres.postgres",
     "PostgresSource": "sources.postgres.source",
+    "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
 }
 

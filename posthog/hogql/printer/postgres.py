@@ -165,13 +165,6 @@ class PostgresPrinter(BasePrinter):
 
         func_name = node.name.lower()
 
-        args_str = ", ".join(args)
-        if func_name == "count" and not args and not node.distinct:
-            # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
-            args_str = "*"
-        if node.distinct:
-            args_str = f"DISTINCT {args_str}"
-
         handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
@@ -185,6 +178,13 @@ class PostgresPrinter(BasePrinter):
                     f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
                 )
             return handler(args)
+
+        args_str = ", ".join(args)
+        if func_name == "count" and not args and not node.distinct:
+            # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
+            args_str = "*"
+        if node.distinct:
+            args_str = f"DISTINCT {args_str}"
 
         renamed = function_renames.get(func_name)
         if renamed is not None:

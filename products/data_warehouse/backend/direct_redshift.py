@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -42,7 +42,7 @@ def upsert_direct_redshift_table(
     source_schema: str,
     source_table_name: str,
 ) -> DataWarehouseTable:
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
     options = {
         **(existing_table.options if existing_table is not None and isinstance(existing_table.options, dict) else {}),
@@ -89,12 +89,3 @@ def upsert_direct_redshift_table(
 def hide_direct_redshift_table(table: DataWarehouseTable | None) -> None:
     if table is not None and not table.deleted:
         table.soft_delete()
-
-
-def rename_direct_redshift_join_references(*, team_id: int, old_name: str, new_name: str) -> None:
-    if old_name == new_name:
-        return
-    from products.data_tools.backend.models.join import DataWarehouseJoin
-
-    DataWarehouseJoin.objects.filter(team_id=team_id, source_table_name=old_name).update(source_table_name=new_name)
-    DataWarehouseJoin.objects.filter(team_id=team_id, joining_table_name=old_name).update(joining_table_name=new_name)
