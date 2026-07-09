@@ -62,9 +62,14 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
             // started in their constructors, drained by shutdown()), so this
             // step no longer touches reset/reportBatch — caches persist across
             // batches by design under concurrentBatches > 1.
-            const [groupResults, personsStoreMessages] = await Promise.all([
-                flushStore('group', groupStore),
-                flushStore('person', personsStore),
+            //
+            // The person store returns Kafka message descriptors that we turn
+            // into produce promises here. The group store owns its ClickHouse
+            // group outputs, so it returns already-started produce promises
+            // that we attach directly as side effects.
+            const [groupProducePromises, personsStoreMessages] = await Promise.all([
+                flushStore('group', groupStore, (results) => results.length),
+                flushStore('person', personsStore, countFlushResultMessages),
             ])
 
             const personStoreKafkaMessageCount = countFlushResultMessages(personsStoreMessages)
@@ -73,11 +78,10 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
                 batchSize: input.elements.length,
                 personStoreMessageCount: personsStoreMessages.length,
                 personStoreKafkaMessageCount,
-                groupStoreMessageCount: groupResults.length,
+                groupStoreMessageCount: groupProducePromises.length,
             })
 
-            // Create Kafka produce promises for all person/group store updates
-            const producePromises = createProducePromises(personsStoreMessages, outputs)
+            const producePromises = [...groupProducePromises, ...createProducePromises(personsStoreMessages, outputs)]
 
             return ok(input, producePromises)
         } catch (error) {
@@ -96,7 +100,11 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
     }
 }
 
-async function flushStore(store: BatchStoreName, batchWritingStore: BatchWritingStore): Promise<FlushResult[]> {
+async function flushStore<T>(
+    store: BatchStoreName,
+    batchWritingStore: BatchWritingStore<T>,
+    countMessages: (results: T[]) => number
+): Promise<T[]> {
     const flushStats = batchWritingStore.getFlushStats()
     batchStoreFlushDirtyEntriesHistogram.observe({ store }, flushStats.dirtyEntryCount)
     batchStoreFlushReferencedBatchesHistogram.observe({ store }, flushStats.referencedBatchCount)
@@ -109,7 +117,7 @@ async function flushStore(store: BatchStoreName, batchWritingStore: BatchWriting
         batchStoreFlushLatencyHistogram.observe({ store, outcome: 'success' }, latencySeconds)
         batchStoreFlushOperationsCounter.inc({ store, outcome: 'success' })
         batchStoreFlushResultRecordsHistogram.observe({ store }, flushResults.length)
-        batchStoreFlushKafkaMessagesHistogram.observe({ store }, countFlushResultMessages(flushResults))
+        batchStoreFlushKafkaMessagesHistogram.observe({ store }, countMessages(flushResults))
         return flushResults
     } catch (error) {
         const latencySeconds = (performance.now() - flushStartTime) / 1000

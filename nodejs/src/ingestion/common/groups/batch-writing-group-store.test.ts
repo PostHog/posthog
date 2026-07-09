@@ -111,13 +111,20 @@ describe('BatchWritingGroupStore', () => {
         groupStore = new BatchWritingGroupStore(mockOutputs, groupRepository, clickhouseGroupRepository)
     })
 
+    // upsertGroup/flush now return deferred ClickHouse produce promises. Tests
+    // that only assert DB behavior drop them explicitly (the produce mocks
+    // resolve on their own) so the returned array isn't a floating promise.
+    const upsertGroupDropProduces = (...args: Parameters<BatchWritingGroupStore['upsertGroup']>): Promise<void> =>
+        groupStore.upsertGroup(...args).then(() => undefined)
+    const flushGroupDropProduces = (): Promise<void> => groupStore.flush().then(() => undefined)
+
     afterEach(async () => {
         // Clear the metric-emission interval started in the constructor;
         // unref() prevents it from blocking process exit, but we still want
         // a clean slate between tests. Tests may leave dirty entries behind,
         // so flush first — shutdown() throws on dirty cache by design.
         try {
-            await groupStore?.flush()
+            await groupStore?.flush().then(() => undefined)
         } catch {
             // ignore — some tests intentionally fail flush
         }
@@ -130,11 +137,11 @@ describe('BatchWritingGroupStore', () => {
     })
 
     it('should accumulate writes in cache, write once to db', async () => {
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
 
-        await groupStore.flush()
+        const sideEffects = await groupStore.flush()
 
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
@@ -152,31 +159,43 @@ describe('BatchWritingGroupStore', () => {
             {}
         )
 
+        // flush() returns the deferred ClickHouse produce as a side effect for
+        // the caller to await before offset commit — not a fire-and-forget.
+        expect(sideEffects).toHaveLength(1)
+        expect(clickhouseGroupRepository.upsertGroup).toHaveBeenCalledTimes(1)
+        await Promise.all(sideEffects)
+
         const cacheMetrics = groupStore.getCacheMetrics()
 
         expect(cacheMetrics.cacheHits).toBe(2)
         expect(cacheMetrics.cacheMisses).toBe(0)
     })
 
-    it('should immediately write to db if new group', async () => {
+    it('should immediately write to db if new group and return its produce as a side effect', async () => {
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        const sideEffects = await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
 
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
         expect((groupRepository as any).lastTransactionMock.insertGroup).toHaveBeenCalledTimes(1)
+
+        // The create path commits Postgres inline but hands the ClickHouse
+        // produce back un-awaited so the caller attaches it as a side effect.
+        expect(sideEffects).toHaveLength(1)
+        expect(clickhouseGroupRepository.upsertGroup).toHaveBeenCalledTimes(1)
+        await Promise.all(sideEffects)
     })
 
     it('should accumulate changes in cache after db write, even if new group', async () => {
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
         const createdAt = DateTime.now()
 
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, createdAt)
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, createdAt)
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, createdAt)
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: 'test' }, createdAt)
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
@@ -220,11 +239,11 @@ describe('BatchWritingGroupStore', () => {
             return Promise.resolve(updateCounter)
         })
 
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { c: 'test' }, DateTime.now())
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         // Should fetch 3 times, 1 for initial fetch, 2 for retries
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(3)
@@ -249,13 +268,13 @@ describe('BatchWritingGroupStore', () => {
         jest.spyOn(groupRepository, 'updateGroupOptimistically').mockResolvedValue(undefined)
         jest.spyOn(groupRepository, 'updateGroup').mockResolvedValue(2)
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(group)
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'updated' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'updated' }, DateTime.now())
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(clickhouseGroupRepository.upsertGroup).toHaveBeenCalledTimes(0)
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(5)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
@@ -264,10 +283,10 @@ describe('BatchWritingGroupStore', () => {
     })
 
     it('should share cache between distinct ids', async () => {
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: 'test' }, DateTime.now())
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0) // Uses optimistic update for existing groups
@@ -287,9 +306,9 @@ describe('BatchWritingGroupStore', () => {
         // Mock the groupRepository.fetchGroup to return a group with the same properties
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(group)
 
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', group.group_properties, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', group.group_properties, DateTime.now())
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(0)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
@@ -297,20 +316,22 @@ describe('BatchWritingGroupStore', () => {
         // No transaction calls expected since no properties changed
     })
 
-    it('should capture warning and stop retrying if message size too large', async () => {
-        // we need to mock the clickhouse repository upsertGroup method
+    it('downgrades a message-size-too-large produce to an ingestion warning via the side effect', async () => {
         clickhouseGroupRepository.upsertGroup = jest
             .fn()
             .mockRejectedValue(new MessageSizeTooLarge('test', new Error('test')))
 
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
 
-        await groupStore.flush()
+        const sideEffects = await groupStore.flush()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.updateGroup).toHaveBeenCalledTimes(0)
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(0)
-        // No transaction calls expected since optimistic update failed
+
+        // The oversized produce is downgraded inside the side effect: awaiting it
+        // resolves (the batch is not failed) and an ingestion warning is emitted.
+        await expect(Promise.all(sideEffects)).resolves.toHaveLength(1)
         expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, {
             type: 'group_upsert_message_size_too_large',
             details: {
@@ -320,6 +341,22 @@ describe('BatchWritingGroupStore', () => {
             },
             pipelineStep: 'group-store',
         })
+    })
+
+    it('surfaces a non-size produce rejection through the side effect so the batch fails', async () => {
+        const produceError = new Error('kafka produce failed')
+        clickhouseGroupRepository.upsertGroup = jest.fn().mockRejectedValue(produceError)
+
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+
+        const sideEffects = await groupStore.flush()
+
+        // Postgres committed, but the deferred produce failed for a non-size
+        // reason: awaiting the side effect rejects so the pipeline fails and
+        // redelivers the batch. No warning is emitted for this case.
+        expect(sideEffects).toHaveLength(1)
+        await expect(Promise.all(sideEffects)).rejects.toThrow('kafka produce failed')
+        expect(emitIngestionWarning).not.toHaveBeenCalled()
     })
 
     it('should retry on race condition error and clear cache', async () => {
@@ -360,9 +397,9 @@ describe('BatchWritingGroupStore', () => {
         const cacheDeleteSpy = jest.spyOn(groupCache, 'delete')
 
         // Add to cache to verify it gets cleared on race condition
-        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+        await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
 
-        await groupStore.flush()
+        await flushGroupDropProduces()
 
         expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
         expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2) // Once for initial fetch, once for retry
@@ -390,7 +427,7 @@ describe('BatchWritingGroupStore', () => {
             // any DB I/O. Any code path that introduces an await between the
             // dirty-filter pass and the clear would re-open the cross-batch
             // race documented in the design doc — this test guards against it.
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
 
             const groupCache = groupStore.getGroupCache()
             const dirtyBefore = Array.from(groupCache.entries()).filter(([_, u]) => u && u.needsWrite)
@@ -399,7 +436,7 @@ describe('BatchWritingGroupStore', () => {
             // Kick off flush WITHOUT awaiting it, then synchronously inspect
             // needsWrite. If flush yields before clearing the flag, this will
             // catch it — the assertion runs at the first microtask boundary.
-            const flushPromise = groupStore.flush()
+            const flushPromise = groupStore.flush().then(() => undefined)
 
             const stillDirty = Array.from(groupCache.entries()).filter(([_, u]) => u && u.needsWrite)
             expect(stillDirty).toHaveLength(0)
@@ -411,18 +448,18 @@ describe('BatchWritingGroupStore', () => {
             // After an entry is written and cleaned by a flush, a subsequent
             // upsert with new properties re-dirties it, and the next flush picks
             // up the delta.
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
-            await groupStore.flush()
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await flushGroupDropProduces()
             ;(groupRepository.updateGroupOptimistically as jest.Mock).mockClear()
 
             // Re-dirty via a second update with new properties. The cache is
             // still referenced by batch 0 until releaseBatch() runs, so the
             // second update merges with the first batch's cached properties.
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now())
             const dirtyAfter = Array.from(groupStore.getGroupCache().entries()).filter(([_, u]) => u && u.needsWrite)
             expect(dirtyAfter.length).toBeGreaterThan(0)
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
 
             // Second flush wrote the updated properties merged onto the still-referenced cache.
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
@@ -445,8 +482,8 @@ describe('BatchWritingGroupStore', () => {
         })
 
         it('reports dirty entries and referenced batches in flush stats', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
 
             expect(groupStore.getFlushStats()).toEqual({
                 dirtyEntryCount: 1,
@@ -456,9 +493,9 @@ describe('BatchWritingGroupStore', () => {
         })
 
         it('removes clean entries from cache after flush and release', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
             expect(groupStore.getGroupCache().getSize()).toBe(1)
             groupStore.releaseBatch(0)
 
@@ -466,7 +503,7 @@ describe('BatchWritingGroupStore', () => {
         })
 
         it('keeps entries that were re-dirtied during the DB write', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
             // Re-dirty the entry during the async DB write after the linearization point.
             jest.spyOn(groupRepository, 'updateGroupOptimistically').mockImplementationOnce(() => {
@@ -477,28 +514,28 @@ describe('BatchWritingGroupStore', () => {
                 return Promise.resolve(2)
             })
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
 
             expect(groupStore.getGroupCache().getSize()).toBe(1)
             expect(groupStore.getGroupCache().get(teamId, 'test')?.needsWrite).toBe(true)
         })
 
         it('defers eviction of dirty entries until after flush', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
             groupStore.releaseBatch(0)
             expect(groupStore.getGroupCache().getSize()).toBe(1)
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
 
             expect(groupStore.getGroupCache().getSize()).toBe(0)
         })
 
         it('keeps overlapping batch entries until the last release', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now(), 0)
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 1)
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
 
             groupStore.releaseBatch(0)
             expect(groupStore.getGroupCache().getSize()).toBe(1)
@@ -519,13 +556,13 @@ describe('BatchWritingGroupStore', () => {
 
         it('throws when dirty entries exist — caller must flush first', async () => {
             // upsertGroup on an existing group with new properties marks the cache entry dirty
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
             expect(() => groupStore.shutdown()).toThrow(/dirty cache entries/)
         })
 
         it('emits accumulated metrics before throwing on dirty cache', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
             const emitSpy = jest.spyOn(groupStore as any, 'emitAccumulatedMetrics')
 
@@ -535,9 +572,9 @@ describe('BatchWritingGroupStore', () => {
         })
 
         it('explicit flush before shutdown succeeds', async () => {
-            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+            await upsertGroupDropProduces(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
 
-            await groupStore.flush()
+            await flushGroupDropProduces()
             await expect(groupStore.shutdown()).resolves.not.toThrow()
         })
     })

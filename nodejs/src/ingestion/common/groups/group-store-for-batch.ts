@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon'
 
-import { FlushResult } from '~/ingestion/common/persons/persons-store'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
@@ -15,7 +14,7 @@ export type GroupStoreForBatch = Omit<GroupStore, 'upsertGroup' | 'releaseBatch'
         groupKey: string,
         properties: Properties,
         timestamp: DateTime
-    ): Promise<void>
+    ): Promise<Promise<unknown>[]>
     readonly batchId: number
 }
 
@@ -32,7 +31,7 @@ export class BatchBoundGroupStore implements GroupStoreForBatch {
         groupKey: string,
         properties: Properties,
         timestamp: DateTime
-    ): Promise<void> {
+    ): Promise<Promise<unknown>[]> {
         return this.store.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp, this.batchId)
     }
 
@@ -40,7 +39,7 @@ export class BatchBoundGroupStore implements GroupStoreForBatch {
         return this.store.getCacheMetrics()
     }
 
-    flush(): Promise<FlushResult[]> {
+    flush(): Promise<Promise<unknown>[]> {
         return this.store.flush()
     }
 

@@ -11,7 +11,6 @@ import { logger } from '~/common/utils/logger'
 import { promiseRetry } from '~/common/utils/retries'
 import { RaceConditionError } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { FlushResult } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, TeamId } from '~/types'
@@ -305,7 +304,17 @@ export class BatchWritingGroupStore implements GroupStore {
         return this.groupCache
     }
 
-    async flush(): Promise<FlushResult[]> {
+    /**
+     * Flush the batched group updates to Postgres and return the ClickHouse
+     * produce promises for the caller to attach as pipeline side effects.
+     *
+     * The Postgres writes are awaited here (so a failure fails the batch), but
+     * the ClickHouse produces are only *started* and handed back un-awaited —
+     * they are awaited before the consumer commits offsets via the side-effect
+     * machinery, keeping the at-least-once envelope while taking the produce
+     * off the critical flush path.
+     */
+    async flush(): Promise<Promise<unknown>[]> {
         // SYNCHRONOUS LINEARIZATION POINT for cross-batch correctness.
         // Walk every dirty entry, capture it for writing, and clear
         // `needsWrite` before any await below. Concurrent batches that
@@ -332,63 +341,78 @@ export class BatchWritingGroupStore implements GroupStore {
 
         const limit = pLimit(this.options.maxConcurrentUpdates)
 
-        try {
-            await Promise.all(
-                pendingUpdates.map(([distinctId, update]) => limit(() => this.processGroupUpdate(update, distinctId)))
+        // Wait for every Postgres write to settle before deciding the batch's
+        // fate. Each update's outcome is captured (never rejecting the outer
+        // Promise.all) so we can still collect the produce promises for the
+        // writes that succeeded when a sibling write fails, then detach them to
+        // avoid unhandled rejections while the batch is torn down.
+        const outcomes = await Promise.all(
+            pendingUpdates.map(([distinctId, update]) =>
+                limit(() =>
+                    this.processGroupUpdate(update, distinctId).then((r) => ({ ok: true as const, value: r }))
+                ).catch((error: unknown) => ({ ok: false as const, error }))
             )
-            this.groupCache.processDeferredEvictions()
-            return []
-        } catch (error) {
-            logger.error('Failed to flush group updates', {
-                error,
-                errorMessage: error instanceof Error ? error.message : String(error),
-                errorStack: error instanceof Error ? error.stack : undefined,
-            })
-            throw error
+        )
+
+        const producePromises: Promise<unknown>[] = []
+        let firstError: unknown
+        let hasError = false
+        for (const outcome of outcomes) {
+            if (outcome.ok) {
+                producePromises.push(...outcome.value)
+            } else if (!hasError) {
+                hasError = true
+                firstError = outcome.error
+            }
         }
+
+        if (hasError) {
+            // A Postgres write failed; the batch must fail and be redelivered.
+            // Swallow rejections on the ClickHouse produces already started for
+            // the successful writes so their settlement can't surface as an
+            // unhandled rejection during teardown.
+            producePromises.forEach((promise) => promise.catch(() => undefined))
+            logger.error('Failed to flush group updates', {
+                error: firstError,
+                errorMessage: firstError instanceof Error ? firstError.message : String(firstError),
+                errorStack: firstError instanceof Error ? firstError.stack : undefined,
+            })
+            throw firstError
+        }
+
+        this.groupCache.processDeferredEvictions()
+        return producePromises
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {
         return this.groupCache.getFlushStats()
     }
 
-    private async processGroupUpdate(update: GroupUpdate, distinctId: string): Promise<void> {
+    private async processGroupUpdate(update: GroupUpdate, distinctId: string): Promise<Promise<unknown>[]> {
         try {
-            await promiseRetry(
-                () => this.executeOptimisticUpdate(update),
+            return await promiseRetry(
+                () => this.executeOptimisticUpdate(update, distinctId),
                 'updateGroupOptimistically',
                 this.options.maxOptimisticUpdateRetries,
-                this.options.optimisticUpdateRetryInterval,
-                undefined,
-                [MessageSizeTooLarge]
+                this.options.optimisticUpdateRetryInterval
             )
         } catch (error) {
-            await this.handleOptimisticUpdateFailure(error, update, distinctId)
+            return await this.handleOptimisticUpdateFailure(error, update, distinctId)
         }
     }
 
     private async handleOptimisticUpdateFailure(
-        error: unknown,
+        _error: unknown,
         update: GroupUpdate,
         distinctId: string
-    ): Promise<void> {
-        if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, update.team_id, {
-                type: 'group_upsert_message_size_too_large',
-                details: {
-                    groupTypeIndex: update.group_type_index,
-                    groupKey: update.group_key,
-                    distinctId: distinctId,
-                },
-                pipelineStep: 'group-store',
-            })
-            return
-        }
-
-        await this.fallbackToDirectUpsert(update, distinctId)
+    ): Promise<Promise<unknown>[]> {
+        // MessageSizeTooLarge no longer reaches here: the ClickHouse produce is
+        // deferred, so it surfaces from the produce promise (downgraded to an
+        // ingestion warning) instead of throwing during the Postgres write.
+        return await this.fallbackToDirectUpsert(update, distinctId)
     }
 
-    private async fallbackToDirectUpsert(update: GroupUpdate, distinctId: string): Promise<void> {
+    private async fallbackToDirectUpsert(update: GroupUpdate, distinctId: string): Promise<Promise<unknown>[]> {
         logger.warn('⚠️', 'Falling back to direct upsert after max retries', {
             teamId: update.team_id,
             groupTypeIndex: update.group_type_index,
@@ -400,7 +424,7 @@ export class BatchWritingGroupStore implements GroupStore {
         this.groupCache.delete(update.team_id, update.group_key)
 
         try {
-            await this.executeGroupUpsert(
+            return await this.executeGroupUpsert(
                 update.team_id,
                 update.group_type_index,
                 update.group_key,
@@ -431,12 +455,12 @@ export class BatchWritingGroupStore implements GroupStore {
         properties: Properties,
         timestamp: DateTime,
         batchId?: number
-    ): Promise<void> {
+    ): Promise<Promise<unknown>[]> {
         const effectiveBatchId = batchId ?? 0
         try {
-            await this.addToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp, effectiveBatchId)
+            return await this.addToBatch(teamId, groupTypeIndex, groupKey, properties, timestamp, effectiveBatchId)
         } catch (error) {
-            await this.handleUpsertError(
+            return await this.handleUpsertError(
                 error,
                 teamId,
                 projectId,
@@ -456,12 +480,12 @@ export class BatchWritingGroupStore implements GroupStore {
         properties: Properties,
         timestamp: DateTime,
         batchId: number
-    ): Promise<void> {
+    ): Promise<Promise<unknown>[]> {
         const groupCache = this.groupCache.obtainForBatchId(batchId)
         const group = await this.getGroup(teamId, groupTypeIndex, groupKey, false, groupCache)
 
         if (!group) {
-            await this.executeGroupUpsert(
+            return await this.executeGroupUpsert(
                 teamId,
                 groupTypeIndex,
                 groupKey,
@@ -471,7 +495,6 @@ export class BatchWritingGroupStore implements GroupStore {
                 'batch-create',
                 batchId
             )
-            return
         }
 
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
@@ -486,6 +509,7 @@ export class BatchWritingGroupStore implements GroupStore {
                 needsWrite: true,
             })
         }
+        return []
     }
 
     private async executeGroupUpsert(
@@ -497,7 +521,7 @@ export class BatchWritingGroupStore implements GroupStore {
         forUpdate: boolean,
         source: string,
         batchId?: number
-    ): Promise<void> {
+    ): Promise<Promise<unknown>[]> {
         const operation = 'upsertGroup' + (source ? `-${source}` : '')
         this.incrementDatabaseOperation(operation)
 
@@ -517,36 +541,55 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (propertiesUpdate.updated) {
-            await this.upsertToClickhouse(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                propertiesUpdate.properties,
-                createdAt,
-                actualVersion,
-                source
-            )
+            return [
+                this.produceToClickhouse(
+                    teamId,
+                    groupTypeIndex,
+                    groupKey,
+                    propertiesUpdate.properties,
+                    createdAt,
+                    actualVersion,
+                    source
+                ),
+            ]
         }
+        return []
     }
 
-    private async upsertToClickhouse(
+    /**
+     * Start the ClickHouse group produce and return the promise WITHOUT
+     * awaiting it. The caller attaches it as a pipeline side effect. Postgres
+     * has already committed by the time this runs, so a MessageSizeTooLarge is
+     * downgraded to a non-fatal ingestion warning inside the promise rather
+     * than failing the batch.
+     */
+    private produceToClickhouse(
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
         properties: Properties,
         createdAt: DateTime,
         actualVersion: number,
-        source: string
-    ): Promise<void> {
+        source: string,
+        distinctId?: string
+    ): Promise<unknown> {
         this.incrementDatabaseOperation('upsertClickhouse' + (source ? `-${source}` : ''))
-        await this.clickhouseGroupRepository.upsertGroup(
-            teamId,
-            groupTypeIndex,
-            groupKey,
-            properties,
-            createdAt,
-            actualVersion
-        )
+        return this.clickhouseGroupRepository
+            .upsertGroup(teamId, groupTypeIndex, groupKey, properties, createdAt, actualVersion)
+            .catch((error: unknown) => {
+                if (error instanceof MessageSizeTooLarge) {
+                    return emitIngestionWarning(this.outputs, teamId, {
+                        type: 'group_upsert_message_size_too_large',
+                        details: {
+                            groupTypeIndex,
+                            groupKey,
+                            ...(distinctId !== undefined ? { distinctId } : {}),
+                        },
+                        pipelineStep: 'group-store',
+                    })
+                }
+                throw error
+            })
     }
 
     private async executeUpsertTransaction(
@@ -660,7 +703,7 @@ export class BatchWritingGroupStore implements GroupStore {
         return insertedVersion
     }
 
-    private async executeOptimisticUpdate(update: GroupUpdate): Promise<void> {
+    private async executeOptimisticUpdate(update: GroupUpdate, distinctId: string): Promise<Promise<unknown>[]> {
         this.incrementDatabaseOperation('updateGroupOptimistically')
         const actualVersion = await this.groupRepository.updateGroupOptimistically(
             update.team_id,
@@ -674,16 +717,18 @@ export class BatchWritingGroupStore implements GroupStore {
         )
 
         if (actualVersion !== undefined) {
-            await this.upsertToClickhouse(
-                update.team_id,
-                update.group_type_index,
-                update.group_key,
-                update.group_properties,
-                update.created_at,
-                actualVersion,
-                'optimistically'
-            )
-            return
+            return [
+                this.produceToClickhouse(
+                    update.team_id,
+                    update.group_type_index,
+                    update.group_key,
+                    update.group_properties,
+                    update.created_at,
+                    actualVersion,
+                    'optimistically',
+                    distinctId
+                ),
+            ]
         }
 
         groupOptimisticUpdateConflictsPerBatchCounter.inc()
@@ -758,18 +803,10 @@ export class BatchWritingGroupStore implements GroupStore {
         properties: Properties,
         timestamp: DateTime,
         batchId: number
-    ): Promise<void> {
-        if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, teamId, {
-                type: 'group_upsert_message_size_too_large',
-                details: {
-                    groupTypeIndex,
-                    groupKey,
-                },
-                pipelineStep: 'group-store',
-            })
-            return
-        }
+    ): Promise<Promise<unknown>[]> {
+        // MessageSizeTooLarge no longer reaches here: the ClickHouse produce is
+        // deferred past the Postgres transaction, so it surfaces from the
+        // produce promise (downgraded to an ingestion warning) instead.
         if (error instanceof RaceConditionError) {
             // Remove from cache to prevent retry, the group was already created by another thread
             this.groupCache.delete(teamId, groupKey)

@@ -46,6 +46,11 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             }
         }
 
+        // ClickHouse group produces are deferred by the store and returned here
+        // so we can attach them as pipeline side effects instead of awaiting
+        // them mid-lane on the per-event hot path.
+        let sideEffects: Promise<unknown>[] = []
+
         if (processPerson) {
             preparedEvent.properties = await addGroupProperties(
                 team.id,
@@ -56,7 +61,7 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             )
 
             if (preparedEvent.event === '$groupidentify') {
-                await upsertGroup(
+                sideEffects = await upsertGroup(
                     groupTypeManager,
                     groupStoreForBatch,
                     team.id,
@@ -67,7 +72,7 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
             }
         }
 
-        return ok(input)
+        return ok(input, sideEffects)
     }
 }
 
@@ -107,15 +112,15 @@ async function upsertGroup(
     projectId: ProjectId,
     properties: Properties,
     timestamp: DateTime
-): Promise<void> {
+): Promise<Promise<unknown>[]> {
     if (!properties['$group_type'] || !properties['$group_key']) {
-        return
+        return []
     }
 
     const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
     const groupTypeIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, timestamp)
     if (groupTypeIndex !== null) {
-        await groupStore.upsertGroup(
+        return await groupStore.upsertGroup(
             teamId,
             projectId,
             groupTypeIndex,
@@ -124,4 +129,5 @@ async function upsertGroup(
             timestamp
         )
     }
+    return []
 }

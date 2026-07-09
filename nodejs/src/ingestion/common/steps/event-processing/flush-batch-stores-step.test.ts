@@ -211,6 +211,23 @@ describe('flush-batch-stores-step', () => {
             }
         })
 
+        it('attaches the group store produce promises as side effects', async () => {
+            // The group store returns already-started ClickHouse produce promises;
+            // the step must attach them alongside the person produces so they are
+            // awaited before offset commit.
+            const groupProduce = Promise.resolve('group-produce')
+            mockGroupStore.flush.mockResolvedValue([groupProduce])
+            mockPersonsStore.flush.mockResolvedValue([])
+
+            const result = await step(makeInput())
+
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toContain(groupProduce)
+            }
+            expect(batchStoreFlushKafkaMessagesHistogram.observe).toHaveBeenCalledWith({ store: 'group' }, 1)
+        })
+
         it('reports flush lifecycle metrics', async () => {
             const personMessages: FlushResult[] = [
                 {

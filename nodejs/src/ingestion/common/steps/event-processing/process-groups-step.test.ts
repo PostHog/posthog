@@ -38,7 +38,7 @@ describe('createProcessGroupsStep', () => {
 
         mockTeamManager = { setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined) }
         mockGroupTypeManager = { fetchGroupTypeIndex: jest.fn().mockResolvedValue(null) }
-        mockGroupStore = { upsertGroup: jest.fn().mockResolvedValue(undefined) }
+        mockGroupStore = { upsertGroup: jest.fn().mockResolvedValue([]) }
     })
 
     const createInput = (overrides: Partial<TestInput> = {}): TestInput => ({
@@ -107,8 +107,12 @@ describe('createProcessGroupsStep', () => {
         }
     })
 
-    it('calls upsertGroup for $groupidentify events', async () => {
+    it('calls upsertGroup for $groupidentify events and attaches its produces as side effects', async () => {
         mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+        // The store returns deferred ClickHouse produce promises; the step must
+        // forward them as side effects so they are awaited before offset commit.
+        const groupProduce = Promise.resolve('group-produce')
+        mockGroupStore.upsertGroup.mockResolvedValue([groupProduce])
 
         const step = createStep()
         const result = await step(
@@ -126,6 +130,9 @@ describe('createProcessGroupsStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(1, 1, 0, 'org::5', { foo: 'bar' }, expect.any(DateTime))
+        if (result.type === PipelineResultType.OK) {
+            expect(result.sideEffects).toContain(groupProduce)
+        }
     })
 
     it.each([
