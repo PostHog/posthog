@@ -69,6 +69,7 @@ from ee.hogai.context.insight.format import (
     SQLResultsFormatter,
     StickinessResultsFormatter,
     TrendsResultsFormatter,
+    format_access_control_warnings,
     format_warehouse_sync_warnings,
     get_boxplot_results,
     is_boxplot_query,
@@ -559,7 +560,7 @@ class AssistantQueryExecutor:
                     f"{TIMING_LOG_PREFIX} {formatter_name}.format() completed in {elapsed:.3f}s for {query_type}"
                 )
 
-            warning_prefix = format_warehouse_sync_warnings(response)
+            warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
             if warning_prefix:
                 result = warning_prefix + result
             return result
