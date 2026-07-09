@@ -127,8 +127,8 @@ class LinkedinAdsClient:
         self.api_version = API_VERSION
 
     def get_accounts(self) -> list[dict[str, Any]]:
-        """Every ad account the authorized member can access. `q=search` defaults to a page size of
-        ~10, so an unpaginated request silently truncates the list."""
+        """Every ad account the authorized member can access. `q=search` is paginated, so a single
+        request returns only the first page."""
         accounts: list[dict[str, Any]] = []
         for elements, _ in self._make_paginated_request(
             endpoint=LinkedinAdsResource.Accounts,
