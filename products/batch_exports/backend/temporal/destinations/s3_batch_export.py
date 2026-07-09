@@ -2,7 +2,9 @@ import json
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
+import collections.abc
 
 import pyarrow as pa
 import aioboto3
@@ -468,6 +470,44 @@ async def get_credentials_using_user_aws_role(
     )
 
 
+@contextlib.asynccontextmanager
+async def s3_client(
+    aws_access_key_id: str,
+    aws_secret_access_key: str,
+    aws_session_token: str | None,
+    region: str,
+    use_virtual_style_addressing: bool = False,
+    endpoint_url: str | None = None,
+) -> collections.abc.AsyncIterator["S3Client"]:
+    session = aioboto3.Session(
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        aws_session_token=aws_session_token,
+    )
+
+    config: dict[str, typing.Any] = {
+        # Increase connection pool, so to ensure we're not limited by this
+        "max_pool_connections": settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS * 5,
+        # Set checksum calculation to 'when_required' for compatibility with S3-compatible
+        # services like GCS that don't support AWS's newer checksum features
+        "request_checksum_calculation": "when_required",
+        "response_checksum_validation": "when_required",
+    }
+    if use_virtual_style_addressing:
+        config["s3"] = {"addressing_style": "virtual"}
+
+    try:
+        async with session.client(
+            "s3", config=AioConfig(**config), region_name=region, endpoint_url=endpoint_url
+        ) as s3_client:
+            yield s3_client
+
+    except ValueError as err:
+        if "Invalid endpoint" in str(err):
+            raise InvalidS3EndpointError(str(err)) from err
+        raise
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
@@ -589,46 +629,29 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        session = aioboto3.Session(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
-        )
+        async with s3_client(
+            aws_access_key_id,
+            aws_secret_access_key,
+            aws_session_token,
+            use_virtual_style_addressing=inputs.use_virtual_style_addressing,
+            region=inputs.region,
+            endpoint_url=endpoint_url,
+        ) as client:
+            consumer = ConcurrentS3Consumer.from_inputs(
+                s3_client=client,
+                s3_inputs=inputs,
+                part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
+                max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
+            )
 
-        config: dict[str, typing.Any] = {
-            # Increase connection pool, so to ensure we're not limited by this
-            "max_pool_connections": settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS * 5,
-            # Set checksum calculation to 'when_required' for compatibility with S3-compatible
-            # services like GCS that don't support AWS's newer checksum features
-            "request_checksum_calculation": "when_required",
-            "response_checksum_validation": "when_required",
-        }
-        if inputs.use_virtual_style_addressing:
-            config["s3"] = {"addressing_style": "virtual"}
-
-        try:
-            async with session.client(
-                "s3", config=AioConfig(**config), region_name=inputs.region, endpoint_url=endpoint_url
-            ) as s3_client:
-                consumer = ConcurrentS3Consumer.from_inputs(
-                    s3_client=s3_client,
-                    s3_inputs=inputs,
-                    part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
-                    max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
-                )
-
-                result = await run_consumer_from_stage(
-                    queue=queue,
-                    consumer=consumer,
-                    producer_task=producer_task,
-                    transformer=transformer,
-                    json_columns=json_columns,
-                    records_total=inputs.records_total,
-                )
-        except ValueError as err:
-            if "Invalid endpoint" in str(err):
-                raise InvalidS3EndpointError(str(err)) from err
-            raise
+            result = await run_consumer_from_stage(
+                queue=queue,
+                consumer=consumer,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=json_columns,
+                records_total=inputs.records_total,
+            )
 
         return S3BatchExportResult(
             bytes_exported=result.bytes_exported,

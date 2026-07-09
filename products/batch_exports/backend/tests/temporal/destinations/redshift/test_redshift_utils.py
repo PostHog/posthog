@@ -90,11 +90,18 @@ async def test_upload_manifest_file(minio_client, bucket_name):
         files_uploaded.append(key)
 
     manifest_key = f"/{test_prefix}/manifest.json"
+
+    # Needed for the noisy type checker
+    assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+    assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+
     await upload_manifest_file(
         bucket=bucket_name,
         region_name="us-east-1",
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        credentials=AWSCredentials(
+            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        ),
         files_uploaded=files_uploaded,
         manifest_key=manifest_key,
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
@@ -133,6 +140,10 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
     mock_session_instance = mock.MagicMock()
     mock_session_instance.client.return_value = mock_context_manager
 
+    # Needed for the noisy type checker
+    assert settings.OBJECT_STORAGE_ACCESS_KEY_ID is not None
+    assert settings.OBJECT_STORAGE_SECRET_ACCESS_KEY is not None
+
     with mock.patch(
         "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
     ) as mock_session_class:
@@ -142,8 +153,10 @@ async def test_upload_manifest_file_raises_on_client_error(minio_client, bucket_
             await upload_manifest_file(
                 bucket=bucket_name,
                 region_name="us-east-1",
-                aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                credentials=AWSCredentials(
+                    aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                ),
                 files_uploaded=files_uploaded,
                 manifest_key=manifest_key,
                 endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
