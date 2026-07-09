@@ -2,6 +2,9 @@ import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { urls } from 'scenes/urls'
@@ -63,6 +66,37 @@ describe('the authorized urls list logic', () => {
     it('can be launchd without focussing adding new URL', async () => {
         router.actions.push(urls.toolbarLaunch())
         await expectLogic(logic).toNotHaveDispatchedActions(['newUrl'])
+    })
+
+    it('swallows server errors from the suggestions query instead of showing a toast', async () => {
+        // Regression test: previously a 500 from the HogQL suggestions endpoint would propagate
+        // through kea-loaders and surface a user-visible toast plus error-tracking noise on every
+        // scene that mounts an AuthorizedUrlList. The suggestions are advisory only.
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [500, { detail: 'A server error occurred' }],
+            },
+        })
+
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSuggestions()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({
+                suggestions: [],
+            })
+
+        expect(toastErrorSpy).not.toHaveBeenCalled()
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ status: 500 }),
+            expect.objectContaining({ posthog_source: 'authorizedUrlListLogic.loadSuggestions' })
+        )
+
+        toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
     })
 
     describe('applying a suggestion', () => {
