@@ -71,7 +71,15 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
@@ -1155,11 +1163,6 @@ class HedgeboxMatrix(Matrix):
             ],
             metrics_secondary=[],
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "red", "rollout_percentage": 33},
-                    {"key": "blue", "rollout_percentage": 33},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
@@ -1183,159 +1186,7 @@ class HedgeboxMatrix(Matrix):
             metadata={"type": "secondary"},
         )
 
-        # Experiments and shared metrics
-
-        # Shared metrics
-        new_shared_funnel = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Pageview engagement",
-            description="Users who have multiple pageviews in a session",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "funnel",
-                "uuid": str(uuid.uuid4()),
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "$pageview"},
-                ],
-                "goal": "increase",
-                "conversion_window": 1,
-                "conversion_window_unit": "day",
-            },
-            created_by=user,
-        )
-
-        new_shared_mean = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Files uploaded per user",
-            description="Mean count of file uploads",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "mean",
-                "uuid": str(uuid.uuid4()),
-                "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                "goal": "increase",
-            },
-            created_by=user,
-        )
-
-        new_shared_ratio = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Delete-to-upload ratio",
-            description="Ratio of file deletions to uploads",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "ratio",
-                "uuid": str(uuid.uuid4()),
-                "numerator": {"kind": "EventsNode", "event": EVENT_DELETED_FILE},
-                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                "goal": "increase",
-            },
-            created_by=user,
-        )
-
-        new_shared_retention = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="7-day user retention",
-            description="Users who return after 7 days",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "retention",
-                "uuid": str(uuid.uuid4()),
-                "goal": "increase",
-                "start_event": {"kind": "EventsNode", "event": "$pageview"},
-                "start_handling": "first_seen",
-                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                "retention_window_start": 1,
-                "retention_window_end": 7,
-                "retention_window_unit": "day",
-            },
-            created_by=user,
-        )
-
-        new_experiment_metrics_ordered_uuids = [str(uuid.uuid4()) for _ in range(4)]
-
-        # New experiment with one metric of each type, configured to show as many
-        # different UI states as possible
-        # Primary metrics are one time metrics, secondary metrics are shared metrics
-        new_experiment = Experiment.objects.create(
-            team=team,
-            name="File engagement boost",
-            description="Testing features to increase file uploads, sharing, and overall user engagement with files.",
-            feature_flag=file_engagement_flag,
-            created_by=user,
-            metrics=[
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "uuid": new_experiment_metrics_ordered_uuids[0],
-                    "name": "Upload activation",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    ],
-                    "goal": "increase",
-                    "conversion_window": 7,
-                    "conversion_window_unit": "day",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "uuid": new_experiment_metrics_ordered_uuids[1],
-                    "name": "Active sessions per user",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "ratio",
-                    "uuid": new_experiment_metrics_ordered_uuids[2],
-                    "name": "Download-to-upload ratio",
-                    "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
-                    "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "retention",
-                    "uuid": new_experiment_metrics_ordered_uuids[3],
-                    "name": "7-day user retention",
-                    "goal": "increase",
-                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
-                    "start_handling": "first_seen",
-                    "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                    "retention_window_start": 1,
-                    "retention_window_end": 7,
-                    "retention_window_unit": "day",
-                },
-            ],
-            primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids=[
-                new_shared_funnel.query["uuid"],
-                new_shared_mean.query["uuid"],
-                new_shared_ratio.query["uuid"],
-                new_shared_retention.query["uuid"],
-            ],
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "red", "rollout_percentage": 33},
-                    {"key": "blue", "rollout_percentage": 33},
-                ],
-                "recommended_sample_size": int(len(self.clusters) * 0.40),
-                "minimum_detectable_effect": 10,
-            },
-            scheduling_config={"timeseries": True},
-            start_date=self.file_engagement_experiment_start,
-            end_date=None,
-            created_at=file_engagement_flag.created_at,
-        )
-
-        # Link ONLY new format shared metrics to new experiment as secondary
-        for metric in [new_shared_funnel, new_shared_mean, new_shared_ratio, new_shared_retention]:
-            ExperimentToSavedMetric.objects.create(
-                experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
-            )
+        self._set_up_file_engagement_experiment(team, user, file_engagement_flag)
 
         # --- Additional experiments for coverage of various states ---
 
@@ -1373,10 +1224,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=pricing_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },
@@ -1421,10 +1268,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=sharing_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.25),
                 "minimum_detectable_effect": 12,
             },
@@ -1469,11 +1312,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=upgrade_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 34},
-                    {"key": "aggressive", "rollout_percentage": 33},
-                    {"key": "subtle", "rollout_percentage": 33},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
@@ -1516,10 +1354,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=retention_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },
@@ -1562,10 +1396,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=team_collab_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 12,
             },
@@ -1612,10 +1442,6 @@ class HedgeboxMatrix(Matrix):
             metrics_secondary=[],
             primary_metrics_ordered_uuids=bias_warning_metric_uuids,
             parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 90},
-                    {"key": "test", "rollout_percentage": 10},
-                ],
                 "recommended_sample_size": int(len(self.clusters) * 0.30),
                 "minimum_detectable_effect": 10,
             },
@@ -1778,6 +1604,200 @@ class HedgeboxMatrix(Matrix):
         self._set_up_error_tracking_demo_data(team)
 
         self._set_up_demo_oauth_application(team, user)
+
+    def _set_up_file_engagement_experiment(self, team: "Team", user: "User", flag: FeatureFlag) -> None:
+        """Create the "File engagement boost" experiment, its shared metrics, and its timeseries data.
+
+        Experiment dates derive from the flag rather than matrix state, so this can be re-run standalone
+        against an already-seeded team (delete the experiment, then call this with the existing flag).
+        The timeseries backfill is bounded by the matrix clock, which is where the simulated data ends.
+        """
+        # The flag is created 2h before the experiment starts — see create_experiment_flag call sites.
+        start_date = flag.created_at + dt.timedelta(hours=2)
+
+        # Shared metrics
+        new_shared_funnel = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Pageview engagement",
+            description="Users who have multiple pageviews in a session",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "uuid": str(uuid.uuid4()),
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageview"},
+                ],
+                "goal": "increase",
+                "conversion_window": 1,
+                "conversion_window_unit": "day",
+            },
+            created_by=user,
+        )
+
+        new_shared_mean = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Files uploaded per user",
+            description="Mean count of file uploads",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": str(uuid.uuid4()),
+                "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            created_by=user,
+        )
+
+        new_shared_ratio = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Delete-to-upload ratio",
+            description="Ratio of file deletions to uploads",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "uuid": str(uuid.uuid4()),
+                "numerator": {"kind": "EventsNode", "event": EVENT_DELETED_FILE},
+                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            created_by=user,
+        )
+
+        new_shared_retention = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="7-day user retention",
+            description="Users who return after 7 days",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "retention",
+                "uuid": str(uuid.uuid4()),
+                "goal": "increase",
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
+            },
+            created_by=user,
+        )
+
+        new_experiment_metrics_ordered_uuids = [str(uuid.uuid4()) for _ in range(4)]
+
+        # One metric of each type, configured to show as many different UI states as possible
+        metrics: list[dict[str, Any]] = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "uuid": new_experiment_metrics_ordered_uuids[0],
+                "name": "Upload activation",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                ],
+                "goal": "increase",
+                "conversion_window": 7,
+                "conversion_window_unit": "day",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": new_experiment_metrics_ordered_uuids[1],
+                "name": "Active sessions per user",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "uuid": new_experiment_metrics_ordered_uuids[2],
+                "name": "Download-to-upload ratio",
+                "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "retention",
+                "uuid": new_experiment_metrics_ordered_uuids[3],
+                "name": "7-day user retention",
+                "goal": "increase",
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
+            },
+        ]
+
+        # New experiment; primary metrics are one time metrics, secondary metrics are shared metrics
+        new_experiment = Experiment.objects.create(
+            team=team,
+            name="File engagement boost",
+            description="Testing features to increase file uploads, sharing, and overall user engagement with files.",
+            feature_flag=flag,
+            created_by=user,
+            metrics=metrics,
+            primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
+            secondary_metrics_ordered_uuids=[
+                new_shared_funnel.query["uuid"],
+                new_shared_mean.query["uuid"],
+                new_shared_ratio.query["uuid"],
+                new_shared_retention.query["uuid"],
+            ],
+            parameters={
+                "recommended_sample_size": int(len(self.clusters) * 0.40),
+                "minimum_detectable_effect": 10,
+            },
+            scheduling_config={"timeseries": True},
+            start_date=start_date,
+            end_date=None,
+            created_at=flag.created_at,
+        )
+
+        # Link ONLY new format shared metrics to new experiment as secondary
+        for metric in [new_shared_funnel, new_shared_mean, new_shared_ratio, new_shared_retention]:
+            ExperimentToSavedMetric.objects.create(
+                experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
+            )
+
+        # Inline metrics need stored fingerprints (normally stamped by the experiment service on
+        # create/launch) — the timeseries endpoint looks results up by them.
+        for metric_dict in metrics:
+            metric_dict["fingerprint"] = compute_metric_fingerprint(
+                metric_dict,
+                new_experiment.start_date,
+                get_experiment_stats_method(new_experiment),
+                new_experiment.exposure_criteria,
+                only_count_matured_users=new_experiment.only_count_matured_users,
+                excluded_variants=new_experiment.excluded_variants or [],
+            )
+        new_experiment.metrics = metrics
+        new_experiment.save(update_fields=["metrics"])
+
+        # Seed timeseries for the first metric so the day-by-day view has data out of the box.
+        # Skipped in tests: one ClickHouse query per experiment day is too slow for CI seeding.
+        if settings.TEST:
+            return
+        timeseries_metric = metrics[0]
+        recalculation = ExperimentTimeseriesRecalculation.objects.create(
+            team=team,
+            experiment=new_experiment,
+            metric=timeseries_metric,
+            fingerprint=timeseries_metric["fingerprint"],
+            status=ExperimentTimeseriesRecalculation.Status.PENDING,
+        )
+        try:
+            # Simulated data ends at the matrix clock. The experiment is running (no end_date),
+            # so without this bound the backfill runs one ClickHouse query per day between the
+            # simulated clock and the real today — empty results, and slow enough to hang demo
+            # generation when the clock is pinned to the past.
+            backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+        except Exception as e:
+            # Timeseries are nice-to-have; never fail demo generation over them
+            capture_exception(e)
 
     def _set_up_demo_oauth_application(self, team: "Team", user: "User") -> None:
         # This app is first-party (skips OAuth consent, issues tokens scoped to all of the user's orgs) and

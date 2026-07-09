@@ -921,6 +921,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
 
+    def test_cumulative_lone_sample_emits_no_point(self):
+        # A cumulative histogram's first (and only) sample has no predecessor
+        # to diff against — the window has no computable increase. That must
+        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
+        rows = self._run(0.95)
+        self.assertEqual(rows, [])
+
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
         self._seed_histogram(
@@ -1156,3 +1164,101 @@ class TestMultiClauseAndFormulas(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
+    """ClickHouse float aggregates can overflow to inf (two 1e308 samples in
+    one bucket). A Python `inf` leaking into the response is at best invalid
+    JSON ("Infinity") and at worst a silent null downstream — the API contract
+    is an explicit null gap instead."""
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+        self.anchor = (timezone.now() - dt.timedelta(minutes=30)).replace(second=0, microsecond=0)
+
+    def _seed_huge(self, count: int) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_huge",
+            points=[(self.anchor + dt.timedelta(seconds=i), 1e308) for i in range(count)],
+        )
+
+    def _run(self, aggregation: str) -> list[dict[str, Any]]:
+        return MetricQueryRunner(
+            team=self.team,
+            metric_name="m_huge",
+            aggregation=aggregation,
+            date_from=self.anchor - dt.timedelta(minutes=5),
+            date_to=self.anchor + dt.timedelta(minutes=5),
+        ).run()
+
+    @parameterized.expand([("sum",), ("avg",)])
+    def test_overflowing_bucket_returns_null_gap(self, aggregation: str):
+        self._seed_huge(2)
+        rows = self._run(aggregation)
+        assert [row["value"] for row in rows] == [None]
+
+    def test_large_finite_value_survives(self):
+        self._seed_huge(1)
+        rows = self._run("avg")
+        assert [row["value"] for row in rows] == [1e308]
+
+    def test_overflow_serializes_as_json_null_via_api(self):
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m_huge",
+                    "aggregation": "sum",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_overflow_returns_null_gap(self):
+        self._seed_huge(1)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "avg"}],
+                    "formula": "a * a",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
+
+    def test_formula_propagates_clause_null_gap(self):
+        # Two 1e308 points sum to inf, so the CLAUSE aggregate is already a
+        # null gap before the formula runs — exercising the input-None guard
+        # in _evaluate_formula_point, not the formula-overflow branch above.
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "sum"}],
+                    "formula": "a + 1",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]

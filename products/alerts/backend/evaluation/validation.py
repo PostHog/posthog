@@ -196,6 +196,8 @@ _INTERVAL_DURATION_MINUTES: dict[IntervalType, float] = {
     IntervalType.DAY: 60 * 24,
     IntervalType.WEEK: 60 * 24 * 7,
     IntervalType.MONTH: 60 * 24 * 30,
+    IntervalType.QUARTER: 60 * 24 * 30 * 3,
+    IntervalType.YEAR: 60 * 24 * 365,
 }
 
 

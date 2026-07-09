@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import logging
+from collections.abc import Iterator
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
@@ -125,6 +126,36 @@ def can_materialize_query(query: dict | None) -> tuple[bool, str]:
     return True, ""
 
 
+def iter_breakdowns(breakdown_filter: object) -> Iterator[tuple[str, str]]:
+    """Yield (property_name, property_type) pairs from either breakdown filter format.
+
+    This is the single canonical extractor — validation, version pruning, and the
+    runtime strategies all read breakdown properties through it.
+
+    Legacy: {"breakdown": "$browser", "breakdown_type": "event"} — the value may also
+            be a list of names.
+    New:    {"breakdowns": [{"property": "$browser", "type": "event"}]}
+    """
+    if not isinstance(breakdown_filter, dict):
+        return
+    breakdown = breakdown_filter.get("breakdown")
+    if breakdown:
+        breakdown_type = breakdown_filter.get("breakdown_type") or "event"
+        names = breakdown if isinstance(breakdown, list) else [breakdown]
+        for name in names:
+            if name is not None:
+                yield (str(name), breakdown_type)
+        return
+    for b in breakdown_filter.get("breakdowns") or []:
+        if isinstance(b, dict) and b.get("property"):
+            yield (str(b["property"]), b.get("type", "event"))
+
+
+def _breakdown_property_names(breakdown_filter: object) -> list[str]:
+    """Extract breakdown property names from either breakdown filter format."""
+    return [name for name, _ in iter_breakdowns(breakdown_filter)]
+
+
 def validate_endpoint_name(value: str) -> None:
     """Validate that the endpoint name is URL-safe and follows naming conventions."""
     if not re.match(r"^[a-zA-Z][a-zA-Z0-9_-]*$", value):
@@ -198,6 +229,15 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         null=True,
         blank=True,
         help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
+    )
+    optional_breakdown_properties = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text=(
+            "Breakdown property names that may be omitted on /run. "
+            "Omitted ones return data aggregated across all values of that breakdown."
+        ),
     )
 
     class Meta:
@@ -388,6 +428,15 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         previous_version = self.get_version()
         previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
         previous_description = previous_version.description if previous_version else ""
+        previous_optional_breakdowns = (
+            list(previous_version.optional_breakdown_properties or []) if previous_version else []
+        )
+
+        # Prune inherited optional list to property names still present in the new query
+        # (mirrors how data_freshness_seconds rides along across versions).
+        new_breakdown_filter = query.get("breakdownFilter") or {} if isinstance(query, dict) else {}
+        new_breakdown_props = set(_breakdown_property_names(new_breakdown_filter))
+        pruned_optional_breakdowns = [p for p in previous_optional_breakdowns if p in new_breakdown_props]
 
         self.current_version += 1
         self.save(update_fields=["current_version", "updated_at"])
@@ -405,6 +454,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             created_by=user,
             data_freshness_seconds=previous_data_freshness,
             description=previous_description,
+            optional_breakdown_properties=pruned_optional_breakdowns,
             columns=columns,
         )
 

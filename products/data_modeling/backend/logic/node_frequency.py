@@ -140,7 +140,7 @@ class FrequencyGraph:
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     """Extract the freshness graph for a DAG: schedulable nodes, edges, targets, source floors."""
-    nodes = list(Node.objects.filter(dag=dag))
+    nodes = list(Node.objects.filter(dag=dag).exclude(saved_query__deleted=True))
     edges = [
         (str(source_id), str(target_id))
         for source_id, target_id in Edge.objects.filter(dag=dag).values_list("source_id", "target_id")
@@ -174,7 +174,7 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
     """
     seeds = seed_targets(dag)
     written = 0
-    for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE):
+    for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).exclude(saved_query__deleted=True):
         if get_declared_target(node) is not None:
             continue
         target = seeds.get(str(node.id), default)
@@ -195,7 +195,12 @@ def seed_targets(dag: DAG) -> dict[str, timedelta]:
     the preview overlays these in memory, and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
-    for node in Node.objects.filter(dag=dag).exclude(type=NodeType.TABLE).select_related("saved_query"):
+    for node in (
+        Node.objects.filter(dag=dag)
+        .exclude(type=NodeType.TABLE)
+        .exclude(saved_query__deleted=True)
+        .select_related("saved_query")
+    ):
         interval = None
         if node.saved_query is not None and node.saved_query.sync_frequency_interval is not None:
             interval = node.saved_query.sync_frequency_interval

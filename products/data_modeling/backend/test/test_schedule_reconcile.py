@@ -2,26 +2,23 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest import TestCase, mock
+from unittest import mock
 
-from parameterized import parameterized
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
-from products.data_modeling.backend.logic.freshness import STREAMING, UnsupportedFrequencyTargetError
-from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_declared_target
-from products.data_modeling.backend.logic.schedule_reconcile import (
-    _find_unsatisfiable,
-    maybe_reconcile_dag,
-    reconcile_dag_schedules,
-)
+from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.node_frequency import set_declared_target
+from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag, reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
@@ -37,6 +34,27 @@ def _saved_query_node(team, dag, name, node_type):
         name=name, team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
     )
     return Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=node_type)
+
+
+def _warehouse_source_node(team, dag, *, sync_frequency_interval):
+    table = DataWarehouseTable.objects.create(name="stripe_charges", team=team)
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="source_id",
+        connection_id="connection_id",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.STRIPE,
+        prefix="posthog_test_",
+    )
+    ExternalDataSchema.objects.create(
+        name="stripe_charges",
+        team=team,
+        source=source,
+        table=table,
+        sync_frequency_interval=sync_frequency_interval,
+        should_sync=True,
+    )
+    return _table_node(team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": str(table.id)})
 
 
 def _listing(schedule_id, workflow="data-modeling-execute-dag"):
@@ -250,6 +268,38 @@ class TestReconcileDagSchedules(BaseTest):
                 reconcile_dag_schedules(dag)
         connect.assert_not_called()
 
+    def test_clamps_a_target_finer_than_its_source_can_deliver(self):
+        # a matview target drifted below its source floor (e.g. the import later slowed to 6h):
+        # reconcile must schedule it at the source floor, not the wasteful finer cadence
+        dag = DAG.get_or_create_default(self.team)
+        source = _warehouse_source_node(self.team, dag, sync_frequency_interval=H6)
+        matview = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
+        set_declared_target(matview, M15)
+
+        dag_id = str(dag.id)
+
+        async def fake_list_schedules(*_args, **_kwargs):
+            async def gen():
+                return
+                yield  # pragma: no cover — empty async generator
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+
+        module = "products.data_modeling.backend.logic.schedule_reconcile"
+        with (
+            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+        ):
+            reconcile_dag_schedules(dag)
+
+        # clamped to the 6h source floor, not the declared 15min
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(dag_id, H6))
+
 
 @pytest.mark.django_db
 class TestMaybeReconcileDag(BaseTest):
@@ -330,43 +380,3 @@ class TestMaybeReconcileDag(BaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
         capture.assert_called_once()
-
-
-class TestFindUnsatisfiable(TestCase):
-    @parameterized.expand(
-        [
-            # scheduled finer than the 6h source delivers -> flagged
-            ("finer_than_source_floor", M15, H6, True),
-            # exactly at the floor -> satisfiable
-            ("at_floor", H6, H6, False),
-            # coarser than the floor -> satisfiable
-            ("coarser_than_floor", H6, H1, False),
-            # streamed source imposes no floor -> satisfiable at any cadence
-            ("streamed_source", M15, STREAMING, False),
-        ]
-    )
-    def test_flags_node_finer_than_its_source(self, _name, effective, source_interval, flagged):
-        graph = FrequencyGraph(
-            nodes={"a"},
-            edges=[("src", "a")],
-            declared_targets={"a": effective},
-            source_intervals={"src": source_interval},
-            best_effort_source_ids=set(),
-        )
-        result = _find_unsatisfiable(graph, {"a": effective}, {"a": effective})
-        if flagged:
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0].node_id, "a")
-            self.assertEqual(result[0].source_floor, source_interval)
-        else:
-            self.assertEqual(result, [])
-
-    def test_unscheduled_node_is_never_flagged(self):
-        graph = FrequencyGraph(
-            nodes={"a"},
-            edges=[("src", "a")],
-            declared_targets={},
-            source_intervals={"src": H6},
-            best_effort_source_ids=set(),
-        )
-        self.assertEqual(_find_unsatisfiable(graph, {"a": None}, {}), [])

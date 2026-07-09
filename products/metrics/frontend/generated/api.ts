@@ -11,8 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
-    MetricsHasMetricsRetrieve200,
     MetricsValuesRetrieveParams,
+    _HasMetricsResponseApi,
     _MetricAnomalyReportApi,
     _MetricAnomalyRequestApi,
     _MetricNamesResponseApi,
@@ -92,8 +92,8 @@ export const getMetricsHasMetricsRetrieveUrl = (projectId: string) => {
 export const metricsHasMetricsRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<MetricsHasMetricsRetrieve200> => {
-    return apiMutator<MetricsHasMetricsRetrieve200>(getMetricsHasMetricsRetrieveUrl(projectId), {
+): Promise<_HasMetricsResponseApi> => {
+    return apiMutator<_HasMetricsResponseApi>(getMetricsHasMetricsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

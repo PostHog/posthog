@@ -7,6 +7,7 @@ import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionr
 import { runBlurJobs } from './blur'
 import { scrubCanvasMutation } from './canvas'
 import { BlurCache, BlurJob, ScrubContext, ScrubTiming, isObject } from './config'
+import { scrubAdoptedStyleSheet, scrubStyleDeclaration, scrubStyleSheetRule } from './css'
 import { scrubCompressedFullSnapshot, scrubCompressedMutation } from './cv'
 import { scrubFullSnapshot, scrubMutation } from './dom'
 import { scrubText } from './text'
@@ -119,6 +120,15 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (data.source === RRWebEventSource.CanvasMutation) {
                 return scrubCanvasMutation(ctx, data)
             }
+            if (data.source === RRWebEventSource.StyleSheetRule) {
+                return scrubStyleSheetRule(ctx, data)
+            }
+            if (data.source === RRWebEventSource.StyleDeclaration) {
+                return scrubStyleDeclaration(ctx, data)
+            }
+            if (data.source === RRWebEventSource.AdoptedStyleSheet) {
+                return scrubAdoptedStyleSheet(ctx, data)
+            }
             return false
         }
 
@@ -128,7 +138,7 @@ function routeEvent(ctx: ScrubContext, event: Record<string, unknown>): boolean 
             if (!isObject(data) || typeof data.href !== 'string') {
                 return false
             }
-            const r = scrubUrl(ctx, data.href, { scrubAuthority: true })
+            const r = scrubUrl(ctx, data.href, { collapseHost: true })
             if (r.changed) {
                 data.href = r.value
                 return true
