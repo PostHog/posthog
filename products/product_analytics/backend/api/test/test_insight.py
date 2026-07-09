@@ -553,6 +553,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 analytics_props=ANY,
             )
 
+    def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
+        # Un-mocked end-to-end regression test: exercises the real process_query_dict ->
+        # process_query_model -> query_runner.run() chain that the mocked assertions above
+        # never execute the body of.
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "name": "insight"})
+        sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
+
+        valid_url = f"{settings.SITE_URL}/shared/{sharing_config.access_token}"
+
+        response = self.client.get(valid_url, data={"refresh": "force_blocking"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_get_insight_by_short_id(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
 
