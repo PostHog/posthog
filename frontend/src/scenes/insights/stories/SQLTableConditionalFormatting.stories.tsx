@@ -1,8 +1,9 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
