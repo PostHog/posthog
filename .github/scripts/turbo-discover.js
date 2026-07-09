@@ -175,9 +175,9 @@ function quarantinedSkipProducts(jsonText, todayISO) {
     }
     const products = new Set()
     for (const entry of parsed.entries) {
-        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) continue
-        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') continue
-        if (typeof entry.expires !== 'string' || entry.expires < todayISO) continue
+        if (typeof entry?.id !== 'string' || !entry.id.startsWith('product:')) {continue}
+        if ((entry.runner ?? 'pytest') !== 'pytest' || entry.mode !== 'skip') {continue}
+        if (typeof entry.expires !== 'string' || entry.expires < todayISO) {continue}
         products.add(entry.id.slice('product:'.length))
     }
     return products
@@ -279,11 +279,11 @@ function productPrefix(product) {
 // Check if .test_durations is stale for a product by comparing on-disk test
 // file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
 function checkProductStaleness(product, durations) {
-    if (!durations) return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }
+    if (!durations) {return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }}
     const dirName = product.replace(/-/g, '_')
     const productDir = path.join('products', dirName)
     const testFiles = collectTestFiles(productDir)
-    if (testFiles.length === 0) return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }
+    if (testFiles.length === 0) {return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }}
 
     const prefix = productPrefix(product)
     // Build set of file paths that have at least one entry in durations
@@ -298,7 +298,7 @@ function checkProductStaleness(product, durations) {
 
     let coveredCount = 0
     for (const file of testFiles) {
-        if (coveredFiles.has(file)) coveredCount++
+        if (coveredFiles.has(file)) {coveredCount++}
     }
 
     const coverage = coveredCount / testFiles.length
@@ -385,12 +385,12 @@ const DJANGO_SEGMENTS = {
 }
 
 function getSegmentDuration(segment, durations) {
-    if (!durations) return 0
+    if (!durations) {return 0}
     const { include, exclude } = DJANGO_SEGMENTS[segment]
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (!include.some((p) => test.startsWith(p))) continue
-        if (exclude.some((p) => test.startsWith(p))) continue
+        if (!include.some((p) => test.startsWith(p))) {continue}
+        if (exclude.some((p) => test.startsWith(p))) {continue}
         total += dur
     }
     return total
@@ -401,7 +401,7 @@ const DJANGO_FALLBACK_SHARDS = { Core: 38, CorePOE: 7, Temporal: 7 }
 
 function calculateShards(totalWorkSeconds, overheadSeconds) {
     const testBudget = DJANGO_TARGET_WALL_SECONDS - overheadSeconds
-    if (testBudget <= 0) return DJANGO_MAX_SHARDS
+    if (testBudget <= 0) {return DJANGO_MAX_SHARDS}
     const shards = Math.ceil((totalWorkSeconds * DJANGO_SAFETY_FACTOR) / testBudget)
     return Math.max(DJANGO_MIN_SHARDS, Math.min(DJANGO_MAX_SHARDS, shards))
 }
@@ -616,8 +616,8 @@ if (process.env.TURBO_SCM_BASE) {
     const allProductSet = new Set(allProducts)
     const productSet = new Set(products)
     for (const name of baseQuarantined) {
-        if (quarantinedProducts.has(name) || skipProducts.has(name)) continue
-        if (!allProductSet.has(name) || productSet.has(name)) continue
+        if (quarantinedProducts.has(name) || skipProducts.has(name)) {continue}
+        if (!allProductSet.has(name) || productSet.has(name)) {continue}
         console.error(`Quarantine lifted for '${name}' since ${process.env.TURBO_SCM_BASE} — forced into matrix`)
         products.push(name)
     }

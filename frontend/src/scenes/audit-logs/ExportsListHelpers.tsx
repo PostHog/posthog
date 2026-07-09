@@ -80,7 +80,7 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
     const filterSections: JSX.Element[] = []
 
     if (filters.start_date || filters.end_date) {
-        const formatDate = (dateStr: string) => {
+        const formatDate = (dateStr: string): string => {
             try {
                 return dayjs(dateStr).format('YYYY-MM-DD HH:mm:ss')
             } catch {

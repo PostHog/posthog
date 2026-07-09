@@ -26,6 +26,7 @@ export const RequiredTeamAccessSelector = ({
                 {({ value, onChange }) => {
                     const arrayValue = Array.isArray(value) ? value : []
 
+                    // eslint-disable-next-line react-hooks/rules-of-hooks -- effect lives in a LemonField render prop, which is always invoked
                     useEffect(() => {
                         if (autoSelectFirst && arrayValue.length === 0 && teams && teams.length > 0) {
                             onChange([teams[0].id])

@@ -109,7 +109,7 @@ class McpStdioClient {
 
     async close(): Promise<void> {
         const proc = this.proc;
-        if (!proc) return;
+        if (!proc) {return;}
         this.proc = null;
         this.failPending(new Error("phrocs MCP client closing"));
         proc.stdin?.end();
@@ -136,7 +136,7 @@ class McpStdioClient {
         while (idx >= 0) {
             const line = this.buffer.slice(0, idx).trim();
             this.buffer = this.buffer.slice(idx + 1);
-            if (line) this.onLine(line);
+            if (line) {this.onLine(line);}
             idx = this.buffer.indexOf("\n");
         }
     }
@@ -148,9 +148,9 @@ class McpStdioClient {
         } catch {
             return;
         }
-        if (typeof msg.id !== "number") return;
+        if (typeof msg.id !== "number") {return;}
         const waiting = this.pending.get(msg.id);
-        if (!waiting) return;
+        if (!waiting) {return;}
         this.pending.delete(msg.id);
         clearTimeout(waiting.timer);
         if (waiting.onAbort && waiting.signal) {
@@ -176,22 +176,22 @@ class McpStdioClient {
             }
             const id = this.nextId++;
             const timer = setTimeout(() => {
-                if (!this.pending.delete(id)) return;
+                if (!this.pending.delete(id)) {return;}
                 reject(new Error(`phrocs MCP request '${method}' timed out after ${REQUEST_TIMEOUT_MS}ms`));
             }, REQUEST_TIMEOUT_MS);
             const onAbort = signal
                 ? () => {
-                      if (!this.pending.delete(id)) return;
+                      if (!this.pending.delete(id)) {return;}
                       clearTimeout(timer);
                       reject(new Error("phrocs MCP request aborted"));
                   }
                 : undefined;
-            if (signal && onAbort) signal.addEventListener("abort", onAbort, { once: true });
+            if (signal && onAbort) {signal.addEventListener("abort", onAbort, { once: true });}
             this.pending.set(id, { resolve, reject, timer, onAbort, signal });
             stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`, (err) => {
                 if (err && this.pending.delete(id)) {
                     clearTimeout(timer);
-                    if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+                    if (signal && onAbort) {signal.removeEventListener("abort", onAbort);}
                     reject(err);
                 }
             });
@@ -205,7 +205,7 @@ class McpStdioClient {
     private failPending(err: Error): void {
         for (const waiter of this.pending.values()) {
             clearTimeout(waiter.timer);
-            if (waiter.onAbort && waiter.signal) waiter.signal.removeEventListener("abort", waiter.onAbort);
+            if (waiter.onAbort && waiter.signal) {waiter.signal.removeEventListener("abort", waiter.onAbort);}
             waiter.reject(err);
         }
         this.pending.clear();
@@ -213,7 +213,7 @@ class McpStdioClient {
 }
 
 function jsonSchemaToTypeBox(schema: JsonSchema | undefined): TSchema {
-    if (!schema || typeof schema !== "object") return Type.Object({});
+    if (!schema || typeof schema !== "object") {return Type.Object({});}
     const type = schema.type;
     const description = schema.description;
 
@@ -247,7 +247,7 @@ function jsonSchemaToTypeBox(schema: JsonSchema | undefined): TSchema {
     if (type === "array") {
         return Type.Array(jsonSchemaToTypeBox(schema.items ?? {}), { description });
     }
-    if (type === "null") return Type.Null();
+    if (type === "null") {return Type.Null();}
     if (schema.anyOf?.length || schema.oneOf?.length) {
         const variants = (schema.anyOf?.length ? schema.anyOf : schema.oneOf)!;
         return Type.Union(variants.map(jsonSchemaToTypeBox), { description });
@@ -259,7 +259,7 @@ function formatToolResult(result: McpToolResult): string {
     const parts = (result.content ?? [])
         .filter((c) => c.type === "text" && typeof c.text === "string")
         .map((c) => c.text as string);
-    if (parts.length > 0) return parts.join("\n");
+    if (parts.length > 0) {return parts.join("\n");}
     if (result.structuredContent !== undefined) {
         return typeof result.structuredContent === "string"
             ? result.structuredContent
@@ -268,19 +268,19 @@ function formatToolResult(result: McpToolResult): string {
     return "";
 }
 
-export default function registerPhrocsExtension(pi: ExtensionAPI) {
+export default function registerPhrocsExtension(pi: ExtensionAPI): void {
     let client: McpStdioClient | null = null;
     let startup: Promise<void> | null = null;
     let lastError: string | null = null;
     const registered = new Set<string>();
 
-    const setStatus = (text: string | undefined, ctx?: ExtensionContext) => {
+    const setStatus = (text: string | undefined, ctx?: ExtensionContext): void => {
         ctx?.ui?.setStatus(STATUS_KEY, text);
     };
 
     const connect = async (ctx: ExtensionContext): Promise<void> => {
-        if (client) return;
-        if (startup) return startup;
+        if (client) {return;}
+        if (startup) {return startup;}
 
         setStatus("phrocs: starting…", ctx);
         const next = new McpStdioClient();
@@ -293,7 +293,7 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
                 for (const tool of tools) {
                     // Pi has no unregister API, so once a tool is registered
                     // it stays for the session. Skip silently on reconnect.
-                    if (registered.has(tool.name)) continue;
+                    if (registered.has(tool.name)) {continue;}
                     if (pi.getAllTools().some((existing) => existing.name === tool.name)) {
                         ctx.ui?.notify(`phrocs: skipped '${tool.name}' (name collision)`, "warning");
                         continue;
@@ -305,7 +305,7 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
                         description: tool.description ?? `phrocs MCP tool: ${tool.name}`,
                         parameters: jsonSchemaToTypeBox(tool.inputSchema),
                         async execute(_toolCallId, params, signal) {
-                            if (!client) throw new Error("phrocs MCP client not connected");
+                            if (!client) {throw new Error("phrocs MCP client not connected");}
                             const result = await client.callTool(tool.name, params as Record<string, unknown>, signal);
                             const text = formatToolResult(result);
                             if (result.isError) {
@@ -343,7 +343,7 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
         setStatus(undefined, ctx);
         const current = client;
         client = null;
-        if (current) await current.close();
+        if (current) {await current.close();}
     });
 
     pi.registerCommand("phrocs-status", {
@@ -355,7 +355,7 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
                 `last_error: ${lastError ?? "none"}`,
             ];
             const tail = client?.stderrSnapshot().trim();
-            if (tail) lines.push(`stderr_tail:\n${tail.slice(-500)}`);
+            if (tail) {lines.push(`stderr_tail:\n${tail.slice(-500)}`);}
             ctx.ui.notify(lines.join("\n"), lastError ? "warning" : "info");
         },
     });
@@ -368,7 +368,7 @@ export default function registerPhrocsExtension(pi: ExtensionAPI) {
             // use the new `client` after reconnect.
             const current = client;
             client = null;
-            if (current) await current.close();
+            if (current) {await current.close();}
             await connect(ctx);
         },
     });

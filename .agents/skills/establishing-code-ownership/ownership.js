@@ -55,19 +55,19 @@ function toHandle(owner) {
 
 // @PostHog/team-x or @team-x or team-x -> team-x (for comparison).
 function toSlug(owner) {
-    if (owner.startsWith('@PostHog/')) return owner.slice('@PostHog/'.length)
-    if (owner.startsWith('@')) return owner.slice(1)
+    if (owner.startsWith('@PostHog/')) {return owner.slice('@PostHog/'.length)}
+    if (owner.startsWith('@')) {return owner.slice(1)}
     return owner
 }
 
 function parseCodeowners(file, label) {
-    if (!fs.existsSync(file)) return []
+    if (!fs.existsSync(file)) {return []}
     const rules = []
     fs.readFileSync(file, 'utf8')
         .split('\n')
         .forEach((raw, idx) => {
             const line = raw.trim()
-            if (!line || line.startsWith('#')) return
+            if (!line || line.startsWith('#')) {return}
             const tokens = line.split(/\s+/)
             rules.push({
                 pattern: tokens[0],
@@ -86,7 +86,7 @@ function parseProductOwners(content) {
     let inOwners = false
     for (const raw of content.split('\n')) {
         const line = raw.replace(/\s+#.*$/, '').trimEnd()
-        if (!line.trim() || /^\s*#/.test(raw)) continue
+        if (!line.trim() || /^\s*#/.test(raw)) {continue}
         const ownersMatch = line.match(/^owners\s*:\s*(.*)$/)
         if (ownersMatch) {
             const rest = ownersMatch[1].trim()
@@ -95,7 +95,7 @@ function parseProductOwners(content) {
                 const inner = rest.slice(1, close === -1 ? rest.length : close)
                 for (const item of inner.split(',')) {
                     const value = item.trim().replace(/^["']|["']$/g, '')
-                    if (value) owners.push(value)
+                    if (value) {owners.push(value)}
                 }
             } else if (rest) {
                 owners.push(rest.replace(/^["']|["']$/g, ''))
@@ -104,13 +104,13 @@ function parseProductOwners(content) {
             }
             continue
         }
-        if (!inOwners) continue
+        if (!inOwners) {continue}
         const m = line.match(/^\s+-\s+(.+?)$/)
         if (m) {
             owners.push(m[1].replace(/^["']|["']$/g, '').trim())
             continue
         }
-        if (/^\S/.test(raw)) inOwners = false
+        if (/^\S/.test(raw)) {inOwners = false}
     }
     return owners
 }
@@ -118,15 +118,15 @@ function parseProductOwners(content) {
 function loadProductOwners(root) {
     const map = new Map()
     const productsDir = path.join(root, 'products')
-    if (!fs.existsSync(productsDir)) return map
+    if (!fs.existsSync(productsDir)) {return map}
     for (const entry of fs.readdirSync(productsDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue
+        if (!entry.isDirectory()) {continue}
         const yaml = path.join(productsDir, entry.name, 'product.yaml')
-        if (!fs.existsSync(yaml)) continue
+        if (!fs.existsSync(yaml)) {continue}
         const owners = parseProductOwners(fs.readFileSync(yaml, 'utf8'))
             .filter((slug) => slug && slug !== 'team-CHANGEME') // a bootstrap placeholder, not a real team
             .map(toHandle)
-        if (owners.length) map.set(entry.name, owners)
+        if (owners.length) {map.set(entry.name, owners)}
     }
     return map
 }
@@ -157,11 +157,11 @@ class Resolver {
             }
         }
         const hard = this.hardMatcher.matchingRule(file)
-        if (hard && hard.owners.length) return { owners: hard.owners, source: src(hard), reset: false }
+        if (hard && hard.owners.length) {return { owners: hard.owners, source: src(hard), reset: false }}
         const soft = this.softMatcher.matchingRule(file)
-        if (soft && soft.owners.length) return { owners: soft.owners, source: src(soft), reset: false }
+        if (soft && soft.owners.length) {return { owners: soft.owners, source: src(soft), reset: false }}
         const reset = hard || soft
-        if (reset) return { owners: [], source: src(reset), reset: true }
+        if (reset) {return { owners: [], source: src(reset), reset: true }}
         return { owners: [], source: null, reset: false }
     }
 
@@ -180,7 +180,7 @@ class Resolver {
 
 function listTrackedFiles(root, prefixes) {
     const args = ['ls-files', '-z']
-    if (prefixes.length) args.push('--', ...prefixes)
+    if (prefixes.length) {args.push('--', ...prefixes)}
     const out = execFileSync('git', args, { cwd: root, maxBuffer: 1024 * 1024 * 512 }).toString('utf8')
     return out.split('\0').filter(Boolean)
 }
@@ -194,7 +194,7 @@ function normalizeInputPath(root, raw) {
     if (!path.isAbsolute(raw)) {
         const underRoot = fs.existsSync(path.join(root, repoRel))
         const underCwd = fs.existsSync(path.join(process.cwd(), raw))
-        if (underRoot || !underCwd) return repoRel
+        if (underRoot || !underCwd) {return repoRel}
     }
     const abs = path.isAbsolute(raw) ? raw : path.resolve(process.cwd(), raw)
     return path.relative(root, abs).split(path.sep).join('/')
@@ -207,23 +207,23 @@ function cmdFile(resolver, paths, showAll) {
             console.error(`warning: ${raw} is outside the repo root; ownership only covers tracked repo files`)
         }
         const res = resolver.resolve(rel)
-        console.log(rel)
+        console.info(rel)
         if (res.owners.length) {
-            console.log(`  owners: ${res.owners.join(', ')}`)
-            console.log(`  source: ${res.source}`)
+            console.info(`  owners: ${res.owners.join(', ')}`)
+            console.info(`  source: ${res.source}`)
         } else if (res.reset) {
-            console.log('  owners: none (ownership explicitly cleared)')
-            console.log(`  source: ${res.source}`)
+            console.info('  owners: none (ownership explicitly cleared)')
+            console.info(`  source: ${res.source}`)
         } else {
-            console.log('  owners: none (no product.yaml or CODEOWNERS match)')
+            console.info('  owners: none (no product.yaml or CODEOWNERS match)')
         }
         if (showAll) {
             const matches = resolver.allMatches(rel)
             if (matches.length) {
-                console.log('  all CODEOWNERS matches (last wins):')
+                console.info('  all CODEOWNERS matches (last wins):')
                 for (const rule of matches) {
                     const owners = rule.owners.length ? rule.owners.join(', ') : '(reset)'
-                    console.log(`    ${rule.source}:${rule.lineno}  ${rule.pattern}  -> ${owners}`)
+                    console.info(`    ${rule.source}:${rule.lineno}  ${rule.pattern}  -> ${owners}`)
                 }
             }
         }
@@ -234,19 +234,19 @@ function cmdTeam(resolver, team, prefixes) {
     const target = toSlug(team).toLowerCase()
     const files = listTrackedFiles(resolver.root, prefixes)
     const owned = files.filter((f) => resolver.resolve(f).owners.some((o) => toSlug(o).toLowerCase() === target))
-    for (const f of owned) console.log(f)
+    for (const f of owned) {console.info(f)}
     console.error(`${owned.length} file(s) owned by ${team}`)
 }
 
 function cmdUnowned(resolver, prefixes) {
     const files = listTrackedFiles(resolver.root, prefixes)
     const unowned = files.filter((f) => resolver.resolve(f).owners.length === 0)
-    for (const f of unowned) console.log(f)
+    for (const f of unowned) {console.info(f)}
     console.error(`${unowned.length} unowned of ${files.length} tracked file(s)`)
 }
 
 function usage(message) {
-    if (message) console.error(`error: ${message}`)
+    if (message) {console.error(`error: ${message}`)}
     console.error('usage:')
     console.error('  ownership.js file <path>... [--all]               who owns these files')
     console.error('  ownership.js team <slug-or-handle> [prefix...]    every tracked file a team owns')
@@ -256,14 +256,14 @@ function usage(message) {
 
 function main(argv) {
     const [command, ...rest] = argv
-    if (!command || command === '-h' || command === '--help') usage()
+    if (!command || command === '-h' || command === '--help') {usage()}
     const resolver = new Resolver(REPO_ROOT)
     if (command === 'file') {
         const paths = rest.filter((a) => a !== '--all')
-        if (!paths.length) usage('file needs at least one path')
+        if (!paths.length) {usage('file needs at least one path')}
         cmdFile(resolver, paths, rest.includes('--all'))
     } else if (command === 'team') {
-        if (!rest.length) usage('team needs a slug or handle')
+        if (!rest.length) {usage('team needs a slug or handle')}
         cmdTeam(resolver, rest[0], rest.slice(1))
     } else if (command === 'unowned') {
         cmdUnowned(resolver, rest)

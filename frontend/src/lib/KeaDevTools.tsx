@@ -103,7 +103,7 @@ function clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max)
 }
 
-function compactJSON(x: unknown) {
+function compactJSON(x: unknown): string {
     try {
         return JSON.stringify(x)
     } catch {
@@ -1524,7 +1524,7 @@ function MemoryTree({
     rootId: string
     state: TreeState
     depth?: number
-}) {
+}): JSX.Element {
     try {
         const children = getChildrenSorted(rootValue)
         return (
