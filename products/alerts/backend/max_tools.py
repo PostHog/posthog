@@ -221,6 +221,20 @@ class UpdateAlertAction(BaseModel):
     skip_weekend: bool | None = Field(default=None, description="Whether to skip weekend checks")
 
 
+# Action attribute name -> key in the persisted config dict. Single source of truth for what
+# each per-kind field is called in storage, used by both the update path's config patching and
+# _build_create_config (which additionally applies per-kind defaults and the type discriminator),
+# so a rename or new field means updating one place instead of two.
+ALERT_CONFIG_FIELD_TO_KEY: dict[str, str] = {
+    "series_index": "series_index",
+    "check_ongoing_interval": "check_ongoing_interval",
+    "funnel_step": "funnel_step",
+    "funnel_metric": "metric",
+    "hogql_column": "column",
+    "hogql_evaluation": "evaluation",
+    "hogql_label_column": "label_column",
+}
+
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
 
 
@@ -437,21 +451,11 @@ class UpsertAlertTool(MaxTool):
                 alert.calculation_interval = action.calculation_interval
                 update_fields.append("calculation_interval")
 
-            config_updates: dict[str, Any] = {}
-            if action.series_index is not None:
-                config_updates["series_index"] = action.series_index
-            if action.check_ongoing_interval is not None:
-                config_updates["check_ongoing_interval"] = action.check_ongoing_interval
-            if action.funnel_step is not None:
-                config_updates["funnel_step"] = action.funnel_step
-            if action.funnel_metric is not None:
-                config_updates["metric"] = action.funnel_metric
-            if action.hogql_column is not None:
-                config_updates["column"] = action.hogql_column
-            if action.hogql_evaluation is not None:
-                config_updates["evaluation"] = action.hogql_evaluation
-            if action.hogql_label_column is not None:
-                config_updates["label_column"] = action.hogql_label_column
+            config_updates: dict[str, Any] = {
+                config_key: getattr(action, field_name)
+                for field_name, config_key in ALERT_CONFIG_FIELD_TO_KEY.items()
+                if getattr(action, field_name) is not None
+            }
             if config_updates:
                 alert.config = {**(alert.config or {}), **config_updates}
                 update_fields.append("config")
@@ -571,12 +575,13 @@ class UpsertAlertTool(MaxTool):
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
         kind = await sync_to_async(lambda: insight.alertable_query_kind)()
+        if kind is None:
+            raise ValueError("Alerts are not supported for this insight.")
         team = self._team
         user = self._user
         org = await sync_to_async(lambda: team.organization)()
         if error := alertable_insight_kind_error(kind, distinct_id=str(user.distinct_id), organization_id=str(org.id)):
             raise ValueError(error)
-        assert kind is not None
         return insight, was_auto_saved, kind
 
     @staticmethod
@@ -586,14 +591,15 @@ class UpsertAlertTool(MaxTool):
 
     @staticmethod
     def _build_create_config(kind: NodeKind, action: CreateAlertAction) -> dict[str, Any]:
+        field_to_key = ALERT_CONFIG_FIELD_TO_KEY
         config: dict[str, Any]
         if kind == NodeKind.TRENDS_QUERY:
-            config = {"type": "TrendsAlertConfig", "series_index": action.series_index}
+            config = {"type": "TrendsAlertConfig", field_to_key["series_index"]: action.series_index}
         elif kind == NodeKind.FUNNELS_QUERY:
             config = {
                 "type": "FunnelsAlertConfig",
-                "funnel_step": action.funnel_step,
-                "metric": action.funnel_metric or FunnelConversionMetric.CONVERSION_FROM_START,
+                field_to_key["funnel_step"]: action.funnel_step,
+                field_to_key["funnel_metric"]: action.funnel_metric or FunnelConversionMetric.CONVERSION_FROM_START,
             }
         else:
             if action.hogql_evaluation is None:
@@ -602,13 +608,13 @@ class UpsertAlertTool(MaxTool):
                 )
             config = {
                 "type": "HogQLAlertConfig",
-                "column": action.hogql_column,
-                "evaluation": action.hogql_evaluation,
-                "label_column": action.hogql_label_column,
+                field_to_key["hogql_column"]: action.hogql_column,
+                field_to_key["hogql_evaluation"]: action.hogql_evaluation,
+                field_to_key["hogql_label_column"]: action.hogql_label_column,
             }
 
         if action.check_ongoing_interval is not None and kind in (NodeKind.TRENDS_QUERY, NodeKind.FUNNELS_QUERY):
-            config["check_ongoing_interval"] = action.check_ongoing_interval
+            config[field_to_key["check_ongoing_interval"]] = action.check_ongoing_interval
 
         return config
 
