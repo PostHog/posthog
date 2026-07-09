@@ -43,7 +43,8 @@
             "type": "boolean"
         },
         "filterTestAccounts": {
-            "description": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+            "default": true,
+            "description": "Exclude internal and test users by applying the respective filters.",
             "type": "boolean"
         },
         "groupKey": {

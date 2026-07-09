@@ -30,15 +30,26 @@ function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<
 }
 
 /**
- * The generated query schemas hard-default `filterTestAccounts` to `false`, which
+ * Most generated query schemas hard-default `filterTestAccounts` to `false`, which
  * silently ignores the project's "Filter out internal and test users" default
  * (`test_account_filters_default_checked`) that the UI applies to every new
  * insight. Stripping the schema default lets an omitted value survive validation
  * as `undefined`, so the handler can fill in the project default instead. An
  * explicit `filterTestAccounts` from the caller always wins.
+ *
+ * Only a `false` default is stripped: a schema that defaults the field to `true`
+ * (e.g. AssistantTracesQuery) is an intentional stricter product default, and
+ * replacing it would flip its queries to unfiltered on projects where the
+ * setting is unchecked.
  */
 function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
     if (!hasTestAccountFilterField(schema)) {
+        return schema
+    }
+    // `ZodRawShape` values are typed as core `$ZodType`, which hides `safeParse`.
+    const field = schema.shape[TEST_ACCOUNT_FILTER_FIELD] as z.ZodType
+    const omittedValue = field.safeParse(undefined)
+    if (!omittedValue.success || omittedValue.data !== false) {
         return schema
     }
     return schema.extend({

@@ -307,16 +307,20 @@ describe('createQueryWrapper output_format handling', () => {
 })
 
 describe('createQueryWrapper filterTestAccounts project default', () => {
-    // Mirrors the generated wrapper schemas, whose hard `.default(false)` the
-    // factory must strip so omission can follow the project setting.
-    const schemaWithFilter = z.object({
-        series: z.array(z.object({ kind: z.string(), event: z.string() })),
-        filterTestAccounts: z.coerce
-            .boolean()
-            .describe('Exclude internal and test users by applying the respective filters')
-            .default(false)
-            .optional(),
-    })
+    // Mirrors the generated wrapper schemas: most default `filterTestAccounts`
+    // to false (which the factory must strip so omission can follow the project
+    // setting), AssistantTracesQuery to true (an intentional stricter default
+    // the factory must keep).
+    function makeSchema(schemaDefault: boolean): z.ZodObject<z.ZodRawShape> {
+        return z.object({
+            series: z.array(z.object({ kind: z.string(), event: z.string() })),
+            filterTestAccounts: z.coerce
+                .boolean()
+                .describe('Exclude internal and test users by applying the respective filters')
+                .default(schemaDefault)
+                .optional(),
+        })
+    }
     const series = [{ kind: 'EventsNode', event: '$pageview' }]
 
     function createMockContext(
@@ -338,14 +342,22 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     }
 
     it.each([
-        ['omitted follows a checked project default', {}, true, true],
-        ['omitted stays unset when the project default is unchecked', {}, false, undefined],
-        ['explicit false wins over a checked project default', { filterTestAccounts: false }, true, false],
-        ['explicit true wins over an unchecked project default', { filterTestAccounts: true }, false, true],
-    ] as const)('%s', async (_name, inputExtra, projectDefault, expected) => {
+        ['omitted follows a checked project default', false, {}, true, true],
+        ['omitted stays unset when the project default is unchecked', false, {}, false, undefined],
+        ['explicit false wins over a checked project default', false, { filterTestAccounts: false }, true, false],
+        ['explicit true wins over an unchecked project default', false, { filterTestAccounts: true }, false, true],
+        ['an intentional true schema default survives an unchecked project default', true, {}, false, true],
+        [
+            'explicit false wins over an intentional true schema default',
+            true,
+            { filterTestAccounts: false },
+            true,
+            false,
+        ],
+    ] as const)('%s', async (_name, schemaDefault, inputExtra, projectDefault, expected) => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
         const context = createMockContext(runQuery, projectDefault)
-        const tool = createQueryWrapper({ name: 'test', schema: schemaWithFilter, kind: 'TrendsQuery' })()
+        const tool = createQueryWrapper({ name: 'test', schema: makeSchema(schemaDefault), kind: 'TrendsQuery' })()
 
         // Validate through the tool's advertised schema first, exactly like the
         // executor does — this is where a hard default would clobber omission.
