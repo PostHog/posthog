@@ -592,6 +592,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # the agent (see run_wizard activity / TaskProcessingContext.wizard_config).
         if wizard_config is not None:
             extra_state["wizard_config"] = wizard_config
+            # The agent-server self-delivers pending_user_message the moment it boots. With
+            # overlap-clone-boot the server launches during provisioning, so that first turn
+            # ("commit the wizard's changes, open a PR") runs before run_wizard has touched the
+            # repo, finds nothing to commit, and consumes the prompt — the run then idles forever.
+            # Wizard runs must boot the agent only after the wizard step.
+            extra_state["overlap_clone_boot_enabled"] = False
 
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
