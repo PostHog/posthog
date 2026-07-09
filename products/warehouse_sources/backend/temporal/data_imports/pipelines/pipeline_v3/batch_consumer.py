@@ -93,10 +93,6 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
-    # Which source the delta sink's queue readers use: the legacy status-log
-    # laterals or the denormalized state columns. Readers only — writes always
-    # dual-write, which is what makes flipping back a complete rollback.
-    claim_path: str = "legacy"
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
