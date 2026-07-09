@@ -124,6 +124,33 @@ describe('textCardMarkdown', () => {
         expect(roundTripDoc).not.toEqual(richDoc)
     })
 
+    it.each([['bold'], ['italic'], ['strike']])('keeps inline code innermost when a text node is also %s', (mark) => {
+        // A styled span ending on an inline code snippet used to serialize with the
+        // closing markers in the wrong order (e.g. **start `snippet**`), corrupting the card
+        const doc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'start ', marks: [{ type: mark }] },
+                        { type: 'text', text: 'snippet', marks: [{ type: mark }, { type: 'code' }] },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = textCardDocToMarkdown(doc)
+        const reparsedSnippet = markdownToTextCardDoc(markdown).content?.[0]?.content?.find((node) =>
+            node.marks?.some((m) => m.type === 'code')
+        )
+
+        expect(markdown).toContain('`snippet`')
+        expect(reparsedSnippet?.text).toBe('snippet')
+        expect(reparsedSnippet?.marks?.map((m) => m.type).sort()).toEqual(['code', mark].sort())
+        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+    })
+
     it('supports underline markdown round-trip', () => {
         const markdown = '++underlined++'
         const doc = markdownToTextCardDoc(markdown)
