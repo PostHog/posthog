@@ -383,6 +383,7 @@ def process_scheduled_changes() -> None:
                             scheduled_change_id=scheduled_change.id,
                             error=str(e),
                             error_type=e.__class__.__name__,
+                            exc_info=True,
                         )
                     else:
                         capture_exception(e)

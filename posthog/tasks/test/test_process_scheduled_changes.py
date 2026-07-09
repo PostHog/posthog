@@ -442,11 +442,22 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # A well-formed payload the dispatcher itself rejects.
+            # A payload missing required keys, rejected up front by the dispatcher.
             ("invalid_payload", False, {"invalid": "payload"}, "Invalid payload"),
             # ObjectDoesNotExist via model.objects.get(): the scenario the PR description is
             # actually about, a scheduled change whose target flag was deleted.
             ("deleted_flag", True, {"operation": "update_status", "value": True}, "does not exist"),
+            # A bare ValueError classified unrecoverable via isinstance alone (no matching
+            # error-message indicator), unlike the two cases above.
+            (
+                "invalid_variant_rollout",
+                False,
+                {
+                    "operation": "update_variants",
+                    "value": {"variants": [{"key": "control", "name": "Control", "rollout_percentage": 50}]},
+                },
+                "Invalid variant rollout percentages",
+            ),
         ]
     )
     def test_unrecoverable_error_prevents_retry(
@@ -456,7 +467,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         payload: dict[str, Any],
         expected_error_substring: str,
     ) -> None:
-        """Test that unrecoverable errors set executed_at, preventing retries"""
+        """Test that unrecoverable errors set executed_at, preventing retries, and are not reported to error tracking"""
         feature_flag = FeatureFlag.objects.create(
             name="Test Flag",
             key="test-unrecoverable-error",
