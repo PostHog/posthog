@@ -138,6 +138,9 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+        # Marketplace installs omit type=connectable; that is what routes through delete_installation.
+        self.assertNotEqual(self.integration_vercel.config.get("type"), "connectable")
+
         team_integration = Integration.objects.create(
             team=self.team,
             kind=Integration.IntegrationKind.VERCEL,
@@ -145,17 +148,20 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
             config={"type": "connectable"},
         )
 
+        billing_message = "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first."
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         with (
             patch(
                 "ee.vercel.integration.VercelIntegration.delete_installation",
-                side_effect=BillingServiceOpenInvoicesError("Open invoices must be resolved first"),
-            ),
+                side_effect=BillingServiceOpenInvoicesError(billing_message),
+            ) as mock_delete_installation,
             patch("posthog.api.organization_integration.capture_exception") as mock_capture,
         ):
             response = self.client.delete(url)
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["detail"], billing_message)
+        mock_delete_installation.assert_called_once_with(self.integration_vercel.integration_id)
         # An expected billing condition should not be reported as a crash.
         mock_capture.assert_not_called()
         # The local integration must survive so the UI disconnect can't sidestep the billing guard.
