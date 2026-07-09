@@ -68,8 +68,6 @@ export function NotificationsPanel(): JSX.Element {
                         <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
-                {/* Archived isn't a peer tab — it's reached from the ⋯ menu. Surface a static
-                    marker while viewing it so the current context stays obvious. */}
                 {isArchivedTab && (
                     <span className="px-2 py-1 text-xs font-medium rounded bg-fill-highlight-100 text-primary">
                         Archived
@@ -92,9 +90,6 @@ export function NotificationsPanel(): JSX.Element {
         </div>
     )
 
-    // Archiving is flag-gated. With it off there's no ⋯ menu at all (the pre-clearable state);
-    // with it on the ⋯ is always present — the entry point to the archived view and, on the
-    // inbox, the home for the rare "Archive all" bulk action.
     const panelActions = !archivingEnabled
         ? undefined
         : isArchivedTab
