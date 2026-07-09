@@ -49,9 +49,12 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
     need reauthorization or are still pending token exchange.
     """
     try:
-        installations = MCPServerInstallation.objects.filter(
-            team_id=team_id, user_id=user_id, is_enabled=True, scope="personal"
-        ).select_related("template")
+        # list() evaluates the lazy queryset here so DB errors hit this handler.
+        installations = list(
+            MCPServerInstallation.objects.filter(
+                team_id=team_id, user_id=user_id, is_enabled=True, scope="personal"
+            ).select_related("template")
+        )
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []
@@ -90,7 +93,8 @@ def get_installations_for_sandbox(
         if include_personal and user_id is not None:
             scope_filter = scope_filter | Q(scope="personal", user_id=user_id)
 
-        installations = (
+        # list() evaluates the lazy queryset here so DB errors hit this handler.
+        installations = list(
             MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
             .filter(scope_filter)
             .select_related("template")
