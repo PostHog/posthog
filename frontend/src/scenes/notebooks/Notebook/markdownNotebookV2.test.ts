@@ -529,6 +529,82 @@ after`)
         expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
     })
 
+    it('splits embedded cards and headings out of blockquotes instead of quoting their tags', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'blockquote',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Quoted context' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                        {
+                            type: 'blockquote',
+                            content: [
+                                {
+                                    type: 'heading',
+                                    attrs: { level: 2 },
+                                    content: [{ type: 'text', text: 'Where to improve' }],
+                                },
+                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> Quoted context')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).toContain('\n\n## Where to improve')
+        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).not.toContain('> <')
+
+        const parsed = parseMarkdownNotebook(markdown)
+        expect(parsed.errors).toEqual([])
+        expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
+            'Query',
+            'Python',
+        ])
+    })
+
+    it('splits embedded cards out of callouts while keeping the emoji and text quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Watch this' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> ! Watch this')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).not.toContain('> <')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
     it('converts notebook artifacts to markdown notebook content', () => {
         const content: NotebookArtifactContent = {
             content_type: ArtifactContentType.Notebook,

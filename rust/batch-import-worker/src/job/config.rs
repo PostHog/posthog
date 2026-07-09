@@ -187,6 +187,13 @@ pub struct JobSecrets {
 
 // Jobsecrets is a json object, encrypted using fernet and then base64 urlsafe encoded.
 impl JobSecrets {
+    // Jobs using IAM role auth (rather than customer-provided keys) have no secrets at all.
+    pub fn empty() -> Self {
+        Self {
+            secrets: HashMap::new(),
+        }
+    }
+
     // Data is base64 url-safe encoded
     pub fn decrypt(data: &str, keys: &[String]) -> Result<Self, Error> {
         // Matching the plugin server, each key is 32 btyes of utf8 data, which we
@@ -255,11 +262,19 @@ impl SourceConfig {
                 // may have been deleted, for example.
                 config.create_source(secrets, !is_restarting).await?,
             )),
-            SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::S3(config) => Ok(Box::new(
+                config
+                    .create_source(
+                        secrets,
+                        context.config.managed_migrations_role_arn.as_deref(),
+                    )
+                    .await?,
+            )),
             SourceConfig::S3Gzip(config) => Ok(Box::new(
                 config
                     .create_gzip_source(
                         secrets,
+                        context.config.managed_migrations_role_arn.as_deref(),
                         staging_dir,
                         staging_max_bytes,
                         staging_backend,
@@ -502,6 +517,7 @@ impl S3SourceConfig {
         &self,
         role_arn: &str,
         external_id: &str,
+        managed_migrations_role_arn: Option<&str>,
     ) -> Result<aws_config::sts::AssumeRoleProvider, Error> {
         if self.endpoint_url.is_some() {
             return Err(Error::from(UserError::new(
@@ -509,14 +525,54 @@ impl S3SourceConfig {
             )));
         }
 
-        let provider = aws_config::sts::AssumeRoleProvider::builder(role_arn)
+        let mut builder = aws_config::sts::AssumeRoleProvider::builder(role_arn)
             .session_name("posthog-batch-import")
             .external_id(external_id)
             .region(Region::new(self.region.clone()))
             .session_length(Duration::from_secs(3600))
-            .policy(self.session_policy())
+            .policy(self.session_policy());
+
+        // Customer trust policies reference the dedicated managed-migrations role, not the
+        // worker's own identity, so chain through it: ambient creds -> managed-migrations
+        // role -> customer role. Without that role configured the customer hop can never
+        // succeed, so fail the job up front rather than attempting a direct assume that
+        // would pause it with a message wrongly blaming the customer's trust policy.
+        let Some(intermediate_arn) = managed_migrations_role_arn else {
+            return Err(Error::from(UserError::new(
+                "The PostHog import service is missing its cross-account role configuration, \
+                 so it cannot use IAM role authentication. This is not a problem with your S3 \
+                 or IAM setup. Please contact PostHog support.",
+            )));
+        };
+
+        let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
+            .session_name("posthog-batch-import")
+            .region(Region::new(self.region.clone()))
             .build()
             .await;
+        // An unassumable intermediate role is a PostHog deployment problem, so surface the
+        // same contact-support message as the missing-ARN case above rather than the
+        // customer-facing trust-policy message below. The ARN and STS error stay in the
+        // inner error chain for logs and status_message.
+        intermediate.provide_credentials().await.map_err(|e| {
+            Error::from(e)
+                .context(format!(
+                    "Failed to assume managed-migrations role {intermediate_arn}"
+                ))
+                .context(UserError::new(
+                    "PostHog's import service could not authenticate with its own cross-account \
+                     role, so it cannot use IAM role authentication. This is not a problem with \
+                     your S3 or IAM setup. Please contact PostHog support.",
+                ))
+        })?;
+        let chain_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(intermediate)
+            .load()
+            .await;
+        builder = builder.configure(&chain_config);
+
+        let provider = builder.build().await;
 
         // Fail fast so a misconfigured trust policy pauses the job with an actionable
         // message instead of surfacing as an opaque S3 error mid-import.
@@ -532,6 +588,7 @@ impl S3SourceConfig {
     async fn build_s3_config(
         &self,
         secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
     ) -> Result<aws_sdk_s3::config::Builder, Error> {
         let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
@@ -552,8 +609,10 @@ impl S3SourceConfig {
             S3Auth::Role {
                 role_arn,
                 external_id,
-            } => builder
-                .credentials_provider(self.assume_role_credentials(role_arn, external_id).await?),
+            } => builder.credentials_provider(
+                self.assume_role_credentials(role_arn, external_id, managed_migrations_role_arn)
+                    .await?,
+            ),
             S3Auth::Keys {
                 access_key_id_key,
                 secret_access_key_key,
@@ -581,13 +640,25 @@ impl S3SourceConfig {
         Ok(builder)
     }
 
-    async fn build_client(&self, secrets: &JobSecrets) -> Result<aws_sdk_s3::Client, Error> {
-        let builder = self.build_s3_config(secrets).await?;
+    async fn build_client(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<aws_sdk_s3::Client, Error> {
+        let builder = self
+            .build_s3_config(secrets, managed_migrations_role_arn)
+            .await?;
         Ok(aws_sdk_s3::Client::from_conf(builder.build()))
     }
 
-    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
-        let client = self.build_client(secrets).await?;
+    pub async fn create_source(
+        &self,
+        secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
+    ) -> Result<S3Source, Error> {
+        let client = self
+            .build_client(secrets, managed_migrations_role_arn)
+            .await?;
 
         Ok(S3Source::new(
             client,
@@ -599,12 +670,15 @@ impl S3SourceConfig {
     pub async fn create_gzip_source(
         &self,
         secrets: &JobSecrets,
+        managed_migrations_role_arn: Option<&str>,
         staging_dir: PathBuf,
         staging_max_bytes: u64,
         staging_backend: Option<Arc<dyn StagingBackend>>,
         staged_plaintext_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
-        let client = self.build_client(secrets).await?;
+        let client = self
+            .build_client(secrets, managed_migrations_role_arn)
+            .await?;
 
         let remote_staging = staging_backend.map(|backend| RemoteStaging {
             backend,
@@ -1050,7 +1124,7 @@ mod tests {
             serde_json::json!({"endpoint_url": "https://acct123.r2.cloudflarestorage.com"}),
         );
         let err = config
-            .build_s3_config(&empty_secrets())
+            .build_s3_config(&empty_secrets(), None)
             .await
             .unwrap_err()
             .to_string();
@@ -1058,11 +1132,22 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_build_s3_config_rejects_role_auth_without_managed_migrations_role() {
+        let config = role_auth_config(serde_json::json!({}));
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("contact PostHog support"), "got: {err}");
+    }
+
+    #[tokio::test]
     async fn test_build_s3_config_rejects_role_without_external_id() {
         let mut config = role_auth_config(serde_json::json!({}));
         config.external_id = None;
         let err = config
-            .build_s3_config(&empty_secrets())
+            .build_s3_config(&empty_secrets(), None)
             .await
             .unwrap_err()
             .to_string();
@@ -1083,7 +1168,7 @@ mod tests {
         secrets.insert("ak".to_string(), Value::String("key-id".to_string()));
         secrets.insert("sk".to_string(), Value::String("key-secret".to_string()));
         let secrets = JobSecrets { secrets };
-        assert!(config.build_s3_config(&secrets).await.is_ok());
+        assert!(config.build_s3_config(&secrets, None).await.is_ok());
     }
 
     #[tokio::test]
@@ -1097,7 +1182,7 @@ mod tests {
         }"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets())
+            .build_s3_config(&empty_secrets(), None)
             .await
             .unwrap_err()
             .to_string();
@@ -1116,7 +1201,7 @@ mod tests {
         for patch in cases {
             let config = role_auth_config(patch.clone());
             let err = config
-                .build_s3_config(&empty_secrets())
+                .build_s3_config(&empty_secrets(), None)
                 .await
                 .unwrap_err()
                 .to_string();
@@ -1139,7 +1224,7 @@ mod tests {
         }"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets())
+            .build_s3_config(&empty_secrets(), None)
             .await
             .unwrap_err()
             .to_string();
@@ -1151,7 +1236,7 @@ mod tests {
         let json = r#"{"bucket": "b", "prefix": "p", "region": "us-east-1"}"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets())
+            .build_s3_config(&empty_secrets(), None)
             .await
             .unwrap_err()
             .to_string();

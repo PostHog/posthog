@@ -23,6 +23,7 @@ use crate::{
     flags::{flag_matching::EvaluationType, flag_service::FlagService},
     handler::phases::{Phase, PhaseGuard},
     metrics::consts::{FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_FAULTS_COUNTER},
+    team::team_models::Team,
 };
 use std::collections::HashMap;
 use tracing::{instrument, warn};
@@ -281,11 +282,13 @@ async fn process_request_inner(
         // Build the rest of the FlagsResponse with config from HyperCache.
         // When config=true, reads pre-computed config from Python's RemoteConfig.
         // On cache miss, returns fallback config.
-        let response = {
+        let mut response = {
             let _phase = PhaseGuard::enter(Phase::ConfigResponse);
             config_response_builder::build_response_from_cache(flags_response, &context, &team)
                 .await?
         };
+
+        apply_minimal_flag_called_events(&mut response, &team);
 
         // Populate canonical log with flag evaluation results and read back evaluation_type.
         // If an earlier step errored (? above), we skip this and evaluation_type stays
@@ -304,6 +307,15 @@ async fn process_request_inner(
     .await;
 
     (result, metrics_data)
+}
+
+/// Sets `minimal_flag_called_events: Some(true)` when the team is gated into slim
+/// `$feature_flag_called` events. Never sets `Some(false)` — absence is the "full events"
+/// signal for SDKs (see [`crate::api::types::FlagsResponse::minimal_flag_called_events`]).
+fn apply_minimal_flag_called_events(response: &mut FlagsResponse, team: &Team) {
+    if team.minimal_flag_called_events {
+        response.minimal_flag_called_events = Some(true);
+    }
 }
 
 #[cfg(test)]
