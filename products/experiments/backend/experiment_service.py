@@ -134,6 +134,9 @@ FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE = 0.05
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
+# Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
+RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
 
 class ExperimentQueryStatus(str, Enum):
     """
@@ -3097,7 +3100,7 @@ class ExperimentService:
             changed_fields = self._compute_changed_fields(
                 experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
             )
-            if changed_fields:
+            if changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS:
                 self._report_experiment_updated(
                     experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
                 )

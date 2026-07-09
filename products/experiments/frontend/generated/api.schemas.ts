@@ -1127,6 +1127,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -1186,6 +1194,7 @@ export interface ExperimentApiExposureConfigApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi

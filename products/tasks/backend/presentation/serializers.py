@@ -1317,6 +1317,15 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
             "Codex runtimes accept 'auto', 'read-only', and 'full-access'."
         ),
     )
+    rtk_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether rtk command-output compression is enabled for this run. Omitted or null "
+            "follows the server-side default (enabled); false opts this run out."
+        ),
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
@@ -1478,6 +1487,15 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
             "Initial permission mode for the agent session. Claude runtimes accept PostHog permission "
             "presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and "
             "'read-only'."
+        ),
+    )
+    rtk_enabled = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Whether rtk command-output compression is enabled for this run. Omitted or null "
+            "follows the server-side default (enabled); false opts this run out."
         ),
     )
     home_quick_action = serializers.CharField(
