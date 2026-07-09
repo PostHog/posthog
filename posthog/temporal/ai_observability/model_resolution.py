@@ -2,9 +2,10 @@
 
 `model_configuration` is optional on both `Evaluation` and `Tagger`. A null value is not
 "unconfigured" — it means "defer to the team's active key, falling back to PostHog trial
-credits". `model_spec()` turns the (possibly null) serialized config into a `ModelSpec`
-whose `resolve()` produces a concrete `ResolvedModel`, so judge and tagger share one
-definition of what null means instead of each re-deriving it.
+credits while the team is still grandfathered into the trial (see `is_trial_grandfathered`)".
+`model_spec()` turns the (possibly null) serialized config into a `ModelSpec` whose `resolve()`
+produces a concrete `ResolvedModel`, so judge and tagger share one definition of what null
+means instead of each re-deriving it.
 
 Lives in the temporal layer because `resolve()` raises Temporal `ApplicationError`s whose
 `error_type` details the workflows pattern-match on (disable, key-state updates, emails).
@@ -59,6 +60,7 @@ class ExplicitModelSpec:
         if fallback is not None:
             return ResolvedModel(self.provider, self.model, _ensure_usable(fallback))
 
+        _assert_funded_inference_allowed(config)
         if self.model not in TRIAL_MODEL_IDS:
             raise ApplicationError(
                 f"Model '{self.model}' is not available on the trial plan. "
@@ -66,19 +68,18 @@ class ExplicitModelSpec:
                 {"error_type": "model_not_allowed", "model": self.model},
                 non_retryable=True,
             )
-        _assert_trial_quota(config)
         return ResolvedModel(self.provider, self.model, None)
 
 
 @dataclass(frozen=True)
 class DefaultModelSpec:
-    """Null config: defer to the team's active BYOK key, else PostHog trial credits."""
+    """Null config: defer to the team's active BYOK key, else PostHog trial credits while grandfathered."""
 
     def resolve(self, team_id: int) -> ResolvedModel:
         config = _eval_config(team_id)
         key = config.active_provider_key
         if key is None:
-            _assert_trial_quota(config)
+            _assert_funded_inference_allowed(config)
             return ResolvedModel(TRIAL_DEFAULT_PROVIDER, DEFAULT_MODEL_BY_PROVIDER[TRIAL_DEFAULT_PROVIDER], None)
 
         model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider)
@@ -112,11 +113,11 @@ def _eval_config(team_id: int) -> EvaluationConfig:
     return config
 
 
-def _assert_trial_quota(config: EvaluationConfig) -> None:
-    if config.trial_evals_used >= config.trial_eval_limit:
+def _assert_funded_inference_allowed(config: EvaluationConfig) -> None:
+    if not config.is_trial_grandfathered:
         raise ApplicationError(
-            f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-            {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
+            "Add a provider API key to run this evaluation.",
+            {"error_type": "provider_key_required"},
             non_retryable=True,
         )
 

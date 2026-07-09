@@ -2425,8 +2425,9 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: integer[]
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -3396,6 +3397,13 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /**
+     * Custom column expressions evaluated per log row. Each entry is either a source-prefixed
+     * shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar
+     * HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`).
+     * Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.
+     */
+    customColumns?: string[]
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3649,15 +3657,18 @@ export interface AttributeBreakdownRow {
     p95_duration_nano: number
 }
 
-export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownType = 'span' | 'span_attribute' | 'span_resource_attribute'
 export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
 
 export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
     kind: NodeKind.TraceSpansAttributeBreakdownQuery
     dateRange: DateRange
-    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    /**
+     * Attribute key to group by (e.g. `http.response.status_code`, `server.address`).
+     * For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).
+     */
     breakdownKey: string
-    /** Where the key lives: span-level attributes or resource-level attributes. */
+    /** Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes. */
     breakdownType: TraceSpanBreakdownType
     /** Order rows by span count or error count, descending. Defaults to count. */
     orderBy?: TraceSpanBreakdownOrderBy
@@ -3665,6 +3676,11 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /**
+     * Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name`
+     * breakdown) so a facet's value list stays complete while one of its values is selected.
+     */
+    excludeBreakdownFilter?: boolean
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -5618,6 +5634,7 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
+    searchTerm?: string
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -7245,6 +7262,34 @@ export const externalDataSources = [
     'Mercury',
     'Gojiberry',
     'Teachable',
+    'PeecAI',
+    'Healthchecks',
+    'Impact',
+    'AikidoSecurity',
+    'Alguna',
+    'Anthropic',
+    'Appwrite',
+    'BlandAI',
+    'BrowseAI',
+    'BrowserUse',
+    'ChartHop',
+    'Cody',
+    'Cursor',
+    'Decagon',
+    'Deepgram',
+    'ElevenLabs',
+    'Harvey',
+    'Hyperspell',
+    'Langfuse',
+    'LingoDev',
+    'M3ter',
+    'Maxio',
+    'Metorial',
+    'OpenRouter',
+    'TogetherAI',
+    'Vapi',
+    'Vespa',
+    'Writesonic',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

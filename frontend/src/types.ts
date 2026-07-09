@@ -79,6 +79,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -753,6 +755,7 @@ export interface ConversationsSettings {
     slack_notify_on_join?: boolean
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
+    slack_nudge_enabled?: boolean
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -1098,6 +1101,9 @@ export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
     Paused = 'paused',
+    // Running with enrollment frozen to the already-exposed cohort while metrics keep flowing.
+    // Derived from the feature flag, not stored — see Experiment.is_exposure_frozen.
+    ExposureFrozen = 'exposure_frozen',
     Stopped = 'stopped',
 }
 
@@ -1130,6 +1136,7 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -1228,6 +1235,11 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface MetricPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.MetricAttribute
+    operator: PropertyOperator
+}
+
 export type SpanPropertyFilterType =
     | PropertyFilterType.Span
     | PropertyFilterType.SpanAttribute
@@ -1289,6 +1301,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | WorkflowVariablePropertyFilter
@@ -2549,6 +2562,8 @@ export interface EndpointType extends WithAccessControl {
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
     tags?: string[]
+    /** Breakdown property names that may be omitted on /run. Defaults to [] — every breakdown variable is required. */
+    optional_breakdown_properties?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2645,6 +2660,7 @@ export type DashboardTemplateStoredTextTile = {
 }
 
 export type DashboardTemplateStoredButtonTile = {
+    type: 'BUTTON'
     button_tile: {
         url: string
         text: string
@@ -2959,7 +2975,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
     | 'revenue_analytics'
-export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
@@ -4231,6 +4247,10 @@ export interface FeatureFlagGroupType {
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
     aggregation_group_type_index?: integer | null
+    /** Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition. */
+    exposure_frozen?: boolean
+    /** Snapshot cohort the exposure freeze AND'd into this group's properties. */
+    exposure_frozen_cohort?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -4261,6 +4281,12 @@ export interface FeatureFlagFilters {
     payloads?: Record<string, JsonType>
     early_exit?: boolean
     feature_enrollment?: boolean
+    /** Experiment holdout exclusion, evaluated by the flag matcher before release conditions. */
+    holdout?: { id: number; exclusion_percentage: number } | null
+    /** Legacy holdout representation, also evaluated before release conditions. */
+    holdout_groups?: FeatureFlagGroupType[] | null
+    /** Early access enrollment conditions, evaluated before release conditions. */
+    super_groups?: FeatureFlagGroupType[] | null
 }
 
 export interface FeatureFlagBasicType {
@@ -4341,12 +4367,6 @@ export interface OrganizationFeatureFlagsCopyBody {
     copy_schedule?: boolean
     disable_copied_flag?: boolean
 }
-
-export type OrganizationFeatureFlags = {
-    flag_id: FeatureFlagType['id']
-    team_id: TeamType['id']
-    active: FeatureFlagType['active']
-}[]
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
@@ -4683,6 +4703,7 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -4807,6 +4828,12 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     feature_flag?: FeatureFlagBasicType
+    /**
+     * Draft flag config for an unsaved experiment, in the flag's own input shape. Client-only:
+     * `toExperimentWritePayload` extracts it into the `feature_flag` write field and strips it.
+     * Saved experiments read flag config from `feature_flag` (the read projection) instead.
+     */
+    feature_flag_config?: ExperimentFeatureFlagInputApi
     exposure_cohort?: number
     exposure_criteria?: ExperimentExposureCriteria
     filters: TrendsFilterType | FunnelsFilterType
@@ -4820,12 +4847,9 @@ export interface Experiment {
     }[]
     saved_metrics: any[]
     parameters: {
-        feature_flag_variants: MultivariateFlagVariant[]
         custom_exposure_filter?: FilterType
-        aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
-        rollout_percentage?: number
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -5320,6 +5344,7 @@ export interface SubscriptionType {
     dashboard_export_insights?: number[]
     integration_id?: number | null
     prompt?: string | null
+    ai_prompt_config?: AIPromptConfigApi | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5653,6 +5678,7 @@ export type APIScopeObject =
     | 'heatmap'
     | 'hog_flow'
     | 'hog_function'
+    | 'ingestion_warning'
     | 'insight'
     | 'insight_variable'
     | 'integration'
@@ -7495,25 +7521,6 @@ export type LinkType = {
     _create_in_folder?: string | null
 }
 
-export interface LineageNode {
-    id: string
-    name: string
-    type: 'view' | 'table'
-    sync_frequency?: DataWarehouseSyncInterval
-    last_run_at?: string
-    status?: string
-}
-
-export interface LineageEdge {
-    source: string
-    target: string
-}
-
-export interface LineageGraph {
-    nodes: LineageNode[]
-    edges: LineageEdge[]
-}
-
 export interface DataWarehouseSourceRowCount {
     breakdown_of_rows_by_source: Record<string, number>
     billing_available: boolean
@@ -7660,6 +7667,7 @@ export interface LLMPrompt {
     name: string
     prompt: string
     version: number
+    version_description?: string | null
     created_by: UserBasicType
     created_at: string
     updated_at: string
@@ -7687,6 +7695,7 @@ export interface LLMPromptPublic {
 export interface LLMPromptVersionSummary {
     id: string
     version: number
+    version_description?: string | null
     created_by: UserBasicType
     created_at: string
     is_latest: boolean

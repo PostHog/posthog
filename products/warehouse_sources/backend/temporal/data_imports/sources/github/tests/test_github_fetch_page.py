@@ -4,6 +4,7 @@ from unittest import mock
 import requests
 from prometheus_client import REGISTRY
 
+from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
@@ -79,7 +80,11 @@ def test_fetch_page_gates_on_egress_budget_when_installation_known():
     assert session.request.call_count == 0
     assert gate.call_count == 5
     assert gate.call_args.args[0] == "123"
-    assert gate.call_args.kwargs == {"priority": Priority.BATCH, "source": "warehouse"}
+    assert gate.call_args.kwargs == {
+        "priority": Priority.BATCH,
+        "source": "warehouse",
+        "resource": GitHubRateResource.CORE,
+    }
 
 
 def test_fetch_page_skips_gate_on_pat_path():

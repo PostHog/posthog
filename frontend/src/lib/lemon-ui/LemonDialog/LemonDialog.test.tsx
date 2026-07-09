@@ -17,8 +17,6 @@ describe('LemonFormDialog', () => {
 
     beforeEach(() => {
         initKeaTests()
-        // react-modal needs an app element to hide from screen readers on open.
-        document.body.innerHTML = '<div id="root"></div>'
         captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
     })
 
@@ -49,7 +47,8 @@ describe('LemonFormDialog', () => {
     }
 
     const submitViaEnter = async (): Promise<void> => {
-        screen.getByRole('textbox').focus()
+        // click focuses the input through userEvent, so the focus state update is act-wrapped
+        await userEvent.click(screen.getByRole('textbox'))
         await userEvent.keyboard('{Enter}')
     }
 

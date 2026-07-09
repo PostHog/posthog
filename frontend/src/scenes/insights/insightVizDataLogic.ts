@@ -155,6 +155,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
+        /** Apply a drag-to-zoom date range to the insight's query. */
+        zoomDateRange: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
@@ -518,9 +520,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath, s.isTrends],
-            (activeUsersMath, isTrends): Intervals => {
+            (s) => [s.activeUsersMath, s.isTrends, s.featureFlags],
+            (activeUsersMath, isTrends, featureFlags): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
+
+                if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]) {
+                    enabledIntervals.quarter = { ...enabledIntervals.quarter, hidden: false }
+                    enabledIntervals.year = { ...enabledIntervals.year, hidden: false }
+                }
 
                 if (activeUsersMath) {
                     enabledIntervals.hour = {
@@ -534,6 +541,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             ...enabledIntervals.month,
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.quarter = {
+                            ...enabledIntervals.quarter,
+                            disabledReason:
+                                'Grouping by quarter is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.year = {
+                            ...enabledIntervals.year,
+                            disabledReason:
+                                'Grouping by year is not supported on insights with weekly active users series.',
                         }
                     }
                 }
@@ -656,6 +673,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ),
                 },
             } as Node)
+        },
+
+        zoomDateRange: ({ dateFrom, dateTo }) => {
+            // Sub-day buckets carry a time component; explicitDate stops the backend from
+            // rounding them back out to whole days.
+            actions.updateDateRange(
+                { date_from: dateFrom, date_to: dateTo, explicitDate: hasTimeComponent(dateFrom) },
+                true
+            )
         },
 
         // query source properties
@@ -811,6 +837,12 @@ const getActiveUsersMath = (
     return null
 }
 
+/** Whether a date string carries a time of day, e.g. drag-to-zoom on an hourly chart emits
+ *  `2024-06-10 08:00:00`. A bare `YYYY-MM-DD` means "that whole day". */
+export function hasTimeComponent(date: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(date)
+}
+
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode,
@@ -841,14 +873,18 @@ const handleQuerySourceUpdateSideEffects = (
     // to an appropriate allowed interval and inform them of the change via a toast
     if (
         maybeChangedActiveUsersMath !== null &&
-        (interval === 'hour' || interval === 'month' || interval === 'minute')
+        (interval === 'hour' ||
+            interval === 'month' ||
+            interval === 'minute' ||
+            interval === 'quarter' ||
+            interval === 'year')
     ) {
         if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'day'
-        } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
+        } else if (maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
@@ -856,20 +892,29 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
-    // clamp the funnel steps
-    if (
-        maybeChangedSeries &&
-        isFunnelsQuery(currentState) &&
-        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
-            (insightFilter as FunnelsFilter)?.funnelToStep != null)
-    ) {
-        // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
-        )
-        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
-            ...(insightFilter as FunnelsFilter),
-            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
+    // clamp the funnel conversion window and per-exclusion step ranges against the new series
+    if (maybeChangedSeries && isFunnelsQuery(currentState)) {
+        const funnelsFilter = insightFilter as FunnelsFilter | undefined
+        const hasConversionWindow = funnelsFilter?.funnelFromStep != null || funnelsFilter?.funnelToStep != null
+        const hasExclusions = (funnelsFilter?.exclusions?.length ?? 0) > 0
+
+        if (hasConversionWindow || hasExclusions) {
+            // Filter out GroupNode types as funnels only use AnyEntityNode
+            const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+                (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
+            )
+            ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+                ...funnelsFilter,
+                ...getClampedFunnelStepRange(funnelsFilter ?? {}, funnelSeries),
+                ...(hasExclusions
+                    ? {
+                          exclusions: funnelsFilter?.exclusions?.map((exclusion) => ({
+                              ...exclusion,
+                              ...getClampedFunnelStepRange(exclusion, funnelSeries),
+                          })),
+                      }
+                    : {}),
+            }
         }
     }
 
@@ -923,10 +968,27 @@ const handleQuerySourceUpdateSideEffects = (
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
-            if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+            const quarterYearEnabled =
+                !!featureFlagLogic.findMounted()?.values.featureFlags[
+                    FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS
+                ]
+            const parsedFrom = dayjs(date_from)
+            const parsedTo = dayjs(date_to)
+            const monthDiff = parsedTo.diff(parsedFrom, 'month')
+            // 3 years in months; quarter auto-interval kicks in beyond this threshold
+            const QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS = 36
+            // A bare date pair like 2024-06-10..2024-06-10 means "that whole day", so only ranges
+            // that carry a time component (e.g. drag-to-zoom on an hourly chart) can go sub-hour.
+            const rangeHasTime = hasTimeComponent(String(date_from)) || hasTimeComponent(String(date_to))
+            if (isTrendsQuery(currentState) && rangeHasTime && parsedTo.diff(parsedFrom, 'hour', true) <= 12) {
+                // Mirrors the is12HoursOrLess rule for relative ranges below.
+                ;(mergedUpdate as TrendsQuery).interval = 'minute'
+            } else if (parsedTo.diff(parsedFrom, 'day') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
-            } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+            } else if (monthDiff <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'
+            } else if (quarterYearEnabled && monthDiff > QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS) {
+                ;(mergedUpdate as TrendsQuery).interval = 'quarter'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
@@ -1020,22 +1082,19 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
     if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+        const isAbsoluteRange = !!date_from && !!date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()
 
         if (
             // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
             (!date_from && !date_to) ||
             // If the interval is set manually to a range greater than 12 hours, change it to an hour
-            (date_from &&
-                date_to &&
-                dayjs(date_from).isValid() &&
-                dayjs(date_to).isValid() &&
-                dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
+            (isAbsoluteRange && dayjs(date_to).diff(dayjs(date_from), 'hour') > 12) ||
+            // Relative ranges (e.g. -7d) must be 12 hours or less; an absolute range that reaches
+            // here already passed the >12h check above, so it stays (is12HoursOrLess only parses
+            // relative strings and would wrongly reset it).
+            (!isAbsoluteRange && !is12HoursOrLess(date_from))
         ) {
             ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
-        } else {
-            if (!is12HoursOrLess(date_from)) {
-                ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
-            }
         }
     }
 
