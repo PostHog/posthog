@@ -98,6 +98,10 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/integrations',
     // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
     '/account-connected',
+    // /account/* — credential/passkey round-trips (e.g. /account/credential-review) must complete
+    // even when onboarding is incomplete, else finishing security setup bounces straight back to
+    // /onboarding and the user is stuck in a redirect loop.
+    '/account',
     // /oauth/authorize and any /oauth/* callback path.
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
@@ -106,10 +110,19 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /verify_email/<uuid>/<token> — email verification/change confirmation must run its
+    // urlToAction (POST /api/users/verify_email/) even when onboarding is incomplete, else
+    // /onboarding swallows the click and the email is never updated.
+    urls.verifyEmail(),
     '/startups',
     '/coupons',
     '/legal',
 ]
+
+export function isOnboardingNotRequiredForPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
 
 const DelayedLoadingSpinner = (): JSX.Element => {
     const [show, setShow] = useState(false)
@@ -626,9 +639,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !pathPrefixesOnboardingNotRequiredFor.some((path) =>
-                            removeProjectIdIfPresent(location.pathname).startsWith(path)
-                        )
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??

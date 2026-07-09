@@ -1,6 +1,6 @@
 import uuid
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import pytest
@@ -10,8 +10,13 @@ import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_MAX_CHANGES_PER_READ,
+    CDC_ORPHAN_JOB_MIN_AGE,
+    CDC_ORPHANED_JOB_MESSAGE,
     SLOT_INVALIDATION_RECOVERY_MESSAGE,
     CDCExtractActivity,
     CDCExtractInput,
@@ -2609,3 +2614,66 @@ class TestCDCBoundedReadLoop:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
+
+
+@pytest.mark.django_db
+class TestReconcileOrphanedPriorJobs:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.psycopg.Connection.connect")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.BatchQueue.count_batches_for_run")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    def test_only_fails_stale_prior_runs_with_no_queued_batches(self, mock_activity, mock_count, mock_connect, team):
+        mock_activity.info.return_value = MagicMock(workflow_run_id="current-run")
+
+        source = ExternalDataSource.objects.create(
+            team_id=team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=team.pk,
+            source=source,
+            name="users",
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        def _job(workflow_run_id: str, age: timedelta) -> ExternalDataJob:
+            job = ExternalDataJob.objects.create(
+                team_id=team.pk,
+                pipeline_id=source.pk,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                rows_synced=0,
+                workflow_id="wf",
+                workflow_run_id=workflow_run_id,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            )
+            # created_at is auto_now_add; backdate via update to control the reconcile window.
+            ExternalDataJob.objects.filter(id=job.id).update(created_at=datetime.now(UTC) - age)
+            return job
+
+        old_no_batch = _job("old-1", timedelta(hours=2))  # stale, ended, empty  -> FAILED
+        old_with_batch = _job("old-2", timedelta(hours=2))  # stale but queued    -> left alone
+        current_run = _job("current-run", timedelta(hours=2))  # this run's own    -> left alone
+        too_recent = _job("recent-1", CDC_ORPHAN_JOB_MIN_AGE / 2)  # inside floor   -> left alone
+        ancient = _job("ancient-1", timedelta(days=20))  # past batch retention     -> left alone
+
+        # Only old_with_batch reports queued batches; the rest have none.
+        mock_count.side_effect = lambda conn, job_id: 3 if job_id == str(old_with_batch.id) else 0
+
+        activity_obj = CDCExtractActivity(CDCExtractInput(team_id=team.pk, source_id=source.pk))
+        activity_obj.log = MagicMock()
+        activity_obj.cdc_schemas = [schema]
+
+        activity_obj._reconcile_orphaned_prior_jobs()
+
+        old_no_batch.refresh_from_db()
+        assert old_no_batch.status == ExternalDataJob.Status.FAILED
+        assert old_no_batch.latest_error == CDC_ORPHANED_JOB_MESSAGE
+        assert old_no_batch.finished_at is not None
+
+        for untouched in (old_with_batch, current_run, too_recent, ancient):
+            untouched.refresh_from_db()
+            assert untouched.status == ExternalDataJob.Status.RUNNING

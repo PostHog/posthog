@@ -552,6 +552,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         {
             const approvals = deps.approvals
+            // pi-agent-core Promise.alls a turn's tool calls, so two gated
+            // calls in one turn would both pass the max_open_approvals count
+            // check before either row lands. Chain the count+insert critical
+            // section instead: one worker owns a session run (queue claim is
+            // exclusive), so an in-process chain is a sufficient lock — no
+            // other process inserts queued rows for this session.
+            let gateChain: Promise<unknown> = Promise.resolve()
             // Shared by the static wrap and the dynamic proxy wrap. Every gated
             // call queues for a human decision — being the asker is not consent
             // to the specific call (the model could have been steered by content
@@ -562,17 +569,22 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 args: Record<string, unknown>,
                 policy: ApprovalPolicy
             ): Promise<AgentToolResult<ToolResultDetails>> => {
-                const queued = await queueApprovalResult({
-                    approvals,
-                    buildApprovalUrl: deps.buildApprovalUrl,
-                    session,
-                    revisionId: rev.id,
-                    turn,
-                    toolName,
-                    toolCallId,
-                    args,
-                    policy,
-                })
+                const run = gateChain.then(() =>
+                    queueApprovalResult({
+                        approvals,
+                        buildApprovalUrl: deps.buildApprovalUrl,
+                        session,
+                        revisionId: rev.id,
+                        turn,
+                        toolName,
+                        toolCallId,
+                        args,
+                        policy,
+                        maxOpenApprovals: rev.spec.limits.max_open_approvals,
+                    })
+                )
+                gateChain = run.catch(() => undefined)
+                const queued = await run
                 // `principal` + Slack: post Approve/Reject buttons in-thread
                 // (best-effort; skip a deduped re-queue).
                 const reqId = queued.details?.requestId
@@ -602,21 +614,22 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // Proxy `call_tool` gates dynamically: the underlying tool is
                 // only known at call time (the `tool_name` arg), so re-key the
                 // gate on `<prefix>__<tool_name>` per call.
-                const proxyClient = mcpProxyCallTools.get(id)
-                if (proxyClient) {
+                const proxyEntry = mcpProxyCallTools.get(id)
+                if (proxyEntry) {
                     const realProxyExecute = tool.execute as RealToolExecute
                     tool.execute = async (toolCallId, args) => {
                         const a = (args ?? {}) as Record<string, unknown>
                         const raw = typeof a.tool_name === 'string' ? a.tool_name : ''
-                        // The model usually passes the prefixed name it SEES
-                        // (`<prefix>__<tool>`); the proxy strips that prefix before
-                        // dispatch (`resolveRemoteName`), so the gate must strip it
-                        // too. Otherwise the lookup keys on a doubled prefix
-                        // (`big__big__promote`), misses the per-tool gate, and an
-                        // `approve` tool runs unapproved.
-                        const marker = `${proxyClient.prefix}${PREFIX_SEPARATOR}`
-                        const remoteName = raw.startsWith(marker) ? raw.slice(marker.length) : raw
-                        const exposedName = `${proxyClient.prefix}${PREFIX_SEPARATOR}${remoteName}`
+                        // Resolve the same way `call_tool` will at dispatch time
+                        // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
+                        // name when it exists in the exposed catalog, only strip
+                        // `<prefix>__` when the stripped name does. Unconditionally
+                        // stripping was a bypass: a remote tool whose RAW name was
+                        // `<prefix>__delete` would gate as `delete` (no entry,
+                        // policy=allow) while dispatch ran the raw `<prefix>__delete`.
+                        // Sharing the resolver keeps the two paths in lockstep.
+                        const remoteName = proxyEntry.resolveRemoteName(raw)
+                        const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
                         const gate = lookupMcpToolApproval(exposedName, rev.spec)
                         if (gate?.requires_approval) {
                             return queueGated(exposedName, toolCallId, a, gate.approval_policy)

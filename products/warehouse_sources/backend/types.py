@@ -390,6 +390,7 @@ class ExternalDataSourceType(models.TextChoices):
     INFORNEXUS = "InforNexus", "InforNexus"
     INSIGHTFUL = "Insightful", "Insightful"
     INSIGHTLY = "Insightly", "Insightly"
+    INSTANTLY = "Instantly", "Instantly"
     INSTATUS = "Instatus", "Instatus"
     INTRUDER = "Intruder", "Intruder"
     INVOICED = "Invoiced", "Invoiced"
@@ -691,6 +692,18 @@ class ExternalDataSourceType(models.TextChoices):
     NEXTDOORADS = "NextdoorAds", "NextdoorAds"
     APPLOVIN = "AppLovin", "AppLovin"
     BASEROW = "Baserow", "Baserow"
+    PLUNK = "Plunk", "Plunk"
+    DUB = "Dub", "Dub"
+    AIROPS = "AirOps", "AirOps"
+    PODIUM = "Podium", "Podium"
+    LOOPS = "Loops", "Loops"
+    REDIS = "Redis", "Redis"
+    MERCURY = "Mercury", "Mercury"
+    GOJIBERRY = "Gojiberry", "Gojiberry"
+    TEACHABLE = "Teachable", "Teachable"
+    PEECAI = "PeecAI", "PeecAI"
+    HEALTHCHECKS = "Healthchecks", "Healthchecks"
+    IMPACT = "Impact", "Impact"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -699,6 +712,7 @@ class ExternalDataSourceType(models.TextChoices):
 DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.POSTGRES: "postgres",
     ExternalDataSourceType.MYSQL: "mysql",
+    ExternalDataSourceType.SNOWFLAKE: "snowflake",
 }
 
 

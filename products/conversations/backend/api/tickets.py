@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
+from typing import Any
 
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet, Sum
@@ -12,6 +13,7 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import (
@@ -31,7 +33,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -114,6 +116,16 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         if len(serialized) > 100_000:
             raise serializers.ValidationError("Rich content too large (max 100KB).")
         return value
+
+
+class AiFeedbackRequestSerializer(serializers.Serializer):
+    """Payload for recording reviewer feedback on an AI reply."""
+
+    message_id = serializers.CharField(max_length=200, help_text="ID of the AI message being rated.")
+    rating = serializers.ChoiceField(choices=["good", "bad"], help_text="Reviewer rating: good or bad.")
+    feedback_text = serializers.CharField(
+        required=False, allow_blank=True, max_length=2000, help_text="Optional text explaining a bad rating."
+    )
 
 
 class ComposeTicketSerializer(serializers.Serializer):
@@ -236,6 +248,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority",
             "assignee",
             "anonymous_traits",
+            "identity_verified",
             "ai_resolved",
             "escalation_reason",
             "ai_triage",
@@ -259,6 +272,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "tags",
@@ -287,11 +301,21 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "ai_triage",
+            "identity_verified",
         ]
         extra_kwargs = {
+            "identity_verified": {
+                "help_text": (
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
+                    "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
+                )
+            },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
@@ -328,7 +352,7 @@ TICKET_ID_PARAM = OpenApiParameter(
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     scope_object_read_actions = ["list", "retrieve", "unread_count", "messages"]
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply", "ai_feedback"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -1125,6 +1149,53 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         )
 
     @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=AiFeedbackRequestSerializer,
+        responses={202: None},
+    )
+    @action(detail=True, methods=["post"])
+    def ai_feedback(self, request, *args, **kwargs):
+        """Record reviewer feedback on an AI reply, captured to the internal analytics project."""
+        ticket = self.get_object()
+        serializer = AiFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        ai_triage = ticket.ai_triage or {}
+        trace_id = ai_triage.get("ai_trace_id")
+        distinct_id = f"reviewer:{request.user.distinct_id}"
+
+        feedback_text = data.get("feedback_text", "").strip()
+
+        if feedback_text and data["rating"] == "bad":
+            feedback_properties: dict[str, Any] = {
+                "$ai_feedback_text": feedback_text,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                feedback_properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_feedback", properties=feedback_properties)
+        else:
+            properties: dict[str, Any] = {
+                "$ai_metric_name": "reviewer_quality",
+                "$ai_metric_value": 1 if data["rating"] == "good" else 0,
+                "ai_product": "conversations",
+                "ticket_id": str(ticket.id),
+                "message_id": data["message_id"],
+                "ai_triage_result": ai_triage.get("result"),
+                "confidence": ai_triage.get("confidence"),
+            }
+            if trace_id:
+                properties["$ai_trace_id"] = trace_id
+            posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
+
+        return Response(status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
         request=ComposeTicketSerializer,
         responses={
             201: OpenApiResponse(response=ComposeTicketResponseSerializer),
@@ -1201,6 +1272,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(
@@ -1264,7 +1338,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1275,6 +1351,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1318,6 +1395,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

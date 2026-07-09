@@ -63,6 +63,9 @@ export function toolCompiledPath(toolId: string): string {
 export function toolSchemaPath(toolId: string): string {
     return `tools/${toolId}/schema.json`
 }
+export function toolCapabilitiesPath(toolId: string): string {
+    return `tools/${toolId}/capabilities.json`
+}
 
 // ─── Typed resource shapes ──────────────────────────────────────────
 
@@ -81,6 +84,21 @@ export const TypedSkillSchema = z.object({
     body: z.string().max(200_000),
 })
 
+/**
+ * Capability metadata the AST walker derives at compile time. Stored on
+ * the bundle as `tools/<id>/capabilities.json` so the authoring UI can
+ * surface it without re-parsing the source on every read. Optional on the
+ * typed shape so old bundles (compiled before capabilities existed) round-
+ * trip without warnings — the read path treats a missing file as "no
+ * capabilities known."
+ */
+export const TypedToolCapabilitiesSchema = z.object({
+    secret_refs: z.array(z.string()).default([]),
+    dynamic_secret_refs: z.boolean().default(false),
+})
+
+export type TypedToolCapabilities = z.infer<typeof TypedToolCapabilitiesSchema>
+
 export const TypedToolSchema = z.object({
     id: ResourceIdSchema,
     description: z.string().min(1).max(2000),
@@ -91,6 +109,12 @@ export const TypedToolSchema = z.object({
      */
     args_schema: z.record(z.string(), z.unknown()),
     source: z.string().min(1).max(500_000),
+    /**
+     * Server-stamped at compile time; authors don't set it on the way in.
+     * Optional so existing bundles (and write paths that don't have the
+     * compile result handy yet) round-trip cleanly.
+     */
+    capabilities: TypedToolCapabilitiesSchema.optional(),
 })
 
 export type TypedSkill = z.infer<typeof TypedSkillSchema>
@@ -232,7 +256,27 @@ export async function readTypedBundle(
         } catch {
             warnings.push(`tool ${id} schema.json is not valid JSON`)
         }
-        tools.push({ id, description, args_schema: schema, source })
+
+        // Optional capabilities.json — present for tools compiled after the
+        // capability extractor landed. Missing/malformed = no capability
+        // metadata exposed (rather than failing the bundle read).
+        let capabilities: TypedToolCapabilities | undefined
+        const capabilitiesPath = toolCapabilitiesPath(id)
+        if (paths.has(capabilitiesPath)) {
+            const capsText = fileContents.get(capabilitiesPath) ?? '{}'
+            try {
+                const parsed = TypedToolCapabilitiesSchema.safeParse(JSON.parse(capsText))
+                if (parsed.success) {
+                    capabilities = parsed.data
+                } else {
+                    warnings.push(`tool ${id} capabilities.json failed schema validation`)
+                }
+            } catch {
+                warnings.push(`tool ${id} capabilities.json is not valid JSON`)
+            }
+        }
+
+        tools.push({ id, description, args_schema: schema, source, capabilities })
     }
 
     return {
@@ -347,6 +391,7 @@ export async function syncBundleToStore(
         willWrite.add(toolSourcePath(tool.id))
         willWrite.add(toolSchemaPath(tool.id))
         willWrite.add(toolCompiledPath(tool.id))
+        willWrite.add(toolCapabilitiesPath(tool.id))
     }
 
     // Delete anything in the canonical layout that's NOT in the new payload.
@@ -382,7 +427,12 @@ export async function writeToolSourceAndSchema(revisionId: string, store: Bundle
  * Delete one tool's bundle files (source.ts, compiled.js, schema.json).
  */
 export async function deleteToolFiles(revisionId: string, store: BundleStore, toolId: string): Promise<void> {
-    for (const path of [toolSourcePath(toolId), toolCompiledPath(toolId), toolSchemaPath(toolId)]) {
+    for (const path of [
+        toolSourcePath(toolId),
+        toolCompiledPath(toolId),
+        toolSchemaPath(toolId),
+        toolCapabilitiesPath(toolId),
+    ]) {
         if (await store.exists(revisionId, path)) {
             await store.delete(revisionId, path)
         }

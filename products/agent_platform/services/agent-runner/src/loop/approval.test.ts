@@ -49,12 +49,19 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
 }
 
 /**
- * Minimal stub: queueApprovalResult only calls `upsertQueued` + `findLatestByArgs`
- * on the happy path. The PG-backed wire path is covered by approval-gated e2e.
+ * Minimal stub: queueApprovalResult only calls `upsertQueued`,
+ * `findLatestByArgs`, and `countQueuedBySession`. The PG-backed wire path is
+ * covered by approval-gated e2e. `upserts` records writes so cap cases can
+ * assert no row was created; `queuedCount` / `previous` arm the cap branch.
  */
-function makeStubStore(): ApprovalStore {
+function makeStubStore(
+    opts: { queuedCount?: number; previous?: ApprovalRequest | null } = {}
+): ApprovalStore & { upserts: UpsertApprovalRequestInput[] } {
+    const upserts: UpsertApprovalRequestInput[] = []
     return {
+        upserts,
         async upsertQueued(input: UpsertApprovalRequestInput): Promise<UpsertApprovalRequestResult> {
+            upserts.push(input)
             return {
                 request: {
                     id: input.id,
@@ -82,9 +89,12 @@ function makeStubStore(): ApprovalStore {
             }
         },
         async findLatestByArgs(): Promise<ApprovalRequest | null> {
-            return null
+            return opts.previous ?? null
         },
-    } as unknown as ApprovalStore
+        async countQueuedBySession(): Promise<number> {
+            return opts.queuedCount ?? 0
+        },
+    } as unknown as ApprovalStore & { upserts: UpsertApprovalRequestInput[] }
 }
 
 const POLICY: ApprovalPolicy = {
@@ -110,6 +120,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: POLICY,
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval).toMatchObject({
@@ -131,6 +142,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: { ...POLICY, type: 'agent' },
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval).toMatchObject({
@@ -163,10 +175,153 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: POLICY,
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval.approver_hint).not.toBeUndefined()
         expect(envelope.approval.approval_url).not.toBeUndefined()
+    })
+
+    // Per-session cap (`spec.limits.max_open_approvals`): a model looping on
+    // a gated tool with distinct args must not flood approvers. The exhausted
+    // message must name the right decider per policy type (same hint the
+    // queued path uses) — an `agent` policy is decided by an owner/admin, not
+    // the session user, so the model must not tell the user to decide.
+    it.each<['principal' | 'agent', RegExp]>([
+        ['principal', /started this session/i],
+        ['agent', /owner or admin/i],
+    ])('returns approval_budget_exhausted with a %s-aware hint and writes no row at the cap', async (type, hint) => {
+        const store = makeStubStore({ queuedCount: 10 })
+        const out = await queueApprovalResult({
+            approvals: store,
+            session: makeSession(),
+            revisionId: TEST_REV_ID,
+            turn: 1,
+            toolName: '@posthog/memory-write',
+            toolCallId: 'tc-cap',
+            args: { note: 'one too many' },
+            policy: { ...POLICY, type },
+            maxOpenApprovals: 10,
+        })
+        const body = JSON.parse((out.content[0] as { text: string }).text) as {
+            error?: { code: string; message: string }
+        }
+        expect(body.error?.code).toBe('approval_budget_exhausted')
+        expect(body.error?.message).toContain('10')
+        expect(body.error?.message).toMatch(hint)
+        // No row written, and no `queued` details → the driver skips the
+        // approval card + Slack buttons for this result.
+        expect(store.upserts).toHaveLength(0)
+        expect(out.details?.queued).toBeUndefined()
+        expect(out.terminate).toBe(false)
+    })
+
+    it('an identical re-ask past the cap still dedupes onto its existing queued row', async () => {
+        const previous = {
+            state: 'queued',
+            decision_reason: null,
+        } as ApprovalRequest
+        const store = makeStubStore({ queuedCount: 10, previous })
+        const out = await queueApprovalResult({
+            approvals: store,
+            session: makeSession(),
+            revisionId: TEST_REV_ID,
+            turn: 2,
+            toolName: '@posthog/memory-write',
+            toolCallId: 'tc-dedupe',
+            args: { note: 'same ask again' },
+            policy: POLICY,
+            maxOpenApprovals: 10,
+        })
+        // The upsert dedupes server-side; the point is the cap didn't block
+        // the re-ask (which doesn't grow the approver queue).
+        const envelope = parseEnvelope((out.content[0] as { text: string }).text)
+        expect(envelope.approval.state).toBe('queued')
+        expect(store.upserts).toHaveLength(1)
+    })
+})
+
+describe('dispatchApprovedResult: proxy-routed resume', () => {
+    // A proxy connection gates `call_tool` on the underlying tool, so the
+    // approval row is keyed `<prefix>__<remoteName>` with the call_tool args
+    // stashed as proposed_args. On resume the driver must route that row back to
+    // the connection's `call_tool` executor (via resolveApprovedExecutor) — a
+    // plain `realExecute.get(row.tool_name)` misses it and drops the call.
+    function makeProxyRow(over: Partial<ApprovalRequest> = {}): ApprovalRequest {
+        return {
+            id: 'req-proxy-1',
+            session_id: TEST_SESSION_ID,
+            application_id: TEST_APP_ID,
+            revision_id: TEST_REV_ID,
+            team_id: 1,
+            turn: 1,
+            tool_call_id: 'tc-9',
+            tool_name: 'posthog__get-insights',
+            proposed_args: { tool_name: 'get-insights', arguments: { limit: 5 } },
+            args_hash: Buffer.alloc(0),
+            assistant_message: null,
+            approver_scope: null,
+            state: 'approving',
+            decision_by: 'u1',
+            decision_at: null,
+            decision_reason: null,
+            decided_args: null,
+            dispatch_outcome: null,
+            expires_at: '2026-06-26',
+            created_at: '2026-06-26',
+            ...over,
+        } as ApprovalRequest
+    }
+
+    function dispatchStore(): ApprovalStore & { dispatched: Array<{ id: string; outcome: unknown }> } {
+        const dispatched: Array<{ id: string; outcome: unknown }> = []
+        return {
+            dispatched,
+            async markDispatched(id: string, outcome: unknown): Promise<void> {
+                dispatched.push({ id, outcome })
+            },
+        } as unknown as ApprovalStore & { dispatched: Array<{ id: string; outcome: unknown }> }
+    }
+
+    it('replays the approved proxy call through the connection call_tool executor', async () => {
+        const seen: Array<{ id: string; args: Record<string, unknown> }> = []
+        const callToolExec: RealToolExecute = async (id, args) => {
+            seen.push({ id, args })
+            return { content: [{ type: 'text' as const, text: 'ok' }], details: { output: { ran: true } } }
+        }
+        const realExecute = new Map<string, RealToolExecute>([['posthog__call_tool', callToolExec]])
+        const proxyCallTools = new Map<string, unknown>([['posthog__call_tool', {}]])
+        const row = makeProxyRow()
+        const store = dispatchStore()
+
+        const d = await dispatchApprovedResult({
+            approvals: store,
+            realExecute: resolveApprovedExecutor(row.tool_name, realExecute, proxyCallTools),
+            row,
+        })
+
+        expect(d.isError).toBe(false)
+        // The call_tool executor ran with the row's stored call_tool args (the
+        // remote tool + its arguments), i.e. the real call replayed.
+        expect(seen).toEqual([{ id: 'tc-9', args: { tool_name: 'get-insights', arguments: { limit: 5 } } }])
+        expect(store.dispatched[0]?.outcome).toEqual({ result: { ran: true } })
+    })
+
+    it('the old direct lookup (the bug) drops the call with a synthetic "unknown tool"', async () => {
+        const realExecute = new Map<string, RealToolExecute>([
+            ['posthog__call_tool', async () => ({ content: [], details: {} })],
+        ])
+        const row = makeProxyRow()
+
+        const d = await dispatchApprovedResult({
+            approvals: dispatchStore(),
+            // What the driver did before: a plain lookup by the re-keyed name.
+            realExecute: realExecute.get(row.tool_name),
+            row,
+        })
+
+        expect(d.isError).toBe(true)
+        expect(d.error).toBe('native tool unknown: posthog__get-insights')
     })
 })
 

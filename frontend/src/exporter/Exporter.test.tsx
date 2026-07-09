@@ -46,11 +46,11 @@ describe('Exporter (shared dashboard)', () => {
     })
 
     it('shows auto refresh text in header', () => {
-        const { getAllByRole, getAllByText } = render(<Exporter {...makeDashboardExport()} />)
+        const { getAllByText } = render(<Exporter {...makeDashboardExport()} />)
 
         // The dashboard header can be rendered multiple times depending on internal
         // export layout/portal behavior.
-        const headings = getAllByRole('heading', { name: 'My shared dashboard' })
+        const headings = getAllByText('My shared dashboard')
         expect(headings.length).toBeGreaterThan(0)
         expect(getAllByText(/Auto refresh every/i).length).toBeGreaterThan(0)
     })

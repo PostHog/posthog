@@ -112,6 +112,14 @@ export const endpointLogic = kea<endpointLogicType>([
                 createEndpointSuccess: () => null,
             },
         ],
+        updatingEndpoint: [
+            false,
+            {
+                updateEndpoint: () => true,
+                updateEndpointSuccess: () => false,
+                updateEndpointFailure: () => false,
+            },
+        ],
         // Clear stale endpoint data immediately when loading a new endpoint
         endpoint: [
             null as EndpointVersionType | null,

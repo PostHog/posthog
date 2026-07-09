@@ -1,36 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconExternal, IconGithub, IconPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { urls } from 'scenes/urls'
-
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import {
-    SceneMenuBar,
-    SceneMenuBarItem,
-    SceneMenuBarMenu,
-    SceneMenuBarSeparator,
-} from '~/layout/scenes/components/SceneMenuBar'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import {
-    ScenePanel,
-    ScenePanelActionsSection,
-    ScenePanelDivider,
-    ScenePanelInfoSection,
-} from '~/layout/scenes/SceneLayout'
 
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { TaskHeaderActionsSkeleton, TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
-import { TaskErrorBanner } from './TaskErrorBanner'
+import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
 import { TaskRunLog } from './TaskRunLog'
-import { TaskRunMetadata } from './TaskRunMetadata'
+import { TaskRunSceneShell } from './TaskRunSceneShell'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -43,6 +24,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
     const { task, taskNotFound, taskError, runs, selectedRun, isTaskPending, isHeaderLoading } = useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { activeCreation } = useValues(taskTrackerSceneLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     if (taskNotFound && !task) {
@@ -69,6 +51,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     size="small"
                     icon={<IconExternal />}
                     onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
+                    className="hidden lg:inline-flex"
                 >
                     Open in PostHog Code
                 </LemonButton>
@@ -90,111 +73,26 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             </div>
         )
 
+    // When this task was just created optimistically, the seeded run stream lives under the creation's client
+    // `streamKey`. Hand it to the run log so it adopts that instance (and renders the thread immediately)
+    // instead of cold-bootstrapping a fresh, skeleton-flashing one.
+    const isActiveCreation = activeCreation?.taskId === taskId
+    const optimisticStreamKey = isActiveCreation ? activeCreation?.streamKey : undefined
+    const optimisticRunId = isActiveCreation ? activeCreation?.runId : undefined
+
     return (
-        <SceneContent className="h-full min-h-0 gap-y-0">
-            {sceneMenuBarEnabled && task && (
-                <SceneMenuBar>
-                    <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
-                        <SceneMenuBarFileItems dataAttrKey="task" />
-                        <SceneMenuBarSeparator />
-                        <SceneMenuBarItem variant="destructive" onClick={deleteTask} data-attr="task-menubar-archive">
-                            <IconArchive />
-                            Archive task
-                        </SceneMenuBarItem>
-                    </SceneMenuBarMenu>
-                </SceneMenuBar>
-            )}
-            <ScenePanel>
-                {isHeaderLoading || !task ? (
-                    <TaskPanelSkeleton />
-                ) : (
-                    <>
-                        <ScenePanelInfoSection>
-                            <div className="flex flex-col gap-3">
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Task ID</div>
-                                    <div className="font-mono text-sm">{task.slug}</div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Repository</div>
-                                    <div className="text-sm">{task.repository}</div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Created by</div>
-                                    <div className="text-sm">
-                                        {task.created_by?.first_name || task.created_by?.email || 'Unknown'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-xs text-muted mb-1">Created</div>
-                                    <div className="text-sm">{dayjs(task.created_at).format('MMM D, YYYY HH:mm')}</div>
-                                </div>
-                            </div>
-                        </ScenePanelInfoSection>
-
-                        <ScenePanelDivider />
-
-                        <ScenePanelActionsSection>
-                            <ButtonPrimitive menuItem variant="danger" onClick={deleteTask}>
-                                <IconArchive />
-                                Archive task
-                            </ButtonPrimitive>
-                        </ScenePanelActionsSection>
-                    </>
-                )}
-            </ScenePanel>
-
-            {taskError && !task ? (
-                <TaskErrorBanner
-                    title="We couldn't load this task."
-                    message={taskError}
-                    onRetry={loadTask}
-                    dataAttr="task-load-error"
-                    className="max-w-200"
-                />
-            ) : (
-                <>
-                    {taskError && (
-                        <TaskErrorBanner
-                            title="We couldn't load this task."
-                            message={taskError}
-                            onRetry={loadTask}
-                            dataAttr="task-load-error"
-                            className="max-w-200"
-                        />
-                    )}
-
-                    <header className="flex flex-col gap-y-2 mt-4">
-                        <SceneTitleSection
-                            name={task?.title || 'Task'}
-                            description={null}
-                            resourceType={{ type: 'task' }}
-                            isLoading={isHeaderLoading}
-                            canEdit={false}
-                            forceBackTo={
-                                isMobile
-                                    ? {
-                                          key: 'tasks',
-                                          name: 'Tasks',
-                                          path: urls.taskTracker(),
-                                      }
-                                    : undefined
-                            }
-                            actions={titleActions}
-                        />
-
-                        {isHeaderLoading ? (
-                            <TaskRunMetadataSkeleton />
-                        ) : (
-                            selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
-                        )}
-
-                        <LemonDivider className="mb-0 mt-0 lg:mt-4" />
-                    </header>
-
-                    <TaskRunLog taskId={taskId} />
-                </>
-            )}
-        </SceneContent>
+        <TaskRunSceneShell
+            task={task}
+            selectedRun={selectedRun}
+            isHeaderLoading={isHeaderLoading}
+            titleActions={titleActions}
+            sceneMenuBarEnabled={sceneMenuBarEnabled}
+            onArchive={deleteTask}
+            taskError={taskError}
+            onRetry={loadTask}
+            isMobile={isMobile}
+        >
+            <TaskRunLog taskId={taskId} optimisticStreamKey={optimisticStreamKey} optimisticRunId={optimisticRunId} />
+        </TaskRunSceneShell>
     )
 }

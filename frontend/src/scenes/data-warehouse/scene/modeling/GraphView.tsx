@@ -20,6 +20,8 @@ import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingNodeType } from '~/types'
 
+import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
+
 import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'
 import { REACT_FLOW_NODE_TYPES } from './Node'
 import { CreateModelNodeType, Edge, ElkDirection, Node } from './types'
@@ -27,13 +29,6 @@ import { CreateModelNodeType, Edge, ElkDirection, Node } from './types'
 const FIT_VIEW_OPTIONS = {
     padding: 0.2,
     maxZoom: 1,
-}
-
-const NODE_TYPE_COLORS: Record<DataModelingNodeType, string> = {
-    table: 'var(--muted)',
-    view: 'var(--primary-3000)',
-    matview: 'var(--success)',
-    endpoint: 'var(--purple)',
 }
 
 const NODES_TO_SHOW: CreateModelNodeType[] = [
@@ -63,7 +58,7 @@ function NodeTypeButton({
     isActive: boolean
     onClick: () => void
 }): JSX.Element {
-    const color = NODE_TYPE_COLORS[node.type]
+    const color = NODE_TYPE_TAG_SETTINGS[node.type].color
 
     return (
         <div draggable>
@@ -226,6 +221,10 @@ function GraphViewContent(): JSX.Element {
     )
 }
 
+// TODO: fold this onto the shared <LineageGraph> (products/data_modeling/frontend/lineage) once the
+// DAG concept is removed from the UI and the backend resolves schedules per-node. A team then has a
+// single implicit graph, so dataModelingLogic can drop its multi-DAG selection/viewport machinery and
+// this canvas collapses to <LineageGraph variant="canvas"> with search/legend passed as `panels`.
 export function GraphView(): JSX.Element {
     return (
         <ReactFlowProvider>

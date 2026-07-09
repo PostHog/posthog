@@ -1,21 +1,25 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { VisionActionApi } from '../../generated/api.schemas'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
-import { VisionActionForm } from './VisionActionForm'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 function humanizeSchedule(action: VisionActionApi): string {
     const rrule = action.trigger_config?.rrule
@@ -46,39 +50,48 @@ function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
 
 function deliverySummary(action: VisionActionApi): string {
     const targets = action.delivery_config ?? []
-    return targets.length ? targets.map((t) => t.channel).join(', ') : '—'
+    if (!targets.length) {
+        return '—'
+    }
+    return targets
+        .map((t) => {
+            // channel is the `${id}|#${name}` picker composite for actions saved with a friendly name;
+            // fall back to "Slack" rather than exposing a bare channel id (older rows, id-only input).
+            const name = slackChannelDisplayName(t.channel)
+            return name.startsWith('#') ? name : 'Slack'
+        })
+        .join(', ')
 }
 
 export function VisionActionsTab({ scannerId }: { scannerId: string }): JSX.Element {
     return (
         <BindLogic logic={visionActionsLogic} props={{ scannerId }}>
-            <VisionActionsTable />
-            <VisionActionForm scannerId={scannerId} />
+            <VisionActionsTable scannerId={scannerId} />
         </BindLogic>
     )
 }
 
-function VisionActionsTable(): JSX.Element {
+function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
-    const { toggleActionEnabled, deleteAction, openCreateForm, openEditForm } = useActions(visionActionsLogic)
+    const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
 
     if (!visionActionsLoading && visionActions.length === 0) {
         return (
             <ProductIntroduction
                 productName="Scheduled summaries"
-                thingName="action"
+                thingName="summary"
                 isEmpty
-                customHog={XRayHog}
+                customHog={HedgehogXRay}
                 description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
                 actionElementOverride={
                     <EditorGate>
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => openCreateForm()}
+                            to={urls.replayVisionActionNew(scannerId)}
                             data-attr="vision-action-new-empty"
                         >
-                            New action
+                            New summary
                         </LemonButton>
                     </EditorGate>
                 }
@@ -90,7 +103,15 @@ function VisionActionsTable(): JSX.Element {
         {
             title: 'Name',
             key: 'name',
-            render: (_, action) => <span className="font-semibold">{action.name}</span>,
+            render: (_, action) => (
+                <Link
+                    className="font-semibold"
+                    to={urls.replayVisionAction(action.id)}
+                    data-attr="vision-action-view-runs"
+                >
+                    {action.name}
+                </Link>
+            ),
         },
         {
             title: 'Schedule',
@@ -153,7 +174,7 @@ function VisionActionsTable(): JSX.Element {
                             icon={<IconPencil />}
                             tooltip="Edit"
                             data-attr="vision-action-edit"
-                            onClick={() => openEditForm(action)}
+                            to={urls.replayVisionActionEdit(action.id)}
                         />
                     </EditorGate>
                     <EditorGate>
@@ -191,10 +212,10 @@ function VisionActionsTable(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        onClick={() => openCreateForm()}
+                        to={urls.replayVisionActionNew(scannerId)}
                         data-attr="vision-action-new"
                     >
-                        New action
+                        New summary
                     </LemonButton>
                 </EditorGate>
             </div>
@@ -204,7 +225,7 @@ function VisionActionsTable(): JSX.Element {
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No actions yet — this scanner has no scheduled summaries."
+                emptyState="No summaries scheduled for this scanner yet."
             />
         </div>
     )

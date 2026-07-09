@@ -65,6 +65,8 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEv
     output_type: 'boolean',
     output_config: {},
     conditions: [{ id: `cond-${id}`, rollout_percentage: 100, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: providerKeyId
         ? {
               provider: 'openai',
@@ -105,6 +107,8 @@ describe('llmEvaluationsLogic', () => {
                     trial_eval_limit: 100,
                     trial_evals_used: 0,
                     trial_evals_remaining: 100,
+                    trial_grandfathered: false,
+                    trial_deprecation_date: '2026-07-15T00:00:00Z',
                     active_provider_key: null,
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
@@ -143,6 +147,8 @@ describe('llmEvaluationsLogic', () => {
                 trial_eval_limit: 100,
                 trial_evals_used: 100,
                 trial_evals_remaining: 0,
+                trial_grandfathered: false,
+                trial_deprecation_date: '2026-07-15T00:00:00Z',
                 active_provider_key: null,
                 created_at: '2024-01-01T00:00:00Z',
                 updated_at: '2024-01-01T00:00:00Z',
@@ -151,6 +157,28 @@ describe('llmEvaluationsLogic', () => {
             expect(logic.values.canEnableEvaluation(hogEvaluation('hog'))).toBe(true)
             expect(logic.values.canEnableEvaluation(sentimentEvaluation('sentiment'))).toBe(true)
             expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
+        })
+
+        it('an active team key only unlocks null-config evaluations, never explicit keyless ones', async () => {
+            // Runtime resolution uses the active key only for null configs — explicit keyless
+            // configs never fall back to it, so they stay blocked.
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                trial_eval_limit: 100,
+                trial_evals_used: 100,
+                trial_evals_remaining: 0,
+                trial_grandfathered: false,
+                trial_deprecation_date: '2026-07-17T00:00:00Z',
+                active_provider_key: mockProviderKeys[0],
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+
+            const explicitKeyless: LLMJudgeEvaluation = {
+                ...evaluationWithKey('llm-explicit', null),
+                model_configuration: { provider: 'openai', model: 'gpt-5-mini', provider_key_id: null },
+            }
+            expect(logic.values.canEnableEvaluation(explicitKeyless)).toBe(false)
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(true)
         })
 
         it('returns unhealthy keys used by evaluations without duplicates', async () => {

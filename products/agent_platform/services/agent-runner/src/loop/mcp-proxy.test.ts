@@ -174,7 +174,12 @@ describe('mcp proxy exposure', () => {
 
         // The dispatcher is recorded so the driver can install its dynamic gate.
         expect([...built.mcpProxyCallTools.keys()]).toEqual(['posthog__call_tool'])
-        expect(built.mcpProxyCallTools.get('posthog__call_tool')).toBe(mcp)
+        const entry = built.mcpProxyCallTools.get('posthog__call_tool')
+        expect(entry?.client).toBe(mcp)
+        // The same resolver the proxy uses at dispatch must travel through to
+        // the driver's gate — otherwise the gate keys on a different name
+        // than dispatch and an `approve` tool can run unapproved.
+        expect(typeof entry?.resolveRemoteName).toBe('function')
     })
 
     it('inlines a small connection: one tool per remote, no proxy helpers', async () => {

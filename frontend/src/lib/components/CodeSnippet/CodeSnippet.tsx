@@ -8,7 +8,7 @@ import groovy from 'highlight.js/lib/languages/groovy'
 import http from 'highlight.js/lib/languages/http'
 import { useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
@@ -130,23 +130,14 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
-    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(() =>
-        maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
-    )
-    const [lineCount, setLineCount] = useState(() => text?.split('\n').length || -1)
-    const [displayedText, setDisplayedText] = useState(
-        () => (indexOfLimitNewline === -1 || expanded ? text : text?.slice(0, indexOfLimitNewline)) ?? ''
-    )
 
-    useEffect(() => {
-        if (text) {
-            setIndexOfLimitNewline(maxLinesWithoutExpansion ? indexOfNth(text, '\n', maxLinesWithoutExpansion) : -1)
-            setLineCount(text.split('\n').length)
-            setDisplayedText(indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline))
-        }
-    }, [text, maxLinesWithoutExpansion, expanded]) // oxlint-disable-line react-hooks/exhaustive-deps
+    // These all derive from props, so compute them during render rather than mirroring props into
+    // state via a useEffect (https://react.dev/learn/you-might-not-need-an-effect).
+    const indexOfLimitNewline = maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
+    const lineCount = text?.split('\n').length ?? -1
+    const displayedText = (indexOfLimitNewline === -1 || expanded ? text : text?.slice(0, indexOfLimitNewline)) ?? ''
 
-    if (lineCount == -1) {
+    if (lineCount === -1) {
         return null
     }
 

@@ -76,6 +76,7 @@ import {
     previewText,
     readTypedBundle,
     RevisionStore,
+    SandboxPool,
     SessionQueue,
     skillBodyPath,
     SPEC_SCHEMA_SECTIONS,
@@ -135,6 +136,20 @@ export interface JanitorServerOpts {
     /** Served-model catalog. When set, `validate` + freeze reject a models
      *  the gateway doesn't serve; omitted → the model check is skipped. */
     gatewayCatalog?: GatewayCatalog
+    /**
+     * Single-shot sandbox pool backing the `POST /tools/:id/dry_run`
+     * endpoint. Same `selectSandboxPool` impl the runner uses; lifecycle is
+     * per-call (acquire → invoke → release) rather than per-session. When
+     * omitted, the dry-run route 503s. May split into a dedicated
+     * `agent-exec` service if execution duties grow.
+     */
+    sandboxes?: SandboxPool
+    /** Wall-clock cap per dry-run invocation. Defaults applied at boot. */
+    dryRunWallMs?: number
+    /** Memory cap per dry-run sandbox. Defaults applied at boot. */
+    dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once. Defaults applied at boot. */
+    dryRunMaxConcurrent?: number
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -920,7 +935,17 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // (`/file?path=X`, `/bundle` with `mode`) were removed. The new
     // surface lives entirely under the typed router below.
     if (opts.revisions && opts.bundles) {
-        app.use('/revisions/:id', buildTypedBundleRouter({ revisions: opts.revisions, bundles: opts.bundles }))
+        app.use(
+            '/revisions/:id',
+            buildTypedBundleRouter({
+                revisions: opts.revisions,
+                bundles: opts.bundles,
+                sandboxes: opts.sandboxes,
+                dryRunWallMs: opts.dryRunWallMs,
+                dryRunMemoryMb: opts.dryRunMemoryMb,
+                dryRunMaxConcurrent: opts.dryRunMaxConcurrent,
+            })
+        )
     }
 
     app.post(

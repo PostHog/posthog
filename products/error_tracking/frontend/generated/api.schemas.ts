@@ -99,6 +99,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -288,6 +297,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -369,6 +379,60 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     order_key?: number
     disabled_data?: unknown
     readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface ErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data: unknown
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingBypassRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingBypassRuleApi[]
+}
+
+export interface ErrorTrackingBypassRuleCreateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+    filters: PropertyGroupFilterValueApi
+}
+
+export interface ErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id?: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters?: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key?: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data?: unknown
+    /** When the rule was created. */
+    readonly created_at?: string
+    /** When the rule was last updated. */
     readonly updated_at?: string
 }
 
@@ -874,6 +938,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -905,6 +970,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -1661,6 +1727,17 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */

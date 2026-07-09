@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import gspread
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
@@ -319,6 +320,48 @@ def test_retry_on_transient_api_error_does_not_retry_non_transient():
         assert fn.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("Connection aborted."),
+        requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+        requests.exceptions.ConnectTimeout("Connection timed out."),
+    ],
+)
+def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error):
+    """A dropped connection or read timeout is raised by `requests` before gspread wraps it in an
+    APIError, so the status-code path never sees it. It's a transient blip and must be retried
+    inline rather than failing the read on the first occurrence."""
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
+    ):
+        fn = mock.MagicMock(side_effect=[error, error, "ok"])
+
+        assert _retry_on_transient_api_error(fn) == "ok"
+        assert fn.call_count == 3
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.exceptions.ConnectionError("Connection aborted."),
+        requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+    ],
+)
+def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(error):
+    """A persistent network error exhausts the inline budget and re-raises so it stays retryable
+    at the activity level (Temporal), rather than being swallowed."""
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
+    ):
+        fn = mock.MagicMock(side_effect=error)
+
+        with pytest.raises(type(error)):
+            _retry_on_transient_api_error(fn)
+
+        assert fn.call_count == 10
+
+
 def test_google_sheets_source_retries_transient_error_on_data_reads():
     """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
     must be retried, not surfaced on the first occurrence. These reads issue their own
@@ -494,3 +537,31 @@ def test_google_sheets_client_sets_request_timeout():
 
     assert client.http_client.timeout == _REQUEST_TIMEOUT_SECONDS
     assert client.http_client.timeout is not None
+
+
+@pytest.mark.parametrize(
+    "api_message,expected_fragment",
+    [
+        # The reported case: an uploaded .xlsx the Sheets API refuses to open.
+        (
+            "This operation is not supported for this document. The document must not be an Office file.",
+            "Save as Google Sheets",
+        ),
+        # Any other 400 from the Sheets API falls back to a clean, actionable message.
+        ("Some other bad request", "shared with our service account"),
+    ],
+)
+def test_validate_credentials_maps_api_error_to_friendly_message(api_message, expected_fragment):
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
+    ) as mock_client:
+        mock_client.return_value.open_by_url.side_effect = _api_error(
+            400, message=api_message, status="INVALID_ARGUMENT"
+        )
+        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert is_valid is False
+    assert expected_fragment in (error_message or "")
+    # The raw gspread "APIError: [400]: ..." dump must not reach the user.
+    assert "APIError" not in (error_message or "")

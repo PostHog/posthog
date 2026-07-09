@@ -1,16 +1,21 @@
 import { useActions, useValues } from 'kea'
 
+import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 import { MCPUseCaseCard } from '../MCPHint/MCPUseCaseCard'
 import type { SurfaceKey } from '../MCPHint/prompts'
+
+const HedgehogConstruction2 = pngHoggie(construction2)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
 /**
  * A component to introduce new users to a product, and to show something
@@ -98,6 +103,8 @@ export const ProductIntroduction = ({
     const isVerticalHogLayout = hogLayout === 'vertical'
     const isResponsiveHogLayout = hogLayout === 'responsive'
 
+    const HogComponent = CustomHog ? CustomHog : actionable ? HedgehogConstruction2 : HedgehogMagnifyingGlass
+
     return (
         <div
             className={cn(
@@ -144,21 +151,15 @@ export const ProductIntroduction = ({
                         className={cn(
                             'mx-auto',
                             isVerticalHogLayout
-                                ? 'block w-36 sm:w-40 lg:w-50 mb-4'
+                                ? 'block w-56 sm:w-60 lg:w-70 mb-4'
                                 : isResponsiveHogLayout
                                   ? useMainContentContainerQueries
-                                      ? 'block w-36 sm:w-40 lg:w-50 mb-4 @min-[48rem]/main-content:mb-0'
-                                      : 'block w-36 sm:w-40 lg:w-50 mb-4 md:mb-0'
-                                  : 'w-40 lg:w-50 mb-4 hidden md:block'
+                                      ? 'block w-56 sm:w-60 lg:w-70 mb-4 @min-[48rem]/main-content:mb-0'
+                                      : 'block w-56 sm:w-60 lg:w-70 mb-4 md:mb-0'
+                                  : 'w-60 lg:w-70 mb-4 hidden md:block'
                         )}
                     >
-                        {CustomHog ? (
-                            <CustomHog className="w-full h-full" />
-                        ) : actionable ? (
-                            <BuilderHog3 className="w-full h-full" />
-                        ) : (
-                            <DetectiveHog className="w-full h-full" />
-                        )}
+                        <HogComponent className="w-full h-full" />
                     </div>
                 </div>
                 <div

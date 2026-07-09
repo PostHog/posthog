@@ -18,6 +18,7 @@ from .evaluation_configs import (
     evaluation_configs_allow_empty,
     evaluation_uses_model_configuration,
     validate_evaluation_configs,
+    validate_target_config,
 )
 
 logger = structlog.get_logger(__name__)
@@ -30,6 +31,8 @@ class EvaluationStatus(models.TextChoices):
 
 
 class EvaluationStatusReason(models.TextChoices):
+    PROVIDER_KEY_REQUIRED = "provider_key_required", "No provider API key configured"
+    # Trial reasons — retained while mid-trial teams are grandfathered; removed once the trial is fully deprecated.
     TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
     MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
@@ -42,6 +45,16 @@ class EvaluationStatusReason(models.TextChoices):
     HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
+class EvaluationQuerySet(models.QuerySet):
+    def using_provider_keys(self) -> "EvaluationQuerySet":
+        return self.filter(evaluation_type=EvaluationType.LLM_JUDGE)
+
+
+class EvaluationTarget(models.TextChoices):
+    GENERATION = "generation", "Generation"
+    TRACE = "trace", "Trace"
+
+
 class Evaluation(ModelActivityMixin, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_evaluation"
@@ -51,6 +64,15 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
         ]
+        constraints = [
+            models.CheckConstraint(
+                name="model_config_only_on_llm_judge",
+                condition=models.Q(model_configuration__isnull=True)
+                | models.Q(evaluation_type=EvaluationType.LLM_JUDGE),
+            ),
+        ]
+
+    objects = EvaluationQuerySet.as_manager()
 
     # Core fields
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -70,6 +92,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     output_config = models.JSONField(default=dict)
 
     conditions = models.JSONField(default=list)
+
+    # What unit the evaluation runs on: a single $ai_generation event, or the whole trace
+    # (debounced and pulled from ClickHouse after an aggregation window).
+    target = models.CharField(
+        max_length=20,
+        choices=EvaluationTarget,
+        default=EvaluationTarget.GENERATION,
+        db_default=EvaluationTarget.GENERATION,
+    )
+    # Target-specific settings, keyed off `target` (parallel to evaluation_config/output_config).
+    # Trace targets carry {window_seconds}; generation targets carry nothing.
+    target_config = models.JSONField(default=dict, db_default=models.Value("{}"))
 
     # Model configuration for the LLM judge
     model_configuration = models.ForeignKey(
@@ -170,7 +204,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
-        from posthog.cdp.validation import compile_hog
+
+        from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
         # Coerce status and enabled into a consistent pair. status is authoritative, but we accept writes to
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
@@ -195,10 +230,16 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             except ValueError as e:
                 raise ValidationError(str(e))
 
+        # Validate target config (defaults the trace window when absent, strips it for generation).
+        try:
+            self.target_config = validate_target_config(self.target, self.target_config)
+        except ValueError as e:
+            raise ValidationError({"target_config": str(e)})
+
         # Compile Hog source to bytecode
         if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
             try:
-                bytecode = compile_hog(self.evaluation_config["source"], "destination")
+                bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
                 self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
