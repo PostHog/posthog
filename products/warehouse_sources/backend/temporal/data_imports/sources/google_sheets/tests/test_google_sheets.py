@@ -427,25 +427,20 @@ def test_google_sheets_source_reads_blank_cells_as_null():
     mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
 
-def test_permission_error_is_non_retryable():
-    """The message we re-raise from gspread's bare PermissionError must be a
-    substring match for one of the source's non-retryable error keys, otherwise
-    we'd retry a 403 forever."""
-    source = GoogleSheetsSource()
-    non_retryable_errors = source.get_non_retryable_errors()
-
-    raised = PermissionError(_PERMISSION_DENIED_MESSAGE)
-    error_msg = str(raised)
-
-    assert any(key in error_msg for key in non_retryable_errors)
-
-
-def test_api_error_404_entity_not_found_is_non_retryable():
-    """The values-read calls raise a raw gspread APIError (not SpreadsheetNotFound) on a 404, whose
-    `str()` is "APIError: [404]: Requested entity was not found." The framework matches non-retryable
-    keys as substrings of that string, so a deleted/moved/unshared sheet hit mid-read must match a
-    key — otherwise the deterministic 404 gets retried forever."""
-    error = _api_error(404, "Requested entity was not found.", "NOT_FOUND")
+@pytest.mark.parametrize(
+    "error",
+    [
+        # gspread's bare 403 PermissionError, re-raised with a stable message.
+        pytest.param(PermissionError(_PERMISSION_DENIED_MESSAGE), id="permission_denied"),
+        # Values-read 404s stay a raw APIError (not SpreadsheetNotFound), so str() is
+        # "APIError: [404]: Requested entity was not found." — a deleted/moved/unshared sheet hit mid-read.
+        pytest.param(_api_error(404, "Requested entity was not found.", "NOT_FOUND"), id="entity_not_found_404"),
+    ],
+)
+def test_error_string_matches_a_non_retryable_key(error):
+    """The framework classifies non-retryable errors by substring-matching `str(exc)` against the
+    source's keys. Each error the source surfaces for a permanent failure must match a key, otherwise
+    a deterministic 403/404 gets retried forever."""
     non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
 
     assert any(key in str(error) for key in non_retryable_errors)
