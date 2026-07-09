@@ -63,7 +63,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
+from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -765,11 +765,17 @@ def create_wizard_cloud_run(
 
     ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
     run is explicitly attributed to them.
+
+    The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
+    opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
+    agent-side PR attribution cannot match.
     """
+    head_branch = generate_wizard_head_branch()
+    prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
         team=team,
         title="Set up PostHog",
-        description=WIZARD_PR_AGENT_PROMPT,
+        description=prompt,
         origin_product=Task.OriginProduct.ONBOARDING,
         user_id=user_id,
         repository=repository,
@@ -777,10 +783,11 @@ def create_wizard_cloud_run(
         mode="background",
         branch=branch,
         wizard_config={},
+        wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
-        pending_user_message=WIZARD_PR_AGENT_PROMPT,
+        pending_user_message=prompt,
     )
 
 
@@ -1457,6 +1464,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "sandbox_ttl_seconds",
         "inactivity_timeout_seconds",
         "wizard_config",
+        "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "snapshot_external_id",
         "snapshot_kind",
@@ -2492,6 +2500,7 @@ def bootstrap_task_run(
         "model": model,
         "reasoning_effort": reasoning_effort,
         "home_quick_action": home_quick_action,
+        "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -3717,6 +3726,10 @@ def run_task(
     if initial_permission_mode is not None:
         extra_state = extra_state or {}
         extra_state["initial_permission_mode"] = initial_permission_mode
+    rtk_enabled = validated_data.get("rtk_enabled")
+    if rtk_enabled is not None:
+        extra_state = extra_state or {}
+        extra_state["rtk_enabled"] = rtk_enabled
 
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -3729,6 +3742,12 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         extra_state.update(prev_state.resume_snapshot_carry_state())
+
+        # The resumed agent still pushes the head branch baked into the original prompt, so the
+        # PR webhook must be able to match this run, not the terminal predecessor.
+        prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
+        if prev_wizard_head_branch:
+            extra_state["wizard_head_branch"] = prev_wizard_head_branch
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

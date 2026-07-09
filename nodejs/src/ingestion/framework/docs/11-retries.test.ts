@@ -1,25 +1,48 @@
 /**
  * # Chapter 11: Retry Logic
  *
- * The `retry()` wrapper provides automatic retry logic for transient failures.
- * This is essential for handling temporary issues like network hiccups,
- * database connection timeouts, or rate limiting.
+ * Retry is a per-step option: pass `{ retry }` to `pipe()` or `pipeBatch()` to
+ * wrap that single step with automatic retry logic. This handles transient
+ * failures like network hiccups, database connection timeouts, or rate limiting.
+ *
+ * ```
+ * .pipe(step, { retry: { tries: 3, sleepMs: 100 } })
+ * .pipeBatch(step, { retry: { tries: 3, sleepMs: 100 } })
+ * ```
  *
  * ## Key Concepts
  *
  * - **Retriable errors**: Errors marked with `isRetriable: true` are retried
- * - **Non-retriable errors**: Sent directly to DLQ without retrying
- * - **Exponential backoff**: Delays increase between retries
- * - **Max retries**: After exhausting retries, the error is rethrown
+ * - **Non-retriable errors**: Errors marked with `isRetriable: false` go
+ *   directly to DLQ without retrying
+ * - **Unknown errors**: Errors with no `isRetriable` property are retried, then
+ *   rethrown once retries are exhausted (crashes the process - appropriate for
+ *   unexpected failures)
+ * - **Exponential backoff**: The delay doubles between retries
+ * - **Defaults**: 3 tries, 100ms initial sleep
+ *
+ * `RetryOptions` is `{ name?, tries?, sleepMs? }`. The `name` labels the
+ * `ingestion_pipeline_retry_attempts` metric and defaults to the step name.
+ *
+ * ## Why Retries Wrap a Single Step
+ *
+ * Retry always wraps exactly one step, never a sequence. Retrying a sequence
+ * would re-run steps that already succeeded, which breaks idempotency: if
+ * step A writes to a database and step B (a later step) fails, retrying the
+ * whole block would run step A's write a second time. Keeping retry scoped to
+ * a single step means only the failing operation is repeated. Compose retries
+ * by attaching `{ retry }` to each step that needs it, not by wrapping a
+ * multi-step block.
  *
  * ## Error Classification
  *
- * Errors must have an `isRetriable` property to indicate whether they should
- * be retried. This allows distinguishing between:
+ * Errors carry an `isRetriable` property to indicate whether they should be
+ * retried. This distinguishes:
  * - Transient failures (network, timeout) - should retry
  * - Permanent failures (validation, permission) - should not retry
  */
-import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
+import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -32,7 +55,7 @@ class NonRetriableError extends Error {
     isRetriable = false
 }
 
-describe('Retry Basics', () => {
+describe('Single-Step Retries', () => {
     beforeEach(() => {
         jest.useFakeTimers()
     })
@@ -43,20 +66,17 @@ describe('Retry Basics', () => {
 
     /**
      * Retriable errors (those with `isRetriable: true`) are automatically
-     * retried up to the configured number of times.
+     * retried up to the configured number of times. The step succeeds once
+     * the transient condition clears.
      */
-    it('retriable errors are automatically retried', async () => {
+    it('retriable errors are retried until the step succeeds', async () => {
         let attempts = 0
 
         interface Input {
             value: string
         }
 
-        interface Output {
-            value: string
-        }
-
-        function createFlakyStep(): ProcessingStep<Input, Output> {
+        function createFlakyStep(): ProcessingStep<Input, { value: string }> {
             return function flakyStep(input) {
                 attempts++
                 if (attempts < 3) {
@@ -67,7 +87,7 @@ describe('Retry Basics', () => {
         }
 
         const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createFlakyStep()), { tries: 5, sleepMs: 100 })
+            .pipe(createFlakyStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         const resultPromise = pipeline.process(createOkContext({ value: 'hello' }, {}))
@@ -82,48 +102,6 @@ describe('Retry Basics', () => {
     })
 
     /**
-     * When a retry occurs, the entire sub-pipeline is re-executed from the
-     * beginning, not just the failing step.
-     */
-    it('retries run the entire sub-pipeline again', async () => {
-        const stepCalls: string[] = []
-        let step2Attempts = 0
-
-        interface Input {
-            value: string
-        }
-
-        function createStep1(): ProcessingStep<Input, Input> {
-            return function step1(input) {
-                stepCalls.push('step1')
-                return Promise.resolve(ok(input))
-            }
-        }
-
-        function createStep2(): ProcessingStep<Input, Input> {
-            return function step2(input) {
-                stepCalls.push('step2')
-                step2Attempts++
-                if (step2Attempts < 3) {
-                    throw new RetriableError('Step 2 failed')
-                }
-                return Promise.resolve(ok(input))
-            }
-        }
-
-        const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createStep1()).pipe(createStep2()), { tries: 5, sleepMs: 100 })
-            .build()
-
-        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
-        await jest.advanceTimersByTimeAsync(300)
-        await resultPromise
-
-        // Each retry runs both steps: step1, step2 (fail), step1, step2 (fail), step1, step2 (success)
-        expect(stepCalls).toEqual(['step1', 'step2', 'step1', 'step2', 'step1', 'step2'])
-    })
-
-    /**
      * Non-retriable errors (those with `isRetriable: false`) go directly
      * to DLQ without any retry attempts.
      */
@@ -134,11 +112,7 @@ describe('Retry Basics', () => {
             data: string
         }
 
-        interface Output {
-            data: string
-        }
-
-        function createValidationStep(): ProcessingStep<Input, Output> {
+        function createValidationStep(): ProcessingStep<Input, { data: string }> {
             return function validationStep(_input) {
                 attempts++
                 throw new NonRetriableError('Validation failed - invalid format')
@@ -146,7 +120,7 @@ describe('Retry Basics', () => {
         }
 
         const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createValidationStep()), { tries: 5, sleepMs: 100 })
+            .pipe(createValidationStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         // No timer advancement needed - non-retriable errors don't wait
@@ -160,61 +134,11 @@ describe('Retry Basics', () => {
     })
 
     /**
-     * When retries use exponential backoff, the delay between retries
-     * increases to avoid overwhelming a struggling service.
+     * After exhausting the maximum number of retries, a retriable error is
+     * rethrown. This is a fatal error - the process should report it and crash
+     * rather than continue in a broken state.
      */
-    it('retries use exponential backoff', async () => {
-        let attempts = 0
-
-        interface Input {
-            value: string
-        }
-
-        interface Output {
-            value: string
-        }
-
-        function createSlowlyRecoveringStep(): ProcessingStep<Input, Output> {
-            return function slowlyRecoveringStep(input) {
-                attempts++
-                if (attempts < 4) {
-                    throw new RetriableError('Still recovering')
-                }
-                return Promise.resolve(ok({ value: input.value }))
-            }
-        }
-
-        const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createSlowlyRecoveringStep()), { tries: 5, sleepMs: 100 })
-            .build()
-
-        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
-
-        // First attempt happens immediately
-        await jest.advanceTimersByTimeAsync(0)
-        expect(attempts).toBe(1)
-
-        // After 100ms, second attempt
-        await jest.advanceTimersByTimeAsync(100)
-        expect(attempts).toBe(2)
-
-        // After 200ms more (exponential), third attempt
-        await jest.advanceTimersByTimeAsync(200)
-        expect(attempts).toBe(3)
-
-        // After 400ms more (exponential), fourth attempt succeeds
-        await jest.advanceTimersByTimeAsync(400)
-        expect(attempts).toBe(4)
-
-        await resultPromise
-    })
-
-    /**
-     * After exhausting the maximum number of retries, the error is rethrown.
-     * This is a fatal error - the process should report it and crash rather
-     * than continue in a broken state.
-     */
-    it('after max retries, the error is rethrown and the process should crash', async () => {
+    it('after max retries, the error is rethrown', async () => {
         let attempts = 0
         let caughtError: Error | null = null
 
@@ -222,11 +146,7 @@ describe('Retry Basics', () => {
             value: string
         }
 
-        interface Output {
-            value: string
-        }
-
-        function createAlwaysFailsStep(): ProcessingStep<Input, Output> {
+        function createAlwaysFailsStep(): ProcessingStep<Input, { value: string }> {
             return function alwaysFailsStep(_input) {
                 attempts++
                 throw new RetriableError(`Attempt ${attempts} failed`)
@@ -234,7 +154,7 @@ describe('Retry Basics', () => {
         }
 
         const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createAlwaysFailsStep()), { tries: 3, sleepMs: 100 })
+            .pipe(createAlwaysFailsStep(), { retry: { tries: 3, sleepMs: 100 } })
             .build()
 
         const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch((e) => {
@@ -249,37 +169,36 @@ describe('Retry Basics', () => {
     })
 
     /**
-     * Errors without an `isRetriable` property are rethrown (not caught).
-     * This preserves normal error handling for unexpected errors.
+     * Errors without an `isRetriable` property are retried (in case they are
+     * transient), then rethrown once retries are exhausted - never sent to DLQ.
+     * This preserves normal crash behavior for unexpected errors.
      */
-    it('errors without isRetriable flag are rethrown', async () => {
+    it('errors without isRetriable are retried then rethrown', async () => {
+        let attempts = 0
         let caughtError: Error | null = null
 
         interface Input {
             value: string
         }
 
-        interface Output {
-            value: string
-        }
-
-        function createUnexpectedErrorStep(): ProcessingStep<Input, Output> {
+        function createUnexpectedErrorStep(): ProcessingStep<Input, { value: string }> {
             return function unexpectedErrorStep(_input) {
+                attempts++
                 throw new Error('Unexpected internal error')
             }
         }
 
         const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createUnexpectedErrorStep()), { tries: 3, sleepMs: 100 })
+            .pipe(createUnexpectedErrorStep(), { retry: { tries: 3, sleepMs: 100 } })
             .build()
 
-        // Errors without isRetriable are retried but then rethrown (not sent to DLQ)
         const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch((e) => {
             caughtError = e
         })
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for retries
         await resultPromise
 
+        expect(attempts).toBe(3) // Retried, not short-circuited like a non-retriable error
         expect(caughtError).not.toBeNull()
         expect(caughtError!.message).toBe('Unexpected internal error')
     })
@@ -295,56 +214,17 @@ describe('Retry Configuration', () => {
     })
 
     /**
-     * The `tries` option controls the maximum number of attempts before
-     * giving up.
+     * `tries` caps the number of attempts and `sleepMs` sets the initial delay.
+     * Subsequent retries use exponential backoff (the delay doubles each time).
      */
-    it('tries option controls maximum attempts', async () => {
+    it('tries and sleepMs control attempts and backoff', async () => {
         let attempts = 0
 
         interface Input {
             value: string
         }
 
-        interface Output {
-            value: string
-        }
-
-        function createAlwaysFailsStep(): ProcessingStep<Input, Output> {
-            return function alwaysFailsStep(_input) {
-                attempts++
-                throw new RetriableError('fail')
-            }
-        }
-
-        const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createAlwaysFailsStep()), { tries: 2, sleepMs: 100 })
-            .build()
-
-        const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {})).catch(() => {
-            // Expected to throw after max retries
-        })
-        await jest.advanceTimersByTimeAsync(100) // One retry (100ms between attempts)
-        await resultPromise
-
-        expect(attempts).toBe(2)
-    })
-
-    /**
-     * The `sleepMs` option sets the initial delay between retries.
-     * Subsequent retries use exponential backoff (delay doubles each time).
-     */
-    it('sleepMs option sets initial delay with exponential backoff', async () => {
-        let attempts = 0
-
-        interface Input {
-            value: string
-        }
-
-        interface Output {
-            value: string
-        }
-
-        function createSlowlyRecoveringStep(): ProcessingStep<Input, Output> {
+        function createSlowlyRecoveringStep(): ProcessingStep<Input, { value: string }> {
             return function slowlyRecoveringStep(input) {
                 attempts++
                 if (attempts < 4) {
@@ -355,7 +235,7 @@ describe('Retry Configuration', () => {
         }
 
         const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createSlowlyRecoveringStep()), { tries: 5, sleepMs: 50 })
+            .pipe(createSlowlyRecoveringStep(), { retry: { tries: 5, sleepMs: 50 } })
             .build()
 
         const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
@@ -380,20 +260,16 @@ describe('Retry Configuration', () => {
     })
 
     /**
-     * Default retry configuration is used when not specified.
+     * Omitting `tries`/`sleepMs` uses the defaults: 3 tries, 100ms initial sleep.
      */
-    it('default retry configuration (3 tries, 100ms sleep)', async () => {
+    it('defaults to 3 tries and 100ms sleep', async () => {
         let attempts = 0
 
         interface Input {
             value: string
         }
 
-        interface Output {
-            value: string
-        }
-
-        function createFlakyStep(): ProcessingStep<Input, Output> {
+        function createFlakyStep(): ProcessingStep<Input, { value: string }> {
             return function flakyStep(input) {
                 attempts++
                 if (attempts < 3) {
@@ -403,9 +279,7 @@ describe('Retry Configuration', () => {
             }
         }
 
-        const pipeline = newPipelineBuilder<Input>()
-            .retry((builder) => builder.pipe(createFlakyStep()))
-            .build()
+        const pipeline = newPipelineBuilder<Input>().pipe(createFlakyStep(), { retry: {} }).build()
 
         const resultPromise = pipeline.process(createOkContext({ value: 'data' }, {}))
         await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for two retries (default sleepMs is 100)
@@ -413,5 +287,79 @@ describe('Retry Configuration', () => {
 
         expect(isOkResult(result.result)).toBe(true)
         expect(attempts).toBe(3)
+    })
+})
+
+describe('Batch Retries', () => {
+    beforeEach(() => {
+        jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    /**
+     * `pipeBatch(step, { retry })` retries the whole batch step on retriable
+     * errors, the same way per-item retry works. The batch is reprocessed as a
+     * unit until it succeeds or retries are exhausted.
+     */
+    it('pipeBatch retries the batch step until it succeeds', async () => {
+        let attempts = 0
+
+        interface Event {
+            id: number
+        }
+
+        function createFlakyBatchStep(): BatchProcessingStep<Event, Event> {
+            return function flakyBatchStep(events) {
+                attempts++
+                if (attempts < 3) {
+                    throw new RetriableError('Downstream unavailable')
+                }
+                return Promise.resolve(events.map((e) => ok(e)))
+            }
+        }
+
+        const pipeline = newBatchPipelineBuilder<Event>()
+            .pipeBatch(createFlakyBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+            .build()
+
+        pipeline.feed([{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})))
+        const resultsPromise = pipeline.next()
+        await jest.advanceTimersByTimeAsync(300) // 100ms + 200ms for two retries
+        const results = await resultsPromise
+
+        expect(attempts).toBe(3)
+        expect(results).toHaveLength(2)
+        expect(results!.every((r) => isOkResult(r.result))).toBe(true)
+    })
+
+    /**
+     * When a batch step throws a non-retriable error, every input in the batch
+     * is converted to its own DLQ result. The failure is attributed per-input
+     * so each message is dead-lettered individually.
+     */
+    it('pipeBatch sends one DLQ per input on a non-retriable error', async () => {
+        interface Event {
+            id: number
+        }
+
+        function createFailingBatchStep(): BatchProcessingStep<Event, Event> {
+            return function failingBatchStep(_events) {
+                throw new NonRetriableError('Batch permanently invalid')
+            }
+        }
+
+        const pipeline = newBatchPipelineBuilder<Event>()
+            .pipeBatch(createFailingBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+            .build()
+
+        // Three inputs -> three DLQ results, no retries (non-retriable)
+        pipeline.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
+        const results = await pipeline.next()
+
+        expect(results).toHaveLength(3)
+        expect(results!.every((r) => isDlqResult(r.result))).toBe(true)
     })
 })
