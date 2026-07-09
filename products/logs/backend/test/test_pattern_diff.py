@@ -11,7 +11,8 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 
 from posthog.clickhouse.client import sync_execute
 
-from products.logs.backend.pattern_diff import diff_patterns, pattern_fingerprint, run_patterns_diff
+from products.logs.backend.log_patterns import pattern_fingerprint
+from products.logs.backend.pattern_diff import diff_patterns, run_patterns_diff
 
 _HOUR = (dt.datetime(2026, 6, 23, 12, 0), dt.datetime(2026, 6, 23, 13, 0))
 _BASELINE_HOUR = (dt.datetime(2026, 6, 16, 12, 0), dt.datetime(2026, 6, 16, 13, 0))

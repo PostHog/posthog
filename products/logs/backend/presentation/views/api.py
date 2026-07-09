@@ -1058,6 +1058,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return filter_group
         return {"type": "AND", "values": []}
 
+    def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
+        """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
+        date_range_data = query_data.get("dateRange")
+        return LogsQuery(
+            # The body serializers document dateRange as optional, so an absent range must
+            # default rather than 400 (get_model rejects None).
+            dateRange=self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h"),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
     @extend_schema(request=_LogsQueryRequestSerializer, responses={200: _LogsQueryResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
@@ -1401,13 +1414,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        query = LogsQuery(
-            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-        )
+        query = self._filtered_logs_query(query_data)
 
         runner = PatternsQueryRunner(team=self.team, query=query)
         response = runner.run(
@@ -1440,13 +1447,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        query = LogsQuery(
-            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-        )
+        query = self._filtered_logs_query(query_data)
         baseline_date_range = (
             self.get_model(request.data["baselineDateRange"], DateRange)
             if request.data.get("baselineDateRange")
@@ -1478,13 +1479,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        query = LogsQuery(
-            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
-            searchTerm=query_data.get("searchTerm", None),
-            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
-        )
+        query = self._filtered_logs_query(query_data)
 
         try:
             runner = LogsGroupByQueryRunner(

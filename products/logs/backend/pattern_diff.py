@@ -5,7 +5,7 @@ from posthog.schema import DateRange, LogsQuery
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.logs.backend.log_patterns import _ERROR_SEVERITIES, _PLACEHOLDER_RE, _env
+from products.logs.backend.log_patterns import ERROR_SEVERITIES, _env, pattern_fingerprint
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 
 if TYPE_CHECKING:
@@ -14,26 +14,13 @@ if TYPE_CHECKING:
 _BASELINE_OFFSET = dt.timedelta(days=7)
 
 
-def pattern_fingerprint(template: str) -> str:
-    """Cross-run identity key for a mined template.
-
-    Drain templates are not stable across independent mining runs — sampling and row-order
-    differences can widen a placeholder ("User <*> not found" vs "User <*> not <*>"), so
-    matching on the raw template string would false-split the same message across windows.
-    Keying on the sorted set of literal runs between placeholders survives that wobble:
-    placeholder kind and position drop out, literal content remains.
-    """
-    literals = sorted({literal.strip() for literal in _PLACEHOLDER_RE.split(template) if literal.strip()})
-    return "\x00".join(literals) if literals else template
-
-
 def _rate(estimated_count: float, window: tuple[dt.datetime, dt.datetime]) -> float:
     seconds = (window[1] - window[0]).total_seconds()
     return estimated_count / seconds if seconds > 0 else 0.0
 
 
 def _has_error_severity(pattern: dict) -> bool:
-    return any(severity in _ERROR_SEVERITIES for severity in pattern.get("severity_counts", {}))
+    return any(severity in ERROR_SEVERITIES for severity in pattern.get("severity_counts", {}))
 
 
 def _group_by_fingerprint(patterns: list[dict]) -> dict[str, list[dict]]:
@@ -79,9 +66,16 @@ def diff_patterns(
     new_min_share = _env("LOGS_PATTERNS_DIFF_NEW_MIN_SHARE", 1.0, float)
     shift_ratio = _env("LOGS_PATTERNS_DIFF_SHIFT_RATIO", 2.0, float)
     min_samples = _env("LOGS_PATTERNS_DIFF_MIN_SAMPLES", 5, int)
+    if shift_ratio <= 1:
+        # A ratio at or below 1 is meaningless (everything or nothing shifts) and 0 would
+        # divide by zero below — treat a misconfigured env var as the default.
+        shift_ratio = 2.0
 
     current_groups = _group_by_fingerprint(current)
     baseline_groups = _group_by_fingerprint(baseline)
+
+    def above_floor(share: float, pattern: dict) -> bool:
+        return share >= new_min_share or _has_error_severity(pattern)
 
     entries = []
     for fingerprint, group in current_groups.items():
@@ -90,11 +84,10 @@ def diff_patterns(
         baseline_group = baseline_groups.get(fingerprint)
 
         if baseline_group is None:
-            above_floor = share >= new_min_share or _has_error_severity(pattern)
-            entries.append(_entry("new" if above_floor else "unchanged", pattern, None))
+            entries.append(_entry("new" if above_floor(share, pattern) else "unchanged", pattern))
             continue
 
-        base_raw, base_estimated, _base_share = _group_totals(baseline_group)
+        base_raw, base_estimated, base_share = _group_totals(baseline_group)
         baseline_rate = _rate(base_estimated, baseline_window)
         current_rate = _rate(estimated_count, current_window)
         ratio = round(current_rate / baseline_rate, 2) if baseline_rate > 0 else None
@@ -103,22 +96,31 @@ def diff_patterns(
             and (ratio >= shift_ratio or ratio <= 1 / shift_ratio)
             and min(raw_count, base_raw) >= min_samples
         )
-        entries.append(_entry("rate_shift" if shifted else "unchanged", pattern, baseline_group, rate_ratio=ratio))
+        entries.append(
+            _entry(
+                "rate_shift" if shifted else "unchanged",
+                pattern,
+                baseline_estimated=base_estimated,
+                baseline_share=base_share,
+                rate_ratio=ratio,
+            )
+        )
 
     for fingerprint, group in baseline_groups.items():
         if fingerprint in current_groups:
             continue
         pattern = _representative(group)
-        _raw, _estimated, share = _group_totals(group)
-        if share >= new_min_share or _has_error_severity(pattern):
-            entries.append(_entry("gone", pattern, group))
+        _raw, base_estimated, base_share = _group_totals(group)
+        if above_floor(base_share, pattern):
+            entries.append(_entry("gone", pattern, baseline_estimated=base_estimated, baseline_share=base_share))
 
     order = {"new": 0, "rate_shift": 1, "gone": 2, "unchanged": 3}
 
     def magnitude(entry: dict) -> float:
         ratio = entry["rate_ratio"]
-        if entry["classification"] == "rate_shift" and ratio:
-            return max(ratio, 1 / ratio)
+        if entry["classification"] == "rate_shift" and ratio is not None:
+            # A ratio rounded down to 0.0 is the most extreme drop we can express, not "no shift".
+            return max(ratio, 1 / ratio) if ratio > 0 else float("inf")
         return float(entry["pattern"]["estimated_count"])
 
     entries.sort(key=lambda e: (order[e["classification"]], -magnitude(e), e["pattern"]["pattern"]))
@@ -128,14 +130,11 @@ def diff_patterns(
 def _entry(
     classification: str,
     pattern: dict,
-    baseline_group: list[dict] | None,
     *,
+    baseline_estimated: int | None = None,
+    baseline_share: float | None = None,
     rate_ratio: float | None = None,
 ) -> dict:
-    baseline_estimated: int | None = None
-    baseline_share: float | None = None
-    if baseline_group is not None:
-        _raw, baseline_estimated, baseline_share = _group_totals(baseline_group)
     return {
         "classification": classification,
         "rate_ratio": rate_ratio,
