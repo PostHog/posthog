@@ -371,7 +371,14 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             accountsColumnConfigLogic,
             ['selectColumns'],
             accountsLogic,
-            ['searchQuery', 'tagsFilter', 'allRolesUnassigned', 'assignedToFilter', 'sortOrder'],
+            [
+                'searchQuery',
+                'tagsFilter',
+                'allRolesUnassigned',
+                'assignedToFilter',
+                'sortOrder',
+                'customPropertyFilters',
+            ],
             accountsOverviewTilesLogic,
             ['tiles', 'tileFilter'],
         ],
@@ -379,7 +386,14 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             accountsColumnConfigLogic,
             ['setSelectColumns'],
             accountsLogic,
-            ['setSearchQuery', 'setTagsFilter', 'setAllRolesUnassigned', 'setAssignedToFilter', 'setSortOrder'],
+            [
+                'setSearchQuery',
+                'setTagsFilter',
+                'setAllRolesUnassigned',
+                'setAssignedToFilter',
+                'setSortOrder',
+                'setCustomPropertyFilters',
+            ],
             accountsOverviewTilesLogic,
             ['setTiles', 'setTileFilter'],
         ],
@@ -473,6 +487,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 s.sortOrder,
                 s.tileFilter,
                 s.tiles,
+                s.customPropertyFilters,
             ],
             (
                 selectColumns: string[],
@@ -482,7 +497,8 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 assignedToFilter: import('./accountsLogic').RoleFilterValue,
                 sortOrder: import('./accountsLogic').AccountSortOrder,
                 tileFilter: null | import('./accountsOverviewTilesLogic').TileFilter,
-                tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[]
+                tiles: import('./accountsOverviewTilesLogic').AccountsOverviewTile[],
+                customPropertyFilters: import('~/types').AccountCustomPropertyFilter[]
             ): AccountsViewState => ({
                 columns: selectColumns,
                 sortOrder,
@@ -492,6 +508,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     unassigned: allRolesUnassigned,
                     assignedTo: assignedToFilter,
                     tileFilter,
+                    customProperties: customPropertyFilters,
                 },
                 tiles,
             }),
@@ -562,6 +579,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             // unassigned flag first so the assigned-to filter below isn't wiped by that cross-listener.
             actions.setAllRolesUnassigned(state.filters.unassigned)
             actions.setAssignedToFilter(state.filters.assignedTo)
+            actions.setCustomPropertyFilters(state.filters.customProperties)
             actions.setSortOrder(state.sortOrder)
             actions.setTiles(state.tiles)
             actions.setTileFilter(state.filters.tileFilter)

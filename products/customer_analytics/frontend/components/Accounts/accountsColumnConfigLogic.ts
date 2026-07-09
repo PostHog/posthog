@@ -1,13 +1,16 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { SimpleOption } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { PropertyDefinitionType, PropertyType } from '~/types'
 import type { DataWarehouseViewLink } from '~/types'
 
 import {
@@ -19,6 +22,7 @@ import type {
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { propertyTypeForDisplayType } from './accountsCustomPropertyFilters'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -450,6 +454,9 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             ['joins as warehouseJoins', 'joinsLoading as warehouseJoinsLoading'],
         ],
         actions: [databaseTableListLogic, ['loadDatabase'], joinsLogic, ['loadJoins']],
+        // Keep propertyDefinitionsModel mounted so the seeded custom-property definitions
+        // (see loadCustomPropertyDefinitionsSuccess) survive until the filter UI reads them.
+        logic: [propertyDefinitionsModel],
     })),
     actions({
         setSelectColumns: (columns: string[]) => ({ columns }),
@@ -575,6 +582,24 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     customPropertyDefinitions.map((definition) => [customPropertyAlias(definition.id), definition])
                 ),
         ],
+        customPropertyDefinitionsById: [
+            (s) => [s.customPropertyDefinitions],
+            (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
+                Object.fromEntries(customPropertyDefinitions.map((definition) => [definition.id, definition])),
+        ],
+        // Items for the custom-properties taxonomic group (fed via `optionsFromProp`): the
+        // definition id is the stable filter key, the name is what's displayed and searched.
+        customPropertyTaxonomicOptions: [
+            (s) => [s.customPropertyDefinitions],
+            (
+                customPropertyDefinitions: CustomPropertyDefinitionApi[]
+            ): (SimpleOption & { id: string; property_type: PropertyType })[] =>
+                customPropertyDefinitions.map((definition) => ({
+                    id: definition.id,
+                    name: definition.name,
+                    property_type: propertyTypeForDisplayType(definition.display_type),
+                })),
+        ],
         // Resolves a visible column name (legacy role key or rel_ alias) back to its
         // relationship definition — drives the cell renderer and header label.
         aliasToRelationshipDefinition: [
@@ -591,6 +616,22 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     }),
     listeners(({ actions, values, selectors }) => ({
+        // Seed the shared propertyDefinitionsModel so OperatorValueSelect resolves each
+        // custom property's type (numeric/boolean/datetime/string) to the right operator set.
+        loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
+            updatePropertyDefinitions(
+                Object.fromEntries(
+                    customPropertyDefinitions.map((definition) => [
+                        `${PropertyDefinitionType.AccountCustomProperty}/${definition.id}`,
+                        {
+                            id: definition.id,
+                            name: definition.id,
+                            property_type: propertyTypeForDisplayType(definition.display_type),
+                        },
+                    ])
+                )
+            )
+        },
         // Customized columns (user edits, saved view, shared URL) no longer equal the
         // default they diverged from, so only still-default columns get upgraded.
         loadRelationshipDefinitionsSuccess: (_, __, ___, previousState) => {
