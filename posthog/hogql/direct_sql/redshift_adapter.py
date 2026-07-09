@@ -33,8 +33,10 @@ def ensure_read_only_raw_redshift_statement(sql: str) -> str:
     parameters don't include ``default_transaction_read_only``. So read-only is enforced our side
     (as with Snowflake): a raw statement must be a single ``SELECT``, and any DDL — or any DML
     keyword other than ``SELECT`` anywhere in the statement (e.g. a write smuggled into a
-    subquery) — is rejected. HogQL-authored queries only ever emit SELECT. String values and
-    quoted identifiers aren't tagged DML/DDL, so a literal or alias like ``'DELETE'`` is unaffected.
+    subquery) — is rejected. ``INTO`` is rejected too: Redshift supports ``SELECT ... INTO``,
+    which creates and populates a table while still tokenizing as a plain SELECT. HogQL-authored
+    queries only ever emit SELECT. String values and quoted identifiers aren't tagged
+    DML/DDL/keyword, so a literal or alias like ``'DELETE'`` is unaffected.
     """
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
@@ -44,6 +46,8 @@ def ensure_read_only_raw_redshift_statement(sql: str) -> str:
         if token.ttype in sqlparse_tokens.DDL:
             raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
+            raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.Keyword and token.value.upper() == "INTO":
             raise ExposedHogQLError(RAW_REDSHIFT_READ_ONLY_ERROR)
     return sql
 
