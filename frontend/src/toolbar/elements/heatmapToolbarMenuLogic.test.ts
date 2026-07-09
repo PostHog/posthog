@@ -362,6 +362,44 @@ describe('heatmapToolbarMenuLogic', () => {
             expect(logic.values.heatmapEnabled).toBe(true)
         })
 
+        it.each([
+            {
+                name: 'a non-ok response',
+                result: {
+                    ok: false,
+                    status: 502,
+                    data: null,
+                    error: {
+                        status: 502,
+                        detail: 'Bad gateway',
+                        body: null,
+                        isAuthError: false,
+                        isNetworkError: false,
+                    },
+                },
+                expectedInMessage: '502',
+            },
+            {
+                name: 'a malformed results payload',
+                result: { ok: true, status: 200, data: { results: null, next: null, previous: null } },
+                expectedInMessage: 'not an array',
+            },
+        ])(
+            'throws a diagnosable, status-annotated error on $name so error tracking is actionable',
+            async ({ result, expectedInMessage }) => {
+                // Deliberate loader failure — kea-loaders would log it
+                silenceKeaLoadersErrors()
+                jest.spyOn(toolbarApi.elementStats, 'list').mockResolvedValue(result as any)
+                await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                    'getElementStats',
+                    (action: any) =>
+                        action.type === logic.actionTypes.getElementStatsFailure &&
+                        typeof action.payload?.errorObject?.message === 'string' &&
+                        action.payload.errorObject.message.includes(expectedInMessage),
+                ])
+            }
+        )
+
         it('reloads the clickmap with the element selector filter when an area is chosen', async () => {
             await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions(['getElementStatsSuccess'])
 
