@@ -22,6 +22,11 @@ def _end_gc_boot_window() -> None:
     # reclaims only ~1MB, so the garbage gets frozen along with the survivors.
     gc.freeze()
     gc.enable()
+    # Collect far less often than the default (700, 10, 10): test runs allocate heavily and
+    # cyclic garbage is reclaimed fine at these thresholds, while frequent young-gen sweeps
+    # over a large frozen heap cost real wall time (~10% of a unit-heavy suite; measured on
+    # products/warehouse_sources with peak RSS within 1% of the default thresholds).
+    gc.set_threshold(50_000, 20, 20)
     # gc.get_referrers() cannot see referrers in the frozen permanent generation,
     # which turns hypothesis's register_random() liveness check into a false positive
     # for Randoms registered after the freeze (e.g. trio's module-level instance,

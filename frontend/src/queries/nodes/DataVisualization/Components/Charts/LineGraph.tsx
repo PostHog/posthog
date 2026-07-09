@@ -384,10 +384,22 @@ const LegacyLineGraph = ({
                         backgroundColor: (context) => {
                             return (context.dataset.borderColor as string) || 'black'
                         },
-                        display: () => {
-                            return false
+                        // Read the raw value from ySeriesData rather than the (possibly percent-scaled in
+                        // stacked-100 mode) dataset value, so labels match the tooltip and hide on nulls.
+                        display: (context) => {
+                            if (!chartSettings.showValuesOnSeries) {
+                                return false
+                            }
+                            return ySeriesData?.[context.datasetIndex]?.data[context.dataIndex] != null
                         },
-                        formatter: () => {},
+                        formatter: (_value, context) => {
+                            const series = ySeriesData?.[context.datasetIndex]
+                            const formatted = formatDataWithSettings(
+                                series?.data[context.dataIndex] ?? null,
+                                series?.settings
+                            )
+                            return typeof formatted === 'object' ? null : formatted
+                        },
                         borderWidth: 2,
                         borderRadius: 4,
                         borderColor: 'white',

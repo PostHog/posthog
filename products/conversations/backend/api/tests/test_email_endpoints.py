@@ -920,6 +920,51 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
     @parameterized.expand(
         [
+            ("email_disabled", "email disabled for team"),
+            ("no_email_config", "no email config"),
+            ("no_customer_email", "no customer email"),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.send_mime")
+    def test_undeliverable_reply_fails_visibly(self, name: str, expected_error: str, mock_send_mime: MagicMock):
+        from products.conversations.backend.tasks import send_email_reply
+
+        config = self._create_config("support@example.com", "aaa111")
+        if name == "email_disabled":
+            ticket = self._create_ticket(config)
+            self.team.conversations_settings = {"email_enabled": False}
+            self.team.save()
+        elif name == "no_email_config":
+            ticket = self._create_ticket(None)
+        else:
+            ticket = self._create_ticket(config)
+            ticket.email_from = None
+            ticket.save(update_fields=["email_from"])
+
+        comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Reply from agent",
+            created_by=self.user,
+            item_context={"author_type": "support"},
+        )
+        # The signal must create the row even for undeliverable replies; skipping it would
+        # leave the reply with no delivery record at all.
+        outbox = EmailOutboxMessage.objects.filter(comment=comment).first()
+        assert outbox is not None
+
+        send_email_reply(str(outbox.id))
+        outbox.refresh_from_db()
+
+        assert outbox.status == EmailOutboxMessage.Status.FAILED_PERMANENT
+        assert outbox.last_error == expected_error
+        mock_send_mime.assert_not_called()
+        comment.refresh_from_db()
+        assert (comment.item_context or {}).get("email_delivery_status") == "failed"
+
+    @parameterized.expand(
+        [
             # name, error raised by send_mime, whether it flips the domain back to unverified
             ("permanent_error", MailgunPermanentError("bad recipient"), False),
             ("not_configured", MailgunNotConfigured("mailgun not configured"), False),

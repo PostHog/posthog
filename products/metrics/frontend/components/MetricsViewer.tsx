@@ -1,16 +1,28 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
+import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
-import { DateMappingOption } from '~/types'
+import { DateMappingOption, FilterLogicalOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -18,6 +30,7 @@ import { MetricsChartLegend } from './MetricsChartLegend'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
     LIVE_REFRESH_MS,
+    METRIC_FILTER_OPERATOR_ALLOWLIST,
     MetricAggregation,
     metricsViewerLogic,
     MetricsViewMode,
@@ -93,7 +106,8 @@ export const MetricsViewer = (): JSX.Element => {
         viewMode,
         statSummary,
         groupByKeys,
-        filterStrings,
+        filterGroup,
+        attributeEndpointFilters,
         chartSeries,
         sparklineValues,
         sparklineLabels,
@@ -101,6 +115,7 @@ export const MetricsViewer = (): JSX.Element => {
         anomalyBadge,
         liveRefresh,
         queryResultsLoading,
+        queryError,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -111,7 +126,7 @@ export const MetricsViewer = (): JSX.Element => {
         setViewMode,
         setStatSummary,
         setGroupByKeys,
-        setFilterStrings,
+        setFilterGroup,
         setLiveRefresh,
         fetchQueryResults,
         fetchAnomaly,
@@ -122,7 +137,7 @@ export const MetricsViewer = (): JSX.Element => {
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys, filterGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window only while the stat card is visible — the badge is stat-mode only.
     useEffect(() => {
@@ -131,7 +146,7 @@ export const MetricsViewer = (): JSX.Element => {
         } else {
             clearAnomaly()
         }
-    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName, filterGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const selectedMetricType = useMemo(
         () => pickerItems.find((item) => item.name === metricName)?.metric_type,
@@ -210,16 +225,15 @@ export const MetricsViewer = (): JSX.Element => {
                     placeholder="Group by attribute…"
                     className="min-w-[12rem]"
                 />
-                <LemonInputSelect
-                    mode="multiple"
-                    size="small"
-                    allowCustomValues
-                    value={filterStrings}
-                    onChange={setFilterStrings}
-                    options={[]}
-                    placeholder="Filter attribute=value…"
-                    className="min-w-[14rem]"
-                />
+                <UniversalFilters
+                    rootKey="metrics-viewer-filters"
+                    group={filterGroup.values[0] as UniversalFiltersGroup}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
+                    endpointFilters={attributeEndpointFilters}
+                    onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
+                >
+                    <MetricsViewerFilterBar />
+                </UniversalFilters>
                 <DateFilter
                     size="small"
                     dateFrom={dateFrom}
@@ -261,6 +275,12 @@ export const MetricsViewer = (): JSX.Element => {
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
                     </div>
+                ) : queryError ? (
+                    <div className="h-full flex items-center justify-center">
+                        <LemonBanner type="error" className="max-w-md">
+                            {queryError}
+                        </LemonBanner>
+                    </div>
                 ) : hasResults && viewMode === 'stat' ? (
                     <MetricStatPanel
                         title={metricName}
@@ -288,6 +308,36 @@ export const MetricsViewer = (): JSX.Element => {
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
             {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
+        </div>
+    )
+}
+
+// Filter chips + "Add filter" button, mirroring the logs viewer's applied-filters row: picking an
+// attribute opens the chip for value selection, with suggestions fed by the metrics attribute endpoints.
+const MetricsViewerFilterBar = (): JSX.Element => {
+    const { filterGroup } = useValues(universalFiltersLogic)
+    const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
+
+    useOnMountEffect(() => setAllowInitiallyOpen(true))
+
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            {filterGroup.values.map((filterOrGroup: UniversalFiltersGroupValue, index: number) =>
+                // This UI only ever adds leaf filters, so nested groups can't occur here.
+                isUniversalGroupFilterLike(filterOrGroup) ? null : (
+                    <UniversalFilters.Value
+                        key={index}
+                        index={index}
+                        filter={filterOrGroup}
+                        onRemove={() => removeGroupValue(index)}
+                        onChange={(value) => replaceGroupValue(index, value)}
+                        initiallyOpen={allowInitiallyOpen}
+                        operatorAllowlist={METRIC_FILTER_OPERATOR_ALLOWLIST}
+                    />
+                )
+            )}
+            <UniversalFilters.AddFilterButton size="small" type="secondary" title="Filter" />
         </div>
     )
 }
