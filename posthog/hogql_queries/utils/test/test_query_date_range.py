@@ -492,6 +492,36 @@ class TestDateFromAll(APIBaseTest):
         self.assertEqual(qdr.date_from(), fallback)
 
 
+class TestDaysOfWeek(APIBaseTest):
+    def _make_qdr(self, days_of_week):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        date_range = (
+            DateRange(date_from="-7d", daysOfWeek=days_of_week)
+            if days_of_week is not None
+            else DateRange(date_from="-7d")
+        )
+        return QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+
+    @parameterized.expand(
+        [
+            ("invalid_days_filtered", [0, 3, 8], [3]),
+            ("empty_list", [], None),
+            ("full_week", [1, 2, 3, 4, 5, 6, 7], None),
+            ("valid_subset_sorted_deduped", [5, 1, 5], [1, 5]),
+        ]
+    )
+    def test_days_of_week_normalization(self, _name, days_of_week, expected):
+        self.assertEqual(self._make_qdr(days_of_week).days_of_week(), expected)
+
+    def test_days_of_week_unset_date_range_returns_none(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        qdr = QueryDateRange(team=self.team, date_range=None, interval=IntervalType.DAY, now=now)
+        self.assertIsNone(qdr.days_of_week())
+
+    def test_days_of_week_field_unset_returns_none(self):
+        self.assertIsNone(self._make_qdr(None).days_of_week())
+
+
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):
         self.now = parser.isoparse("2021-08-25T00:00:00.000Z")
