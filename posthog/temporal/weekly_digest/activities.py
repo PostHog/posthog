@@ -13,7 +13,14 @@ from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.schema import HogQLFilters
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.messaging import MessagingRecord
+from posthog.models.team import Team
 from posthog.ph_client import get_client as get_ph_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -345,21 +352,20 @@ async def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> No
     )
 
 
-# NOTE: This ClickHouse query is written to match the recording-lookup pattern but has
-# NOT been executed against a live cluster — review the table/column names before enabling
-# in prod. "Active users" counts persons (`uniq(person_id)`), matching lifecycle/DAU/WAU
-# elsewhere in PostHog — counting distinct_ids would overcount (one person, many devices).
+# Weekly usage snapshot per team. Written in HogQL so it inherits the team's test-account
+# filtering (the numbers match what the team sees in product analytics) and column translation.
+# "Active users" mirrors the DAU/WAU trends definition — distinct persons, `uniqExactIf(person_id)`,
+# which is the conditional form of the `count(DISTINCT person_id)` those insights print. Counting
+# distinct_ids would overcount (one person, many devices). Two windows are compared in one pass;
+# the query runs on the offline cluster since it scans two weeks of events for every active team.
 USAGE_TRENDS_QUERY = """
 SELECT
-    countIf(timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS events_current,
-    countIf(timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS events_previous,
-    uniqIf(person_id, timestamp >= %(cur_start)s AND timestamp < %(cur_end)s) AS users_current,
-    uniqIf(person_id, timestamp >= %(prev_start)s AND timestamp < %(prev_end)s) AS users_previous
+    countIf(timestamp >= {cur_start} AND timestamp < {cur_end}) AS events_current,
+    countIf(timestamp >= {prev_start} AND timestamp < {cur_start}) AS events_previous,
+    uniqExactIf(person_id, timestamp >= {cur_start} AND timestamp < {cur_end}) AS users_current,
+    uniqExactIf(person_id, timestamp >= {prev_start} AND timestamp < {cur_start}) AS users_previous
 FROM events
-WHERE team_id = %(team_id)s
-    AND timestamp >= %(prev_start)s
-    AND timestamp < %(cur_end)s
-FORMAT JSON
+WHERE timestamp >= {prev_start} AND timestamp < {cur_end} AND {filters}
 """
 
 
@@ -378,6 +384,44 @@ def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMe
     )
 
 
+def _query_team_usage_trends(team_id: int, period_start: datetime, period_end: datetime) -> UsageTrends | None:
+    """Run the per-team usage snapshot on the offline cluster. Returns None for inactive teams.
+
+    Synchronous (HogQL execution is sync); callers wrap it with ``database_sync_to_async``.
+    """
+    team = Team.objects.get(pk=team_id)
+    window = period_end - period_start
+    response = execute_hogql_query(
+        query=USAGE_TRENDS_QUERY,
+        team=team,
+        placeholders={
+            "cur_start": ast.Constant(value=period_start),
+            "cur_end": ast.Constant(value=period_end),
+            "prev_start": ast.Constant(value=period_start - window),
+        },
+        filters=HogQLFilters(filterTestAccounts=True),
+        workload=Workload.OFFLINE,
+    )
+
+    if not response.results or not response.results[0]:
+        return None
+
+    events_current, events_previous, users_current, users_previous = response.results[0]
+    events_current = int(events_current or 0)
+    users_current = int(users_current or 0)
+
+    # Skip inactive teams entirely — no numbers worth showing.
+    if events_current == 0:
+        return None
+
+    return UsageTrends(
+        metrics=[
+            _usage_trend_metric("Events", events_current, int(events_previous or 0)),
+            _usage_trend_metric("Active users", users_current, int(users_previous or 0)),
+        ]
+    )
+
+
 @activity.defn(name="generate-usage-trends-lookup")
 async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> None:
     async with Heartbeater():
@@ -391,51 +435,15 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
         logger = LOGGER.bind()
         logger.info("Generating usage trends batch")
 
-        window = input.digest.period_end - input.digest.period_start
-        parameters_base = {
-            "cur_start": input.digest.period_start,
-            "cur_end": input.digest.period_end,
-            "prev_start": input.digest.period_start - window,
-            "prev_end": input.digest.period_start,
-        }
-
         team_count = 0
 
-        async with redis.from_url(_redis_url(input.common)) as r, get_ch_client() as ch_client:
+        async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
-                    raw_response: bytes = b""
-                    async with ch_client.aget_query(
-                        query=USAGE_TRENDS_QUERY,
-                        query_parameters={**parameters_base, "team_id": team.id},
-                        query_id=str(uuid4()),
-                    ) as ch_response:
-                        raw_response = await ch_response.content.read()
-
-                    response = ClickHouseResponse.model_validate_json(raw_response)
-                    if not response.data:
-                        logger.warning(f"Usage trends query returned no rows for team {team.id}, skipping...")
-                        continue
-                    row = response.data[0]
-
-                    events_current = int(row.get("events_current", 0) or 0)
-                    users_current = int(row.get("users_current", 0) or 0)
-
-                    # Skip inactive teams entirely — no numbers worth showing.
-                    if events_current == 0:
-                        continue
-
-                    usage_trends = UsageTrends(
-                        metrics=[
-                            _usage_trend_metric("Events", events_current, int(row.get("events_previous", 0) or 0)),
-                            _usage_trend_metric("Active users", users_current, int(row.get("users_previous", 0) or 0)),
-                        ]
+                    usage_trends = await database_sync_to_async(_query_team_usage_trends)(
+                        team.id, input.digest.period_start, input.digest.period_end
                     )
-
-                    key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
-                    await r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
-                    team_count += 1
                 except Exception as e:
                     logger.warning(
                         f"Failed to generate usage trends for team {team.id}, skipping...",
@@ -443,6 +451,13 @@ async def generate_usage_trends_lookup(input: GenerateDigestDataBatchInput) -> N
                         team_id=team.id,
                     )
                     continue
+
+                if usage_trends is None:
+                    continue
+
+                key = team_data_key(input.digest.key, TeamDataKey.USAGE_TRENDS, team.id)
+                await r.setex(key, input.common.redis_ttl, usage_trends.model_dump_json())
+                team_count += 1
 
         logger.info("Finished generating usage trends batch", team_count=team_count)
 

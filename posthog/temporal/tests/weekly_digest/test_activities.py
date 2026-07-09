@@ -2,11 +2,13 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 
 from posthog.temporal.weekly_digest.activities import (
+    _query_team_usage_trends,
     _usage_trend_metric,
     count_organizations,
     count_teams,
@@ -910,3 +912,42 @@ def test_usage_trend_metric(current, previous, expected_direction, expected_chan
     assert metric.direction == expected_direction
     assert metric.change_pct == expected_change_pct
     assert metric.has_baseline is expected_has_baseline
+
+
+@pytest.mark.django_db
+def test_query_team_usage_trends_windows_persons_and_test_accounts(team):
+    # Guards the previously-unvalidated usage query: window boundaries, distinct-person
+    # "active users" (matching DAU/WAU), and that filterTestAccounts drops test traffic.
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    period_start = period_end - timedelta(days=7)  # current window [period_start, period_end)
+
+    p1, p2 = str(uuid4()), str(uuid4())
+    # Current window: 3 events across 2 distinct persons.
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2024-01-03T00:00:00Z")
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2024-01-04T00:00:00Z")
+    _create_event(team=team, event="$pageview", distinct_id="b", person_id=p2, timestamp="2024-01-05T00:00:00Z")
+    # Previous window: 1 event, 1 person.
+    _create_event(team=team, event="$pageview", distinct_id="a", person_id=p1, timestamp="2023-12-31T00:00:00Z")
+    # Exactly at period_end is excluded (window is half-open: timestamp < cur_end).
+    _create_event(team=team, event="$pageview", distinct_id="b", person_id=p2, timestamp="2024-01-08T00:00:00Z")
+
+    # test_account_filters are phrased to KEEP real accounts, so "is_not localhost" drops the test event below.
+    team.test_account_filters = [{"key": "$host", "type": "event", "value": "localhost", "operator": "is_not"}]
+    team.save()
+    # Test-account traffic in the current window must not inflate the numbers.
+    _create_event(
+        team=team,
+        event="$pageview",
+        distinct_id="t",
+        person_id=str(uuid4()),
+        timestamp="2024-01-06T00:00:00Z",
+        properties={"$host": "localhost"},
+    )
+    flush_persons_and_events()
+
+    result = _query_team_usage_trends(team.id, period_start, period_end)
+
+    assert result is not None
+    events, users = result.metrics
+    assert (events.label, events.current, events.previous) == ("Events", 3, 1)
+    assert (users.label, users.current, users.previous) == ("Active users", 2, 1)
