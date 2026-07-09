@@ -84,7 +84,7 @@ export function InstallationProgressContent({
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
     onRetryLocally?: () => void
 }): JSX.Element {
-    const { phase, steps, error, prUrl } = progress
+    const { phase, steps, error, prUrl, prMerged } = progress
 
     // The PR is opened mid-run: while the run keeps going (keeping CI green), surface it as ready rather
     // than an indefinite "setting up". Terminal phases keep their own headline.
@@ -96,19 +96,25 @@ export function InstallationProgressContent({
             : phase === 'error'
               ? (error?.title ?? "Setup didn't finish")
               : prReady
-                ? 'Pull request ready'
+                ? prMerged
+                    ? 'Pull request merged'
+                    : 'Pull request ready'
                 : 'Setting up PostHog'
     const subtitle =
         phase === 'completed'
             ? prUrl
-                ? 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
+                ? prMerged
+                    ? 'Your pull request is merged. Deploy the changes and data starts flowing.'
+                    : 'Review and merge the pull request, then deploy. Data starts flowing the moment it ships.'
                 : mode === 'local'
                   ? 'The wizard finished its work on your machine.'
                   : "You're all set."
             : phase === 'error'
               ? "We couldn't finish the setup."
               : prReady
-                ? "Review it whenever you like; we'll keep CI green in the meantime."
+                ? prMerged
+                    ? 'Deploy the changes and data starts flowing. The run will wrap up on its own.'
+                    : "Review it whenever you like; we'll keep CI green in the meantime."
                 : phase === 'connecting'
                   ? ((mode && CONNECTING_SUBTITLE[mode]) ?? 'Getting things ready…')
                   : phase === 'idle'
@@ -257,7 +263,7 @@ export function InstallationProgressContent({
                     center
                     className="ph-no-capture"
                 >
-                    <span className="truncate">{prNameLabel(prUrl)}</span>
+                    <span className="truncate">{prNameLabel(prUrl) + (prMerged ? ' (merged)' : '')}</span>
                 </LemonButton>
             )}
 

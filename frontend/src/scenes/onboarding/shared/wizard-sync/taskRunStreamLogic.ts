@@ -22,7 +22,7 @@ export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStr
     return {
         status: dto.status,
         stage: dto.stage ?? null,
-        output: (dto.output as { pr_url?: string | null } | null) ?? null,
+        output: (dto.output as { pr_url?: string | null; pr_merged?: boolean | null } | null) ?? null,
         branch: dto.branch ?? null,
         error_message: dto.error_message ?? null,
         updated_at: dto.updated_at ?? '',
@@ -37,7 +37,7 @@ export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStr
 export interface TaskRunStreamState {
     status: string // queued | in_progress | completed | failed | cancelled
     stage: string | null
-    output: { pr_url?: string | null } | null
+    output: { pr_url?: string | null; pr_merged?: boolean | null } | null
     branch: string | null
     error_message: string | null
     updated_at: string
@@ -129,6 +129,10 @@ export function taskRunPrUrl(state: TaskRunStreamState | null, steps: TaskRunPro
         (outputUrl && outputUrl.startsWith('http') ? outputUrl : null) ??
         (prStepUrl && prStepUrl.startsWith('http') ? prStepUrl : null)
     )
+}
+
+export function taskRunPrMerged(state: TaskRunStreamState | null): boolean {
+    return state?.output?.pr_merged === true
 }
 
 export interface CloudRunCompletionReport {

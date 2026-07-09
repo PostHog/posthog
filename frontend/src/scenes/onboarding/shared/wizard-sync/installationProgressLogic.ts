@@ -9,7 +9,13 @@ import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSession
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { finishedLocalRunLogic, FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import type { installationProgressLogicType } from './installationProgressLogicType'
-import { taskRunPrUrl, taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
+import {
+    taskRunPrMerged,
+    taskRunPrUrl,
+    taskRunStreamLogic,
+    TaskRunProgressStep,
+    TaskRunStreamState,
+} from './taskRunStreamLogic'
 import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import { wizardDashboardLogic } from './wizardDashboardLogic'
 
@@ -81,6 +87,8 @@ export interface InstallationProgress {
     steps: InstallationStep[]
     error: { title: string; detail: string | null } | null
     prUrl: string | null
+    /** The bound PR was merged (webhook-recorded on the run's output). */
+    prMerged: boolean
     isCurrent: boolean
 }
 
@@ -216,6 +224,7 @@ export function cloudProgress(
     }
 
     const prUrl = taskRunPrUrl(taskRunState, progressSteps)
+    const prMerged = taskRunPrMerged(taskRunState)
 
     // The pipeline goes quiet between agent start and the PR opening: everything reads completed
     // while the agent is still writing code, committing, and drafting the PR — which looks stalled.
@@ -248,6 +257,7 @@ export function cloudProgress(
         steps,
         error,
         prUrl,
+        prMerged,
         isCurrent: phase !== 'idle',
     }
 }
@@ -268,6 +278,7 @@ export function localProgress(
             steps: [],
             error: null,
             prUrl: null,
+            prMerged: false,
             isCurrent: false,
         }
     }
@@ -298,7 +309,7 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, isCurrent: sessionIsCurrent && !dismissed }
+    return { phase, steps, error, prUrl: null, prMerged: false, isCurrent: sessionIsCurrent && !dismissed }
 }
 
 // A finished local run rendered from its persisted snapshot, after the live session stream has
@@ -312,6 +323,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
                 ? { title: 'Wizard hit an error', detail: handle.error?.message ?? null }
                 : null,
         prUrl: null,
+        prMerged: false,
         isCurrent: true,
     }
 }
