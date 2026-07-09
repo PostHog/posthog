@@ -273,6 +273,20 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_capture.assert_not_called()
 
+    def test_patch_assigns_relationship_by_uuid_key(self):
+        key = str(self.csm_definition.id)
+        response = self._patch({"external_id": "acme-1", "relationships": {key: {"type": "user", "id": self.user.id}}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._active_csm_user_ids(), [self.user.id])
+
+    def test_patch_rejects_unknown_uuid_key(self):
+        unknown_uuid = "00000000-0000-0000-0000-000000000099"
+        response = self._patch(
+            {"external_id": "acme-1", "relationships": {unknown_uuid: {"type": "user", "id": self.user.id}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(unknown_uuid, response.json()["error"])
+
 
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
     def setUp(self):

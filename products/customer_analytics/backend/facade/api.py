@@ -308,25 +308,40 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
 def _apply_external_relationship_assignments(
     account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided relationship assignments, keyed by definition name (None ends the
-    active assignment). Each non-None user id is resolved against an
-    ``OrganizationMembership`` in the account's org so assignees are always trusted.
+    """Apply provided relationship assignments, keyed by definition name or UUID (None
+    ends the active assignment). UUID keys are rename-safe — the new template uses them.
+    Name keys stay valid for back-compat with the old template and external callers.
+    Each non-None user id is resolved against an ``OrganizationMembership`` in the
+    account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
     returns (commits) on an error result rather than rolling back.
     """
-    definitions = {
-        definition.name: definition
+    uuid_keys: dict[str, UUID] = {}
+    for key in assignments:
+        try:
+            uuid_keys[key] = UUID(key)
+        except ValueError:
+            pass
+
+    by_id: dict[UUID, AccountRelationshipDefinition] = {}
+    by_name: dict[str, AccountRelationshipDefinition] = {}
+    if assignments:
+        # Every key doubles as a name candidate so a definition literally named like a
+        # UUID keeps resolving as it did before UUID keys were accepted.
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
-            name__in=assignments.keys()
-        )
-    }
+            Q(id__in=uuid_keys.values()) | Q(name__in=assignments.keys())
+        ):
+            by_id[definition.id] = definition
+            by_name[definition.name] = definition
+
     resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
-    for name, user_id in assignments.items():
-        definition = definitions.get(name)
+    for key, user_id in assignments.items():
+        definition = by_id.get(uuid_keys[key]) if key in uuid_keys else None
+        definition = definition or by_name.get(key)
         if definition is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
-                error_field=name,
+                error_field=key,
             )
         if user_id is None:
             resolved.append((definition, None))
@@ -339,7 +354,7 @@ def _apply_external_relationship_assignments(
         if membership is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                error_field=name,
+                error_field=key,
             )
         resolved.append((definition, membership.user))
 

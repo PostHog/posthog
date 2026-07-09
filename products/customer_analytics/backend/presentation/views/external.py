@@ -142,9 +142,9 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         child=serializers.JSONField(allow_null=True),
         required=False,
         help_text=(
-            "Relationship assignments keyed by definition name (e.g. 'CSM'). Each value is an "
-            "assignee object `{type: 'user', id}` or null to end the active assignment. Only the "
-            "named definitions are changed."
+            "Relationship assignments keyed by definition name (e.g. 'CSM') or definition UUID. "
+            "Each value is an assignee object `{type: 'user', id}` or null to end the active "
+            "assignment. Only the supplied definitions are changed."
         ),
     )
     tags = serializers.ListField(
