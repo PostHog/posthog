@@ -177,14 +177,11 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
             organization_member=membership,
         )
 
-    def _grant_dashboard_resource_level_access(self, access_level: str) -> None:
-        # sharing_configuration has no resource-level rows of its own - it inherits from
-        # "dashboard" (its single primary parent in RESOURCE_INHERITANCE_MAP), so this is how
-        # an org-wide sharing_configuration restriction is actually expressed.
+    def _grant_sharing_configuration_access(self, access_level: str) -> None:
         membership = OrganizationMembership.objects.get(user=self.member_user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
-            resource="dashboard",
+            resource="sharing_configuration",
             resource_id=None,
             access_level=access_level,
             organization_member=membership,
@@ -219,12 +216,10 @@ class TestSessionRecordingsSharingAccessControl(APIBaseTest, ClickhouseTestMixin
         self, access_level: str, expected_status: int
     ) -> None:
         # Editor access to the recording itself must not be sufficient on its own - the
-        # sharing_configuration resource is gated independently via its "dashboard" parent
-        # (its single primary parent in RESOURCE_INHERITANCE_MAP), so an org can restrict who
-        # is allowed to manage sharing - even for a recording - without touching who can edit
-        # the underlying recording.
+        # sharing_configuration resource is gated independently, so an org can restrict who is
+        # allowed to manage sharing without touching who can edit the underlying recording.
         self._grant_recording_access("editor")
-        self._grant_dashboard_resource_level_access(access_level)
+        self._grant_sharing_configuration_access(access_level)
         self.client.force_login(self.member_user)
 
         response = self.client.patch(
