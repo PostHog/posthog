@@ -134,6 +134,13 @@ FREEZE_EXPOSURE_MAX_UNRESOLVED_SHARE = 0.05
 # cohort id stamped into the (user-editable) flag filters can't point it at an arbitrary cohort.
 FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 
+# On launched experiments the frontend auto-persists a recomputed sample-size estimate, writing only
+# running_time_calculation. That's background auto-save, not a user edit, so it should not emit an
+# "experiment updated" analytics event. `_compute_changed_fields` returns a sorted/deduped list, so a
+# running-time-only write is exactly this list — an equality check skips it precisely while any
+# multi-field edit that also touches running_time_calculation is still reported.
+RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
+
 
 class ExperimentQueryStatus(str, Enum):
     """
@@ -3034,7 +3041,7 @@ class ExperimentService:
             changed_fields = self._compute_changed_fields(
                 experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
             )
-            if changed_fields:
+            if changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS:
                 self._report_experiment_updated(
                     experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
                 )

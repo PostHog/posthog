@@ -1901,6 +1901,39 @@ class TestExperimentService(APIBaseTest):
         assert self._updated_events(mock_report_user_action) == []
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_running_time_only_update_is_silent(self, mock_report_user_action):
+        # The frontend auto-persists a recomputed sample-size estimate on launched experiments,
+        # writing only running_time_calculation. That background auto-save must stay out of
+        # analytics, but the DB write itself must still land.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"running_time_calculation": {"recommended_sample_size": 4200}},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        assert self._updated_events(mock_report_user_action) == []
+        experiment.refresh_from_db()
+        assert experiment.running_time_calculation == {"recommended_sample_size": 4200}
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_running_time_change_alongside_real_edit_still_reports(self, mock_report_user_action):
+        # The skip is an exact-list match, so a genuine edit that also touches
+        # running_time_calculation must still report (a membership check would drop it).
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"name": "Renamed", "running_time_calculation": {"recommended_sample_size": 4200}},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert "name" in changed
+        assert "running_time_calculation" in changed
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_multiple_at_once(self, mock_report_user_action):
         experiment = self._create_draft_experiment()
         saved_metric = self._make_saved_metric("Reusable conversion")
