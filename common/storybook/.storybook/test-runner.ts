@@ -74,6 +74,12 @@ declare module 'storybook/internal/types' {
              */
             skipDarkMode?: boolean
             /**
+             * Skip taking a light mode snapshot. Useful for stories that pin themselves to dark mode
+             * (e.g. via story globals plus a mocked `theme_mode: 'dark'` user), where the light
+             * snapshot would render dark-computed values on a light background.
+             */
+            skipLightMode?: boolean
+            /**
              * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
              * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
              * @default false
@@ -193,7 +199,11 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
+    const {
+        skipIframeWait = false,
+        skipDarkMode = false,
+        skipLightMode = false,
+    } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
@@ -283,7 +293,9 @@ async function expectStoryToMatchSnapshot(
     }
 
     // Snapshot both light and dark themes
-    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
+    if (!skipLightMode) {
+        await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
+    }
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
     }

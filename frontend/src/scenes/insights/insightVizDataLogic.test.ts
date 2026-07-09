@@ -126,6 +126,55 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('clamps exclusion step ranges when a funnel step is removed', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'steps',
+                    exclusions: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                            funnelFromStep: 0,
+                            funnelToStep: 2,
+                        },
+                    ],
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'steps',
+                            exclusions: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$autocapture',
+                                    event: '$autocapture',
+                                    funnelFromStep: 0,
+                                    funnelToStep: 1,
+                                },
+                            ],
+                        },
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
+
         it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
