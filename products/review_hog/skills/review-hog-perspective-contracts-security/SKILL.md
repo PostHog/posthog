@@ -51,7 +51,7 @@ a separate deduplication step).
 
 ## Investigation commands
 
-- Find API endpoints: `rg "@api|@route|@post|@get" --type py -B 2 -A 5`
+- Find API endpoints: `rg "@action\(|@api_view\(|class \w+(ViewSet|APIView)" --type py -B 2 -A 5` (DRF endpoints; route wiring lives in `urls.py` / `routes.py` files)
 - Check input validation: `rg "validate|sanitize|clean.*input" --type py -A 5`
 - Find SQL queries: `rg "execute|query|raw.*sql" --type py -B 2 -A 5`
 - Check auth: `rg "authenticate|authorize|permission|@login_required" --type py -B 2 -A 3`
