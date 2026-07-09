@@ -86,15 +86,60 @@ describe('runHealth', () => {
         expect(computeFleetSummary(rows).state).toBe(expected)
     })
 
-    it('sums runs and cost across workflows', () => {
+    it('sums runs, re-runs, and cost across workflows', () => {
         const summary = computeFleetSummary([
-            { runCount: 10, successRate: 1, latestRunFailed: false, billableMinutes: 100, estimatedCostUsd: 4 },
+            {
+                runCount: 10,
+                successRate: 1,
+                latestRunFailed: false,
+                billableMinutes: 100,
+                estimatedCostUsd: 4,
+                rerunCycles: 3,
+            },
             { runCount: 5, successRate: 1, latestRunFailed: true, billableMinutes: 50, estimatedCostUsd: 2 },
         ])
         expect(summary.totalRuns).toBe(15)
         expect(summary.failingNow).toBe(1)
+        expect(summary.rerunCycles).toBe(3)
         expect(summary.estimatedCostUsd).toBe(6)
         expect(summary.billableMinutes).toBe(150)
+    })
+
+    it.each([
+        // Weighted by completed runs — an unweighted mean of per-row rates would say 0.75 here.
+        [
+            'weights the fleet rate by completed runs, not per-row average',
+            [
+                { runCount: 2, successRate: 1, latestRunFailed: false, buckets: [{ completed: 2, successes: 2 }] },
+                {
+                    runCount: 6,
+                    successRate: 0.5,
+                    latestRunFailed: true,
+                    buckets: [
+                        { completed: 3, successes: 2 },
+                        { completed: 3, successes: 1 },
+                    ],
+                },
+            ],
+            0.625,
+        ],
+        // Nothing settled anywhere → null, never a misleading 0%.
+        [
+            'null when nothing has completed',
+            [{ runCount: 3, successRate: null, latestRunFailed: null, buckets: [{ completed: 0, successes: 0 }] }],
+            null,
+        ],
+        // Rows without buckets (per-push rows) contribute nothing rather than crashing or zeroing the rate.
+        [
+            'rows without buckets are tolerated',
+            [
+                { runCount: 4, successRate: 0.5, latestRunFailed: false, buckets: [{ completed: 4, successes: 2 }] },
+                { runCount: 9, successRate: 1, latestRunFailed: false },
+            ],
+            0.5,
+        ],
+    ])('computes the fleet pass rate: %s', (_name, rows, expected) => {
+        expect(computeFleetSummary(rows).passRate).toBe(expected)
     })
 
     const job = (

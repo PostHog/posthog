@@ -3,16 +3,16 @@
 A ``CISignalFinding`` is what a detector returns and the coordinator activity emits — everything
 ``emit_signal`` needs, including the ``SignalRemediation`` it forwards verbatim. These are
 product-internal; the typed cross-boundary emit contract is the ``SignalInput`` variant in
-``schema-signals.ts`` (regenerated into ``posthog.schema``).
+``products/signals/backend/contracts.py``.
 """
 
 from dataclasses import dataclass, field
 
-from posthog.schema import SignalRemediation
+from products.signals.backend.contracts import SignalRemediation
 
-# The signal source taxonomy, mirrored from products/signals SourceProduct/SourceType (and
-# schema-signals.ts). Kept as constants so a typo can't silently emit a signal that fails the
-# emit-time variant validation.
+# The signal source taxonomy, mirrored from products/signals SignalSourceProduct/SignalSourceType.
+# Kept as constants so a typo can't silently emit a signal that fails the emit-time variant
+# validation.
 SOURCE_PRODUCT = "engineering_analytics"
 SOURCE_TYPE_FLAKY_CHECK = "ci_flaky_check"
 SOURCE_TYPE_BROKEN_MASTER = "ci_broken_master"

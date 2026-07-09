@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { LemonSwitch } from './LemonSwitch'
 
@@ -8,6 +8,23 @@ describe('LemonSwitch', () => {
     afterEach(() => {
         cleanup()
     })
+
+    it.each([
+        { checked: false as const, ariaChecked: 'false', nextChecked: true },
+        { checked: true as const, ariaChecked: 'true', nextChecked: false },
+        { checked: 'indeterminate' as const, ariaChecked: 'mixed', nextChecked: true },
+    ])(
+        'exposes aria-checked "$ariaChecked" and resolves a click to $nextChecked',
+        ({ checked, ariaChecked, nextChecked }) => {
+            const onChange = jest.fn()
+            render(<LemonSwitch checked={checked} onChange={onChange} />)
+
+            const button = screen.getByRole('switch')
+            expect(button).toHaveAttribute('aria-checked', ariaChecked)
+            fireEvent.click(button)
+            expect(onChange).toHaveBeenCalledWith(nextChecked)
+        }
+    )
 
     it.each([
         { value: true, expected: 'true' },

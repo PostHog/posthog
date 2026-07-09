@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconRewindPlay } from '@posthog/icons'
+import { IconPlay, IconRefresh, IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
@@ -57,7 +60,7 @@ function Metric({
     )
 }
 
-function versionTag(
+export function versionTag(
     obsVersion: number | null | undefined,
     currentVersion: number | null | undefined
 ): { type: LemonTagType; label: string; tooltip: string } | null {
@@ -94,10 +97,11 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationStats,
         scanner,
         triggeringOnDemandObservation,
-        refreshing,
+        retryingObservationIds,
     } = useValues(logic)
     const {
         refreshObservations,
+        retryObservation,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -194,16 +198,36 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'actions',
             width: 1,
             render: (_, obs) => (
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconRewindPlay />}
-                    to={urls.replaySingle(obs.session_id)}
-                    className="whitespace-nowrap"
-                    data-attr="vision-observation-view-recording"
-                >
-                    View recording
-                </LemonButton>
+                <div className="flex gap-1">
+                    {obs.status === 'failed' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={() => retryObservation(obs.id)}
+                                loading={retryingObservationIds.includes(obs.id)}
+                                className="whitespace-nowrap"
+                                data-attr="vision-observation-retry"
+                            >
+                                Retry
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconRewindPlay />}
+                        to={urls.replaySingle(obs.session_id)}
+                        className="whitespace-nowrap"
+                        data-attr="vision-observation-view-recording"
+                    >
+                        View recording
+                    </LemonButton>
+                </div>
             ),
         },
     ]
@@ -274,7 +298,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 type="secondary"
                                 icon={<IconRefresh />}
                                 onClick={() => refreshObservations()}
-                                loading={refreshing}
+                                loading={observationsLoading}
                                 data-attr="vision-observations-refresh"
                             >
                                 Refresh
@@ -295,16 +319,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
                         />
                         <Metric label="Ineligible" value={observationStats.ineligible} />
-                        {observationStats.inFlight > 0 && (
-                            <Metric label="In flight" value={observationStats.inFlight} />
-                        )}
+                        <Metric label="In flight" value={observationStats.inFlight} />
                     </div>
                 </div>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={refreshing || triggeringOnDemandObservation || observationsLoading}
+                loading={triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
@@ -317,13 +339,28 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 sorting={observationsSort}
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
+                // The URL scheme can't express "no sort", so a third header click would snap back with duplicate fetches.
+                noSortingCancellation
                 nouns={['observation', 'observations']}
                 emptyState={
-                    <div className="p-6 text-center text-muted">
-                        {hasActiveObservationFilters
-                            ? 'No observations match your filters.'
-                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
-                    </div>
+                    hasActiveObservationFilters ? (
+                        <div className="p-6 text-center text-muted">No observations match your filters.</div>
+                    ) : (
+                        <div className="p-6 flex flex-col items-center gap-3 text-center">
+                            <div className="text-muted">
+                                No observations yet. They'll appear here once the scanner fires on its schedule — or
+                                scan a recording right now.
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlay />}
+                                to={`${urls.replayVision(scannerId)}?tab=on-demand`}
+                                data-attr="vision-observations-empty-scan-now"
+                            >
+                                Scan a recording now
+                            </LemonButton>
+                        </div>
+                    )
                 }
             />
         </div>

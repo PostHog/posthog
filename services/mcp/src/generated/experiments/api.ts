@@ -720,10 +720,10 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
     status: zod
-        .enum(['all', 'complete', 'draft', 'paused', 'running', 'stopped'])
+        .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
         .describe(
-            'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.'
+            'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
         ),
 })
 
@@ -741,6 +741,11 @@ export const ExperimentsCreateParams = /* @__PURE__ */ zod.object({
 export const experimentsCreateBodyNameMax = 400
 
 export const experimentsCreateBodyDescriptionMax = 3000
+
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin = 0
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax = 100
+
+export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
 export const experimentsCreateBodyArchivedDefault = false
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
@@ -764,8 +769,9 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -848,49 +854,97 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
+        feature_flag: zod
+            .object({
+                filters: zod
+                    .object({
+                        groups: zod
+                            .array(
+                                zod
+                                    .object({
+                                        rollout_percentage: zod
+                                            .number()
+                                            .min(
+                                                experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin
+                                            )
+                                            .max(
+                                                experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax
+                                            )
+                                            .nullish()
+                                            .describe('Percentage of users who enter the experiment (0-100).'),
+                                        properties: zod
+                                            .array(zod.unknown())
+                                            .max(experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax)
+                                            .optional()
+                                            .describe(
+                                                'Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.'
+                                    )
+                            )
+                            .optional()
+                            .describe(
+                                'Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].'
+                            ),
+                        multivariate: zod
+                            .union([
+                                zod.object({
+                                    variants: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod.string().describe('Unique key for this variant.'),
+                                                name: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe('Human-readable name for this variant.'),
+                                                rollout_percentage: zod
+                                                    .number()
+                                                    .describe('Variant rollout percentage.'),
+                                            })
+                                        )
+                                        .describe('Variant definitions for multivariate feature flags.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Multivariate configuration for variant-based rollouts.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for group-based feature flags.'),
+                        payloads: zod
+                            .record(zod.string(), zod.string())
+                            .optional()
+                            .describe('Optional payload values keyed by variant key.'),
+                    })
+                    .describe(
+                        "Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,\nminus the keys experiments don't apply."
+                    )
+                    .optional()
+                    .describe(
+                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                    ),
+                ensure_experience_continuity: zod
+                    .boolean()
+                    .nullish()
+                    .describe('Whether the flag persists variant assignment across authentication steps.'),
+            })
+            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
+            .optional()
+            .describe(
+                "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -903,7 +957,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -1957,6 +2011,62 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -2012,7 +2122,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -2068,7 +2178,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -4131,12 +4241,10 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
-    .describe(
-        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
-    )
+    .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
@@ -4151,7 +4259,7 @@ export const ExperimentsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -4165,6 +4273,11 @@ export const ExperimentsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
+
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin = 0
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax = 100
+
+export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
@@ -4187,8 +4300,9 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4269,49 +4383,99 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
             ),
+        feature_flag: zod
+            .object({
+                filters: zod
+                    .object({
+                        groups: zod
+                            .array(
+                                zod
+                                    .object({
+                                        rollout_percentage: zod
+                                            .number()
+                                            .min(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMin
+                                            )
+                                            .max(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPercentageMax
+                                            )
+                                            .nullish()
+                                            .describe('Percentage of users who enter the experiment (0-100).'),
+                                        properties: zod
+                                            .array(zod.unknown())
+                                            .max(
+                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                'Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.'
+                                    )
+                            )
+                            .optional()
+                            .describe(
+                                'Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].'
+                            ),
+                        multivariate: zod
+                            .union([
+                                zod.object({
+                                    variants: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod.string().describe('Unique key for this variant.'),
+                                                name: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe('Human-readable name for this variant.'),
+                                                rollout_percentage: zod
+                                                    .number()
+                                                    .describe('Variant rollout percentage.'),
+                                            })
+                                        )
+                                        .describe('Variant definitions for multivariate feature flags.'),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Multivariate configuration for variant-based rollouts.'),
+                        aggregation_group_type_index: zod
+                            .number()
+                            .nullish()
+                            .describe('Group type index for group-based feature flags.'),
+                        payloads: zod
+                            .record(zod.string(), zod.string())
+                            .optional()
+                            .describe('Optional payload values keyed by variant key.'),
+                    })
+                    .describe(
+                        "Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,\nminus the keys experiments don't apply."
+                    )
+                    .optional()
+                    .describe(
+                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                    ),
+                ensure_experience_continuity: zod
+                    .boolean()
+                    .nullish()
+                    .describe('Whether the flag persists variant assignment across authentication steps.'),
+            })
+            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
+            .optional()
+            .describe(
+                "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
+            ),
         holdout_id: zod.number().nullish().describe('ID of a holdout group to exclude from the experiment.'),
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -4324,7 +4488,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -5375,6 +5539,62 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -5430,7 +5650,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -5486,7 +5706,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -7557,12 +7777,10 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
-    .describe(
-        'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
-    )
+    .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
@@ -7624,11 +7842,11 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7665,8 +7883,9 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -7753,45 +7972,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -7804,7 +7989,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -8858,6 +9043,62 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -8913,7 +9154,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -8969,7 +9210,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -11040,7 +11281,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
     .describe(
@@ -11082,6 +11323,8 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsEndCreateBodyConclusionCommentMax = 4000
 
+export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -11101,6 +11344,12 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsEndCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
 })
 
 /**
@@ -11208,6 +11457,7 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
 
 export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 
+export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -11229,6 +11479,12 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()
@@ -11239,11 +11495,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -11391,11 +11647,11 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
     .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod

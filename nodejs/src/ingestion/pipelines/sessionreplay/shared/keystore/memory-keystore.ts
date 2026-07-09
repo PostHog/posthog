@@ -14,7 +14,7 @@ export class MemoryKeyStore implements KeyStore {
         await sodium.ready
     }
 
-    generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
+    generateKey(sessionId: string, teamId: number, _retentionDays: number): Promise<SessionKey> {
         const plaintextKey = Buffer.from(sodium.crypto_secretbox_keygen())
         const sessionKey: SessionKey = {
             plaintextKey,

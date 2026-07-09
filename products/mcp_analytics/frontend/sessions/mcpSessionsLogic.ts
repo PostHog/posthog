@@ -36,6 +36,10 @@ const SEARCH_DEBOUNCE_MS = 300
 // How many sessions to fetch per request. Each "Load more" appends the next page
 export const SESSIONS_PAGE_SIZE = 50
 
+// How many of a session's tool calls to fetch per request. Each "Load more" appends the
+// next page; the button appears whenever a session has more calls than one page.
+export const TOOL_CALLS_PAGE_SIZE = 100
+
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
     | 'session_id'
@@ -59,6 +63,36 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
     return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
 }
 
+// A session's loaded tool calls, tagged with which session they belong to and whether more pages
+// exist. Carrying the session id in the value lets the panel tell "the selected session is still
+// loading" from "these are a previous session's calls" with a plain comparison — no separate
+// tracking reducer, and no reliance on the shared loader flag that a concurrent load-more can flip.
+export interface SessionToolCalls {
+    sessionId: string | null
+    calls: MCPToolCallApi[]
+    hasNext: boolean
+}
+
+const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, calls: [], hasNext: false }
+
+// Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
+// untrusted event properties, so encode it — path/query delimiters must not redirect the request to
+// another same-origin endpoint. date_from bounds the scan by the session's start so sessions older
+// than the backend's default lookback still return their calls.
+async function fetchToolCallsPage(
+    projectId: string | number,
+    sessionId: string,
+    sessionStart: string | null | undefined,
+    offset: number
+): Promise<{ calls: MCPToolCallApi[]; hasNext: boolean }> {
+    const response = await mcpAnalyticsSessionsToolCalls(String(projectId), encodeURIComponent(sessionId), {
+        date_from: sessionStart || undefined,
+        limit: TOOL_CALLS_PAGE_SIZE,
+        offset,
+    })
+    return { calls: response.results ?? [], hasNext: response.has_next ?? false }
+}
+
 export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
     connect(() => ({
@@ -70,6 +104,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // every call site to pass a placeholder argument.
         loadSessions: true,
         loadMoreSessions: true,
+        loadMoreToolCalls: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
@@ -136,24 +171,41 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             },
         ],
         toolCalls: [
-            [] as MCPToolCallApi[],
+            EMPTY_TOOL_CALLS,
             {
+                // First page for a session. Replaces the value, tagged with the session it's for.
                 loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
-                        return []
+                        return EMPTY_TOOL_CALLS
                     }
-                    // session_id comes from untrusted event properties — encode it so path/query
-                    // delimiters can't redirect this request to another same-origin endpoint.
-                    // Pass the session's start as the scan bound so sessions older than the
-                    // backend's default lookback still return their tool calls.
-                    const session = values.sessions.find((s) => s.session_id === sessionId)
-                    const response = await mcpAnalyticsSessionsToolCalls(
-                        String(values.currentProjectId),
-                        encodeURIComponent(sessionId),
-                        { date_from: session?.session_start || undefined }
+                    const page = await fetchToolCallsPage(
+                        values.currentProjectId,
+                        sessionId,
+                        values.selectedSession?.session_start,
+                        0
                     )
                     breakpoint()
-                    return [...(response.results ?? [])]
+                    return { sessionId, ...page }
+                },
+                // Load more: append the next page at offset = current length.
+                loadMoreToolCalls: async () => {
+                    const { sessionId, calls } = values.toolCalls
+                    if (!values.currentProjectId || !sessionId) {
+                        return values.toolCalls
+                    }
+                    const page = await fetchToolCallsPage(
+                        values.currentProjectId,
+                        sessionId,
+                        values.selectedSession?.session_start,
+                        calls.length
+                    )
+                    // If the user switched sessions while this page was loading, drop it — appending
+                    // one session's calls onto another's list would show the wrong data. The backend
+                    // orders by (timestamp, event_id), so pages don't overlap and need no dedupe.
+                    if (sessionId !== values.selectedSessionId) {
+                        return values.toolCalls
+                    }
+                    return { sessionId, calls: [...calls, ...page.calls], hasNext: page.hasNext }
                 },
             },
         ],
@@ -167,11 +219,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     // session_id comes from untrusted event properties — encode it so path/query
                     // delimiters can't redirect this POST to another same-origin endpoint. Bound the
                     // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
-                    const session = values.sessions.find((s) => s.session_id === sessionId)
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
                         encodeURIComponent(sessionId),
-                        { date_from: session?.session_start || undefined }
+                        { date_from: values.selectedSession?.session_start || undefined }
                     )
                 },
             },
@@ -255,6 +306,28 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
                 generatedIntentLoading && generatingSessionId === selectedSessionId,
         ],
+        // Everything the detail panel needs about the selected session's calls, derived from the
+        // loaded value (tagged with its session) so a previous session's calls never render under
+        // the new session's header. A plain comparison — no shared loader flag a concurrent load
+        // more could flip.
+        selectedSessionToolCalls: [
+            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading],
+            (
+                toolCalls,
+                selectedSessionId,
+                toolCallsLoading
+            ): { calls: MCPToolCallApi[]; hasNext: boolean; loading: boolean; loadingMore: boolean } => {
+                const isCurrent = toolCalls.sessionId === selectedSessionId
+                return {
+                    calls: isCurrent ? toolCalls.calls : [],
+                    hasNext: isCurrent && toolCalls.hasNext,
+                    // First page still loading: the loaded value isn't for the selected session yet.
+                    loading: selectedSessionId !== null && !isCurrent,
+                    // A "Load more" append is in flight for the session already on screen.
+                    loadingMore: isCurrent && toolCallsLoading,
+                }
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         // A new filter or sort changes the result set — reload from the first page.
@@ -294,26 +367,30 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             }
         },
     })),
-    // date_from / date_to are shared with the dashboard via the URL: the scene's tab links
-    // carry searchParams across tabs, so a range picked on either tab follows to the other.
+    // Mirror the filters to the URL so they survive a refresh and follow across tabs (date_from /
+    // date_to are shared with the dashboard; search is Sessions-only and also lets the dashboard
+    // deep-link a session by pre-filling its id).
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
-            if (values.dateFilter.dateFrom) {
-                searchParams.date_from = values.dateFilter.dateFrom
-            } else {
-                delete searchParams.date_from
+            const params: Record<string, string | null> = {
+                date_from: values.dateFilter.dateFrom,
+                date_to: values.dateFilter.dateTo,
+                search: values.filters.search || null,
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.date_to = values.dateFilter.dateTo
-            } else {
-                delete searchParams.date_to
+            for (const [key, value] of Object.entries(params)) {
+                if (value) {
+                    searchParams[key] = value
+                } else {
+                    delete searchParams[key]
+                }
             }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
         }
         return {
             setDateFilter: syncUrl,
+            setFilters: syncUrl,
         }
     }),
     urlToAction(({ actions, values, cache }) => ({
@@ -322,22 +399,33 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 typeof searchParams.date_from === 'string' ? searchParams.date_from : DEFAULT_DATE_FILTER.dateFrom
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
-            // setDateFilter reloads via its listener; only load directly when nothing changed.
+
+            const search = typeof searchParams.search === 'string' ? searchParams.search : ''
+            const searchChanged = search !== values.filters.search
+
+            // setFilters / setDateFilter each reload via their listener; only load directly when
+            // neither changed and we haven't loaded yet.
+            if (searchChanged) {
+                actions.setFilters({ search })
+            }
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
-            } else if (!cache.hasLoaded) {
+            } else if (!searchChanged && !cache.hasLoaded) {
                 actions.loadSessions()
             }
             cache.hasLoaded = true
         },
     })),
     afterMount(({ actions, cache }) => {
-        // urlToAction owns the initial load when the sessions URL carries date params; this is the
-        // fallback for a param-less mount (and off-route mounts in tests, where urlToAction never
-        // fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
+        // urlToAction owns the initial load when the sessions URL carries date or search params; this
+        // is the fallback for a param-less mount (and off-route mounts in tests, where urlToAction
+        // never fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
         const { searchParams } = router.values
-        const hasUrlDates = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
-        if (!hasUrlDates && !cache.hasLoaded) {
+        const hasUrlParams =
+            typeof searchParams.date_from === 'string' ||
+            typeof searchParams.date_to === 'string' ||
+            typeof searchParams.search === 'string'
+        if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.loadSessions()
         }

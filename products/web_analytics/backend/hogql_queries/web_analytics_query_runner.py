@@ -603,12 +603,20 @@ WHERE
 
         return apply_path_cleaning(path_expr, self.team)
 
-    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
-        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+    def _get_traffic_type_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
+        return get_traffic_type_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+        )
 
-    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+    def _get_traffic_category_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
         return get_traffic_category_expr(
-            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
         )
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):

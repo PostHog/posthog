@@ -27,7 +27,7 @@ problem (A3/A4), not a query-scope problem.
 - A4 — Bootstrap × `/decide` variant disagreement
 - A5 — Flag/experiment state inconsistency
 - A6 — Mid-run flag edits that rebucket already-exposed users
-- A7 — Non-randomized assignment via release conditions
+- A7 — Non-randomized assignment via release conditions (incl. forced-group arm starvation)
 - A8 — Migrating the `distinct_id` strategy during a running experiment
 
 ## A1 — Multi-variant exclusion bias on uneven split [HIGH]
@@ -349,7 +349,7 @@ The four common shapes:
   everyone. Rare but high-impact.
 
 **Detect.** `feature-flags-activity-retrieve { id: <feature_flag_id> }` is authoritative for the
-diff (the higher-fidelity activity endpoint). `activity-log-list { scope: "FeatureFlag" }` only
+diff (the higher-fidelity activity endpoint). `advanced-activity-logs-list { scopes: ["FeatureFlag"] }` only
 shows _who/when_, not _what_ — but a cluster of edits around or after `start_date` is the
 fingerprint to pursue further.
 
@@ -391,6 +391,67 @@ comparisons caveats from `references/interpretation.md`). If the override exists
 release group, or delete the group entirely. On a young experiment with little accumulated data,
 reset + relaunch after the edit; on an experiment with significant clean data from before the
 issue was noticed, treat the post-launch window as contaminated and consider end + relaunch.
+
+### A7b — A forced-variant group starves the other arm [HIGH]
+
+The cohort-vs-cohort case above invalidates significance but still collects both variants. A worse
+shape is a forced-variant release group whose `properties` are broad (or empty) at high rollout: it
+captures most or all of the population, so the _other_ variant receives almost no analyzable
+exposures. Two shapes observed in practice:
+
+- **Unconditional catch-all forcing one variant.** A release group with **empty `properties[]`**
+  (matches everyone) and a pinned `variant` at `rollout_percentage: 100`. Every user who doesn't match
+  an earlier, narrower group falls through to it and is forced to that variant; the randomized
+  `multivariate` split never applies. Observed magnitude: one arm ≈ 5.2M persons vs the other ≈ 500
+  (the residual on the starved arm being leftovers from earlier flag versions).
+- **"All new users" cohort forcing one variant, with no control path.** A release group like
+  `created_at_unix >= <ts>` → `variant: test` at 100%, where **no release group leaves `variant: null`
+  and no group forces the other variant**. Every new account is forced to `test`; the `control` arm
+  stops receiving new assignments and starves over time. Observed: control collapsed from a balanced
+  ~15k/month to ~2/month within weeks of the forced group being added, while test scaled into the
+  millions.
+
+**Detect (config-only, from `experiment-get`).** Enumerate `feature_flag.filters.groups[]` and for each
+read `variant`, `properties` (an empty array = catch-all matching everyone), and `rollout_percentage`.
+Red flags, any of:
+
+- a group with `variant` set **and** broad/empty `properties` at high `rollout_percentage`;
+- **no** group with `variant: null` — i.e. nothing is randomized at all;
+- every variant-pinned group forces the **same** variant — i.e. there is no release path to the other arm.
+
+**Confirm from exposures, and use the trend to read intent.** Run the Step 1.5 exposure-shape query —
+the starved arm shows up immediately as one variant's persons being orders of magnitude below the
+other. Then add a monthly breakdown (`toStartOfMonth(timestamp)`); the shape tells you what happened
+and is worth pulling _before_ you characterize it:
+
+- **Ran balanced, then one arm collapses** — both arms roughly even for a period, then one variant's
+  new assignments drop toward ~0 from a specific date. The experiment ran as a real A/B and was then
+  **rolled out** via the flag. The balanced window is the valid result.
+- **One arm never received meaningful traffic** — the minority variant is ≈ internal pins / a trickle
+  from the start, never a real share (e.g. one arm in the hundreds while the other is in the millions).
+  It was served one variant from the start; it likely never ran as a randomized A/B at all.
+
+This is distinct from the diagnostic-snapshot "plateau" (where the _application_ stopped firing the
+flag) — here the app still fires; the flag _config_ forces the variant, so the cause is visible in
+`feature_flag.filters.groups[]`, not just the event stream.
+
+**Calibrate before reporting — this usually mirrors a rollout, not a bug.** A broad set forcing a
+variant at 100% is most often a **deliberate rollout** done through the flag instead of the experiment
+UI (or a default being forced), with the experiment left in `running` status — not an accident. Two
+things sharpen the read:
+
+- **Which variant is forced.** Forcing `test` (the new behaviour) = the new feature was rolled out to
+  everyone. Forcing `control` (the status quo) = the _default_ was served to everyone, i.e. the feature
+  was effectively **not** shipped — worth surfacing as a question, since it's easy to pin the wrong
+  variant ("did you intend users to get the new experience, or the status quo?").
+- **The exposure trend above** — ran-then-rolled-out vs never-randomized.
+
+Whatever the intent, while the flag forces a variant the experiment **cannot produce a valid
+control-vs-test readout**, and its results page should not be read as an A/B. Recommend **concluding the
+experiment** (read any pre-rollout balanced window as the result); if it was genuinely accidental,
+removing the forced-variant group(s) and resetting restores randomization. Surface the finding and
+confirm intent rather than asserting the experiment is "broken" (consistent with Step 4's
+don't-assume-intent guidance in `SKILL.md`).
 
 ## A8 — Migrating the `distinct_id` strategy during a running experiment [HIGH]
 

@@ -6,10 +6,10 @@ import { percentage } from 'lib/utils/numbers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import type {
-    EngineeringAnalyticsCIBrokenMasterSignalExtra,
-    EngineeringAnalyticsCIDurationRegressionSignalExtra,
-    EngineeringAnalyticsCIFlakyCheckSignalExtra,
-} from '~/queries/schema/schema-signals'
+    EngineeringAnalyticsCIBrokenMasterSignalExtraApi,
+    EngineeringAnalyticsCIDurationRegressionSignalExtraApi,
+    EngineeringAnalyticsCIFlakyCheckSignalExtraApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -30,7 +30,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
     const extra = signal.extra
     switch (signal.source_type) {
         case 'ci_flaky_check': {
-            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIFlakyCheckSignalExtra
+            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIFlakyCheckSignalExtraApi
             return (
                 <LemonTag type="warning" size="small" icon={<IconWarning />}>
                     Flaky · {e.flaky_count}/{e.total_commits} commits
@@ -38,7 +38,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
             )
         }
         case 'ci_broken_master': {
-            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenMasterSignalExtra
+            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenMasterSignalExtraApi
             return (
                 <LemonTag type="danger" size="small" icon={<IconWarning />}>
                     {e.branch} · {percentage(e.success_rate, 0)} pass
@@ -46,7 +46,7 @@ function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
             )
         }
         case 'ci_duration_regression': {
-            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIDurationRegressionSignalExtra
+            const e = extra as Record<string, unknown> & EngineeringAnalyticsCIDurationRegressionSignalExtraApi
             return (
                 <LemonTag type="warning" size="small" icon={<IconClock />}>
                     p95 +{percentage(e.pct_increase, 0)}

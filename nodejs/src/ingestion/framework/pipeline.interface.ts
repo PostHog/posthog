@@ -1,13 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { IngestionWarning } from '~/ingestion/common/ingestion-warnings'
+
 import { PipelineResult, PipelineResultOk } from './results'
 
-export interface PipelineWarning {
-    type: string
-    details: Record<string, any>
-    key?: string
-    alwaysSend?: boolean
-}
+export type PipelineWarning = IngestionWarning
 
 /**
  * Processing context that carries message through pipeline transformations

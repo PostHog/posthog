@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
+import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -25,10 +26,30 @@ from products.signals.backend.facade.api import emit_signal, team_ids_with_sourc
 
 logger = structlog.get_logger(__name__)
 
+# The product's rollout flag — the same one PostHogFeatureFlagPermission enforces on the API surface
+# (presentation/views.py). Signal-source enrollment and the rollout flag are orthogonal gates, so the
+# sweep re-checks the flag per team rather than emitting for teams the product isn't rolled out to.
+ROLLOUT_FEATURE_FLAG = "engineering-analytics"
+
+
+def _rollout_flag_enabled(team: Team) -> bool:
+    org_id = str(team.organization_id)
+    project_id = str(team.id)
+    return bool(
+        posthoganalytics.feature_enabled(
+            ROLLOUT_FEATURE_FLAG,
+            str(team.uuid),
+            groups={"organization": org_id, "project": project_id},
+            group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
 
 def _detect_for_team_id(team_id: int) -> tuple[list[CISignalFinding], Team | None]:
     team = Team.objects.filter(id=team_id).first()
-    if team is None:
+    if team is None or not _rollout_flag_enabled(team):
         return [], None
     return detect_for_team(team), team
 

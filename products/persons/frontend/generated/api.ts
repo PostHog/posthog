@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
     PaginatedPersonRecordListApi,
     PatchedPersonRecordApi,
@@ -28,6 +29,7 @@ import type {
     PersonsCohortsRetrieveParams,
     PersonsDeletePropertyCreateParams,
     PersonsDeletionStatusListParams,
+    PersonsEmailsListParams,
     PersonsFunnelCreateParams,
     PersonsFunnelRetrieveParams,
     PersonsLifecycleRetrieveParams,
@@ -262,6 +264,37 @@ export const personsDeletePropertyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(personDeletePropertyRequestApi),
+    })
+}
+
+export const getPersonsEmailsListUrl = (projectId: string, id: number, params?: PersonsEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/${id}/emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/${id}/emails/`
+}
+
+/**
+ * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ */
+export const personsEmailsList = async (
+    projectId: string,
+    id: number,
+    params?: PersonsEmailsListParams,
+    options?: RequestInit
+): Promise<MessageAssetApi[]> => {
+    return apiMutator<MessageAssetApi[]>(getPersonsEmailsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

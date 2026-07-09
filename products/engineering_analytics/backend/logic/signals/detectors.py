@@ -15,8 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from posthog.schema import SignalRemediation
-
+from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
@@ -26,6 +25,8 @@ from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_FLAKY_CHECK,
     CISignalFinding,
 )
+from products.signals.backend.contracts import SignalRemediation
+from products.signals.backend.enums import ReportPriority
 
 logger = structlog.get_logger(__name__)
 
@@ -95,7 +96,7 @@ def detect_flaky_checks(
                         f".test_quarantine.json (see the hogli quarantine tooling) or fixes the root-cause flake. "
                         f"Do not mask it with a blanket retry."
                     ),
-                    priority="P2",
+                    priority=ReportPriority.P2,
                 ),
             )
         )
@@ -115,7 +116,9 @@ def detect_broken_master(
     findings: list[CISignalFinding] = []
     for branch in default_branches:
         # A repo uses one default branch; the other query returns nothing rather than erroring.
-        for item in query_workflow_health(curated=curated, date_from=date_from, date_to=now, branch=branch):
+        for item in query_workflow_health(
+            curated=curated, date_from=date_from, date_to=now, branch=branch, run_scope=WorkflowHealthRunScope.ALL
+        ):
             if item.run_count < min_runs or item.success_rate is None or not item.latest_run_failed:
                 continue
             if item.success_rate > max_success_rate:
@@ -153,7 +156,7 @@ def detect_broken_master(
                             f"failing run's logs, bisect the recent merges to {branch} to find the breaking change, "
                             f"and open a revert or a targeted fix PR. Prioritize unblocking the branch."
                         ),
-                        priority="P1",
+                        priority=ReportPriority.P1,
                     ),
                 )
             )
@@ -172,11 +175,19 @@ def detect_ci_duration_regressions(
     window = timedelta(days=window_days)
     current = {
         (i.repo.owner, i.repo.name, i.workflow_name): i
-        for i in query_workflow_health(curated=curated, date_from=now - window, date_to=now, branch=None)
+        for i in query_workflow_health(
+            curated=curated, date_from=now - window, date_to=now, branch=None, run_scope=WorkflowHealthRunScope.ALL
+        )
     }
     baseline = {
         (i.repo.owner, i.repo.name, i.workflow_name): i
-        for i in query_workflow_health(curated=curated, date_from=now - 2 * window, date_to=now - window, branch=None)
+        for i in query_workflow_health(
+            curated=curated,
+            date_from=now - 2 * window,
+            date_to=now - window,
+            branch=None,
+            run_scope=WorkflowHealthRunScope.ALL,
+        )
     }
     findings: list[CISignalFinding] = []
     for key, cur in current.items():
@@ -223,7 +234,7 @@ def detect_ci_duration_regressions(
                         f"against a baseline-window run, find what got slower (a new/slow test, a heavier job, lost "
                         f"caching), and propose the optimization."
                     ),
-                    priority="P3",
+                    priority=ReportPriority.P3,
                 ),
             )
         )

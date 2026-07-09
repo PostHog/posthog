@@ -47,15 +47,6 @@ def get_channel_definition_dict():
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
-def get_geoip_city_postal_dict():
-    """Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): the ip_trie dictionary backing the lookupGeoip* functions.
-
-    The dictionary maps an IP to GeoLite2 `city_name` / `postal_code` and was created manually on the cloud clusters
-    for the incident backfill — it is not part of any migration, so the functions only work where it exists.
-    """
-    return f"{django_settings.CLICKHOUSE_DATABASE}.city_postal_ip_trie"
-
-
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     expr_type = expr.type
     while isinstance(expr_type, ast.FieldAliasType):
@@ -803,7 +794,16 @@ class BasePrinter(Visitor[str]):
 
     def visit_array_access(self, node: ast.ArrayAccess):
         symbol = self._array_access_prefix(bool(node.nullish))
-        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+        array = self.visit(node.array)
+        # `[...]` binds tighter than any infix-printed form, so a loose operand
+        # must be parenthesized or the printed text re-parses with the access on
+        # the operand's last token (`(1 AS x)[1]` would print as `1 AS x[1]`,
+        # which doesn't parse back).
+        if isinstance(node.array, ast.BetweenExpr | ast.IsDistinctFrom) or (
+            isinstance(node.array, ast.Alias) and not node.array.hidden
+        ):
+            array = f"({array})"
+        return f"{array}{symbol}[{self.visit(node.property)}]"
 
     def _tuple_access_separator(self, nullish: bool) -> str:
         """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""

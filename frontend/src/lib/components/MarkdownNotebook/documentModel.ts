@@ -13,6 +13,7 @@ import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
 import { getTextChanges, mapTextIndex } from './textChanges'
 import {
     NotebookBlockNode,
+    NotebookCodeBlockNode,
     NotebookComponentBlockNode,
     NotebookDocument,
     NotebookInlineNode,
@@ -121,7 +122,10 @@ export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBl
 export function isGroupedBlockquoteNode(
     node: NotebookBlockNode
 ): node is NotebookTextBlockNode | NotebookListBlockNode {
-    return (isTextBlockNode(node) && node.type === 'blockquote') || (node.type === 'list' && !!node.blockquote)
+    return (
+        (isTextBlockNode(node) && (node.type === 'blockquote' || !!node.blockquote)) ||
+        (node.type === 'list' && !!node.blockquote)
+    )
 }
 
 export function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -267,17 +271,45 @@ export function removeNotebookNodesWithRefCleanup(document: NotebookDocument, no
     return { ...document, nodes: stripNotebookRefMarksFromNodes(remainingNodes, removedRefIds) }
 }
 
-/** Unwraps `<ref>` tags with the given ids across every text-bearing block, keeping the text. */
+/** Unwraps `<ref>` tags (and code block anchors) with the given ids across every block, keeping the text. */
 export function stripNotebookRefMarksFromNodes(nodes: NotebookBlockNode[], refIds: Set<string>): NotebookBlockNode[] {
     if (!refIds.size) {
         return nodes
     }
 
-    return nodes.map((node) =>
-        mapNodeInlineChildren(node, (children) =>
+    return nodes.map((node) => {
+        if (node.type === 'code') {
+            if (!node.refs?.some((ref) => refIds.has(ref.id))) {
+                return node
+            }
+            const refs = node.refs.filter((ref) => !refIds.has(ref.id))
+            return { ...node, refs: refs.length ? refs : undefined }
+        }
+        return mapNodeInlineChildren(node, (children) =>
             [...refIds].reduce((current, refId) => removeInlineRefMark(current, refId), children)
         )
-    )
+    })
+}
+
+/** Replaces a code block's text, remapping its comment anchors through the edit and dropping
+ * anchors whose range the edit deleted. Insertions at an anchor's edges stay outside it. */
+export function updateNotebookCodeBlockText(node: NotebookCodeBlockNode, nextText: string): NotebookCodeBlockNode {
+    if (node.text === nextText) {
+        return node
+    }
+    if (!node.refs?.length) {
+        return { ...node, text: nextText }
+    }
+
+    const changes = getTextChanges(node.text, nextText)
+    const refs = node.refs
+        .map((ref) => ({
+            ...ref,
+            start: mapTextIndex(ref.start, changes, 'right'),
+            end: mapTextIndex(ref.end, changes, 'left'),
+        }))
+        .filter((ref) => ref.end > ref.start)
+    return { ...node, text: nextText, refs: refs.length ? refs : undefined }
 }
 
 export function isCommentComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -289,7 +321,7 @@ export function getPromptSource(value: NotebookPropValue | undefined): 'slash' |
 }
 
 export function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, right: NotebookTextBlockNode): boolean {
-    if (left.type !== right.type) {
+    if (left.type !== right.type || !!left.blockquote !== !!right.blockquote) {
         return false
     }
 
@@ -429,6 +461,8 @@ export function getTextBlockShortcutReplacement(
                     id: node.id,
                     type: 'heading',
                     level: headingShortcut,
+                    // A heading typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
                     children: [],
                 },
             ],

@@ -180,41 +180,6 @@ export const YAxisFormats: Story = {
     ),
 }
 
-export const WithGoalLine: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesBarChart
-                    series={SERIES}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{
-                        yAxis: { showGrid: true },
-                        goalLines: [{ value: 50, label: 'Target' }],
-                    }}
-                />
-            </Stage>
-        )
-    },
-}
-
-export const WithValueLabels: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <TimeSeriesBarChart
-                    series={[SERIES[0]]}
-                    labels={DAYS}
-                    theme={theme}
-                    config={{ yAxis: { showGrid: true }, valueLabels: true }}
-                />
-            </Stage>
-        )
-    },
-}
-
 export const DateAxis: Story = {
     render: () => {
         const cells: { interval: TimeInterval; labels: string[]; series: Series[]; title: string }[] = [

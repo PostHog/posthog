@@ -25,6 +25,7 @@ import structlog
 from posthog.redis import get_async_client, get_client
 
 from products.wizard.backend.facade.contracts import WizardSessionDTO
+from products.wizard.backend.metrics import WIZARD_PUBSUB_PUBLISH_TOTAL
 
 logger = structlog.get_logger(__name__)
 
@@ -69,6 +70,7 @@ def publish_session_update(dto: WizardSessionDTO) -> None:
         try:
             receivers = get_client().publish(channel, payload)
         except Exception:
+            WIZARD_PUBSUB_PUBLISH_TOTAL.labels(outcome="failed").inc()
             logger.exception(
                 "wizard_sessions publish failed",
                 channel=channel,
@@ -76,6 +78,7 @@ def publish_session_update(dto: WizardSessionDTO) -> None:
                 payload_bytes=len(payload),
             )
             return
+        WIZARD_PUBSUB_PUBLISH_TOTAL.labels(outcome="published").inc()
         logger.debug(
             "wizard_sessions publish",
             channel=channel,

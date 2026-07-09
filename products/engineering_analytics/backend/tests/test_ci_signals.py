@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.logic.signals.detectors import (
 )
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_RUNS_COLUMNS
+from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
@@ -62,11 +63,12 @@ def _run_row(
 
 
 def test_source_type_constants_match_signals_taxonomy() -> None:
-    # Guards the constants ↔ SignalSourceConfig enum mirror: a drift here makes emit_signal reject
+    # Guards the constants ↔ signals taxonomy mirror: a drift here makes emit_signal reject
     # every CI signal as an unknown source_product/source_type, silently emitting nothing.
-    assert SOURCE_PRODUCT in set(SignalSourceConfig.SourceProduct.values)
+    assert SOURCE_PRODUCT in {product.value for product in SignalSourceConfig.SourceProduct}
     for source_type in (SOURCE_TYPE_FLAKY_CHECK, SOURCE_TYPE_BROKEN_MASTER, SOURCE_TYPE_DURATION_REGRESSION):
-        assert source_type in set(SignalSourceConfig.SourceType.values)
+        assert source_type in {choice.value for choice in SignalSourceConfig.SourceType}
+        assert (SOURCE_PRODUCT, source_type) in SIGNAL_VARIANT_LOOKUP
 
 
 class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
