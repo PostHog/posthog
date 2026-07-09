@@ -620,22 +620,6 @@
             "readOnlyHint": true
         }
     },
-    "read-data-warehouse-schema": {
-        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
-        "category": "Data schema",
-        "feature": "data_schema",
-        "summary": "Read core data warehouse schemas and table lists.",
-        "title": "Read data warehouse schema",
-        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
-        "feature_flag": "mcp-sql-schema-discovery",
-        "feature_flag_behavior": "disable",
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",

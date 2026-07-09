@@ -19,7 +19,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -61,6 +61,9 @@ from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
+    SandboxCustomImageBuildSerializer,
+    SandboxCustomImageSerializer,
+    SandboxCustomImageWriteSerializer,
     SandboxEnvironmentListSerializer,
     SandboxEnvironmentSerializer,
     SandboxEnvironmentWriteSerializer,
@@ -88,6 +91,11 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunLivingArtifactCreateRequestSerializer,
+    TaskRunLivingArtifactEditRequestSerializer,
+    TaskRunLivingArtifactOpenResponseSerializer,
+    TaskRunLivingArtifactResponseSerializer,
+    TaskRunLivingArtifactsResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -780,7 +788,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         is_read_only = self.action in self._READ_ONLY_ACTIONS
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve", "logs", "session_logs", "stream", "stream_token")
+            and self.action
+            in (
+                "list",
+                "retrieve",
+                "logs",
+                "session_logs",
+                "stream",
+                "stream_token",
+            )
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not tasks_facade.task_accessible_for_run_view(
@@ -1924,6 +1940,170 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return method
 
 
+class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for a task run's living artifacts — stable, versioned deliverable handles
+    (Slack canvases/messages/files, connected documents) that agents create and edit.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    # The artifact registry is small and bounded per task; the response is a plain list.
+    pagination_class = None
+    # Fallback for drf-spectacular introspection only; every action declares its own
+    # request/response schema via @validated_request.
+    serializer_class = TaskRunLivingArtifactResponseSerializer
+
+    def _task_id(self) -> str:
+        task_id = self.kwargs.get("parent_lookup_task_id")
+        if not task_id:
+            raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
+        return task_id
+
+    def _run_id(self) -> str:
+        run_id = self.kwargs.get("parent_lookup_run_id")
+        if not run_id:
+            raise NotFound("Run ID is required")
+        return run_id
+
+    def _ensure_task_accessible(self) -> str:
+        """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
+        task_id = self._task_id()
+        is_internal_debug_read = (
+            _is_internal_debug_team(self.team_id)
+            and self.action in ("list", "retrieve")
+            and self.request.query_params.get("ph_debug") == "true"
+        )
+        if not tasks_facade.task_accessible_for_run_view(
+            task_id, self.team_id, getattr(self.request.user, "id", None), bypass_visibility=is_internal_debug_read
+        ):
+            raise NotFound("Task not found")
+        return task_id
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactsResponseSerializer,
+                description="Living artifacts registered for this task run",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="List living artifacts for a task run",
+        description="Returns stable, versioned artifact handles created by the run's task.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_list",
+    )
+    def list(self, request, *args, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifacts = tasks_facade.list_task_run_living_artifacts(self._run_id(), task_id, self.team_id)
+        if artifacts is None:
+            raise NotFound()
+        serializer = TaskRunLivingArtifactsResponseSerializer({"artifacts": artifacts})
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactCreateRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactResponseSerializer,
+                description="Created living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact payload"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Create a living artifact for a task run",
+        description=(
+            "Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. "
+            "Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage "
+            "when available."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_create",
+    )
+    def create(self, request, *args, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact, error = tasks_facade.create_task_run_living_artifact(
+            self._run_id(), task_id, self.team_id, artifact=request.validated_data
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactOpenResponseSerializer,
+                description="Living artifact with current readable content",
+            ),
+            404: OpenApiResponse(description="Living artifact not found"),
+        },
+        summary="Open a living artifact for a task run",
+        description="Return a stable living artifact handle and the current content when the adapter supports reads.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_open",
+    )
+    def retrieve(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact = tasks_facade.get_task_run_living_artifact(self._run_id(), task_id, self.team_id, artifact_id=pk)
+        if artifact is None:
+            raise NotFound()
+        serializer = TaskRunLivingArtifactOpenResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactEditRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactResponseSerializer,
+                description="Updated living artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact update"),
+            404: OpenApiResponse(description="Living artifact not found"),
+        },
+        summary="Edit a living artifact for a task run",
+        description="Commit a new version to an existing living artifact handle.",
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_edit",
+    )
+    @action(detail=True, methods=["post"], url_path="edit", required_scopes=["task:write"])
+    def edit(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact, error = tasks_facade.edit_task_run_living_artifact(
+            self._run_id(),
+            task_id,
+            self.team_id,
+            artifact_id=pk,
+            content=request.validated_data.get("content"),
+            content_bytes=request.validated_data.get("content_bytes"),
+            content_type=request.validated_data.get("content_type"),
+            source_artifact_id=request.validated_data.get("source_artifact_id"),
+            source_storage_path=request.validated_data.get("source_storage_path"),
+            name=request.validated_data.get("name"),
+            metadata=request.validated_data.get("metadata"),
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error == "not_found":
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactResponseSerializer(artifact)
+        return Response(serializer.data)
+
+
 @extend_schema(tags=["code-invites"])
 class CodeInviteViewSet(viewsets.ViewSet):
     """API for redeeming PostHog Code invite codes."""
@@ -2019,14 +2199,22 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     def create(self, request, **kwargs):
         serializer = SandboxEnvironmentWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
+        try:
+            env = tasks_facade.create_sandbox_environment(self.team_id, request.user.id, **serializer.validated_data)
+        except ValueError as e:
+            raise ValidationError(str(e))
         return Response(SandboxEnvironmentSerializer(env).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=SandboxEnvironmentWriteSerializer, responses={200: SandboxEnvironmentSerializer})
     def partial_update(self, request, pk=None, **kwargs):
         serializer = SandboxEnvironmentWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        env = tasks_facade.update_sandbox_environment(pk, self.team_id, request.user.id, **serializer.validated_data)
+        try:
+            env = tasks_facade.update_sandbox_environment(
+                pk, self.team_id, request.user.id, **serializer.validated_data
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
         if env is None:
             raise NotFound()
         return Response(SandboxEnvironmentSerializer(env).data)
@@ -2034,5 +2222,102 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     @extend_schema(responses={204: None})
     def destroy(self, request, pk=None, **kwargs):
         if not tasks_facade.delete_sandbox_environment(pk, self.team_id, request.user.id):
+            raise NotFound()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@extend_schema(tags=["sandbox-custom-images"])
+class SandboxCustomImageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+
+    Custom images only run on the Modal VM runtime, so every action is gated on the
+    `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method == "OPTIONS":
+            return
+        if not tasks_facade.sandbox_custom_images_enabled(self.team_id, request.user.id):
+            raise PermissionDenied("Custom sandbox images require the Modal VM runtime, which is not enabled")
+
+    @extend_schema(responses={200: SandboxCustomImageSerializer(many=True)})
+    def list(self, request, **kwargs):
+        images = tasks_facade.list_sandbox_custom_images(self.team_id, request.user.id)
+        page = self.paginate_queryset(images)
+        if page is not None:
+            return self.get_paginated_response(SandboxCustomImageSerializer(page, many=True).data)
+        return Response(SandboxCustomImageSerializer(images, many=True).data)
+
+    @extend_schema(responses={200: SandboxCustomImageSerializer})
+    def retrieve(self, request, pk=None, **kwargs):
+        image = tasks_facade.get_sandbox_custom_image(pk, self.team_id, request.user.id)
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(
+        request=SandboxCustomImageWriteSerializer,
+        responses={201: SandboxCustomImageSerializer},
+        description="Create a draft custom image and start its interactive image-builder agent task. "
+        "The returned builder_task_id points at the conversation.",
+    )
+    def create(self, request, **kwargs):
+        serializer = SandboxCustomImageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.create_sandbox_custom_image(self.team_id, request.user.id, **serializer.validated_data)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        return Response(SandboxCustomImageSerializer(image).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={200: SandboxCustomImageSerializer},
+        description="Revive (or reuse) the image's builder agent session. When the previous session has "
+        "ended, a fresh one is started seeded with the stored spec — use this to update an existing image.",
+    )
+    @action(detail=True, methods=["post"], url_path="builder_task", required_scopes=["task:write"])
+    def builder_task(self, request, pk=None, **kwargs):
+        try:
+            image = tasks_facade.ensure_sandbox_custom_image_builder_task(pk, self.team_id, request.user.id)
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(
+        request=SandboxCustomImageBuildSerializer,
+        responses={200: SandboxCustomImageSerializer},
+        description="Persist the image spec (from the request body or the builder agent's sandbox), "
+        "run the security scan, and on pass build and publish the image.",
+    )
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
+    def build(self, request, pk=None, **kwargs):
+        serializer = SandboxCustomImageBuildSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image = tasks_facade.build_sandbox_custom_image(
+                pk, self.team_id, request.user.id, spec_yaml=serializer.validated_data.get("spec_yaml")
+            )
+        except ValueError as e:
+            raise ValidationError(str(e))
+        if image is None:
+            raise NotFound()
+        return Response(SandboxCustomImageSerializer(image).data)
+
+    @extend_schema(responses={204: None})
+    def destroy(self, request, pk=None, **kwargs):
+        if not tasks_facade.delete_sandbox_custom_image(pk, self.team_id, request.user.id):
             raise NotFound()
         return Response(status=status.HTTP_204_NO_CONTENT)

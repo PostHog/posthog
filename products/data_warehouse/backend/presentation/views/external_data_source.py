@@ -8,6 +8,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Prefetch, Q
@@ -21,6 +22,7 @@ from openai import APIConnectionError
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -29,6 +31,7 @@ from posthog.schema import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -43,6 +46,12 @@ from posthog.api.utils import action
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberAdminManagementPermission,
+)
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
     CustomSourceAIBuilderDailyThrottle,
@@ -122,6 +131,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
+    CDCRepairError,
+    CDCRepairInProgress,
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
@@ -130,7 +141,9 @@ from products.warehouse_sources.backend.facade.source_management import (
     DocsFetchError,
     ExternalWebhookInfo,
     FieldType,
+    IntegrationAccountListingError,
     MySQLSource,
+    OAuthMixin,
     PostgresSource,
     RowFilterValidationError,
     SourceRegistry,
@@ -146,6 +159,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     get_primary_key_columns,
     manifest_request_hosts,
+    repair_cdc_source,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -263,7 +277,9 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
             nonsensitive.update(ns)
             sensitive.update(s)
-        elif isinstance(field, SourceFieldOauthConfig):
+        elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
+            # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
+            # GSC site_url), not a secret — keep it so the form can prefill on edit.
             _add_name_variants(nonsensitive, field.name)
         elif isinstance(field, SourceFieldSSHTunnelConfig):
             _add_name_variants(nonsensitive, field.name)
@@ -1528,6 +1544,39 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+class IntegrationAccountSerializer(serializers.Serializer):
+    """A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+    platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+    and one frontend selector work across all platforms."""
+
+    value = serializers.CharField(
+        help_text="The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.)."
+    )
+    display_name = serializers.CharField(help_text="Primary human-readable label for the account.")
+    is_primary = serializers.BooleanField(
+        help_text="True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first."
+    )
+    badges = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Short status chips for the account, e.g. ['Active'] or ['Pause'].",
+    )
+    group = serializers.CharField(
+        allow_null=True,
+        help_text="Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).",
+    )
+    secondary_text = serializers.CharField(
+        allow_null=True,
+        help_text="Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.",
+    )
+
+
+class IntegrationAccountsResponseSerializer(serializers.Serializer):
+    accounts = IntegrationAccountSerializer(
+        many=True,
+        help_text="All accounts the connected integration can access.",
+    )
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -1555,7 +1604,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "check_cdc_prerequisites_for_source",
         "enable_cdc",
         "disable_cdc",
+        "repair_cdc",
         "update_cdc_settings",
+        # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
+        # list them (info disclosure); also gated behind admin in dangerously_get_permissions.
+        "oauth_accounts",
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
         "preview_resource",
@@ -1581,6 +1634,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def dangerously_get_permissions(self):
+        # The account picker enumerates every account/site the connected provider exposes, so require
+        # manage access even though it's a GET — a read-only member shouldn't discover unrelated
+        # accounts (info disclosure). Other actions fall back to the viewset defaults.
+        if self.action == "oauth_accounts":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberAdminManagementPermission(),
+            ]
+        raise NotImplementedError()
 
     def get_throttles(self):
         # The AI manifest builder fans out to several Opus calls per request and isn't billed to the
@@ -1665,6 +1732,69 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                required=True,
+                description="The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').",
+            ),
+            OpenApiParameter(
+                name="integration_id",
+                type=int,
+                required=True,
+                description="The OAuth integration id whose accounts should be listed.",
+            ),
+        ],
+        responses={200: IntegrationAccountsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="oauth_accounts")
+    def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the accounts/properties a connected OAuth integration exposes, in the shared
+        IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+        this endpoint just routes by source type and serializes the result."""
+        source_type = request.query_params.get("source_type")
+        integration_id = request.query_params.get("integration_id")
+        if not source_type or not integration_id:
+            raise ValidationError("source_type and integration_id are required")
+
+        try:
+            integration_id_int = int(integration_id)
+        except ValueError:
+            raise ValidationError("integration_id must be an integer")
+
+        try:
+            source = SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+        except ValueError:
+            raise ValidationError(f"Unknown source type: {source_type}")
+
+        if not isinstance(source, OAuthMixin):
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        try:
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+        except NotImplementedError:
+            # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+        except IntegrationAccountListingError as e:
+            # Actionable, customer-side failure (revoked/expired token, deleted integration, the provider
+            # rejecting the credentials) — surface the message as a 400. Anything else (e.g. a bare
+            # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
+            raise ValidationError(str(e))
+
+        response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
+        # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
+        # otherwise poison the picker for 60s for every admin on the team.
+        if accounts:
+            cache.set(cache_key, response_data, 60)
+        return Response(response_data)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # Runs for both PUT and PATCH (DRF's partial_update delegates to update -> perform_update).
@@ -3575,6 +3705,74 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             instance.save(update_fields=["job_inputs", "updated_at"])
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(
+                response={
+                    "type": "object",
+                    "properties": {
+                        "success": {"type": "boolean"},
+                        "schemas_reset": {"type": "integer"},
+                    },
+                },
+                description="CDC repaired; schemas_reset CDC schemas will fully re-sync.",
+            ),
+            400: OpenApiResponse(
+                description="CDC not enabled, no active CDC schemas, source looks healthy, or engine-side recreation failed."
+            ),
+            409: OpenApiResponse(description="A repair is already running for this source."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def repair_cdc(self, request: Request, *arg: Any, **kwargs: Any):
+        """Repair CDC on a source whose replication resources were lost.
+
+        Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+        showing the slot/publication missing) — repairing a healthy source would drop its
+        slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+        slot/publication against the stored CDC config, resets every active CDC schema to
+        snapshot mode for a full re-sync (changes since the old slot died are
+        unrecoverable), clears the broken markers, and resumes the paused schedules.
+        Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+        source are rejected with a 409.
+        """
+        instance: ExternalDataSource = self.get_object()
+
+        adapter, err = self._get_cdc_adapter_or_400(instance)
+        if err is not None:
+            return err
+        assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+
+        cdc_config = adapter.parse_cdc_config(instance)
+        if not cdc_config.enabled:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "CDC is not enabled on this source."},
+            )
+
+        try:
+            schemas_reset = repair_cdc_source(instance)
+        except CDCRepairInProgress as e:
+            return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
+        except CDCRepairError as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure — surface as a 400 without capturing,
+            # mirroring the enable_cdc handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to repair CDC: {e}"},
+            )
+        except Exception as e:
+            capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not repair CDC: {e}"},
+            )
+
+        return Response(status=status.HTTP_200_OK, data={"success": True, "schemas_reset": schemas_reset})
 
     @action(methods=["POST"], detail=True)
     def update_cdc_settings(self, request: Request, *arg: Any, **kwargs: Any):

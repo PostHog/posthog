@@ -182,12 +182,23 @@ class TtlSchedule:
     team's GROUP BY by handing in a schedule with a tight cap, regardless of how old
     the requested window is. `None` leaves it uncapped.
 
+    `settling_period_seconds` marks how long after `time_range_end` a window's data can
+    still change (e.g. the 24h session pad in web analytics: sessions opened in the
+    window keep evolving until they close). A job *computed before* the window settled
+    (`time_range_end + settling_period`) captured in-motion data, so its freshness is
+    capped at the settling moment regardless of the band TTL — it recomputes right when
+    the data is complete instead of freezing an in-motion snapshot for a long band TTL.
+    Jobs computed after the window settled keep the full band TTL. This matters for
+    non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
+    still settling. `None` disables the check.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
     rules: list[tuple[datetime, int]]
     default_ttl_seconds: int
     max_window_days: int | None = None
+    settling_period_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime) -> int:
         for cutoff, ttl in self.rules:
@@ -207,6 +218,7 @@ def parse_ttl_schedule(
     ttl: int | dict[str, int],
     team_timezone: str = "UTC",
     max_window_days: int | None = None,
+    settling_period_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -227,7 +239,12 @@ def parse_ttl_schedule(
     if isinstance(ttl, int):
         if ttl <= 0:
             raise ValueError(f"TTL must be positive, got {ttl}")
-        return TtlSchedule(rules=[], default_ttl_seconds=ttl, max_window_days=max_window_days)
+        return TtlSchedule(
+            rules=[],
+            default_ttl_seconds=ttl,
+            max_window_days=max_window_days,
+            settling_period_seconds=settling_period_seconds,
+        )
 
     tz = ZoneInfo(team_timezone)
     rules: list[tuple[datetime, int]] = []
@@ -250,7 +267,12 @@ def parse_ttl_schedule(
             rules.append((cutoff, value))
 
     rules.sort(key=lambda r: r[0], reverse=True)
-    return TtlSchedule(rules=rules, default_ttl_seconds=default_ttl, max_window_days=max_window_days)
+    return TtlSchedule(
+        rules=rules,
+        default_ttl_seconds=default_ttl,
+        max_window_days=max_window_days,
+        settling_period_seconds=settling_period_seconds,
+    )
 
 
 def split_ranges_by_ttl(
@@ -311,6 +333,11 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
     202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # The rows/bytes-to-read cap is deterministic for a given window: the data
+    # won't shrink between attempts, so an immediate retry re-scans the same
+    # terabytes only to fail the same way. Fail fast so the caller can fall
+    # back or narrow the window.
+    307,  # TOO_MANY_ROWS_OR_BYTES
     # An OOM won't succeed on an immediate retry with the same window — retrying just
     # adds memory pressure to a cluster that already signaled it's out of memory. Fail
     # fast so the caller can react (e.g. cap the team's window) and fall back.
@@ -371,7 +398,6 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
-    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
     MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
@@ -393,7 +419,6 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
     LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
@@ -1063,20 +1088,30 @@ class LazyComputationExecutor:
         """Filter jobs by freshness according to the TTL schedule.
 
         PENDING jobs always pass (they were recently created and we should wait).
-        READY jobs must satisfy: created_at + desired_ttl >= now().
+        READY jobs must satisfy: created_at + desired_ttl >= now(), and — when the
+        schedule carries a `settling_period_seconds` — a job computed *before* its
+        window settled (`created_at < time_range_end + settling_period`) captured
+        in-motion data and is only fresh until the settling moment: it recomputes
+        once the data can no longer change instead of sitting on a long band TTL.
 
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
         now = django_timezone.now()
+        settling_period = self.ttl_schedule.settling_period_seconds
         result = []
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
-            else:
-                desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
-                if job.created_at + timedelta(seconds=desired_ttl) >= now:
-                    result.append(job)
+                continue
+            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+            fresh_until = job.created_at + timedelta(seconds=desired_ttl)
+            if settling_period is not None:
+                settled_at = job.time_range_end + timedelta(seconds=settling_period)
+                if job.created_at < settled_at:
+                    fresh_until = min(fresh_until, settled_at)
+            if fresh_until >= now:
+                result.append(job)
         return result
 
     def _wait_for_notification(self, pubsub: redis_lib.client.PubSub, timeout: float) -> dict | None:

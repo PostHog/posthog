@@ -165,13 +165,16 @@ engine=Distributed(
 > Do not initiate step 2 without confirmation that step 1 has been completed.
 
 > [!INFO]
-> Always use `IF EXISTS` or `IF NOT EXISTS` clauses:
+> Always use `IF EXISTS` / `IF NOT EXISTS` guards. For `ALTER TABLE` the guard goes on the
+> operation, **not** on the table — `ALTER TABLE IF EXISTS ...` is a ClickHouse syntax error.
 >
-> `CREATE TABLE IF NOT EXISTS`
+> `CREATE TABLE IF NOT EXISTS my_table ...`
 >
-> `ALTER TABLE IF EXISTS`
+> `ALTER TABLE my_table ADD COLUMN IF NOT EXISTS my_col ...`
 >
-> `ALTER TABLE IF EXISTS ADD COLUMN`
+> `ALTER TABLE my_table MODIFY COLUMN IF EXISTS my_col ...`
+>
+> `ALTER TABLE my_table DROP COLUMN IF EXISTS my_col`
 
 > [!CAUTION]
 > Never drop or recreate `kafka_events_json_ws` or `events_json_ws_mv`. These tables are a
@@ -337,7 +340,7 @@ SYNC is not necessary for non-replicated objects: Kafka table engine, Distribute
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS my_table ADD COLUMN ...",
+    "ALTER TABLE my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     is_alter_on_replicated_table=True
 )
@@ -349,7 +352,7 @@ The `is_alter_on_replicated_table=True` flag ensures the ALTER runs on one host 
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS sharded_my_table ADD COLUMN ...",
+    "ALTER TABLE sharded_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA],
     sharded=True
 )
@@ -361,7 +364,7 @@ The `sharded=True` flag ensures the ALTER runs once per shard.
 
 ```python
 run_sql_with_exceptions(
-    "ALTER TABLE IF EXISTS distributed_my_table ADD COLUMN ...",
+    "ALTER TABLE distributed_my_table ADD COLUMN IF NOT EXISTS ...",
     node_roles=[NodeRole.DATA]
 )
 ```

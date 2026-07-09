@@ -135,20 +135,37 @@ async def _lrange_json_or_none(key: str, start: int, end: int) -> list[dict[str,
         return None
 
 
-async def get_org_mappings_page_from_redis(
-    offset: int = 0,
-    limit: int = 10000,
-) -> list[dict[str, Any]] | None:
+class OrgMappingsCacheMissingError(Exception):
+    """The org mappings cache key is absent or holds unreadable entries.
+
+    Callers should rebuild the cache. Transient Redis errors deliberately do not
+    map to this error — they propagate as-is so activity retry policies can
+    absorb them instead of triggering a needless rebuild.
+    """
+
+
+async def get_org_mappings_page(offset: int = 0, limit: int = 10000) -> list[dict[str, Any]]:
     """Retrieve a page of org mappings via LRANGE — no decompression needed.
 
-    Args:
-        offset: Starting index for pagination
-        limit: Number of mappings to retrieve
-
-    Returns:
-        List of mapping dictionaries, empty list if past end, or None if key missing
+    Returns an empty list when ``offset`` is at or past the end of the cached
+    list, meaning pagination is complete. Raises ``OrgMappingsCacheMissingError``
+    when the key is missing or an entry cannot be parsed, so callers never
+    mistake an expired cache for a completed run.
     """
-    return await _lrange_json_or_none(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
+    redis_client = get_async_client()
+    raw_items = await redis_client.lrange(SALESFORCE_ORG_MAPPINGS_CACHE_KEY, offset, offset + limit - 1)
+    if raw_items:
+        try:
+            return [json.loads(item) for item in raw_items]
+        except (TypeError, ValueError) as e:
+            raise OrgMappingsCacheMissingError("org mappings cache entries are unreadable") from e
+
+    # LRANGE returns nothing both when the key is missing and when the offset is
+    # past the end of the list; LLEN tells those cases apart.
+    total = await redis_client.llen(SALESFORCE_ORG_MAPPINGS_CACHE_KEY)
+    if total and offset >= total:
+        return []
+    raise OrgMappingsCacheMissingError("org mappings cache key is missing")
 
 
 async def get_org_mappings_from_redis() -> list[dict[str, Any]] | None:

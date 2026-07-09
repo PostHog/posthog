@@ -48,6 +48,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
 
 from products.experiments.backend.models.experiment import (
@@ -842,6 +843,24 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
             ).inc()
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
+
+    # Every (re)auth refreshes the step-up window and drops any pending step-up requirement, so a
+    # fresh password/2FA/SSO login satisfies TimeSensitiveActionPermission.
+    request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+    request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+    # Clear the risk-telemetry dedup markers so the first anomaly after this (re)login re-emits instead
+    # of being suppressed by the pre-login signature. Pairs with the baseline reset below.
+    request.session.pop(settings.SESSION_RISK_LAST_SIG_KEY, None)
+    request.session.pop(settings.SESSION_RISK_LAST_EMIT_AT_KEY, None)
+
+    # Defensive risk-baseline reset: login() rotates the session key, so the new row's risk columns
+    # are already NULL and this is normally a no-op. It guarantees a clean baseline after a high-tier
+    # logout→re-login so the next request re-establishes from the real location instead of oscillating.
+    # Only the security baseline is cleared (not last_activity, which is display-only).
+    if request.session.session_key:
+        Session.objects.filter(session_key=request.session.session_key).update(
+            latitude=None, longitude=None, country_code=None, ua_signature=None, baseline_at=None
+        )
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:

@@ -38,14 +38,9 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars).toContainEqual({ key: 'account', result_path: null, label: 'Account' })
         expect(outputVars).toContainEqual({
-            key: 'account_csm_email',
-            result_path: 'properties.csm.email',
-            label: 'CSM email',
-        })
-        expect(outputVars).toContainEqual({
-            key: 'account_executive_id',
-            result_path: 'properties.account_executive.id',
-            label: 'Account executive ID',
+            key: 'account_relationships',
+            result_path: 'relationships',
+            label: 'Relationships',
         })
         expect(outputVars).toContainEqual({
             key: 'account_slack_channel_id',
@@ -55,12 +50,7 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars.map((v) => v.key)).toEqual([
             'account',
-            'account_csm_email',
-            'account_csm_id',
-            'account_executive_email',
-            'account_executive_id',
-            'account_owner_email',
-            'account_owner_id',
+            'account_relationships',
             'account_stripe_customer_id',
             'account_hubspot_deal_id',
             'account_billing_id',
@@ -70,18 +60,34 @@ describe('customer analytics action registry', () => {
         ])
     })
 
-    it('wires the Update account node to its hog function template', () => {
+    it('does not include the old Update account node in the picker', () => {
         const node = getCategory().nodes.find((n) => n.name === 'Update account')
+        expect(node).toBeUndefined()
+    })
+
+    it('wires the Tag account node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Tag account')
         expect(node).toMatchObject({
             type: 'function',
-            config: { template_id: 'template-posthog-update-account' },
+            config: { template_id: 'template-posthog-tag-account' },
         })
     })
 
-    it.each(['Get account', 'Update account'])('gives %s a dynamic external_id default resolver', (name) => {
-        const node = getCategory().nodes.find((n) => n.name === name)
-        expect(typeof node?.getDefaultInputs).toBe('function')
+    it('wires the Update account relationships node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Update account relationships')
+        expect(node).toMatchObject({
+            type: 'function',
+            config: { template_id: 'template-posthog-update-account-relationships' },
+        })
     })
+
+    it.each(['Get account', 'Tag account', 'Update account relationships'])(
+        'gives %s a dynamic external_id default resolver',
+        (name) => {
+            const node = getCategory().nodes.find((n) => n.name === name)
+            expect(typeof node?.getDefaultInputs).toBe('function')
+        }
+    )
 
     describe('buildAccountExternalIdInputs', () => {
         it('builds a name-based group key expression from the account group type index', () => {

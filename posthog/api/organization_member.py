@@ -31,6 +31,7 @@ from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
     apply_trigram_search,
+    drop_similar_when_exact_exists,
     normalize_search_term,
 )
 from posthog.models import OrganizationMembership
@@ -155,7 +156,7 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
+                description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
         ],
     ),
@@ -248,6 +249,9 @@ class OrganizationMemberViewSet(
                     queryset = queryset.order_by(DEFAULT_ORDERING)
 
         return queryset
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
 
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)

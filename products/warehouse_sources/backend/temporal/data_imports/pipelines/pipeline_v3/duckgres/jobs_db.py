@@ -32,10 +32,17 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
     """Latest status row for one batch via the (batch_id, created_at DESC, id DESC)
     index. Drop-in for a join to the DISTINCT ON v_latest_source_batch* view, but a
     per-batch lookup instead of materializing the whole view. SELECTs `_ls.*` so all
-    downstream <alias>.<col> references (job_state, created_at, attempt, batch_id) work."""
+    downstream <alias>.<col> references (job_state, created_at, attempt, batch_id) work.
+
+    The created_at bound exists for partition pruning, mirroring the delta queue's
+    `latest_status_lateral`: both status tables are range-partitioned by created_at,
+    and without the predicate every probe descends into every partition. A batch's
+    status rows are always written within the queue's retention horizon, so the
+    2x-retention bound cannot hide a live row."""
     return (
         f"LATERAL (SELECT _ls.* FROM {status_table} _ls "
         f"WHERE _ls.batch_id = {batch_alias}.id "
+        f"AND _ls.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}' "
         f"ORDER BY _ls.created_at DESC, _ls.id DESC LIMIT 1)"
     )
 

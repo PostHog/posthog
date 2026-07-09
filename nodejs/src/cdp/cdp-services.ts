@@ -149,8 +149,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_TRACKING_URL'
-        | 'CDP_EMAIL_MX_VALIDATION_ENABLED'
-        | 'CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -160,7 +158,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'MESSAGE_ASSETS_TOPIC'
         | 'MESSAGE_ASSETS_PRODUCER'
-        | 'MESSAGE_ASSETS_CAPTURE_ENABLED'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -395,7 +392,7 @@ export function createCdpCoreServices(
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
-    const messageAssetsService = new MessageAssetsService(outputs, config)
+    const messageAssetsService = new MessageAssetsService(outputs)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -440,7 +437,7 @@ export function createCdpCoreServices(
     // limiter, separate pool). The pool is created by the server only on pods
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
-    const emailValidationService = new EmailValidationService(config, deps.emailValidationValkey)
+    const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(

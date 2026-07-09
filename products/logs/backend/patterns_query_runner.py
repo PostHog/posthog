@@ -303,4 +303,6 @@ def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -
         # Raw sample counts: severity dominance is a proportion, which is scale-invariant,
         # so extrapolating the map would add payload without changing what it says.
         "severity_counts": pattern.severity_counts,
+        "match_regex": pattern.match_regex,
+        "match_literal": pattern.match_literal,
     }

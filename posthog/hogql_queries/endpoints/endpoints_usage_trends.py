@@ -97,6 +97,16 @@ class EndpointsUsageTrendsQueryRunner(EndpointsUsageQueryRunner[EndpointsUsageTr
                 name="toStartOfMonth",
                 args=[ast.Field(chain=["event_date"])],
             )
+        elif interval == IntervalType.QUARTER:
+            return ast.Call(
+                name="toStartOfQuarter",
+                args=[ast.Field(chain=["event_date"])],
+            )
+        elif interval == IntervalType.YEAR:
+            return ast.Call(
+                name="toStartOfYear",
+                args=[ast.Field(chain=["event_date"])],
+            )
         else:
             # Default to day
             return ast.Field(chain=["event_date"])

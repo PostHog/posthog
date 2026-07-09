@@ -39,6 +39,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
@@ -205,7 +206,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -337,7 +338,6 @@ depends_on = [
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -367,6 +367,7 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -517,7 +518,6 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources",
@@ -571,8 +571,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -616,6 +615,7 @@ layer = "modules"
 path = "products.slack_app"
 depends_on = [
     "posthog",
+    "products.conversations",
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
@@ -641,7 +641,6 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -657,8 +656,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
+    "products.analytics_platform", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -717,6 +715,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    "products.replay_vision",
 ]
 layer = "modules"
 
@@ -782,6 +781,16 @@ expose = [
 ]
 from = [
     "products.user_interviews",
+]
+
+# streamlit_apps exposes the HogQL bridge view, routed directly from posthog/urls.py.
+
+[[interfaces]]
+expose = [
+    "backend\\.presentation\\.bridge_views.*",
+]
+from = [
+    "products.streamlit_apps",
 ]
 
 # Legacy leaks — core (posthog/ee) imports these internals directly.
