@@ -1,7 +1,6 @@
 import { BindLogic } from 'kea'
 import { CSSProperties, useState } from 'react'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendInsight } from 'scenes/trends/Trends'
 
@@ -34,22 +33,8 @@ export function InsightVizStory({
     width = 720,
     minHeight = '32rem',
     children,
-}: InsightVizStoryProps): JSX.Element | null {
+}: InsightVizStoryProps): JSX.Element {
     const [dashboardItemId] = useState(() => `InsightVizStory.${uniqueNode++}` as InsightShortId)
-    const [fontsReady, setFontsReady] = useState(false)
-
-    useOnMountEffect(() => {
-        // Canvas charts measure label widths at paint time and don't repaint when fonts finish
-        // loading, so hold rendering until the faces the visual-regression runner preloads are in.
-        void Promise.all(
-            ['400', '500', '700', '800'].flatMap((weight) => [
-                document.fonts.load(`${weight} 16px Inter`),
-                document.fonts.load(`${weight} 16px RoundHog`),
-            ])
-        )
-            .then(() => document.fonts.ready)
-            .finally(() => setFontsReady(true))
-    })
     const cachedInsight = { ...insight, short_id: dashboardItemId }
     // Fixtures are loosely typed JSON; every insight fixture is an InsightVizNode with a source
     const source = (cachedInsight.query as InsightVizNode).source
@@ -60,10 +45,6 @@ export function InsightVizStory({
         key: insightVizDataNodeKey(insightProps),
         cachedResults: getCachedResults(cachedInsight, source),
         doNotLoad: true,
-    }
-
-    if (!fontsReady) {
-        return null
     }
 
     return (
