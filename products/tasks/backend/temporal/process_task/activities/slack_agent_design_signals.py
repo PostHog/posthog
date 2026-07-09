@@ -302,7 +302,11 @@ async def _relay_from_redis(
     emitter: SlackAgentDesignSignalEmitter,
     workflow_handle: Any,
 ) -> None:
-    """Fallback: tail the Django-side Redis stream. Works without a proxy, but arrives batched."""
+    """Fallback: tail the Django-side Redis stream. Works without a proxy, but arrives batched.
+
+    Unlike the proxy leg this reads from ``0`` each attempt without heartbeat-based resume: it is the
+    local/no-proxy path, so the retry replay the resume guards against is not worth the plumbing here.
+    """
     redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
     try:
         async for item in redis_stream.read_stream_entries(
