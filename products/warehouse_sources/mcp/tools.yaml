@@ -379,6 +379,9 @@ tools:
             exclude:
                 - schemas.*.table.columns
                 - schemas.*.available_columns
+    external-data-sources-oauth-accounts-retrieve:
+        operation: external_data_sources_oauth_accounts_retrieve
+        enabled: false
     external-data-sources-partial-update:
         operation: external_data_sources_partial_update
         enabled: true

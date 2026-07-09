@@ -87,6 +87,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 origin_product=task_run.task.origin_product,
                 run_environment=task_run.environment,
                 rtk_enabled=task_run.effective_rtk(),
+                status=input.status,
             )
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)
