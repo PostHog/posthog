@@ -113,6 +113,7 @@ function VisionActionsTable({ scannerId }: { scannerId: string }): JSX.Element {
                         {action.name}
                     </Link>
                     {action.is_scanner_digest && <LemonTag type="highlight">Default</LemonTag>}
+                    {action.mode === 'alert' && <LemonTag type="warning">Alert</LemonTag>}
                 </span>
             ),
         },

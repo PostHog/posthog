@@ -10,7 +10,12 @@ import {
     visionActionsList,
     visionActionsPartialUpdate,
 } from '../generated/api'
-import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import {
+    DeliveryTargetTypeEnumApi,
+    VisionActionModeEnumApi,
+    VisionAlertMetricEnumApi,
+    VisionAlertOperatorEnumApi,
+} from '../generated/api.schemas'
 import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
 import type { visionActionsLogicType } from './visionActionsLogicType'
@@ -32,6 +37,11 @@ export interface VisionActionForm {
     tags: string[]
     min_score: number | null
     max_score: number | null
+    // What the action produces; alerts carry a condition instead of synthesizing a summary.
+    mode: VisionActionModeEnumApi
+    alert_metric: VisionAlertMetricEnumApi
+    alert_operator: VisionAlertOperatorEnumApi
+    alert_threshold: number | null
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -45,6 +55,11 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     tags: [],
     min_score: null,
     max_score: null,
+    mode: VisionActionModeEnumApi.GroupSummary,
+    // "Any match" default: with a targeting filter set, count >= 1 means "whenever one matches".
+    alert_metric: VisionAlertMetricEnumApi.Count,
+    alert_operator: VisionAlertOperatorEnumApi.Gte,
+    alert_threshold: 1,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
@@ -66,12 +81,23 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
     if (form.max_score != null) {
         selection.max_score = form.max_score
     }
+    const isAlert = form.mode === VisionActionModeEnumApi.Alert
     return {
         name: form.name.trim(),
         scanner: scannerId,
+        mode: form.mode,
         trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
         selection,
-        synthesis_config: { prompt_guide: form.prompt_guide },
+        synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
+        ...(isAlert && form.alert_threshold != null
+            ? {
+                  alert_config: {
+                      metric: form.alert_metric,
+                      operator: form.alert_operator,
+                      threshold: form.alert_threshold,
+                  },
+              }
+            : {}),
         delivery_config:
             form.integration_id && form.channel
                 ? [

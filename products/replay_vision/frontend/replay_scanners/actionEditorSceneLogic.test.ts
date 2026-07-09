@@ -21,13 +21,23 @@ const existingAction = {
     delivery_config: [{ type: 'slack', integration_id: 5, channel: 'C123' }],
 } as unknown as VisionActionApi
 
+const existingAlert = {
+    ...existingAction,
+    id: 'al1',
+    name: 'alert-a',
+    mode: 'alert',
+    selection: { tags: ['rage-click'] },
+    alert_config: { metric: 'count', operator: 'gte', threshold: 3 },
+} as unknown as VisionActionApi
+
 describe('actionEditorSceneLogic', () => {
     let logic: ReturnType<typeof actionEditorSceneLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/vision/actions/:id/': existingAction,
+                '/api/projects/:team/vision/actions/:id/': ({ params }) =>
+                    params.id === 'al1' ? existingAlert : existingAction,
                 '/api/projects/:team/vision/scanners/:id/': { id: 's1', name: 'Checkout scanner' },
             },
             post: {
@@ -74,6 +84,10 @@ describe('actionEditorSceneLogic', () => {
                     tags: [],
                     min_score: 2,
                     max_score: null,
+                    mode: 'group_summary',
+                    alert_metric: 'count',
+                    alert_operator: 'gte',
+                    alert_threshold: 1,
                 },
             })
 
@@ -83,6 +97,22 @@ describe('actionEditorSceneLogic', () => {
         await expectLogic(logic).toMatchValues({
             actionForm: expect.objectContaining({ verdict: [], tags: [], min_score: null, max_score: null }),
         })
+    })
+
+    it('editing an alert seeds the mode and condition instead of flipping to summary', async () => {
+        router.actions.push(urls.replayVisionActionEdit('al1'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                targetingMode: 'filtered',
+                actionForm: expect.objectContaining({
+                    mode: 'alert',
+                    alert_metric: 'count',
+                    alert_operator: 'gte',
+                    alert_threshold: 3,
+                    tags: ['rage-click'],
+                }),
+            })
     })
 
     it('creating an action submits and navigates to the new action page', async () => {

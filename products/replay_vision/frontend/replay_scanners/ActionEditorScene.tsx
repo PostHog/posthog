@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { NotFound } from 'lib/components/NotFound'
@@ -23,6 +23,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { VisionActionModeEnumApi, VisionAlertMetricEnumApi, VisionAlertOperatorEnumApi } from '../generated/api.schemas'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
 import { DEFAULT_CADENCE } from './cadence'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -157,6 +158,7 @@ const VERDICT_OPTIONS: { value: 'yes' | 'no' | 'inconclusive'; label: string }[]
 // scorers). Summarizers have no outcome to filter on, so the section is hidden entirely.
 function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { actionForm, actionFormErrors, targetingMode } = useValues(actionEditorSceneLogic)
+    const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
     const { setActionFormValue, setTargetingMode } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
@@ -258,7 +260,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
 
     return (
         <div className="flex flex-col gap-2">
-            <h4 className="mb-0">What to summarize</h4>
+            <h4 className="mb-0">{isAlert ? 'What to match' : 'What to summarize'}</h4>
             <LemonSegmentedButton
                 size="small"
                 value={targetingMode}
@@ -270,6 +272,73 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                 data-attr="vision-action-targeting-mode"
             />
             {targetingMode === 'filtered' && controls}
+        </div>
+    )
+}
+
+const METRIC_LABELS: Record<VisionAlertMetricEnumApi, string> = {
+    [VisionAlertMetricEnumApi.Count]: 'Matching observations',
+    [VisionAlertMetricEnumApi.AvgScore]: 'Average score',
+}
+
+const OPERATOR_LABELS: Record<VisionAlertOperatorEnumApi, string> = {
+    [VisionAlertOperatorEnumApi.Gt]: 'is above',
+    [VisionAlertOperatorEnumApi.Gte]: 'is at or above',
+    [VisionAlertOperatorEnumApi.Lt]: 'is below',
+    [VisionAlertOperatorEnumApi.Lte]: 'is at or below',
+    [VisionAlertOperatorEnumApi.Eq]: 'is exactly',
+}
+
+// The alert condition: metric + operator + threshold, evaluated over each run's (targeted) window.
+function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
+    const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+
+    // avg_score only means something for scorer observations.
+    const metricOptions = (
+        scanner?.scanner_type === 'scorer'
+            ? [VisionAlertMetricEnumApi.Count, VisionAlertMetricEnumApi.AvgScore]
+            : [VisionAlertMetricEnumApi.Count]
+    ).map((value) => ({ value, label: METRIC_LABELS[value] }))
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm">Notify when</span>
+                <LemonSelect
+                    size="small"
+                    value={actionForm.alert_metric}
+                    onChange={(value) => value && setActionFormValue('alert_metric', value)}
+                    options={metricOptions}
+                    data-attr="vision-action-alert-metric"
+                />
+                <LemonSelect
+                    size="small"
+                    value={actionForm.alert_operator}
+                    onChange={(value) => value && setActionFormValue('alert_operator', value)}
+                    options={Object.entries(OPERATOR_LABELS).map(([value, label]) => ({
+                        value: value as VisionAlertOperatorEnumApi,
+                        label,
+                    }))}
+                    data-attr="vision-action-alert-operator"
+                />
+                <LemonInput
+                    type="number"
+                    value={actionForm.alert_threshold ?? undefined}
+                    onChange={(val) =>
+                        setActionFormValue('alert_threshold', val === undefined || isNaN(val) ? null : val)
+                    }
+                    className="w-24"
+                    data-attr="vision-action-alert-threshold"
+                />
+            </div>
+            {actionFormErrors?.alert_threshold ? (
+                <span className="text-xs text-danger">{String(actionFormErrors.alert_threshold)}</span>
+            ) : null}
+            <span className="text-xs text-muted">
+                Checked on each scheduled run, over the observations from that run's window.
+            </span>
         </div>
     )
 }
@@ -320,6 +389,7 @@ function DeliverySection(): JSX.Element {
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
@@ -348,11 +418,13 @@ export function ActionEditorSceneComponent(): JSX.Element {
         )
     }
 
+    const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
+    const noun = isAlert ? 'alert' : 'summary'
     const title = isNew
         ? scannerName
-            ? `New summary for ${scannerName}`
-            : 'New summary'
-        : loadedAction?.name || 'Edit summary'
+            ? `New ${noun} for ${scannerName}`
+            : `New ${noun}`
+        : loadedAction?.name || `Edit ${noun}`
     const noDays = actionForm.cadence.weekdays.length === 0
     const backTo = isNew
         ? `${urls.replayVision(effectiveScannerId)}?tab=actions`
@@ -364,7 +436,11 @@ export function ActionEditorSceneComponent(): JSX.Element {
                 <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
                     <SceneTitleSection
                         name={title}
-                        description="Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                        description={
+                            isAlert
+                                ? 'Watch this scanner on a schedule and get notified only when the condition is met.'
+                                : "Schedule an AI summary of this scanner's observations and deliver it to Slack."
+                        }
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
@@ -377,8 +453,25 @@ export function ActionEditorSceneComponent(): JSX.Element {
                     >
                         <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
                             <LemonField name="name" label="Name">
-                                <LemonInput placeholder="Daily checkout summary" autoFocus />
+                                <LemonInput
+                                    placeholder={isAlert ? 'Rage click alert' : 'Daily checkout summary'}
+                                    autoFocus
+                                />
                             </LemonField>
+
+                            <div>
+                                <h4 className="mb-1">Type</h4>
+                                <LemonSegmentedButton
+                                    size="small"
+                                    value={actionForm.mode}
+                                    onChange={(value) => setActionFormValue('mode', value)}
+                                    options={[
+                                        { value: VisionActionModeEnumApi.GroupSummary, label: 'Scheduled summary' },
+                                        { value: VisionActionModeEnumApi.Alert, label: 'Alert' },
+                                    ]}
+                                    data-attr="vision-action-mode"
+                                />
+                            </div>
 
                             <div>
                                 <h4 className="mb-1">Schedule</h4>
@@ -387,26 +480,37 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
                             {effectiveScannerId ? <TargetingSection scannerId={effectiveScannerId} /> : null}
 
-                            <LemonField
-                                name="prompt_guide"
-                                label="Additional guidance (optional)"
-                                info="Steers how the AI writes the summary."
-                            >
-                                <LemonTextArea
-                                    placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
-                                    maxLength={500}
-                                />
-                            </LemonField>
+                            {isAlert && effectiveScannerId ? (
+                                <div>
+                                    <h4 className="mb-1">Condition</h4>
+                                    <ConditionSection scannerId={effectiveScannerId} />
+                                </div>
+                            ) : null}
+
+                            {!isAlert && (
+                                <LemonField
+                                    name="prompt_guide"
+                                    label="Additional guidance (optional)"
+                                    info="Steers how the AI writes the summary."
+                                >
+                                    <LemonTextArea
+                                        placeholder="e.g. focus on issues, bugs, and friction users face — or focus on general user behavior and flows."
+                                        maxLength={500}
+                                    />
+                                </LemonField>
+                            )}
 
                             <div>
                                 <h4 className="mb-1">Deliver to Slack (optional)</h4>
                                 <DeliverySection />
                             </div>
 
-                            <div className="text-xs text-muted">
-                                Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
-                                skipped while you're over your AI-credit budget.
-                            </div>
+                            {!isAlert && (
+                                <div className="text-xs text-muted">
+                                    Each scheduled run generates an AI summary using your PostHog AI credits. Runs are
+                                    skipped while you're over your AI-credit budget.
+                                </div>
+                            )}
 
                             <div className="flex gap-2 justify-end border-t pt-4">
                                 <LemonButton type="secondary" to={backTo} data-attr="vision-action-editor-cancel">
@@ -420,7 +524,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                                     disabledReason={noDays ? 'Pick at least one day to run on' : undefined}
                                     data-attr="vision-action-editor-save"
                                 >
-                                    {isNew ? 'Create summary' : 'Save'}
+                                    {isNew ? (isAlert ? 'Create alert' : 'Create summary') : 'Save'}
                                 </LemonButton>
                             </div>
                         </div>

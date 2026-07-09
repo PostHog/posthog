@@ -15,6 +15,7 @@ import {
     visionActionsRetrieve,
     visionScannersRetrieve,
 } from '../generated/api'
+import { VisionActionModeEnumApi, VisionAlertMetricEnumApi, VisionAlertOperatorEnumApi } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import type { actionEditorSceneLogicType } from './actionEditorSceneLogicType'
 import { parseRruleToCadence } from './cadence'
@@ -134,7 +135,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
     forms(({ values }) => ({
         actionForm: {
             defaults: NEW_ACTION_FORM(),
-            errors: ({ name, cadence, min_score, max_score }: VisionActionForm) => ({
+            errors: ({ name, cadence, min_score, max_score, mode, alert_threshold }: VisionActionForm) => ({
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
@@ -143,6 +144,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                     min_score != null && max_score != null && min_score > max_score
                         ? "Min score can't exceed max score"
                         : undefined,
+                alert_threshold:
+                    mode === VisionActionModeEnumApi.Alert && alert_threshold == null ? 'Set a threshold' : undefined,
             }),
             submit: async (form: VisionActionForm) => {
                 const teamId = teamLogic.values.currentTeamId
@@ -156,13 +159,15 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 const body = buildActionBody(form, scannerId)
                 if (values.isNew) {
                     const created = await visionActionsCreate(String(teamId), body)
-                    lemonToast.success('Summary created')
+                    lemonToast.success(
+                        form.mode === VisionActionModeEnumApi.Alert ? 'Alert created' : 'Summary created'
+                    )
                     visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                     router.actions.push(urls.replayVisionAction(created.id))
                     return
                 }
                 const updated = await visionActionsPartialUpdate(String(teamId), values.actionId, body)
-                lemonToast.success('Summary updated')
+                lemonToast.success(form.mode === VisionActionModeEnumApi.Alert ? 'Alert updated' : 'Summary updated')
                 visionActionsLogic.findMounted({ scannerId })?.actions.loadActions()
                 const runsLogic = visionActionRunsLogic.findMounted({ actionId: updated.id })
                 runsLogic?.actions.loadAction()
@@ -234,6 +239,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
+                mode: action.mode ?? VisionActionModeEnumApi.GroupSummary,
+                alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
+                alert_operator: action.alert_config?.operator ?? VisionAlertOperatorEnumApi.Gte,
+                alert_threshold: action.alert_config?.threshold ?? 1,
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
                 min_score: action.selection?.min_score ?? null,

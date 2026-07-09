@@ -100,10 +100,15 @@ describe('visionActionsLogic', () => {
             tags: ['bug'],
             min_score: 1,
             max_score: 5,
+            mode: 'group_summary',
+            alert_metric: 'count',
+            alert_operator: 'gte',
+            alert_threshold: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
             name: 'Daily digest', // trimmed
             scanner: 's1',
+            mode: 'group_summary',
             trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
             selection: { verdict: ['yes'], tags: ['bug'], min_score: 1, max_score: 5 },
             synthesis_config: { prompt_guide: 'focus on checkout' },
@@ -125,9 +130,41 @@ describe('visionActionsLogic', () => {
             tags: [],
             min_score: null,
             max_score: null,
+            mode: 'group_summary',
+            alert_metric: 'count',
+            alert_operator: 'gte',
+            alert_threshold: 1,
         }
-        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
+        const body = buildActionBody(form, 's1')
+        expect(body.delivery_config).toEqual([])
         // Empty selection is sent explicitly so clearing targeting on edit persists as "run on everything".
-        expect(buildActionBody(form, 's1').selection).toEqual({})
+        expect(body.selection).toEqual({})
+        // A summary must not carry an alert condition even though the form holds the defaults.
+        expect(body.alert_config).toBeUndefined()
+    })
+
+    it('buildActionBody sends the alert condition and drops the prompt guide for alert mode', () => {
+        const form: VisionActionForm = {
+            name: 'Rage click alert',
+            cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
+            timezone: 'UTC',
+            prompt_guide: 'leftover from summary mode',
+            integration_id: null,
+            channel: '',
+            verdict: [],
+            tags: ['rage-click'],
+            min_score: null,
+            max_score: null,
+            mode: 'alert',
+            alert_metric: 'count',
+            alert_operator: 'gte',
+            alert_threshold: 1,
+        }
+        const body = buildActionBody(form, 's1')
+        expect(body.mode).toEqual('alert')
+        expect(body.alert_config).toEqual({ metric: 'count', operator: 'gte', threshold: 1 })
+        expect(body.selection).toEqual({ tags: ['rage-click'] })
+        // Alerts never synthesize, so a stale guide from a mode switch must not persist.
+        expect(body.synthesis_config).toEqual({ prompt_guide: '' })
     })
 })
