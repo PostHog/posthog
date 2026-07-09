@@ -192,24 +192,35 @@ def list_custom_property_value_suggestions(*, team_id: int, definition_id: str |
         # Date filters render a date picker, not text suggestions.
         return []
 
-    column = "value_num" if definition.data_type == DataType.NUMERIC else "value_str"
     queryset = CustomPropertyValue.objects.for_team(team_id).filter(definition_id=definition.id, is_deleted=False)
-    if needle and column == "value_str":
+
+    if definition.data_type == DataType.NUMERIC:
+        numeric_values = (
+            queryset.exclude(value_num__isnull=True)
+            .values_list("value_num", flat=True)
+            .distinct()
+            .order_by("value_num")
+        )
+        # The needle matches the *formatted* numeric string, which the database can't compute —
+        # filter in Python and stop once the limit fills, instead of slicing the queryset first.
+        suggestions: list[str] = []
+        for value in numeric_values.iterator():
+            formatted = _format_numeric_suggestion(value)
+            if formatted is None or needle not in formatted:
+                continue
+            suggestions.append(formatted)
+            if len(suggestions) == VALUE_SUGGESTIONS_LIMIT:
+                break
+        return suggestions
+
+    if needle:
         queryset = queryset.filter(value_str__icontains=needle)
-    values = queryset.exclude(**{f"{column}__isnull": True}).values_list(column, flat=True).distinct().order_by(column)
-    if column == "value_str":
-        return list(values[:VALUE_SUGGESTIONS_LIMIT])
-    # The needle matches the *formatted* numeric string, which the database can't compute — filter
-    # in Python and stop once the limit fills, instead of slicing the queryset before filtering.
-    suggestions: list[str] = []
-    for value in values.iterator():
-        formatted = _format_numeric_suggestion(value)
-        if formatted is None or needle not in formatted:
-            continue
-        suggestions.append(formatted)
-        if len(suggestions) == VALUE_SUGGESTIONS_LIMIT:
-            break
-    return suggestions
+    return list(
+        queryset.exclude(value_str__isnull=True)
+        .values_list("value_str", flat=True)
+        .distinct()
+        .order_by("value_str")[:VALUE_SUGGESTIONS_LIMIT]
+    )
 
 
 def _format_numeric_suggestion(value: float) -> str | None:
