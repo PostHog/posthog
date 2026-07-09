@@ -74,10 +74,11 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
+    // Only safe to call outside a transaction: it reads person size from the pool and retries the
+    // update, which cannot work on an aborted transaction connection (see updatePerson's catch).
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: PersonUpdateFields,
-        tx?: TransactionClient
+        update: PersonUpdateFields
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
@@ -86,7 +87,7 @@ export class PostgresPersonRepository
                 personPropertiesSizeViolationCounter.inc({
                     violation_type: 'existing_record_violates_limit',
                 })
-                return await this.handleExistingOversizedRecord(person, update, tx)
+                return await this.handleExistingOversizedRecord(person, update)
             } catch {
                 logger.warn('Failed to handle previously oversized person record', {
                     team_id: person.team_id,
@@ -122,8 +123,7 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: PersonUpdateFields,
-        tx?: TransactionClient
+        update: PersonUpdateFields
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         try {
             const trimmedProperties = this.trimPropertiesToFitSize(
@@ -141,8 +141,7 @@ export class PostgresPersonRepository
             const [updatedPerson, kafkaMessages, versionDisparity] = await this.updatePerson(
                 person,
                 trimmedUpdate,
-                'oversized_properties_remediation',
-                tx
+                'oversized_properties_remediation'
             )
             oversizedPersonPropertiesTrimmedCounter.inc({ result: 'success' })
             return [updatedPerson, kafkaMessages, versionDisparity]
@@ -1022,7 +1021,26 @@ export class PostgresPersonRepository
             return [updatedPerson, [kafkaMessage], versionDisparity > 0]
         } catch (error) {
             if (this.isPropertiesSizeConstraintViolation(error) && tag !== 'oversized_properties_remediation') {
-                return await this.handleOversizedPersonProperties(person, update, tx)
+                if (tx) {
+                    // We can't remediate inside a transaction. The 23514 violation has already aborted
+                    // the transaction, so every subsequent statement on this client fails with 25P02
+                    // until rollback (we use no savepoints). On top of that, the remediation path's
+                    // size check runs against the pool (PostgresUse.PERSONS_READ), which would acquire
+                    // a second connection while this one still holds the transaction. On a shared pool
+                    // with no acquire timeout, enough concurrent merges taking that path deadlock the
+                    // pool permanently. The merge callers already handle this error, so surface it.
+                    personPropertiesSizeViolationCounter.inc({
+                        violation_type: 'attempt_to_violate_limit_in_transaction',
+                    })
+
+                    throw new PersonPropertiesSizeViolationError(
+                        `Person properties update would exceed size limit`,
+                        person.team_id,
+                        person.id
+                    )
+                }
+
+                return await this.handleOversizedPersonProperties(person, update)
             }
 
             // Re-throw other errors

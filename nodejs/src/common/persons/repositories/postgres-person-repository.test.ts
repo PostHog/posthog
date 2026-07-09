@@ -2144,6 +2144,42 @@ describe('PostgresPersonRepository', () => {
                 mockQuery.mockRestore()
             })
 
+            it('rejects an in-transaction size violation without acquiring a pool connection', async () => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, 'test-in-tx-oversized', { name: 'John' })
+
+                // Remediation reads the current size via personPropertiesSize, which queries the pool
+                // (PostgresUse.PERSONS_READ) and would acquire a second connection while the transaction
+                // still holds one — a deadlock hazard on a saturated pool. It must never run inside a tx.
+                const personPropertiesSizeSpy = jest.spyOn(oversizedRepository, 'personPropertiesSize')
+
+                const originalQuery = postgres.query.bind(postgres)
+                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
+                        const error = new Error('Check constraint violation')
+                        ;(error as any).code = '23514'
+                        ;(error as any).constraint = 'check_properties_size'
+                        throw error
+                    }
+                    return originalQuery(use, query, values, tag)
+                })
+
+                const oversizedUpdate = { properties: { description: 'x'.repeat(200) } }
+
+                await expect(
+                    oversizedRepository.inTransaction('test-in-tx-oversized', (tx) =>
+                        tx.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
+                    )
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
+
+                expect(personPropertiesSizeSpy).not.toHaveBeenCalled()
+                const acquiredPoolConnection = mockQuery.mock.calls.some(([use]) => use === PostgresUse.PERSONS_READ)
+                expect(acquiredPoolConnection).toBe(false)
+
+                mockQuery.mockRestore()
+                personPropertiesSizeSpy.mockRestore()
+            })
+
             it('should fail gracefully when trimming fails', async () => {
                 const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-trim-failure', {
