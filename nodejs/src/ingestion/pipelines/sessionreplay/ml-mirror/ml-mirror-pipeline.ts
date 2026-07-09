@@ -69,27 +69,23 @@ export function createMlMirrorReplayPipeline(
                 // Resolve retention up front (before parse), keyed on the (validated) session_id
                 // header; drop unresolvable sessions.
                 .gather()
-                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
-                    tries: 3,
-                    sleepMs: 100,
+                .pipeBatch(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    retry: { tries: 3, sleepMs: 100 },
                 })
                 // Track sessions and rate-limit new ones for the whole batch, tagging each with
                 // isNewSession and a gate verdict; blocked sessions are carried (not dropped) to the
                 // mark-seen step, all in this step's own retry scope.
-                .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
-                    tries: 3,
-                    sleepMs: 100,
+                .pipeBatch(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                    retry: { tries: 3, sleepMs: 100 },
                 })
                 // Resolve each session's encryption key once per session (grouped), concurrently across
                 // sessions with a bounded fan-out and per-session retry. Deleted sessions drop here.
-                .groupBy((element) => `${element.team.teamId}:${element.headers.session_id}`)
-                .concurrently(
+                .concurrentlyPerGroup(
+                    (element) => `${element.team.teamId}:${element.headers.session_id}`,
                     (group) =>
                         group.sequentially((b) =>
-                            b.retry((rb) => rb.pipe(createResolveKeyStep(keyStore)), {
-                                name: 'resolve_session_key',
-                                tries: 3,
-                                sleepMs: 100,
+                            b.pipe(createResolveKeyStep(keyStore), {
+                                retry: { name: 'resolve_session_key', tries: 3, sleepMs: 100 },
                             })
                         ),
                     { maxConcurrency: sessionKeyResolutionMaxConcurrency }

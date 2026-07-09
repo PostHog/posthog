@@ -5,8 +5,14 @@ from typing import Any
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
+from posthog.storage import object_storage
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
+
+from products.tasks.backend.logic.services.living_artifacts import (
+    deliver_pending_slack_file_artifacts,
+    has_pending_slack_file_artifacts,
+)
 
 logger = get_logger(__name__)
 
@@ -17,6 +23,18 @@ _RE_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{2,}:?$")
 _RE_FENCE = re.compile(r"^\s*(```|~~~)")
 _RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_DELIVERY_CLAIM = re.compile(r"\b(?:attached|uploaded|shared)\b", re.IGNORECASE)
+_RE_DELIVERY_NEGATION = re.compile(
+    r"\b(?:not|never|cannot|can't|could not|couldn't|unable to|no file was)\s+"
+    r"(?:actually\s+)?(?:be\s+)?(?:attached|uploaded|shared)\b",
+    re.IGNORECASE,
+)
+_RE_LOCAL_DELIVERABLE_REFERENCE = re.compile(
+    r"(?:/tmp/workspace/|\b(?:report|pdf|spreadsheet|document|file)\b|\.(?:pdf|xlsx|csv|docx|txt|md|html)\b)",
+    re.IGNORECASE,
+)
+_UNCONFIRMED_ATTACHMENT_NOTICE = "\n\n_Note: I can relay text here, but no file was attached to Slack for this run._"
+_ARTIFACT_LINKS_HEADER = "\n\n*Artifacts available in Slack:*"
 
 # Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
 # angle-bracket link, e.g. ``**<https://example.com**>`` instead of
@@ -79,6 +97,61 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
         return text
     repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text)))
     return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
+
+
+def _append_unconfirmed_attachment_notice(
+    text: str,
+    *,
+    artifacts: list[Any] | None,
+    origin_product: str | None,
+) -> str:
+    if origin_product != "slack" or artifacts:
+        return text
+
+    normalized = " ".join(text.split())
+    if _RE_DELIVERY_NEGATION.search(normalized):
+        return text
+    if not _RE_DELIVERY_CLAIM.search(normalized):
+        return text
+    if not _RE_LOCAL_DELIVERABLE_REFERENCE.search(normalized):
+        return text
+
+    return f"{text.rstrip()}{_UNCONFIRMED_ATTACHMENT_NOTICE}"
+
+
+def _append_artifact_links(
+    text: str,
+    *,
+    artifacts: list[Any] | None,
+    origin_product: str | None,
+) -> str:
+    if origin_product != "slack" or not artifacts:
+        return text
+
+    normalized = " ".join(text.split())
+    if not _RE_DELIVERY_CLAIM.search(normalized) and not _RE_LOCAL_DELIVERABLE_REFERENCE.search(normalized):
+        return text
+
+    lines: list[str] = []
+    for artifact in artifacts[:5]:
+        if not isinstance(artifact, dict):
+            continue
+        name = str(artifact.get("name") or "Artifact")
+        storage_path = artifact.get("storage_path")
+        if not storage_path:
+            continue
+        try:
+            url = object_storage.get_presigned_url(storage_path)
+        except Exception:
+            logger.warning("slack_relay_artifact_presign_failed", storage_path=storage_path, exc_info=True)
+            continue
+        if not url:
+            continue
+        lines.append(f"- <{url}|{name}>")
+
+    if not lines:
+        return text
+    return f"{text.rstrip()}{_ARTIFACT_LINKS_HEADER}\n" + "\n".join(lines)
 
 
 def _repair_link_trailing_markers(text: str) -> str:
@@ -347,6 +420,19 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
+    has_pending_slack_files = has_pending_slack_file_artifacts(task_run)
+    if not has_pending_slack_files:
+        text = _append_unconfirmed_attachment_notice(
+            text,
+            artifacts=task_run.artifacts,
+            origin_product=mapping.task.origin_product,
+        )
+        text = _append_artifact_links(
+            text,
+            artifacts=task_run.artifacts,
+            origin_product=mapping.task.origin_product,
+        )
+
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
     # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
@@ -366,8 +452,19 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
-    for index, chunk in enumerate(chunks):
-        prefix = mention_prefix if index == 0 else ""
+
+    delivered_file_count = 0
+    chunks_to_post = chunks
+    if has_pending_slack_files and chunks:
+        delivered_file_count = deliver_pending_slack_file_artifacts(
+            task_run,
+            initial_comment=f"{mention_prefix}{chunks[0]}",
+        )
+        if delivered_file_count:
+            chunks_to_post = chunks[1:]
+
+    for index, chunk in enumerate(chunks_to_post):
+        prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
         handler.post_thread_message(f"{prefix}{chunk}")
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)

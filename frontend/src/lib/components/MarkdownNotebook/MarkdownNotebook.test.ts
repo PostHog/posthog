@@ -4538,6 +4538,34 @@ Body text`)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> ## Quoted text`)
     })
 
+    it('shows both the heading and blockquote buttons active for a quoted heading selection', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> ## Quoted heading') })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(headingBlock), 0, 'Quoted'.length, true)
+
+        expect(getFormattingStyleButton(container, 'Heading 2').classList.contains('LemonButton--active')).toBe(true)
+        expect(getFormattingStyleButton(container, 'Blockquote').classList.contains('LemonButton--active')).toBe(true)
+    })
+
+    it.each([
+        ['Heading 2', '> Quoted heading'],
+        ['Blockquote', '## Quoted heading'],
+    ])('toggling %s off a quoted heading keeps the other style dimension', (buttonLabel, expectedMarkdown) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> ## Quoted heading'), onChange })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(headingBlock), 0, 'Quoted'.length, true)
+        fireEvent.click(getFormattingStyleButton(container, buttonLabel))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${expectedMarkdown}`)
+    })
+
     it('downgrades a quoted heading to quote text with Backspace at its start', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -4552,6 +4580,39 @@ Body text`)
         fireEvent.keyDown(headingBlock, { key: 'Backspace' })
 
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> Quoted heading`)
+    })
+
+    it.each([
+        ['- ', '> -', 'ul'],
+        ['1. ', '> 1.', 'ol'],
+    ])('converts a list shortcut "%s" typed inside a quote into a quoted list', (shortcut, markdown, listTag) => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> Quoted text'), onChange })
+        )
+        const quoteBlock = getEditableTextBlocks(container)[1]
+
+        quoteBlock.textContent = shortcut
+        fireEvent.input(quoteBlock)
+
+        const quotedList = container.querySelector(
+            `.MarkdownNotebook__blockquote-group .MarkdownNotebook__list-block ${listTag}`
+        )
+        expect(quotedList).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n${markdown}`)
+    })
+
+    it('downgrades a quoted list item to quote text with Backspace at its start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('> - First item\n> - Second item'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextInElement(listItems[0], 0, 0)
+        fireEvent.keyDown(listItems[0], { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> First item\n\n> - Second item`)
     })
 
     it('renders blockquoted lists inside the blockquote group', () => {
@@ -6368,6 +6429,28 @@ Closing`
         expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', expectedCutMarkdown)
         expect(clipboardData.setData).toHaveBeenCalledWith('text/markdown', expectedCutMarkdown)
         expect(onChange).toHaveBeenLastCalledWith('# Intro  paragraph')
+    })
+
+    it('deletes the selected text when cutting a selection across list items', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('- First item\n- Second item'), onChange })
+        )
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(
+            getFirstTextNode(listItems[0]),
+            'First'.length,
+            getFirstTextNode(listItems[1]),
+            'Second'.length
+        )
+
+        const clipboardData = { setData: jest.fn() }
+        fireEvent.cut(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith('text/markdown', '-  item\n- Second')
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n- First item`)
     })
 
     it('lets native copy handle text selected inside a focused component', () => {

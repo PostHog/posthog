@@ -29,6 +29,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
@@ -151,6 +152,7 @@ export function FunnelLineChart({
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
             }),
+            curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
@@ -160,6 +162,7 @@ export function FunnelLineChart({
             goalLines,
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
+            funnelsFilter?.chartStyle,
             showValuesOnSeries,
             legendConfig,
             TOOLTIP_CONFIG,
