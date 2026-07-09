@@ -309,7 +309,7 @@ function LemonKitchenSink(): JSX.Element {
             </Section>
             <Section title="Select (closed)">
                 <LemonSelect<string>
-                    value={null}
+                    value={undefined}
                     onChange={() => {}}
                     placeholder="Choose a fruit..."
                     options={[

@@ -152,10 +152,14 @@ const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
 const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
 const PANEL_BORDER_PX = 1 // PopoverContent border
 
-/** Panel-top to search-field-top: the header (padding + button + border) plus the
- *  search row's top padding. */
+/** Panel-top to search-field-top: the panel's own top border, the header
+ *  (padding + button + border), and the search row's top padding. */
 const INPUT_TRIGGER_PANEL_HEADER_OFFSET =
-    MENU_HEADER_PADDING_Y_PX + MENU_HEADER_BUTTON_HEIGHT_PX + MENU_HEADER_BORDER_PX + SEARCH_ROW_PADDING_PX
+    PANEL_BORDER_PX +
+    MENU_HEADER_PADDING_Y_PX +
+    MENU_HEADER_BUTTON_HEIGHT_PX +
+    MENU_HEADER_BORDER_PX +
+    SEARCH_ROW_PADDING_PX
 
 /** Panel-left to search-field-left: the panel border plus the search row's left
  *  padding. */
@@ -696,7 +700,15 @@ export function TaxonomicFilterMenu({
                     // popover's default focusable flow until rendered).
                     initialFocus={comboboxOverlaysTrigger ? comboboxInputRef : undefined}
                     className={cn(
-                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
+                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)]',
+                        // The combobox has an internal scroll area, so it wants a
+                        // fixed height to scroll within (and the full width for its
+                        // list + preview columns). The HogQL editor is a short form
+                        // — size it to its content (capped) at a narrower width so
+                        // the panel doesn't dwarf a three-line expression.
+                        state.kind === 'hogql-edit'
+                            ? '@[720px]/main-content-container:w-[560px] h-auto max-h-[min(600px,80vh)]'
+                            : '@[720px]/main-content-container:w-[720px] h-[400px]'
                     )}
                 >
                     {state.kind === 'combobox' && (

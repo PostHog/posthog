@@ -19,7 +19,7 @@
  * Covered: Button, Input, InputGroup, Textarea, Checkbox, Switch, RadioGroup,
  * Select, Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton,
  * Label, Kbd, Item, MenuLabel, Empty, Tooltip,
- * Popover/DropdownMenu/ContextMenu surfaces, Tabs (line variant),
+ * Popover/DropdownMenu/ContextMenu surfaces, Tabs (line + pill variants),
  * Dialog (→ LemonModal), Progress — plus a core-token rebind that turns
  * bespoke Tailwind in quill-based features lemony wholesale. First real
  * consumer: the taxonomic filter rebuild
@@ -125,13 +125,18 @@
 
 /* primary → Lemon primary (white face, brown border, amber 3D frame below) */
 
+/*
+ * Frame shadows: LemonButton's chrome paints a single `0 3px 0 -1px` fill
+ * (measured on ::after) — a -1px spread so the lip tucks inside the face's
+ * silhouette. A wider/second shadow reads as a detached outline behind the
+ * button, especially on small controls.
+ */
+
 [data-lemon-skin] .quill-button--variant-primary {
     color: var(--text-3000-light);
     background-color: var(--primary-3000-button-bg);
     border: 1px solid var(--primary-3000-button-border);
-    box-shadow:
-        0 0.1875rem 0 0 var(--primary-3000-frame-bg),
-        0 0.1875rem 0 1px var(--primary-3000-button-border);
+    box-shadow: 0 0.1875rem 0 -1px var(--primary-3000-frame-bg);
     translate: none;
 }
 
@@ -150,9 +155,7 @@
 [data-lemon-skin] .quill-button--variant-outline {
     background-color: var(--secondary-3000-button-bg);
     border: 1px solid var(--secondary-3000-button-border);
-    box-shadow:
-        0 0.1875rem 0 0 var(--secondary-3000-frame-bg),
-        0 0.1875rem 0 1px var(--secondary-3000-button-border);
+    box-shadow: 0 0.1875rem 0 -1px var(--secondary-3000-frame-bg);
 }
 
 [data-lemon-skin] .quill-button--variant-outline:not(:disabled, [aria-disabled='true']):hover {
@@ -189,9 +192,7 @@
     color: var(--danger-3000-button-border-hover);
     background-color: var(--secondary-3000-button-bg);
     border: 1px solid var(--danger-3000-button-border);
-    box-shadow:
-        0 0.1875rem 0 0 var(--danger-3000-frame-bg),
-        0 0.1875rem 0 1px var(--danger-3000-button-border);
+    box-shadow: 0 0.1875rem 0 -1px var(--danger-3000-frame-bg);
 }
 
 [data-lemon-skin] .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
@@ -446,13 +447,18 @@
 
 /* ═══ Badge → LemonTag ═════════════════════════════════════════════════ */
 
+/*
+ * LemonTag's `small` variant, not the default: badges here live inside
+ * dense list rows (taxonomic filter results) where the default 22px tag
+ * dwarfs the 14px row text.
+ */
 [data-lemon-skin] .quill-badge {
     height: auto;
-    padding: 0.125rem 0.25rem;
+    padding: 0 0.1875rem;
     font-family: var(--font-sans);
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     font-weight: 500;
-    line-height: 1rem;
+    line-height: 0.875rem;
     border-radius: var(--lemon-skin-radius);
 }
 
@@ -589,6 +595,38 @@
     border: none;
 }
 
+/* ═══ Lemon components inside skinned surfaces ═════════════════════════ */
+
+/*
+ * The rebuild's input trigger row is deliberately Lemon (LemonInput +
+ * LemonButton, "match the surrounding scene"), but its sizes are off in
+ * Lemon terms. Corrected from here rather than component code so all the
+ * look-tuning stays in this one file. Both LemonInput and LemonButton are
+ * sized by CSS variables, so a rebind is a faithful size swap.
+ */
+
+/* small → medium metrics: matches the sibling controls in the property
+   filter row (operator select, value input) — a smaller field next to them
+   reads as a different component. The combobox's overlay field gets the
+   same treatment, so it still lands exactly on the trigger. */
+[data-lemon-skin] .LemonInput.LemonInput--small {
+    --lemon-input-height: calc(2.125rem + 3px);
+
+    padding: 0.25rem 0.5rem;
+}
+
+/* An embedded LemonButton (the trigger's filter icon) gets xsmall metrics —
+   the only Lemon size that nests inside the field without poking past its
+   border. */
+[data-lemon-skin] .LemonInput .LemonButton {
+    --lemon-button-height: 1.625rem;
+    --lemon-button-font-size: 0.75rem;
+    --lemon-button-icon-size: 0.875rem;
+    --lemon-button-padding-horizontal: 0.375rem;
+    --lemon-button-padding-adjacent-icon: 0.25rem;
+    --lemon-button-gap: 0.25rem;
+}
+
 /*
  * Portal-mounted surfaces below (tooltip, popover, menus, select popup,
  * dialog): the skin attribute is passed to the *Content component and lands
@@ -614,8 +652,21 @@
 
 /* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
 
-[data-lemon-skin] :is(.quill-popover__content, .quill-menu__content, .quill-menu__sub-content, .quill-select__content),
-:is(.quill-popover__content, .quill-menu__content, .quill-menu__sub-content, .quill-select__content)[data-lemon-skin] {
+[data-lemon-skin]
+    :is(
+        .quill-popover__content,
+        .quill-menu__content,
+        .quill-menu__sub-content,
+        .quill-select__content,
+        .quill-combobox__content
+    ),
+:is(
+    .quill-popover__content,
+    .quill-menu__content,
+    .quill-menu__sub-content,
+    .quill-select__content,
+    .quill-combobox__content
+)[data-lemon-skin] {
     font-family: var(--font-sans);
     font-size: 0.875rem;
     background-color: var(--color-bg-surface-popover);
@@ -641,17 +692,68 @@
     font-size: 0.75rem;
 }
 
-/* Select/menu rows sized like the small LemonButtons LemonMenu renders */
+/*
+ * Inside an input (quill InputGroup, or the LemonInput the input-trigger
+ * mode renders), embedded controls go flat: transparent face, no 3D lip,
+ * face border centered exactly in the field. Any vertical asymmetry from
+ * the frame shadow reads as misalignment at this size, however the pair
+ * is balanced.
+ */
+[data-lemon-skin] :is(.quill-input-group, .LemonInput) .quill-select__trigger {
+    background-color: transparent;
+    box-shadow: none;
+    translate: none;
+}
 
-[data-lemon-skin] .quill-select__item {
+[data-lemon-skin]
+    :is(.quill-input-group, .LemonInput)
+    .quill-select__trigger:not(:disabled, [aria-disabled='true']):hover {
+    background-color: transparent;
+}
+
+/* Flat buttons don't press-sink — there's no frame to sink onto. */
+[data-lemon-skin]
+    :is(.quill-input-group, .LemonInput)
+    .quill-select__trigger:not(:disabled, [aria-disabled='true']):active {
+    translate: none;
+}
+
+/* Select/combobox rows sized like the small LemonButtons LemonMenu renders.
+   Rows compose Button, whose size remap above fixes `height` — override to
+   auto so multi-line rows (title + description) grow their highlight box
+   instead of overflowing it. */
+
+[data-lemon-skin] :is(.quill-select__item, .quill-combobox__item) {
+    height: auto;
     min-height: 2.0625rem;
     font-size: 0.875rem;
     font-weight: 500;
     border-radius: var(--lemon-skin-radius);
 }
 
-[data-lemon-skin] .quill-select__item:focus {
+[data-lemon-skin] .quill-select__item:focus,
+[data-lemon-skin] .quill-combobox__item[data-highlighted] {
     background-color: var(--color-bg-fill-button-tertiary-hover);
+}
+
+/* Combobox rows compose Button, so the button-size remap above clobbers
+   quill's checkmark gutter and pins a fixed single-line height — restore
+   the gutter and let multi-line rows (title + description) grow. Self +
+   descendant variants, like the portal-surface rules below; the extra
+   class out-specifies the button-size rules instead of relying on order. */
+[data-lemon-skin] .quill-combobox__content .quill-combobox__item,
+.quill-combobox__content[data-lemon-skin] .quill-combobox__item {
+    height: auto;
+    min-height: 2.0625rem;
+    padding-inline-start: 1.875rem;
+}
+
+/* Rows zero their own padding via a `py-0` utility (compiled !important),
+   so the breathing room lives on the inner content — reached through
+   Button's internal <span> wrapper, hence descendant not child. */
+[data-lemon-skin] .quill-combobox__content .quill-combobox__item [data-slot='item-content'],
+.quill-combobox__content[data-lemon-skin] .quill-combobox__item [data-slot='item-content'] {
+    padding-block: 0.375rem;
 }
 
 [data-lemon-skin] .quill-select__item:not(:hover)[aria-selected='true'] {
@@ -696,6 +798,46 @@
 
 [data-lemon-skin] .quill-tabs__indicator--variant-line {
     background-color: var(--lemon-skin-accent);
+}
+
+/* ═══ Tabs (pill variant) → Lemon segmented look ═══════════════════════ */
+
+/*
+ * `bg-muted` in this app's Tailwind resolves to `--muted-3000` — PostHog's
+ * muted TEXT color — so a quill-style `bg-muted` surface (the DWH config
+ * field tabs) paints near-black. That's the exact trap quill-bridge.scss
+ * documents. The utility is compiled !important, but it reads a var, so
+ * rebinding the var on the element it lands on is the clean override.
+ */
+[data-lemon-skin] .quill-tabs__list--variant-default {
+    --muted-3000: var(--lemon-skin-bg-page);
+
+    background-color: var(--lemon-skin-bg-page);
+    border-color: var(--lemon-skin-border);
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger {
+    font-size: 0.8125rem;
+    color: var(--lemon-skin-text-secondary);
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger:hover {
+    color: var(--text-3000);
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-default .quill-tabs__trigger[data-active] {
+    /* Quill paints the active pill `var(--background) !important` — rebind
+       the var it resolves (same trick as the line variant above). */
+    --background: var(--lemon-skin-surface);
+
+    color: var(--text-3000);
+}
+
+/* The sliding active-pill face behind the trigger */
+[data-lemon-skin] .quill-tabs__indicator--variant-default {
+    background-color: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
 }
 
 /* ═══ Progress → LemonProgress ═════════════════════════════════════════ */

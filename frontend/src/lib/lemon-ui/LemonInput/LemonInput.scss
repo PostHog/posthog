@@ -41,6 +41,11 @@
         align-self: stretch; // Improves selectability
         width: 100%;
         padding: 0;
+
+        // Ellipsize overflowing placeholders (and unfocused values) instead of
+        // clipping mid-letter. Chrome ignores text-overflow on ::placeholder;
+        // it must live on the input itself.
+        text-overflow: ellipsis;
         cursor: inherit;
         background: none;
         border: none;

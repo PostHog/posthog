@@ -87,6 +87,14 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="ml-2"
                                 noPadding
                             />
+                        ) : editable ? (
+                            // Invisible twin of the remove button: the trailing
+                            // add-filter row has nothing to remove, but reserving
+                            // the same gutter keeps a full-width filter component
+                            // right-aligned with the rows above.
+                            <span className="ml-2 invisible" aria-hidden="true">
+                                <LemonButton icon={orFiltering ? <IconTrash /> : <IconX />} size={size} noPadding />
+                            </span>
                         ) : null}
                     </>
                 ) : (

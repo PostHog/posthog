@@ -164,7 +164,10 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     }
 
     return (
-        <span className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
+        // data-lemon-skin: the armed trigger's wrapper carries it, so the
+        // resting placeholder must too — the skin's geometry corrections
+        // (lemon-skin.scss) apply identically to both states.
+        <span data-lemon-skin className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
             {useInputTrigger ? (
                 <MenuInputTrigger
                     iconButton={
