@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
@@ -137,7 +137,6 @@ from products.product_analytics.backend.api.insight_metadata import generate_ins
 from products.product_analytics.backend.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 from common.hogvm.python.utils import HogVMException
@@ -446,25 +445,6 @@ class QueryFieldSerializer(serializers.Serializer):
         if data is not None and not isinstance(data, dict):
             raise serializers.ValidationError("Query must be a valid JSON object")
         return data
-
-
-def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTile | None) -> datetime | None:
-    """Throttle clock for `?refresh=force_blocking` on shared insights. On DB error, returns
-    ``now()`` so the gate fails closed."""
-    try:
-        if dashboard_tile is not None:
-            cs = next(iter(dashboard_tile.caching_states.all()), None)
-        else:
-            cs = (
-                InsightCachingState.objects.filter(insight=insight, dashboard_tile=None)
-                .only("last_refresh", "created_at")
-                .first()
-            )
-    except Exception:
-        return datetime.now(UTC)
-    if cs is None:
-        return insight.created_at
-    return cs.last_refresh or cs.created_at
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -1110,11 +1090,9 @@ class InsightSerializer(InsightBasicSerializer):
                 )
 
                 is_shared = self.context.get("is_shared", False)
+                shared_cache_age_seconds: int | None = None
                 if is_shared:
-                    execution_mode = shared_insights_execution_mode(
-                        execution_mode,
-                        last_refresh=_last_refresh_for_shared_gate(insight, dashboard_tile),
-                    )
+                    execution_mode, shared_cache_age_seconds = shared_insights_execution_mode(execution_mode)
 
                 # Shared rendering bypasses the FE scene-tag flow, so set product/feature
                 # tags here. No-op overwrite for authenticated paths (same values).
@@ -1135,6 +1113,7 @@ class InsightSerializer(InsightBasicSerializer):
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,
+                        cache_age_seconds=shared_cache_age_seconds,
                         analytics_props=get_request_analytics_properties(self.context["request"]),
                     )
             except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:

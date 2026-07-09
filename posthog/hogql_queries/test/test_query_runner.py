@@ -50,6 +50,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
+    SHARED_FORCE_BLOCKING_MIN_AGE,
     AnalyticsQueryRunner,
     ExecutionMode,
     QueryRunner,
@@ -908,8 +909,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expected_results: list[dict],
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -986,8 +985,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedFunnelsQueryResponse, FunnelsQuery
 
         from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -1038,8 +1035,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
         from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
@@ -1105,8 +1100,6 @@ class TestApplySeriesCustomNames(BaseTest):
         expected_results: list,
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedLifecycleQueryResponse, LifecycleQuery
 
         from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
@@ -1180,8 +1173,6 @@ class TestApplySeriesCustomNames(BaseTest):
         cached_results: list[dict],
         expect_modified: bool,
     ):
-        from datetime import UTC
-
         from posthog.schema import CachedTrendsQueryResponse
 
         runner = TrendsQueryRunner(query=query, team=self.team)
@@ -1203,48 +1194,24 @@ class TestApplySeriesCustomNames(BaseTest):
 class TestSharedInsightsExecutionMode(BaseTest):
     @parameterized.expand(
         [
-            # name, execution_mode, last_refresh_offset (None = no signal, timedelta = age), expected_mode
+            # name, execution_mode, expected_mode, expected_cache_age_seconds
             (
-                "force_blocking_no_last_refresh_downgrades",
+                "force_blocking_downgrades_with_min_age_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_refreshed_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(seconds=10),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_just_under_threshold_downgrades",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=29, seconds=59),
-                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            ),
-            (
-                "force_blocking_at_threshold_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(minutes=30),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            ),
-            (
-                "force_blocking_long_stale_passes_through",
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                timedelta(hours=24),
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
             ),
             (
                 "cache_only_remaps_to_extended_async",
                 ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-                timedelta(seconds=10),
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "recent_cache_async_passes_through",
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                None,
             ),
             (
                 "blocking_if_stale_passes_through",
@@ -1253,8 +1220,8 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 # ship a CacheMissResponse to the frontend, which renders the "unsupported node"
                 # placeholder until a later reload picks up the warmed cache.
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                None,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                None,
             ),
         ]
     )
@@ -1262,12 +1229,12 @@ class TestSharedInsightsExecutionMode(BaseTest):
         self,
         _name: str,
         execution_mode: ExecutionMode,
-        last_refresh_offset: timedelta | None,
         expected_mode: ExecutionMode,
+        expected_cache_age_seconds: int | None,
     ) -> None:
-        last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
-        result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
-        self.assertEqual(result, expected_mode)
+        result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
+        self.assertEqual(result_mode, expected_mode)
+        self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
 
 
 @pytest.mark.ee

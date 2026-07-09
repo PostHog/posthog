@@ -719,7 +719,7 @@ def _compute_inline_query_results_for_shared_notebook(notebook: Notebook, team: 
     if not inline_nodes:
         return results_by_node_id
 
-    execution_mode = shared_insights_execution_mode(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+    execution_mode, _ = shared_insights_execution_mode(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
     for node_id, query in inline_nodes:
         serialized: dict | None = None
         try:

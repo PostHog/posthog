@@ -221,29 +221,21 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
     return ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
 
 
-# Minimum age before a shared insight may honor `?refresh=force_blocking`.
-# Sourced from the same generated schema as the frontend's auto-refresh interval so the
-# two cannot drift. Best-effort throttle, not a hard rate limit.
+# Staleness threshold for `?refresh=force_blocking` on shared insights: the request runs as
+# blocking-if-stale with this cache age, so the cached result's own `last_refresh` is the
+# throttle clock. Sourced from the same generated schema as the frontend's auto-refresh
+# interval so the two cannot drift. Best-effort throttle, not a hard rate limit.
 SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
     ExecutionMode.CACHE_ONLY_NEVER_CALCULATE: ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
-    # force_blocking is gated by `shared_insights_execution_mode`; downgrades to IF_STALE
-    # when the throttle clock is younger than `SHARED_FORCE_BLOCKING_MIN_AGE`.
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
     # Used by the shared-notebook inline query payload builder. Without this entry the
     # request silently falls through to EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE, which causes
     # the frontend to incorrectly render a "unsupported node" placeholder until the async calc finishes and a later reload picks up the warm cache.
     ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE: ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
 }
-
-
-def _is_force_blocking_eligible_for_shared(last_refresh: datetime | None) -> bool:
-    if last_refresh is None:
-        return False
-    return datetime.now(UTC) - last_refresh >= SHARED_FORCE_BLOCKING_MIN_AGE
 
 
 def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutcome]:
@@ -272,21 +264,21 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
     return category, SloOutcome.FAILURE
 
 
-def shared_insights_execution_mode(
-    execution_mode: ExecutionMode,
-    *,
-    last_refresh: datetime | None = None,
-) -> ExecutionMode:
-    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS and not _is_force_blocking_eligible_for_shared(
-        last_refresh
-    ):
-        logger.info(
-            "shared_force_blocking_throttled",
-            last_refresh=last_refresh.isoformat() if last_refresh else None,
-            min_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+def shared_insights_execution_mode(execution_mode: ExecutionMode) -> tuple[ExecutionMode, int | None]:
+    """Map a requested execution mode to the one allowed on shared/embedded resources.
+
+    Returns the mode plus an optional `cache_age_seconds` override for the query runner.
+    force_blocking runs as blocking-if-stale with `SHARED_FORCE_BLOCKING_MIN_AGE` as the
+    staleness threshold: a cached result younger than the window is served as-is, anything
+    older (or missing) recomputes synchronously — throttling forced recomputes without a
+    separate clock.
+    """
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        return (
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
         )
-        return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-    return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE)
+    return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
 
 
 RunnableQueryNode = Union[

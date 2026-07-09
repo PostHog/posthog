@@ -59,6 +59,7 @@ def calculate_for_query_based_insight(
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
     query_override: Optional[dict] = None,
+    cache_age_seconds: Optional[int] = None,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
@@ -96,6 +97,7 @@ def calculate_for_query_based_insight(
         dashboard_id=dashboard.pk if dashboard else None,
         # QUERY_ASYNC provides extended max execution time for insight queries
         limit_context=LimitContext.QUERY_ASYNC,
+        cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,
     )
 
