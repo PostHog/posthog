@@ -190,8 +190,13 @@ describe('isToolsModeClient', () => {
         }
     )
 
-    it('returns true for the ChatGPT user-agent surface', () => {
-        expect(isToolsModeClient(undefined, 'openai-mcp/1.0.0 (ChatGPT)')).toBe(true)
+    it.each([
+        // ChatGPT never self-reports a client name; the surface is UA-only.
+        ['openai-mcp/1.0.0 (ChatGPT)'],
+        // Older Cursor builds omit clientInfo.name and identify only via UA.
+        ['Cursor/3.1.15 (darwin arm64)'],
+    ])('returns true for the name-less user-agent %s', (userAgent) => {
+        expect(isToolsModeClient(undefined, userAgent)).toBe(true)
     })
 
     it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (Codex)'], ['openai-mcp/1.0.0 (Agent Builder)']])(
