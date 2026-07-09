@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { hogApiErrorMessageFn } from './api-error'
+
 export const template: HogFunctionTemplate = {
     free: true,
     status: 'hidden',
@@ -11,6 +13,8 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
+${hogApiErrorMessageFn}
+
 if (empty(inputs.external_id)) {
   throw Error('Account external ID is required')
 }
@@ -22,7 +26,7 @@ if (response.status == 404) {
 }
 
 if (response.status != 200) {
-  throw Error(f'Failed to fetch account ({response.status}): {response.body.error ?? response.body}')
+  throw Error(f'Failed to fetch account ({response.status}): {apiErrorMessage(response)}')
 }
 
 print(f'Fetched account {inputs.external_id}')

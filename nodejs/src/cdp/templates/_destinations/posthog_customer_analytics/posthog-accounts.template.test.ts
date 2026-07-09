@@ -70,15 +70,20 @@ describe('posthog customer analytics account templates', () => {
             await tester.beforeEach()
         })
 
-        it('falls back to the whole body', async () => {
+        it.each([
+            [
+                'DRF-rendered error with a detail field',
+                429,
+                { detail: 'Request was throttled.' },
+                'Failed to update account (429): Request was throttled.',
+            ],
+            ['non-JSON body', 503, 'upstream connect error', 'Failed to update account (503): upstream connect error'],
+        ])('%s', async (_name, status, body, expected) => {
             let response = await tester.invoke({ external_id: 'acme-1', tags: ['vip'] })
 
-            response = await tester.invokeFetchResponse(response.invocation, {
-                status: 500,
-                body: { detail: 'Internal server error' },
-            })
+            response = await tester.invokeFetchResponse(response.invocation, { status, body })
 
-            expect(response.error).toEqual("Failed to update account (500): {'detail': 'Internal server error'}")
+            expect(response.error).toEqual(expected)
         })
     })
 })

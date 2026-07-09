@@ -368,7 +368,7 @@ export class TemplateTester {
 
     async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
-        response: { status: number; body: Record<string, any> }
+        response: { status: number; body: unknown }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const modifiedInvocation = cloneInvocation(invocation)
 
