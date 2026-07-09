@@ -748,8 +748,10 @@ function EditSubscriptionForm({
                         </div>
 
                         {/*
-                         * Delivery options. AI-prompt subscriptions are themselves an LLM-generated report,
-                         * so the "automatic AI summary" toggle (a summary of a summary) is hidden for them.
+                         * Delivery options: the AI-summary toggle (hidden for AI-prompt subs, which are
+                         * themselves an LLM report — a summary of a summary) and the test-run toggle (hidden
+                         * when disabled). The guard hides the whole section when neither would render, i.e.
+                         * only for a disabled AI-prompt sub, so the label never shows above an empty group.
                          */}
                         {(!isAiPrompt || subscription?.enabled !== false) && (
                             <div className="flex flex-col gap-2">
