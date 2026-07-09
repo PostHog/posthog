@@ -837,6 +837,9 @@ auth:
         click: hogli_commands.metabase:metabase_cookie
         description: Print the cached Metabase cookie header
 tools:
+    git:publish-signed:
+        click: hogli_commands.signed_commits:git_publish_signed
+        description: Publish local commits as GitHub-signed (Verified) commits via the GitHub API
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
         description: List Metabase databases (id, name, engine) for a region
