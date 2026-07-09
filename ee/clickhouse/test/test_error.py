@@ -150,6 +150,17 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 352. DB::Exception: Block structure mismatch in UNION stream: different types:\n"
+                "expr Nullable(Float64)\nexpr Nullable(String).",
+                code=352,
+            ),
+            "CHQueryErrorAmbiguousColumnName",
+            "Block structure mismatch in UNION stream: different types:\nexpr Nullable(Float64)\nexpr Nullable(String).",
+            352,
+            "CHQueryErrorAmbiguousColumnName",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
