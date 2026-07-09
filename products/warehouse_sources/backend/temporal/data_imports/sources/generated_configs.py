@@ -3192,7 +3192,7 @@ class SmartsheetSourceConfig(config.Config):
 
 @config.config
 class SmartwaiverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
