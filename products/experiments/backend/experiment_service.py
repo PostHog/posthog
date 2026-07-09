@@ -97,6 +97,50 @@ DEFAULT_VARIANTS = [
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
+# Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
+# Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
+# usage to organizations for migration outreach.
+_DEPRECATED_PARAMETERS_KEYS = frozenset(
+    {
+        "feature_flag_variants",
+        "rollout_percentage",
+        "aggregation_group_type_index",
+        "feature_flag_payloads",
+        "ensure_experience_continuity",
+    }
+)
+
+
+def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
+    """Which deprecated create-API fields the client sent, as `experiment created` event props.
+
+    Reads the raw request body, not validated_data: ExperimentSerializer._normalize_feature_flag_input
+    folds the new `feature_flag` object into `parameters` before validation, so only the raw body
+    distinguishes deprecated `parameters` usage from new-API usage.
+    """
+    try:
+        body = request.data
+    except Exception:
+        return {}
+    if not isinstance(body, dict):
+        return {}
+
+    sent: list[str] = []
+    params = body.get("parameters")
+    if isinstance(params, dict) and params:
+        sent.append("parameters")
+    if body.get("secondary_metrics"):
+        sent.append("secondary_metrics")
+    if body.get("filters"):
+        sent.append("filters")
+
+    props: dict[str, Any] = {"experiment_create_deprecated_fields": sent}
+    if isinstance(params, dict):
+        deprecated_param_keys = sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
+        if deprecated_param_keys:
+            props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
+    return props
+
 
 class ExperimentQueryStatus(str, Enum):
     """
@@ -1081,6 +1125,8 @@ class ExperimentService:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
             analytics_metadata["allow_unknown_events"] = True
+        if request is not None:
+            analytics_metadata.update(_deprecated_fields_in_request(request))
 
         report_user_action(
             self.user,

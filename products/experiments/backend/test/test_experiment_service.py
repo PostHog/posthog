@@ -7,8 +7,9 @@ from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pydantic
@@ -26,7 +27,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.experiment_service import ExperimentService, _deprecated_fields_in_request
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -5728,3 +5729,55 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
                 feature_flag_key="dw-saved",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
+
+
+class TestDeprecatedFieldsInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_parameters_and_secondary_metrics",
+                {
+                    "parameters": {"feature_flag_variants": [{"key": "control"}], "rollout_percentage": 100},
+                    "secondary_metrics": [{"kind": "x"}],
+                },
+                {
+                    "experiment_create_deprecated_fields": ["parameters", "secondary_metrics"],
+                    "experiment_create_deprecated_parameters_keys": ["feature_flag_variants", "rollout_percentage"],
+                },
+            ),
+            (
+                "new_feature_flag_object_is_not_deprecated",
+                {"feature_flag": {"filters": {"multivariate": {}}}, "metrics": [{"kind": "x"}]},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "legacy_filters",
+                {"filters": {"events": []}},
+                {"experiment_create_deprecated_fields": ["filters"]},
+            ),
+            (
+                "empty_parameters_not_counted",
+                {"parameters": {}},
+                {"experiment_create_deprecated_fields": []},
+            ),
+            (
+                "parameters_with_only_non_deprecated_keys",
+                {"parameters": {"variant_notes": {"control": "n"}}},
+                {"experiment_create_deprecated_fields": ["parameters"]},
+            ),
+            (
+                "non_dict_body",
+                [1, 2, 3],
+                {},
+            ),
+        ]
+    )
+    def test_detects_deprecated_fields(self, _name: str, body: Any, expected: dict[str, Any]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_fields_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_fields_in_request(request) == {}
