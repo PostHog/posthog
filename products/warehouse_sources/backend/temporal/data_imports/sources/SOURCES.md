@@ -125,6 +125,7 @@ the row lists both.
 | culture_amp             | HTTP                        | requests                                                        | ✅                          |
 | customer_io             | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
+| deepgram                | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
 | delighted               | HTTP                        | requests                                                        | ✅                          |
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
@@ -473,7 +474,6 @@ doesn't conflict with concurrent PRs.
 - db2
 - dbt
 - decagon
-- deepgram
 - deputy
 - display_video_360
 - dockerhub
