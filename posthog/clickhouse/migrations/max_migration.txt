@@ -1,1 +1,1 @@
-0288_add_chatgpt_channel_types
+0288_add_ai_channel_type

@@ -154,6 +154,7 @@ class TestSessionsAPI(APIBaseTest):
             "Email",
             "Organic Search",
             "Organic Shopping",
+            "AI",
             "Organic Social",
             "Organic Video",
             "Unknown",

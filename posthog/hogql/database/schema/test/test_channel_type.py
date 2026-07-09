@@ -305,10 +305,12 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 {"$initial_referring_domain": "$direct", "$initial_utm_source": "chatgpt"},
             ),
             ("referring_domain_chatgpt", {"$initial_referring_domain": "chatgpt.com"}),
+            ("referring_domain_claude", {"$initial_referring_domain": "claude.ai"}),
+            ("referring_domain_perplexity", {"$initial_referring_domain": "perplexity.ai"}),
         ]
     )
-    def test_organic_search_chatgpt(self, _name, properties):
-        self.assertEqual("Organic Search", self._get_person_initial_channel_type(properties))
+    def test_ai(self, _name, properties):
+        self.assertEqual("AI", self._get_person_initial_channel_type(properties))
 
     def test_direct_with_red_herring_utm_tags_is_direct(self):
         self.assertEqual(

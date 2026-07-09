@@ -92,3 +92,13 @@ def add_missing_channel_types(_):
     new_channel_definitions = [x for x in CHANNEL_DEFINITIONS if (x[0], x[1]) not in existing_domain_plus_sources]
     if new_channel_definitions:
         sync_execute(CHANNEL_DEFINITION_DATA_SQL(channel_definitions=new_channel_definitions))
+
+
+# intended to be run in a migration with RunPython. Unlike add_missing_channel_types, this also picks
+# up rows whose channel type changed. The dictionary keeps serving its cached snapshot between the
+# truncate and the reload, so queries never see a partially rebuilt table; other nodes' dictionaries
+# refresh within the dictionary LIFETIME (at most an hour).
+def rebuild_channel_definitions(_):
+    sync_execute(f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME}")
+    sync_execute(CHANNEL_DEFINITION_DATA_SQL())
+    sync_execute(f"SYSTEM RELOAD DICTIONARY {CHANNEL_DEFINITION_DICTIONARY_NAME}")

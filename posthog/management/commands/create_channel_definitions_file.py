@@ -180,7 +180,6 @@ class Command(BaseCommand):
             "www.egerin.com",
             "presearch.io",
             "presearch.com",
-            "perplexity.ai",
             "m.search.naver.com",
             "yep.com",
             "andisearch.com",
@@ -238,6 +237,27 @@ class Command(BaseCommand):
             "x.com",
         ):
             entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
+
+        # add AI assistant sources, both bare utm_source values and referrer domains.
+        # GA4 and Matomo both ship a default "AI" channel group; like Matomo (but unlike GA4) we include Perplexity
+        for ai_source in (
+            "chatgpt",
+            "chatgpt.com",
+            "chat.openai.com",
+            "claude",
+            "claude.ai",
+            "gemini",
+            "gemini.google.com",
+            "copilot",
+            "copilot.microsoft.com",
+            "grok",
+            "grok.com",
+            "deepseek",
+            "deepseek.com",
+            "chat.deepseek.com",
+            "perplexity.ai",
+        ):
+            entries[(ai_source, EntryKind.source)] = SourceEntry("AI", None, "AI")
 
         for email_domain in (
             "outlook.live.com",

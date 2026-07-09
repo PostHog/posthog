@@ -901,6 +901,7 @@ class DefaultChannelTypes(StrEnum):
     ORGANIC_SOCIAL = "Organic Social"
     ORGANIC_VIDEO = "Organic Video"
     ORGANIC_SHOPPING = "Organic Shopping"
+    AI = "AI"
     PUSH = "Push"
     SMS = "SMS"
     AUDIO = "Audio"
