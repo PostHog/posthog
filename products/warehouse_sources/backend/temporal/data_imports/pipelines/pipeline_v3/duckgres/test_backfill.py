@@ -3,6 +3,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import Mock
 
 from django.utils import timezone
@@ -302,6 +303,7 @@ class TestFailureStreak:
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
 
+    @freeze_time("2026-01-15T12:00:00Z")
     def test_backoff_skips_recent_failure_then_retries_after_window(self, monkeypatch):
         plan_one = Mock(side_effect=RuntimeError("still broken"))
         monkeypatch.setattr(backfill_module, "_plan_one", plan_one)
@@ -319,6 +321,7 @@ class TestFailureStreak:
         _plan_pending(team_ids=[candidate.team_id])
         plan_one.assert_called_once()
 
+    @freeze_time("2026-01-15T12:00:00Z")
     def test_mark_primed_resets_streak(self):
         candidate = _sink_state(self._team(), _State.BACKFILLING)
         DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
@@ -333,6 +336,7 @@ class TestFailureStreak:
         assert candidate.first_failed_at is None
         assert candidate.last_error is None
 
+    @freeze_time("2026-01-15T12:00:00Z")
     def test_replan_backfill_resets_streak(self):
         candidate = _sink_state(self._team(), _State.NEEDS_RESYNC)
         DuckgresSinkSchemaState.objects.filter(id=candidate.id).update(
@@ -346,6 +350,7 @@ class TestFailureStreak:
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
 
+    @freeze_time("2026-01-15T12:00:00Z")
     def test_stuck_gauges_derive_from_state_without_any_batches(self):
         # The whole point of the state-derived gauges: a wedged schema stays
         # visible with zero rows in the (retention-bounded) batch queue.
@@ -406,6 +411,7 @@ class TestFailureStreak:
         assert candidate.consecutive_failures == 0
         assert candidate.first_failed_at is None
 
+    @freeze_time("2026-01-15T12:00:00Z")
     def test_reconcile_chunk_progress_resets_streak(self):
         # Chunks landing again is forward progress: the streak (and with it the
         # failing classification) must end, or a healed schema stays unalerted.
