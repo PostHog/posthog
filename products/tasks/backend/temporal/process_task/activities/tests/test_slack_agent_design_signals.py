@@ -1,7 +1,11 @@
 from typing import Any
 
+from unittest.mock import MagicMock, patch
+
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     SlackAgentDesignSignalEmitter,
+    _event_method,
+    _resume_last_event_id,
 )
 
 from ee.hogai.sandbox import TURN_COMPLETE_METHOD
@@ -96,3 +100,36 @@ class TestSlackAgentDesignSignalEmitter:
         # A tool_call without a preceding session/update still opens the turn (it is a
         # session/update itself), but a non-session event must not leak signals.
         assert emitter.process({"type": "keepalive"}) == []
+
+
+class TestEventMethod:
+    def test_returns_notification_method(self) -> None:
+        assert _event_method(_text_chunk("hi")) == "session/update"
+
+    def test_returns_none_without_notification(self) -> None:
+        assert _event_method({"type": "keepalive"}) is None
+
+
+class TestResumeLastEventId:
+    def _with_details(self, details: tuple) -> Any:
+        info = MagicMock()
+        info.heartbeat_details = details
+        return patch(
+            "products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals.activity.info",
+            return_value=info,
+        )
+
+    def test_returns_id_from_prior_attempt(self) -> None:
+        with self._with_details(("1700-0",)):
+            assert _resume_last_event_id() == "1700-0"
+
+    def test_returns_none_on_first_attempt(self) -> None:
+        # No prior heartbeat — resume from the start of the stream.
+        with self._with_details(()):
+            assert _resume_last_event_id() is None
+
+    def test_ignores_empty_or_non_string_details(self) -> None:
+        with self._with_details(("",)):
+            assert _resume_last_event_id() is None
+        with self._with_details((123,)):
+            assert _resume_last_event_id() is None

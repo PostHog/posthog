@@ -110,6 +110,27 @@ def _agent_proxy_base_url() -> str | None:
     )
 
 
+def _event_method(event_data: dict) -> str | None:
+    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
+    notification = event_data.get("notification")
+    if isinstance(notification, dict):
+        return notification.get("method")
+    return None
+
+
+def _resume_last_event_id() -> str | None:
+    """Recover the last-processed SSE id from a prior attempt's heartbeat details.
+
+    On an activity retry Temporal replays ``heartbeat_details`` from the last heartbeat, letting the
+    new attempt resume the SSE read past what it already relayed instead of re-reading the stream
+    from ``0`` — which would re-emit ``turn_started`` for turns already delivered to Slack.
+    """
+    details = activity.info().heartbeat_details
+    if details and isinstance(details[0], str) and details[0]:
+        return details[0]
+    return None
+
+
 def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
     """Whether the read-via-proxy flag (``tasks-stream-via-proxy``) is on for this run.
 
@@ -196,8 +217,12 @@ async def _relay_from_agent_proxy(
     """
     events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
 
-    async with Heartbeater():
-        last_event_id: str | None = None
+    async with Heartbeater() as heartbeater:
+        # Resume past what a prior attempt already relayed rather than replaying the stream from 0.
+        last_event_id: str | None = _resume_last_event_id()
+        if last_event_id:
+            heartbeater.details = (last_event_id,)
+            logger.info("relay_agent_design_signals_resumed", run_id=input.run_id, last_event_id=last_event_id)
         reconnect_count = 0
         while True:
             # Re-mint per connection: the read token is short-lived and a run can outlast it.
@@ -227,6 +252,8 @@ async def _relay_from_agent_proxy(
                             made_progress = True
                             if sse_event.id:
                                 last_event_id = sse_event.id
+                                # Publish the read position so an activity retry resumes here.
+                                heartbeater.details = (last_event_id,)
                             if sse_event.event == STREAM_END_EVENT_NAME:
                                 logger.info(
                                     "relay_agent_design_signals_stream_ended", run_id=input.run_id, reason="stream-end"
@@ -238,7 +265,17 @@ async def _relay_from_agent_proxy(
                                 event_data = json.loads(sse_event.data)
                             except json.JSONDecodeError:
                                 continue
-                            for signal_name, arg in emitter.process(event_data):
+                            signals = emitter.process(event_data)
+                            # Temporary trace to pin the duplicate-turn cause: a repeated turn from a
+                            # replay shows the same event_id twice; a trailing event shows a distinct id.
+                            logger.info(
+                                "relay_agent_design_event",
+                                run_id=input.run_id,
+                                event_id=sse_event.id,
+                                method=_event_method(event_data),
+                                signals=[name for name, _ in signals],
+                            )
+                            for signal_name, arg in signals:
                                 await _signal_safely(workflow_handle, signal_name, arg)
             except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
                 error = e
