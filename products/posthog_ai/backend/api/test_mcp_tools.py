@@ -85,8 +85,10 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertIn("Tool failed", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
-        mock_execute.side_effect = RuntimeError("unexpected")
+    def test_invoke_tool_unexpected_error_surfaces_class_and_message(self, mock_execute):
+        # Unclassified exceptions must surface their type and message so agents can tell error
+        # classes apart, rather than getting an opaque "internal error" they can't act on.
+        mock_execute.side_effect = RuntimeError("Memory limit (for query) exceeded: would use 9.31 GiB")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -97,7 +99,24 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertFalse(data["success"])
-        self.assertIn("internal error", data["content"].lower())
+        self.assertIn("RuntimeError", data["content"])
+        self.assertIn("Memory limit (for query) exceeded", data["content"])
+
+    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    def test_invoke_tool_unexpected_error_message_is_truncated(self, mock_execute):
+        mock_execute.side_effect = RuntimeError("x" * 5000)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": "SELECT 1"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data["success"])
+        self.assertIn("truncated", data["content"])
+        self.assertLess(len(data["content"]), 700)
 
 
 class TestDocsSearchAction(APIBaseTest):

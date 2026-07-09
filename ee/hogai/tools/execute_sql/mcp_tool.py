@@ -111,14 +111,16 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     def _get_taxonomy_warnings(self, query: str) -> list[HogQLNotice]:
         # Re-parse the already-validated query string — cheap (microseconds vs. the ClickHouse
         # execution) and avoids threading the AST out of the shared validator, which mutates it via
-        # replace_filters/replace_placeholders. Any parse failure is already surfaced by
-        # _validate_hogql_query, so swallow it here rather than double-report.
+        # replace_filters/replace_placeholders. Warnings are best-effort and non-fatal, so any
+        # failure anywhere here (parse, table resolution, taxonomy lookup) is swallowed rather than
+        # failing the whole query — the parse failure itself is already surfaced by
+        # _validate_hogql_query, and other failures are diagnostics we'd rather drop than block on.
         try:
             parsed_query = parse_select(query, placeholders={})
+            table_names = get_table_names(parsed_query)
+            return validate_taxonomy_references(parsed_query, self._team, table_names)
         except Exception:
             return []
-        table_names = get_table_names(parsed_query)
-        return validate_taxonomy_references(parsed_query, self._team, table_names)
 
 
 # Event/property names are externally writable (anyone capturing events controls them), and a warning's
