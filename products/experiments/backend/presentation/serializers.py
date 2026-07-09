@@ -7,7 +7,7 @@ ViewSet remains in experiments.py.
 """
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, TypeGuard
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
@@ -571,7 +571,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return value
 
     @staticmethod
-    def _is_feature_flag_config_input(feature_flag_input: Any) -> bool:
+    def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
         """Whether the request carries a genuine ``feature_flag`` config object (write intent), as
         opposed to nothing, a read-only echo of the linked flag (non-null ``id``), or a bare stub
         with no config keys."""
