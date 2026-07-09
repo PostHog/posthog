@@ -20,10 +20,20 @@ const pathsWithoutProjectId = [
     'render_query',
 ]
 
+// Instance-level pages that live under a product's own path prefix rather than
+// under `/instance/*`, so they need an exact (rather than first-segment) exemption.
+const exactPathsWithoutProjectId = ['/feature_flags/staff']
+
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
 function isPathWithoutProjectId(path: string): boolean {
-    const firstPart = path.split('/')[1]
+    const pathname = path.split(/[?#]/)[0]
+    if (
+        exactPathsWithoutProjectId.some((exactPath) => pathname === exactPath || pathname.startsWith(exactPath + '/'))
+    ) {
+        return true
+    }
+    const firstPart = pathname.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 

@@ -150,12 +150,16 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Variant Test Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', name: 'Control Group', split_percent: 33 },
-                        { key: 'variant_a', name: 'Variant A', split_percent: 33 },
-                        { key: 'variant_b', name: 'Variant B', split_percent: 34 },
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', name: 'Control Group', rollout_percentage: 33 },
+                                { key: 'variant_a', name: 'Variant A', rollout_percentage: 33 },
+                                { key: 'variant_b', name: 'Variant B', rollout_percentage: 34 },
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
             }
@@ -588,11 +592,17 @@ describe('Experiments', { concurrent: false }, () => {
                 description: 'Testing complete experiment workflow with all features',
                 feature_flag_key: flagKey,
                 type: 'product',
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', name: 'Control', rollout_percentage: 50 },
+                                { key: 'test', name: 'Test Variant', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                },
                 parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', name: 'Control', split_percent: 50 },
-                        { key: 'test', name: 'Test Variant', split_percent: 50 },
-                    ],
                     minimum_detectable_effect: 20,
                 },
                 exposure_criteria: {
@@ -770,11 +780,15 @@ describe('Experiments', { concurrent: false }, () => {
             const params = {
                 name: 'Invalid Rollout Experiment',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', split_percent: 60 },
-                        { key: 'test', split_percent: 60 }, // Total > 100%
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 60 },
+                                { key: 'test', rollout_percentage: 60 }, // Total > 100%
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
             }
@@ -1156,17 +1170,17 @@ describe('Experiments', { concurrent: false }, () => {
             const createParams = {
                 name: 'Variants Update Test',
                 feature_flag_key: flagKey,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', split_percent: 50 },
-                        { key: 'test', split_percent: 50 },
-                    ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
                 },
                 allow_unknown_events: true,
-                feature_flag_variants: [
-                    { key: 'control', split_percent: 50 },
-                    { key: 'test', split_percent: 50 },
-                ],
             }
 
             const createResult = await createTool.handler(context, createParams as any)

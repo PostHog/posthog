@@ -78,7 +78,8 @@ contains neither reference file:
 ```bash
 git rev-parse --abbrev-ref HEAD          # prints: posthog/instrumentation-<random-short-sha>
 git show --stat HEAD                     # lists the wizard's files
-git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' # prints NOTHING
+git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: forbidden files committed" || echo "OK: no forbidden files"
+# expected: OK: no forbidden files (the grep finding nothing is the pass case)
 ```
 
 ## Step 3 - Configure environment variables for production

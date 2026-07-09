@@ -28,6 +28,8 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
+    EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
@@ -147,6 +149,8 @@ class TestExperimentCRUD(APILicensedTest):
         [
             ("draft", "draft"),
             ("running", "running"),
+            ("exposure_frozen", "exposure_frozen"),
+            ("paused", "paused"),
             ("stopped", "stopped"),
             ("complete", "stopped"),
         ]
@@ -179,12 +183,92 @@ class TestExperimentCRUD(APILicensedTest):
                 "parameters": None,
             },
         )
+        # A running experiment with the freeze marker on its flag groups: must show up only under
+        # exposure_frozen — and its presence proves the running filter excludes frozen experiments.
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Frozen experiment",
+                "feature_flag_key": "frozen-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        frozen_flag = FeatureFlag.objects.get(team=self.team, key="frozen-filter-flag")
+        frozen_flag.filters = {
+            **frozen_flag.filters,
+            "groups": [
+                {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                for group in frozen_flag.filters.get("groups", [])
+            ],
+        }
+        frozen_flag.save()
+        # A frozen experiment that was then paused (flag deactivated, stamps still on the groups):
+        # paused takes precedence, so it must show up under paused — not under exposure_frozen,
+        # where it would misreport a flag that serves no one as still holding variants.
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Paused frozen experiment",
+                "feature_flag_key": "paused-frozen-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        paused_frozen_flag = FeatureFlag.objects.get(team=self.team, key="paused-frozen-filter-flag")
+        paused_frozen_flag.filters = {
+            **paused_frozen_flag.filters,
+            "groups": [
+                {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                for group in paused_frozen_flag.filters.get("groups", [])
+            ],
+        }
+        paused_frozen_flag.active = False
+        paused_frozen_flag.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], expected_status)
+
+    def test_status_filter_treats_partially_stamped_flag_as_running(self) -> None:
+        # A frozen flag with a manually-added unstamped group reopens enrollment through that group.
+        # The status filter must classify it the same way Experiment.is_exposure_frozen does (all groups
+        # stamped, not just some): running, not exposure_frozen. Guards the list query against regressing
+        # to a "some group is stamped" JSONB-containment match.
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Reopened experiment",
+                "feature_flag_key": "reopened-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        experiment_id = create_response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="reopened-filter-flag")
+        flag.filters = {
+            **flag.filters,
+            "groups": [
+                *(
+                    {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                    for group in flag.filters.get("groups", [])
+                ),
+                {"properties": [], "rollout_percentage": 100},
+            ],
+        }
+        flag.save()
+
+        frozen_ids = [e["id"] for e in self._status_filter_results("exposure_frozen")]
+        running_ids = [e["id"] for e in self._status_filter_results("running")]
+        assert experiment_id not in frozen_ids
+        assert experiment_id in running_ids
+
+    def _status_filter_results(self, status_filter: str) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()["results"]
 
     def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
         flag = FeatureFlag.objects.create(
@@ -2499,6 +2583,10 @@ class TestExperimentCRUD(APILicensedTest):
             (
                 "multiple_groups_unsupported",
                 {"filters": {"groups": [{"rollout_percentage": 50}, {"rollout_percentage": 100}]}},
+            ),
+            (
+                "unknown_group_key",
+                {"filters": {"groups": [{"properties": [], "rollout_percentage": 50, "variant": "test"}]}},
             ),
             (
                 "unknown_top_level_key",
@@ -5524,6 +5612,69 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+        new=lambda team_id, uuids: uuids,
+    )
+    @patch(
+        "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
+        return_value=["00000000-0000-0000-0000-000000000001"],
+    )
+    def test_freeze_exposure_endpoint(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
+        data = self._create_running_experiment(name="Freeze Endpoint", flag_key="freeze-endpoint-flag")
+        experiment_id = data["id"]
+
+        freeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
+        )
+        self.assertEqual(freeze_response.status_code, status.HTTP_200_OK)
+        body = freeze_response.json()
+        # Frozen exposure is still running under the hood — precedence puts exposure_frozen first.
+        self.assertEqual(body["status"], "exposure_frozen")
+        # Unlike pause, the flag stays active; unlike end, end_date stays null so metrics keep flowing.
+        self.assertIsNone(body["end_date"])
+        self.assertTrue(body["feature_flag"]["active"])
+
+        # A frozen-but-still-running experiment also serializes as exposure_frozen on GET.
+        get_response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.json()["status"], "exposure_frozen")
+
+    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+        new=lambda team_id, uuids: uuids,
+    )
+    @patch(
+        "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
+        return_value=["00000000-0000-0000-0000-000000000001"],
+    )
+    def test_freeze_exposure_already_frozen_returns_400(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
+        data = self._create_running_experiment(name="Double Freeze", flag_key="double-freeze-flag")
+        experiment_id = data["id"]
+
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/")
+
+        second_freeze = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
+        )
+        self.assertEqual(second_freeze.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_freeze_exposure_draft_returns_400(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Freeze Draft", "feature_flag_key": "freeze-draft-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        freeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
+        )
+        self.assertEqual(freeze_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_end_experiment_endpoint(self):
         data = self._create_running_experiment(name="End Endpoint", flag_key="end-endpoint-flag")
         experiment_id = data["id"]
@@ -5570,8 +5721,9 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
     @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
-    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag):
+    def test_end_endpoint_cleanup_pr_requires_task_write_scope(self, _mock_flag, _mock_access):
         exp_deny = self._create_running_experiment(name="Cleanup Deny", flag_key="cleanup-deny-flag")["id"]
         exp_no_opt = self._create_running_experiment(name="Cleanup No Opt", flag_key="cleanup-no-opt-flag")["id"]
         exp_allow = self._create_running_experiment(name="Cleanup Allow", flag_key="cleanup-allow-flag")["id"]
@@ -5611,6 +5763,54 @@ class TestExperimentCRUD(APILicensedTest):
             headers={"authorization": f"Bearer {token}"},
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_cleanup_pr_requires_code_access_for_session_users(self, _mock_flag):
+        exp_end = self._create_running_experiment(name="Cleanup Session End", flag_key="cleanup-session-end-flag")["id"]
+        exp_ship = self._create_running_experiment(name="Cleanup Session Ship", flag_key="cleanup-session-ship-flag")[
+            "id"
+        ]
+
+        # Scopes don't apply to session auth — without Code access, opting in must be rejected
+        # on both actions that can open a cleanup PR.
+        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+            # Not opting in still ends the experiment without Code access.
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
+                {"conclusion": "won", "open_cleanup_pr": False},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With Code access, opting in succeeds on both actions ("end first, ship later" flow).
+        with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_ship}/ship_variant/",
+                {"variant_key": "test", "conclusion": "won", "open_cleanup_pr": True},
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")

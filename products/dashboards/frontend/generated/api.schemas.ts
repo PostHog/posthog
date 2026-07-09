@@ -674,6 +674,7 @@ export const ExperimentsListWidgetConfigApiStatus = {
     Draft: 'draft',
     Running: 'running',
     Paused: 'paused',
+    ExposureFrozen: 'exposure_frozen',
     Stopped: 'stopped',
     All: 'all',
 } as const
@@ -990,6 +991,8 @@ export const IntervalTypeApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
 } as const
 
 export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
@@ -7373,6 +7376,7 @@ export interface TracesQueryApi {
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean | null
     response?: TracesQueryResponseApi | null
+    searchTerm?: string | null
     showColumnConfigurator?: boolean | null
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
@@ -7591,8 +7595,9 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean | null
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null

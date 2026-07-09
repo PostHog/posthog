@@ -533,6 +533,19 @@ class TestFetchAverageRowSize:
         result = impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger)
         assert result is None
 
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, mocker):
+        # Row-size sampling is best-effort: on failure the caller falls back to the default chunk
+        # size, so handled failures must not flood error tracking. pymysql raises InterfaceError(0, "")
+        # when the connection socket was already closed (a transient drop). Mirrors the get_rows_to_sync
+        # and explain_query probe guards.
+        cursor.execute.side_effect = pymysql.err.InterfaceError(0, "")
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.capture_exception"
+        )
+
+        assert impl.fetch_average_row_size(cursor, "db", "t", "SELECT 1", {}, logger) is None
+        capture.assert_not_called()
+
 
 def _show_index_rows(*triples: tuple[str, str, int]) -> list[tuple]:
     """Build fake SHOW INDEX rows from (key_name, column_name, seq_in_index) triples."""

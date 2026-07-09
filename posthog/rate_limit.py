@@ -1209,3 +1209,12 @@ class TeamsOAuthCallbackThrottle(IPThrottle):
 
     scope = "teams_oauth_callback"
     rate = "30/minute"
+
+
+class SupportSlackOAuthCallbackThrottle(IPThrottle):
+    """
+    Rate limit the unauthenticated support Slack OAuth callback endpoint by IP.
+    """
+
+    scope = "support_slack_oauth_callback"
+    rate = "30/minute"

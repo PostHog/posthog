@@ -6,6 +6,32 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="The HogQL the node contains; the sandbox runs it through the data plane. Must not be blank.",
     )
+    refs = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        default=dict,
+        help_text=(
+            "Available upstream nodes, mapping each named node's dataframe name to its ProseMirror "
+            "node id. The backend inlines the ones this node references as CTEs using each node's "
+            "last-run query (not its live editor text); unreferenced entries are ignored."
+        ),
+    )
+
+
+class NotebookSQLV2PageRequestSerializer(serializers.Serializer):
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of rows to skip; pages re-query ClickHouse with LIMIT/OFFSET.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=500,
+        help_text="Rows per page.",
+    )
 
 
 class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
@@ -40,6 +66,11 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         help_text="ClickHouse type per column, as [name, type] pairs; used by the visualization tab.",
     )
     row_count = serializers.IntegerField(required=False, default=0, help_text="Number of rows in the result.")
+    has_more = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether ClickHouse has more rows beyond first_page (detected by fetching limit+1).",
+    )
     first_page = serializers.ListField(
         child=serializers.ListField(help_text="A single result row as a list of cell values."),
         required=False,
