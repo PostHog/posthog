@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0014_validate_model_config_only_on_llm_judge"),
+        ("ai_observability", "0020_unique_evaluation_report_per_evaluation"),
     ]
 
     operations = [
