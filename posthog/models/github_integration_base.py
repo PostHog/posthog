@@ -880,7 +880,7 @@ class GitHubIntegrationBase:
         extra retry loop here for GitHub's 200-with-``errors`` transient server errors that
         the status-code retry can't catch.
         """
-        errors: list | None = None
+        errors: Any = None
         for attempt in range(self._GRAPHQL_TRANSIENT_ATTEMPTS):
             response = self.api_request(
                 "POST",
@@ -905,15 +905,15 @@ class GitHubIntegrationBase:
                 logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
                 return data
             # No data — a hard failure. Retry GitHub's transient server errors; raise the rest.
-            if self._graphql_errors_are_transient(errors) and attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
+            if not self._graphql_errors_are_transient(errors):
+                break
+            if attempt < self._GRAPHQL_TRANSIENT_ATTEMPTS - 1:
                 logger.info(
                     "GitHubIntegration: retrying transient GraphQL error",
                     endpoint=endpoint,
                     attempt=attempt,
                     errors=errors,
                 )
-                continue
-            raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
         raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
 
     @staticmethod

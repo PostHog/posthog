@@ -2749,7 +2749,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
 
-        IntegrationViewSet().perform_destroy(integration)
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationViewSet().perform_destroy(integration)
 
         mock_delete_identity.assert_called_once_with("partner.com")
         assert not Integration.objects.filter(pk=integration.pk).exists()
@@ -2776,7 +2777,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
 
-        IntegrationViewSet().perform_destroy(integration)
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationViewSet().perform_destroy(integration)
 
         assert mock_delete_identity.call_count == 0
 
@@ -2819,7 +2821,8 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             created_by=self.user,
         )
         with patch("products.workflows.backend.providers.SESProvider.delete_identity") as mock_delete:
-            IntegrationViewSet().perform_destroy(integration_a)
+            with self.captureOnCommitCallbacks(execute=True):
+                IntegrationViewSet().perform_destroy(integration_a)
             mock_delete.assert_called_once_with("partner.com")
 
         integration_b = EmailIntegration.create_native_integration(
@@ -2849,6 +2852,38 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             provider._identity_arn("other.com")
 
         assert provider.sts_client.get_caller_identity.call_count == 1
+
+
+class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
+    def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
+        with patch("products.workflows.backend.providers.SESProvider.create_email_domain"):
+            return EmailIntegration.create_native_integration(
+                {"email": email, "name": "Test"},
+                team_id=team_id,
+                organization_id=organization_id,
+                created_by=self.user,
+            )
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    def test_team_cascade_delete_cleans_up_ses_identity(self, mock_delete_identity):
+        team = Team.objects.create(organization=self.organization, name="doomed team")
+        self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+
+    @patch("products.workflows.backend.providers.SESProvider.delete_identity")
+    def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(self, mock_delete_identity):
+        team = Team.objects.create(organization=self.organization, name="doomed team")
+        self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
+        self._create_email_integration("sibling@partner.com", self.team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            team.delete()
+
+        mock_delete_identity.assert_not_called()
 
 
 class TestGitLabIntegrationSSRFProtection:
