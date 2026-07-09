@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from products.signals.eval.agentic.datasets import EvalCase
 
-STEPS: tuple[str, ...] = ("research", "repo_selection", "implementation")
+STEPS: tuple[str, ...] = ("research", "repo_selection", "implementation", "scout")
 
 
 def _curated_live(step: str) -> list[EvalCase]:
@@ -25,7 +25,11 @@ def _curated_live(step: str) -> list[EvalCase]:
         from products.signals.eval.agentic.cases.repo_selection_live import CASES  # noqa: PLC0415
 
         return list(CASES)
-    from products.signals.eval.agentic.cases.implementation_live import CASES  # noqa: PLC0415
+    if step == "implementation":
+        from products.signals.eval.agentic.cases.implementation_live import CASES  # noqa: PLC0415
+
+        return list(CASES)
+    from products.signals.eval.agentic.cases.scout_live import CASES  # noqa: PLC0415
 
     return list(CASES)
 
@@ -39,9 +43,11 @@ def _replay(step: str) -> list[EvalCase]:
         from products.signals.eval.agentic.cases.repo_selection import CASES  # noqa: PLC0415
 
         return list(CASES)
-    from products.signals.eval.agentic.cases.implementation import CASES  # noqa: PLC0415
+    if step == "implementation":
+        from products.signals.eval.agentic.cases.implementation import CASES  # noqa: PLC0415
 
-    return list(CASES)
+        return list(CASES)
+    return []
 
 
 def load_cases(step: str, *, mode: str = "replay", include_generated: bool = True) -> list[EvalCase]:
@@ -50,7 +56,7 @@ def load_cases(step: str, *, mode: str = "replay", include_generated: bool = Tru
     if mode != "live":
         return _replay(step)
     cases = _curated_live(step)
-    if include_generated:
+    if include_generated and step != "scout":
         from products.signals.eval.agentic.cases.generated import load_generated  # noqa: PLC0415
 
         seen = {c.case_id for c in cases}

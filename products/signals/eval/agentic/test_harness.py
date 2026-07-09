@@ -15,11 +15,13 @@ from products.signals.eval.agentic.cases.research import CASES as RESEARCH_CASES
 from products.signals.eval.agentic.cassette import Cassette, RecordedTurn
 from products.signals.eval.agentic.datasets import ResearchCase, ResearchExpectation, SignalSpec
 from products.signals.eval.agentic.harness import AgenticEvalHarness
+from products.signals.eval.agentic.run import build_runtime_override
 from products.signals.eval.agentic.runners import (
     RUNNERS,
     RunContext,
     RunnerError,
     _files_from_diff,
+    _normalize_scout_payload,
     _save_recorded_cassette,
 )
 from products.signals.eval.agentic.scorers_research import default_research_scorers
@@ -127,6 +129,40 @@ def test_record_refuses_to_overwrite_cassette_with_zero_turns(tmp_path):
             _Recorder(case_id="t", step="research", turns=[]), case, RunContext(cassette_dir=tmp_path)
         )
     assert (tmp_path / "good.json").read_text() == "{}"
+
+
+def test_runtime_override_builder():
+    assert build_runtime_override(runtime_adapter=None, model=None, reasoning_effort=None) is None
+    runtime = build_runtime_override(
+        runtime_adapter="claude",
+        model="claude-opus-4-8",
+        reasoning_effort="high",
+    )
+    assert runtime is not None
+    assert runtime.runtime_adapter == "claude"
+    assert runtime.model == "claude-opus-4-8"
+    assert runtime.reasoning_effort == "high"
+
+
+def test_scout_payload_normalizer_accepts_common_json_variants():
+    payload = _normalize_scout_payload(
+        {
+            "action": "emit_report",
+            "reasoning": {"summary": "Checkout failures are above the report bar."},
+            "evidence": {"sessions": 1400, "release": "dep_12"},
+            "actionability": {"value": "requires_human_input"},
+            "priority": {"priority": "P2"},
+            "scratchpad_keys": "report:checkout",
+            "suggested_reviewers": ["growth", {"value": "web"}],
+        }
+    )
+    assert payload["decision"] == "emit_report"
+    assert payload["summary"] == "Checkout failures are above the report bar."
+    assert payload["evidence"] == ["sessions: 1400", "release: dep_12"]
+    assert payload["actionability"] == "requires_human_input"
+    assert payload["priority"] == "P2"
+    assert payload["scratchpad_keys"] == ["report:checkout"]
+    assert payload["suggested_reviewers"] == ["growth", "web"]
 
 
 @pytest.mark.parametrize(

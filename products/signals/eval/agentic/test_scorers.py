@@ -6,8 +6,8 @@ directions. DB-free; run with the same -o overrides as the other agentic tests.
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 
 from parameterized import parameterized
 
@@ -28,9 +28,11 @@ from products.signals.eval.agentic.datasets import (
     RepoSelectionExpectation,
     ResearchCase,
     ResearchExpectation,
+    ScoutCase,
+    ScoutExpectation,
     SignalSpec,
 )
-from products.signals.eval.agentic.runners import ImplementationOutput
+from products.signals.eval.agentic.runners import ImplementationOutput, ScoutDecisionOutput
 from products.signals.eval.agentic.scorers_implementation import default_implementation_scorers
 from products.signals.eval.agentic.scorers_judge import ImplementationFixJudge, ResearchSummaryJudge
 from products.signals.eval.agentic.scorers_repo_selection import (
@@ -38,6 +40,7 @@ from products.signals.eval.agentic.scorers_repo_selection import (
     default_repo_selection_scorers,
 )
 from products.signals.eval.agentic.scorers_research import DataEvidenceScorer, default_research_scorers
+from products.signals.eval.agentic.scorers_scout import default_scout_scorers
 from products.signals.eval.agentic.scoring import JudgeVerdict, ScoringContext
 
 _CTX = ScoringContext(judge=None)
@@ -317,3 +320,65 @@ def test_generated_loader_skips_malformed_and_duplicate_rows(tmp_path, monkeypat
     monkeypatch.setattr(generated, "GENERATED_DIR", tmp_path)
     assert [c.case_id for c in generated.load_generated_research()] == ["ok_1"]
     assert generated.load_generated_repo_selection() == []
+
+
+def test_scout_scorers_discriminate():
+    case = ScoutCase(
+        case_id="scout_eval",
+        step="scout",
+        expected=ScoutExpectation(
+            expected_decision="edit_report",
+            expected_actionability="requires_human_input",
+            expected_priority=("P2", "P3"),
+            expected_existing_report_id="rpt_existing",
+            expected_repository="acme/webapp",
+            min_evidence_items=2,
+            required_summary_terms=("burst", "checkout"),
+            forbidden_summary_terms=("duplicate",),
+            required_scratchpad_keys=("dedupe:checkout",),
+        ),
+    )
+    scorers = default_scout_scorers()
+    good = ScoutDecisionOutput(
+        decision="edit_report",
+        summary="Checkout burst should update the existing report.",
+        evidence=["1,400 affected sessions", "started after release"],
+        actionability="requires_human_input",
+        priority="P2",
+        existing_report_id="rpt_existing",
+        scratchpad_keys=["dedupe:checkout"],
+        suggested_reviewers=[],
+        repository="acme/webapp",
+    )
+    res_good = _score(scorers, case, good)
+    assert res_good["scout_decision_correct"]
+    assert res_good["scout_actionability_correct"]
+    assert res_good["scout_priority_correct"]
+    assert res_good["scout_existing_report_correct"]
+    assert res_good["scout_repository_correct"]
+    assert res_good["scout_evidence_count"]
+    assert res_good["scout_scratchpad_keys"]
+    assert res_good["scout_summary_required_terms"]
+    assert res_good["scout_summary_forbidden_terms"]
+
+    bad = ScoutDecisionOutput(
+        decision="emit_report",
+        summary="Duplicate unrelated issue.",
+        evidence=["single weak signal"],
+        actionability="not_actionable",
+        priority="P4",
+        existing_report_id="rpt_other",
+        scratchpad_keys=[],
+        suggested_reviewers=[],
+        repository="acme/api",
+    )
+    res_bad = _score(scorers, case, bad)
+    assert res_bad["scout_decision_correct"] is False
+    assert res_bad["scout_actionability_correct"] is False
+    assert res_bad["scout_priority_correct"] is False
+    assert res_bad["scout_existing_report_correct"] is False
+    assert res_bad["scout_repository_correct"] is False
+    assert res_bad["scout_evidence_count"] is False
+    assert res_bad["scout_scratchpad_keys"] is False
+    assert res_bad["scout_summary_required_terms"] is False
+    assert res_bad["scout_summary_forbidden_terms"] is False

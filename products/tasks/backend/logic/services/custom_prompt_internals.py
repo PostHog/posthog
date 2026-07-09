@@ -127,13 +127,16 @@ async def create_task_and_trigger(
     internal: bool = False,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
-    team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    team = await sync_to_async(Team.objects.get, thread_sensitive=False)(id=context.team_id)
     # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
     # None would clobber it. sandbox_environment_id already accepts None.
     posthog_mcp_scopes: PosthogMcpScopes = (
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
-    task = await sync_to_async(Task.create_and_run)(
+    # thread_sensitive=False: create_and_run is slow, self-contained sync work (ORM +
+    # GitHub + workflow submission); on the shared thread-sensitive executor, N parallel
+    # callers (parallel eval cases) serialize into a single-file queue.
+    task = await sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=title,
         description=description,
@@ -155,7 +158,7 @@ async def create_task_and_trigger(
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
-    task_run = await sync_to_async(lambda: task.latest_run)()
+    task_run = await sync_to_async(lambda: task.latest_run, thread_sensitive=False)()
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run

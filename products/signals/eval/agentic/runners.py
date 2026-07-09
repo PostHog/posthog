@@ -19,7 +19,8 @@ replayed from a recorded patch file and graded by diff scorers.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+import re
+from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -27,7 +28,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import patch as mock_patch
 
 from products.signals.eval.agentic.cassette import Cassette
-from products.signals.eval.agentic.datasets import EvalCase, ImplementationCase, RepoSelectionCase, ResearchCase
+from products.signals.eval.agentic.datasets import (
+    EvalCase,
+    ImplementationCase,
+    RepoSelectionCase,
+    ResearchCase,
+    ScoutCase,
+)
 from products.signals.eval.agentic.session_backends import (
     RecordingMultiTurnSession,
     ReplayMultiTurnSession,
@@ -59,11 +66,13 @@ class RunContext:
         user_id: int = 1,
         cassette_dir: Path | None = None,
         sandbox_environment_id: str | None = None,
+        runtime_override: AgentRuntime | None = None,
     ):
         self.team_id = team_id
         self.user_id = user_id
         self.cassette_dir = cassette_dir or (Path(__file__).parent / "cases" / "cassettes")
         self.sandbox_environment_id = sandbox_environment_id
+        self.runtime_override = runtime_override
 
 
 class StepRunner(Protocol):
@@ -162,7 +171,7 @@ class ResearchRunner:
         if mode in ("live", "record"):
             # Same per-team/per-step resolution as run_agentic_report_activity, so the
             # `signals-pipeline-models` payload controls the model under eval too.
-            runtime = await _resolve_runtime(ctx.team_id, self.step)
+            runtime = ctx.runtime_override or await _resolve_runtime(ctx.team_id, self.step)
             if meta is not None:
                 meta["runtime"] = _runtime_meta(runtime)
         sandbox_context = _build_sandbox_context(ctx, case.repo, runtime=runtime)
@@ -231,7 +240,7 @@ class RepoSelectionRunner:
         context_text = case.context or render_signals_to_text([s.to_signal_data() for s in case.signals])
         if mode in ("live", "record") and meta is not None:
             # select_repository_for_team resolves the runtime itself; re-resolve only to report it.
-            meta["runtime"] = _runtime_meta(await _resolve_runtime(ctx.team_id, self.step))
+            meta["runtime"] = _runtime_meta(ctx.runtime_override or await _resolve_runtime(ctx.team_id, self.step))
 
         async def _invoke() -> Any:
             return await select_repository_for_team(
@@ -460,7 +469,7 @@ class ImplementationRunner:
 
         # "implementation" isn't a payload step name — coding-agent runs resolve
         # via the custom_agent slot, matching the production autostart analog.
-        runtime = await _resolve_runtime(ctx.team_id, "custom_agent")
+        runtime = ctx.runtime_override or await _resolve_runtime(ctx.team_id, "custom_agent")
         if meta is not None:
             meta["runtime"] = _runtime_meta(runtime)
         full_name = repo_registry.get(case.repo).full_name if case.repo in repo_registry.REGISTRY else case.repo
@@ -495,8 +504,304 @@ class ImplementationRunner:
         return f"files_changed={output.files_changed}\n--- diff (truncated) ---\n{output.diff[:1200]}"
 
 
+# ── Scout decision ───────────────────────────────────────────────────────────────
+
+
+def _build_scout_prompt(case: ScoutCase) -> str:
+    return f"""You are evaluating one scheduled Signals scout run using a synthetic, anonymized project brief.
+
+The data below is synthetic but shaped like production scout traces. Do not call tools. Decide what the
+scout should do and return only the structured JSON requested by the schema.
+
+## Scout
+{case.scout_name}
+
+## Project profile
+{case.project_profile}
+
+## Prior context and memory
+{case.prior_context or "No prior context."}
+
+## Current observations
+{case.observations}
+
+## Candidate inbox reports
+{case.candidate_reports or "No matching reports found."}
+
+## Decision policy
+- `emit_report`: a new, report-worthy issue is validated and no live report already covers it.
+- `edit_report`: a live existing report covers the same issue and this run has material new evidence.
+- `remember_only`: below the report bar, but future runs should remember the pattern/baseline/dedupe state.
+- `close_quiet`: there is no meaningful current signal after the checks.
+- `skip`: a candidate is known noise, addressed, out of scope, or belongs to a specialist scout.
+
+Be conservative: duplicate reports and false positives are worse than quiet close-outs. When reporting,
+include concrete evidence, honest actionability, priority only when justified, and routing/repository only
+when the brief supports it.
+
+Populate the structured fields deliberately:
+- On emit_report or edit_report: set actionability, set a priority (P0 highest to P4 lowest), list concrete
+  evidence items, and quote the key numbers and identifiers from the observations verbatim in the summary.
+- On edit_report (or a skip that dedupes against a live report): set existing_report_id to that report's id.
+- Always set scratchpad_keys to the stable memory keys you would persist for this topic (for example
+  `report:<area>:<topic>`, `dedupe:<area>:<topic>`, `baseline:<area>:<topic>`).
+- Set repository and suggested_reviewers only when the brief names them."""
+
+
+class ScoutDecisionOutput:
+    """Gradeable scout decision output."""
+
+    def __init__(
+        self,
+        *,
+        decision: str,
+        summary: str,
+        evidence: list[str],
+        actionability: str | None,
+        priority: str | None,
+        existing_report_id: str | None,
+        scratchpad_keys: list[str],
+        suggested_reviewers: list[str],
+        repository: str | None,
+    ):
+        self.decision = decision
+        self.summary = summary
+        self.evidence = evidence
+        self.actionability = actionability
+        self.priority = priority
+        self.existing_report_id = existing_report_id
+        self.scratchpad_keys = scratchpad_keys
+        self.suggested_reviewers = suggested_reviewers
+        self.repository = repository
+
+
+def _string_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool | int | float):
+        return str(value)
+    if isinstance(value, Mapping):
+        for key in ("value", "choice", "status", "priority", "actionability", "decision", "summary", "reasoning"):
+            if key in value:
+                return _string_or_none(value[key])
+        return ", ".join(f"{key}: {_string_or_none(item)}" for key, item in value.items())
+    if isinstance(value, list | tuple):
+        return "; ".join(item for item in (_string_or_none(item) for item in value) if item)
+    return str(value)
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list | tuple):
+        return [item for item in (_string_or_none(item) for item in value) if item]
+    if isinstance(value, Mapping):
+        return [f"{key}: {text}" for key, item in value.items() if (text := _string_or_none(item))]
+    text = _string_or_none(value)
+    return [text] if text else []
+
+
+_DECISION_CANON = ("emit_report", "edit_report", "remember_only", "close_quiet", "skip")
+
+
+def _canon_decision(value: str | None) -> str | None:
+    """Map free-form decision wording to the canonical enum so scoring is vocabulary-fair."""
+    if not value:
+        return value
+    s = value.lower().replace(" ", "_").replace("-", "_")
+    for canon in _DECISION_CANON:
+        if canon in s:
+            return canon
+    if s.startswith("emit") or "file_report" in s:
+        return "emit_report"
+    if s.startswith("edit") or "update_report" in s:
+        return "edit_report"
+    if s.startswith("remember"):
+        return "remember_only"
+    if s.startswith("close") or "quiet" in s:
+        return "close_quiet"
+    if s.startswith("skip") or "ignore" in s or "dedup" in s:
+        return "skip"
+    return value
+
+
+def _canon_actionability(value: str | None) -> str | None:
+    if not value:
+        return None
+    s = value.lower()
+    if "human" in s or "input" in s:
+        return "requires_human_input"
+    if ("not" in s and "action" in s) or "informational" in s or "no_action" in s or "no action" in s:
+        return "not_actionable"
+    if "immediat" in s or "action" in s:
+        return "immediately_actionable"
+    return value
+
+
+def _canon_priority(value: str | None) -> str | None:
+    if not value:
+        return None
+    match = re.search(r"p\s*-?\s*([0-4])", value.lower())
+    if match:
+        return f"P{match.group(1)}"
+    return value if value.upper() in {"P0", "P1", "P2", "P3", "P4"} else None
+
+
+def _normalize_scout_payload(value: Any) -> Any:
+    if not isinstance(value, Mapping):
+        return value
+    payload = dict(value)
+    if "decision" not in payload:
+        for key in ("action", "outcome", "result", "recommendation"):
+            if key in payload:
+                payload["decision"] = payload[key]
+                break
+    if "summary" not in payload:
+        for key in ("summary_text", "rationale", "reasoning", "explanation", "closeout", "conclusion"):
+            if key in payload:
+                payload["summary"] = payload[key]
+                break
+    payload["summary"] = _string_or_none(payload.get("summary")) or ""
+    payload["decision"] = _canon_decision(_string_or_none(payload.get("decision"))) or ""
+    payload["evidence"] = _string_list(payload.get("evidence"))
+    payload["scratchpad_keys"] = _string_list(payload.get("scratchpad_keys"))
+    payload["suggested_reviewers"] = _string_list(payload.get("suggested_reviewers"))
+    payload["actionability"] = _canon_actionability(_string_or_none(payload.get("actionability")))
+    payload["priority"] = _canon_priority(_string_or_none(payload.get("priority")))
+    payload["existing_report_id"] = _string_or_none(payload.get("existing_report_id"))
+    payload["repository"] = _string_or_none(payload.get("repository"))
+    return payload
+
+
+class ScoutRunner:
+    step = "scout"
+
+    async def run(
+        self, case: EvalCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None
+    ) -> ScoutDecisionOutput:
+        assert isinstance(case, ScoutCase)
+        if mode == "replay" and not case.cassette:
+            raise RunnerError("scout cases are live/record model-comparison cases; replay requires a cassette")
+        if mode in ("live", "record"):
+            return await self._run_agent(case, mode=mode, ctx=ctx, meta=meta)
+        if mode == "replay":
+            cassette = _load_cassette(case, ctx)
+            with inject_session(ReplayMultiTurnSession), active_cassette(cassette):
+                return await self._invoke(case, ctx=ctx, runtime=None, verbose=False)
+        raise RunnerError(f"unknown mode {mode!r}")
+
+    async def _run_agent(
+        self, case: ScoutCase, *, mode: str, ctx: RunContext, meta: dict[str, Any] | None = None
+    ) -> ScoutDecisionOutput:
+        runtime = ctx.runtime_override or await _resolve_runtime(ctx.team_id, self.step)
+        if meta is not None:
+            meta["runtime"] = _runtime_meta(runtime)
+        if mode == "record":
+            with inject_session(RecordingMultiTurnSession), active_recorder(case.case_id, self.step) as recorder:
+                output = await self._invoke(case, ctx=ctx, runtime=runtime, verbose=True)
+            _save_recorded_cassette(recorder, case, ctx)
+            return output
+        return await self._invoke(case, ctx=ctx, runtime=runtime, verbose=True)
+
+    async def _invoke(
+        self, case: ScoutCase, *, ctx: RunContext, runtime: AgentRuntime | None, verbose: bool
+    ) -> ScoutDecisionOutput:
+        from pydantic import BaseModel, ConfigDict, Field, model_validator  # noqa: PLC0415
+
+        from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+        from products.tasks.backend.facade.agents import MultiTurnSession  # noqa: PLC0415
+
+        class ScoutDecisionModel(BaseModel):
+            model_config = ConfigDict(extra="ignore")
+
+            decision: str = Field(description="One of emit_report, edit_report, remember_only, close_quiet, skip.")
+            summary: str = Field(
+                description="Concise close-out or report summary. Quote the key metrics and identifiers "
+                "verbatim from the observations (raw numbers, percentages, ids, names) so it stays grounded."
+            )
+            evidence: list[str] = Field(
+                default_factory=list,
+                description="Concrete observations supporting the decision, one per item. Populate on emit/edit.",
+            )
+            actionability: str | None = Field(
+                default=None,
+                description="On emit/edit, exactly one of: immediately_actionable, requires_human_input, "
+                "not_actionable. Null for close_quiet/remember_only.",
+            )
+            priority: str | None = Field(
+                default=None,
+                description="Severity P0 (highest) to P4 (lowest) when emitting or editing a report; null otherwise.",
+            )
+            existing_report_id: str | None = Field(
+                default=None,
+                description="For edit_report, or a skip that dedupes against a live report, the exact id of that "
+                "existing report. Null otherwise.",
+            )
+            scratchpad_keys: list[str] = Field(
+                default_factory=list,
+                description="Stable memory keys to persist for future runs, naming this topic "
+                "(e.g. 'report:<area>:<topic>', 'dedupe:<area>:<topic>', 'baseline:<area>:<topic>').",
+            )
+            suggested_reviewers: list[str] = Field(
+                default_factory=list, description="Owner handles from the brief when a report routes to a team."
+            )
+            repository: str | None = Field(
+                default=None, description="Owning repository (org/repo) when the brief clearly identifies one."
+            )
+
+            @model_validator(mode="before")
+            @classmethod
+            def normalize_payload(cls, value: Any) -> Any:
+                return _normalize_scout_payload(value)
+
+        context = _build_sandbox_context(ctx, repository=None, runtime=runtime)
+        session, result = await MultiTurnSession.start(
+            prompt=_build_scout_prompt(case),
+            context=context,
+            model=ScoutDecisionModel,
+            step_name="scout",
+            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            ai_stage="scout",
+            internal=True,
+            verbose=verbose,
+            output_fn=lambda msg: logger.info("scout[%s]: %s", case.case_id, msg),
+        )
+        try:
+            return ScoutDecisionOutput(
+                decision=result.decision,
+                summary=result.summary,
+                evidence=list(result.evidence),
+                actionability=result.actionability,
+                priority=result.priority,
+                existing_report_id=result.existing_report_id,
+                scratchpad_keys=list(result.scratchpad_keys),
+                suggested_reviewers=list(result.suggested_reviewers),
+                repository=result.repository,
+            )
+        finally:
+            await session.end()
+
+    def input_repr(self, case: EvalCase) -> str:
+        assert isinstance(case, ScoutCase)
+        return (
+            f"scout={case.scout_name}\nprofile={case.project_profile}\nprior={case.prior_context}\n"
+            f"observations={case.observations}\nreports={case.candidate_reports}"
+        )
+
+    def output_repr(self, output: ScoutDecisionOutput) -> str:
+        return (
+            f"decision={output.decision} actionability={output.actionability} priority={output.priority} "
+            f"existing_report_id={output.existing_report_id} repository={output.repository}\n"
+            f"scratchpad_keys={output.scratchpad_keys} reviewers={output.suggested_reviewers}\n"
+            f"evidence={output.evidence}\nsummary={output.summary}"
+        )
+
+
 RUNNERS: dict[str, StepRunner] = {
     ResearchRunner.step: ResearchRunner(),
     RepoSelectionRunner.step: RepoSelectionRunner(),
     ImplementationRunner.step: ImplementationRunner(),
+    ScoutRunner.step: ScoutRunner(),
 }

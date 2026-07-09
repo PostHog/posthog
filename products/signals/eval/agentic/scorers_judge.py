@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from products.signals.eval.agentic.datasets import EvalCase, ImplementationCase, ResearchCase
+from products.signals.eval.agentic.datasets import EvalCase, ImplementationCase, ResearchCase, ScoutCase
 from products.signals.eval.agentic.scoring import JudgeScorer
 
 if TYPE_CHECKING:
@@ -65,3 +65,44 @@ class ImplementationFixJudge(JudgeScorer):
             "obvious bugs."
         )
         return system, prompt, rubric
+
+
+class ScoutDecisionQualityJudge(JudgeScorer):
+    """Judges whether a scout decision is reasonable for the synthetic brief."""
+
+    def __init__(self) -> None:
+        super().__init__("scout_decision_quality_judge")
+
+    def build_judge_call(self, case: EvalCase, output: Any) -> tuple[str, str, str | None]:
+        assert isinstance(case, ScoutCase)
+        expected = case.expected
+        prompt = (
+            f"## Scout\n{case.scout_name}\n\n"
+            f"## Project profile\n{case.project_profile}\n\n"
+            f"## Prior context\n{case.prior_context or 'No prior context.'}\n\n"
+            f"## Current observations\n{case.observations}\n\n"
+            f"## Candidate reports\n{case.candidate_reports or 'No matching reports found.'}\n\n"
+            f"## Expected eval target\n"
+            f"decision={expected.expected_decision}\n"
+            f"actionability={expected.expected_actionability}\n"
+            f"priority={expected.expected_priority}\n"
+            f"existing_report_id={expected.expected_existing_report_id}\n"
+            f"repository={expected.expected_repository}\n\n"
+            f"## Model output\n"
+            f"decision={output.decision}\n"
+            f"summary={output.summary}\n"
+            f"evidence={output.evidence}\n"
+            f"actionability={output.actionability}\n"
+            f"priority={output.priority}\n"
+            f"existing_report_id={output.existing_report_id}\n"
+            f"scratchpad_keys={output.scratchpad_keys}\n"
+            f"repository={output.repository}\n"
+        )
+        rubric = (
+            "Score high only if the scout decision is appropriate for the brief and expected target, avoids "
+            "duplicate or noisy reports, uses the existing report when one clearly covers the same issue, and "
+            "grounds its summary in concrete observations. Accept equivalent wording for priority/actionability "
+            "when the underlying judgment is correct. Penalize hallucinated evidence, over-reporting, missing "
+            "dedupe, or a decision that would create unnecessary user-facing noise."
+        )
+        return "You judge scout triage decisions for product-signal monitoring agents.", prompt, rubric

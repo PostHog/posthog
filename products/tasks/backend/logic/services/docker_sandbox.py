@@ -97,6 +97,14 @@ def _truncate_output(output: str | None) -> str:
     return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
 
 
+def _local_memory_cap_gb() -> float:
+    """Per-container memory cap for the local Docker provider (SANDBOX_DOCKER_MEMORY_GB)."""
+    try:
+        return float(os.environ.get("SANDBOX_DOCKER_MEMORY_GB", "1"))
+    except ValueError:
+        return 1.0
+
+
 class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
@@ -436,7 +444,9 @@ class DockerSandbox(SandboxBase):
                 *cap_args,
                 "-w",
                 WORKING_DIR,
-                f"--memory={config.memory_gb}g",
+                # Local sandboxes idle at ~200MB; the cloud-oriented 16GB default would let
+                # a parallel eval run oversubscribe the Docker VM many times over.
+                f"--memory={min(config.memory_gb, _local_memory_cap_gb())}g",
                 f"--cpus={config.cpu_cores}",
                 *env_args,
                 *port_args,

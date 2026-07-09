@@ -1,8 +1,9 @@
 # Signals agentic eval framework
 
 Evaluates the **agentic** steps of the Signals pipeline — **research**, **repository
-selection**, and **implementation** — by driving the _real_ production step functions and
-grading their outputs against hand-authored ground truth.
+selection**, **implementation**, and synthetic **scout** decision-making — by driving the
+_real_ production step functions where available and grading outputs against hand-authored
+ground truth.
 
 It is the planned evolution of the `analyze_report` / `select_repo` debug commands (their
 docstrings say so), and the sibling of the grouping eval (`../eval_grouping_e2e.py`): same
@@ -64,6 +65,7 @@ Equivalent pytest entrypoints (collected by `../pytest.ini`'s `eval_*` conventio
 pytest products/signals/eval/agentic/eval_research.py --eval-mode replay
 pytest products/signals/eval/agentic/eval_repo_selection.py
 pytest products/signals/eval/agentic/eval_implementation.py --min-pass-rate 1.0
+pytest products/signals/eval/agentic/eval_scout.py --eval-mode live --sample 5
 ```
 
 Framework unit tests (deterministic, DB-free):
@@ -118,6 +120,17 @@ Implementation live drives the coding agent through the same `MultiTurnSession` 
 cloned repo and returns the unified diff as structured output, which the diff scorers grade
 (`runners.ImplementationRunner._run_live`). This evaluates the agent's edit-and-report capability;
 the production flow additionally opens a PR.
+
+Scout live is a synthetic decision suite built from anonymized production trace shapes. It does not
+copy production data or require seeded project data: each case supplies a sanitized project profile,
+prior memory, current observations, and candidate inbox reports, then grades whether the model would
+emit, edit, remember, skip, or close quietly. It is intended for quick model comparisons:
+
+```bash
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 20 --concurrency 4
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-opus-4-8
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-opus-4-8 --judge --judge-model claude-fable-5
+```
 
 ---
 
@@ -198,11 +211,20 @@ ranges. Grouping is covered by the sibling `eval_grouping_e2e.py`.
 
 ## Comparing models / runtimes (arms)
 
-Which runtime/model a **live** run uses is resolved per step from the `signals-pipeline-models`
-flag payload (`products/signals/backend/agent_runtime.py`), read fresh by each CLI run — so a
-model comparison is: set the payload to arm A, run, set it to arm B, run, and diff the reports
-(each report line carries the resolved `[adapter/model/effort]`, and the run id is stamped so
-arms can't be confused). Example payload for a codex arm:
+For one-off comparisons, pass a runtime override on the eval command:
+
+```bash
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-opus-4-8
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-sonnet-5
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-opus-4-8 --judge --judge-model claude-fable-5
+python manage.py run_agentic_signals_eval --step scout --mode live --sample 21 --runtime-adapter claude --model claude-sonnet-5 --judge --judge-model claude-fable-5
+```
+
+Without CLI overrides, a **live** run resolves runtime/model per step from the
+`signals-pipeline-models` flag payload (`products/signals/backend/agent_runtime.py`), read fresh by
+each CLI run. That comparison flow is: set the payload to arm A, run, set it to arm B, run, and diff
+the reports. Each report line carries the resolved `[adapter/model/effort]`, and the run id is
+stamped so arms can't be confused. Example payload for a codex arm:
 
 ```json
 {

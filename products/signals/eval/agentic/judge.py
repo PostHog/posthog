@@ -27,7 +27,7 @@ _JUDGE_SYSTEM = (
 )
 
 
-def build_call_llm_judge(*, team_id: int | None) -> JudgeFn:
+def build_call_llm_judge(*, team_id: int | None, model: str | None = None) -> JudgeFn:
     """A judge backed by the signals gateway ``call_llm`` helper."""
     from products.signals.backend.temporal.llm import call_llm  # noqa: PLC0415 — keeps gateway import lazy
 
@@ -43,6 +43,7 @@ def build_call_llm_judge(*, team_id: int | None) -> JudgeFn:
             system_prompt=f"{_JUDGE_SYSTEM}\n\n{system}",
             user_prompt=user_prompt,
             validate=_JudgeResult.model_validate_json,
+            model=model,
             stage="eval_judge",
         )
         return JudgeVerdict(passed=result.passed, score=result.score, reasoning=result.reasoning)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from products.signals.eval.agentic.scoring import Scorer
 
@@ -155,3 +155,29 @@ class ImplementationCase(EvalCase):
     expected: ImplementationExpectation = field(default_factory=ImplementationExpectation)
     # Path (relative to cassettes dir) of a recorded unified diff for replay scoring.
     patch: str | None = None
+
+
+ScoutDecision = Literal["emit_report", "edit_report", "remember_only", "close_quiet", "skip"]
+
+
+@dataclass(frozen=True)
+class ScoutExpectation:
+    expected_decision: ScoutDecision
+    expected_actionability: str | tuple[str, ...] | None = None
+    expected_priority: str | tuple[str | None, ...] | None = None
+    expected_existing_report_id: str | None = None
+    expected_repository: str | None = None
+    min_evidence_items: int = 0
+    required_summary_terms: tuple[str, ...] = ()
+    forbidden_summary_terms: tuple[str, ...] = ()
+    required_scratchpad_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ScoutCase(EvalCase):
+    scout_name: str = "signals-scout-general"
+    project_profile: str = ""
+    prior_context: str = ""
+    observations: str = ""
+    candidate_reports: str = ""
+    expected: ScoutExpectation = field(default_factory=lambda: ScoutExpectation(expected_decision="close_quiet"))

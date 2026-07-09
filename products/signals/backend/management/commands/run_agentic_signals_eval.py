@@ -1,4 +1,4 @@
-"""Run the agentic eval suite (research / repo selection / implementation).
+"""Run the agentic eval suite (research / repo selection / implementation / scout).
 
 The local entrypoint for the agentic eval framework. Defaults to deterministic ``replay``
 mode (no stack, no LLM), so ``python manage.py run_agentic_signals_eval`` works anywhere. ``live``
@@ -13,6 +13,9 @@ Examples::
     python manage.py run_agentic_signals_eval --capture             # emit $ai_evaluation events
     python manage.py run_agentic_signals_eval --min-pass-rate 1.0   # gate CI (nonzero exit on miss)
     python manage.py run_agentic_signals_eval --step research --mode live --team-id 42 --judge
+    python manage.py run_agentic_signals_eval --step scout --mode live --sample 20
+    python manage.py run_agentic_signals_eval --step scout --mode live --runtime-adapter claude --model claude-opus-4-8
+    python manage.py run_agentic_signals_eval --step scout --mode live --judge --judge-model claude-fable-5
 """
 
 from __future__ import annotations
@@ -82,9 +85,23 @@ class Command(BaseCommand):
             help="replay = deterministic (default); record/live drive the real agent (needs the stack).",
         )
         parser.add_argument("--judge", action="store_true", help="Enable LLM-as-judge scorers (uses the gateway).")
+        parser.add_argument("--judge-model", default=None, help="Model to use for LLM-as-judge scorers.")
         parser.add_argument("--capture", action="store_true", help="Emit $ai_evaluation events to PostHog.")
         parser.add_argument("--team-id", type=int, default=1, help="Team id for live mode + cost attribution.")
         parser.add_argument("--user-id", type=int, default=1, help="User id for live mode sandbox context.")
+        parser.add_argument(
+            "--runtime-adapter",
+            choices=["claude", "codex"],
+            default=None,
+            help="Override the runtime adapter for live/record runs.",
+        )
+        parser.add_argument("--model", default=None, help="Override the model for live/record runs.")
+        parser.add_argument(
+            "--reasoning-effort",
+            choices=["low", "medium", "high", "xhigh", "max"],
+            default=None,
+            help="Override reasoning effort for live/record runs.",
+        )
         parser.add_argument("--case", default=None, help="Only run cases whose id contains this substring.")
         parser.add_argument(
             "--sample",
@@ -93,7 +110,7 @@ class Command(BaseCommand):
             help="Run a deterministic random sample of N cases (for the large suite).",
         )
         parser.add_argument("--seed", type=int, default=1337, help="Seed for --sample (reproducible subsets).")
-        parser.add_argument("--concurrency", type=int, default=4, help="Max concurrent live cases (live mode only).")
+        parser.add_argument("--concurrency", type=int, default=8, help="Max concurrent live cases (live mode only).")
         parser.add_argument(
             "--include-generated",
             action="store_true",
@@ -125,6 +142,10 @@ class Command(BaseCommand):
             seed=options["seed"],
             concurrency=options["concurrency"],
             include_generated=options["include_generated"] or None,
+            runtime_adapter=options["runtime_adapter"],
+            model=options["model"],
+            reasoning_effort=options["reasoning_effort"],
+            judge_model=options["judge_model"],
         )
 
         min_pass = options["min_pass_rate"]
