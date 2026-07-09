@@ -12,15 +12,23 @@ description: >
 # Exploring MCP tool quality
 
 Any MCP server instrumented with PostHog's MCP analytics SDK emits a
-`mcp_tool_call` event on the shared `events` table every time an agent invokes a
+`$mcp_tool_call` event on the shared `events` table every time an agent invokes a
 tool. There is **no dedicated ClickHouse table** — every field lives as a
 `$mcp_*` property on `events`, and every tool-quality metric (error rate, latency
 percentiles, reach) is an aggregation over this one event. This is the data
 behind the MCP analytics dashboard and tool-quality screens.
 
-**HogQL via `posthog:execute-sql` is the primary path.** There are no typed
-tools for tool quality — it is all SQL. The full property schema and the
-canonical query recipes live in the shared MCP data reference:
+**For a single tool, prefer the typed tools** — `posthog:query-mcp-tool-stats` (calls,
+errors, p50/p95, users, sessions, intents), `posthog:query-mcp-tool-failures` (top error
+messages by harness), and `posthog:query-mcp-tool-daily-stats` (day-by-day trend). Each
+takes a `toolName` + `dateRange`, runs the same query runner as the tool-detail
+UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
+
+**HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
+"which tool errors most" ranking below has no typed tool, so rank with SQL, then
+drill into the worst tool with `posthog:query-mcp-tool-stats` / `-failures`. The full
+property schema and the canonical query recipes live in the shared MCP data
+reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 That reference is the single source of truth for the `$mcp_*` schema and the
 effective-tool-name idiom used below — this skill inlines only the headline
@@ -56,7 +64,7 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) != ''
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY tool
@@ -78,15 +86,21 @@ under "Tool-quality matrix".
 
 ## Workflow: why is a tool failing
 
-Pull the most common error messages for a tool, then correlate to richer
+For one tool's top error messages (grouped by harness), call
+`posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
+query below. Pass the **raw** `$mcp_tool_name` (the registered tool name), not
+the effective inner tool: failures match `$exception` events, which don't carry
+the new-SDK effective-tool markers. Drop to SQL only to correlate to richer
 exception detail (`$exception` events carry `$exception_message`, joined by
-`$mcp_session_id` / `$session_id` and timestamp):
+`$session_id` and timestamp) — that session join is approximate: it surfaces
+every exception in the session, not only this tool's, so treat it as a lead, not
+exact attribution:
 
 ```sql
 posthog:execute-sql
 SELECT toString(properties.$mcp_error_message) AS error, count() AS n
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND toBool(properties.$mcp_is_error)
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 30 DAY

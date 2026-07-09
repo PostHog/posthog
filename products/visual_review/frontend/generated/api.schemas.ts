@@ -153,6 +153,13 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -167,6 +174,11 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
+     *
+     * * `exact` - exact
+     * * `similar` - similar */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     id: string
     repo_id: string
     status: string
@@ -464,6 +476,10 @@ export type VisualReviewReposRunsListParams = {
      * Filter by review state
      */
     review_state?: string
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string
 }
 
 export type VisualReviewReposSnapshotsListParams = {
@@ -502,6 +518,10 @@ export type VisualReviewRunsListParams = {
      * Filter by review state
      */
     review_state?: string
+    /**
+     * Free-text search over branch, commit SHA, run type, and PR number
+     */
+    search?: string
 }
 
 export type VisualReviewRunsSnapshotHistoryListParams = {

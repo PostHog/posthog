@@ -157,6 +157,19 @@ describe('aiEventsUtils', () => {
             expect(queryApiSpy).toHaveBeenCalled()
         })
 
+        it('falls back to ClickHouse when the EventDefinition list resolves to null', async () => {
+            jest.spyOn(api.eventDefinitions, 'list').mockResolvedValueOnce(null as any)
+
+            const queryApiSpy = jest.spyOn(api, 'query').mockResolvedValue({
+                results: [[1]],
+            } as any)
+
+            const result = await hasRecentAIEvents()
+
+            expect(result).toBe(true)
+            expect(queryApiSpy).toHaveBeenCalled()
+        })
+
         it('handles null results from ClickHouse gracefully', async () => {
             useMocks({
                 get: {

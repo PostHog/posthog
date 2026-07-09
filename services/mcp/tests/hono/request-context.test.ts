@@ -173,6 +173,25 @@ describe('RequestContext', () => {
         })
     })
 
+    describe('getEffectiveSessionUuid', () => {
+        it.each([
+            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+        ])(
+            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ sessionId, mcpSessionId, expectedKey }) => {
+                const ctx = new RequestContext(fakeRedis(), env, makeProps())
+                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
+
+                expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
+                if (expectedKey) {
+                    expect(effective).toMatch(/^[0-9a-f-]{36}$/)
+                }
+            }
+        )
+    })
+
     describe('buildClientProperties', () => {
         it('includes all request properties', () => {
             const ctx = new RequestContext(

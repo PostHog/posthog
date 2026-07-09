@@ -553,19 +553,26 @@ export function TraceWaterfallView({
     const listRef = useListRef(null)
 
     // Infinite scroll: fetch the next page once the rendered window nears the end of the loaded spans.
+    // Tracks the span count we last paged against so the trigger fires at most once per loaded count —
+    // without this, a page that returns no new rows (dupes / end of data) leaves the window pinned at
+    // the bottom and the trigger spins on every render, pegging the CPU.
+    const lastRequestedSpanCountRef = useRef(-1)
     const handleRowsRendered = useCallback(
         (
             _visibleRows: { startIndex: number; stopIndex: number },
             allRows: { startIndex: number; stopIndex: number }
         ): void => {
-            if (
-                onLoadMore &&
-                hasMore &&
-                !loadingMore &&
-                allRows.stopIndex >= flatSpans.length - 1 - LOAD_MORE_THRESHOLD
-            ) {
-                onLoadMore()
+            if (!onLoadMore || !hasMore || loadingMore) {
+                return
             }
+            if (allRows.stopIndex < flatSpans.length - 1 - LOAD_MORE_THRESHOLD) {
+                return
+            }
+            if (lastRequestedSpanCountRef.current === flatSpans.length) {
+                return
+            }
+            lastRequestedSpanCountRef.current = flatSpans.length
+            onLoadMore()
         },
         [onLoadMore, hasMore, loadingMore, flatSpans.length]
     )

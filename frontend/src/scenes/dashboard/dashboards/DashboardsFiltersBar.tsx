@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconChevronDown, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
 
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
@@ -15,6 +15,8 @@ interface DashboardsFiltersBarProps {
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
     const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
+
+    const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
 
     const debouncedSetSearch = useDebouncedCallback((value: string) => {
         setSearch(value)
@@ -42,7 +44,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                 value={filters.search}
             />
             <div className="flex items-center gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span>Filter to:</span>
                     {currentTab !== DashboardsTab.Pinned && (
                         <div className="flex items-center gap-2">
@@ -144,15 +146,26 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
+                    {filters.folder != null && (
+                        <LemonButton
+                            active
+                            type="secondary"
+                            size="small"
+                            className="max-w-full"
+                            icon={<IconFolder />}
+                            sideIcon={<IconX />}
+                            onClick={() => setFilters({ folder: null })}
+                            tooltip="Clear folder filter"
+                        >
+                            <span className="truncate">{filters.folder || 'Project root'}</span>
+                        </LemonButton>
+                    )}
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                        />
-                    </div>
+                    <MemberSelectMultiplePopover
+                        value={createdByIds}
+                        onChange={(ids) => setFilters({ createdBy: ids.length > 0 ? ids : 'All users' })}
+                    />
                 )}
                 {extraActions}
             </div>

@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,8 +16,8 @@ from posthog.models.team.team import Team
 
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_utils import compute_shard_offset_seconds
-from products.logs.backend.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.presentation.views.alerts_api import ALLOWED_WINDOW_MINUTES, MAX_ALERTS_PER_TEAM
 
 
 def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: str) -> dict:
@@ -60,7 +60,7 @@ class TestLogsAlertAPI(APIBaseTest):
 
     # --- CRUD ---
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_create(self, mock_report):
         data = self._create_via_api()
         assert data["name"] == "High error rate"
@@ -172,7 +172,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Renamed"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_partial_update(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -189,7 +189,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert mock_report.call_args[0][1] == "logs alert updated"
         assert mock_report.call_args[0][2]["name"] == "Patched"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_delete(self, mock_report):
         created = self._create_via_api()
         mock_report.reset_mock()
@@ -487,7 +487,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
-        with patch("products.logs.backend.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+        with patch("products.logs.backend.presentation.views.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
             response = self.client.post(
                 self.base_url,
                 self._valid_payload(name="Boundary"),
@@ -747,7 +747,7 @@ class TestLogsAlertAPI(APIBaseTest):
             },
         )
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_create_slack_destination_creates_one_hog_function_per_event_kind(self, mock_report):
         self._sync_destination_templates()
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -921,7 +921,7 @@ class TestLogsAlertAPI(APIBaseTest):
     def _reset_url(self, alert_id: str) -> str:
         return f"{self.base_url}{alert_id}/reset/"
 
-    @patch("products.logs.backend.alerts_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.alerts_api.report_user_action")
     def test_reset_broken_alert(self, mock_report):
         created = self._create_via_api()
         LogsAlertConfiguration.objects.filter(pk=created["id"]).update(
@@ -1400,7 +1400,7 @@ class TestLogsAlertAPI(APIBaseTest):
         return [BucketedCount(timestamp=base + timedelta(minutes=m), count=c) for m, c in offset_counts]
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_returns_response_shape(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (5, 20)])
 
@@ -1418,7 +1418,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert "notification" in bucket
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_fills_empty_minutes(self, mock_query_cls):
         # Two data points 10 minutes apart — should fill 5-min cadence gaps between them
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 50), (10, 200)])
@@ -1451,7 +1451,7 @@ class TestLogsAlertAPI(APIBaseTest):
         ]
     )
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window(self, _name, buckets, payload_overrides, expected, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets(buckets)
 
@@ -1467,7 +1467,7 @@ class TestLogsAlertAPI(APIBaseTest):
             assert data["resolve_count"] >= expected["min_resolve_count"]
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_n_of_m_delays_firing(self, mock_query_cls):
         # window=5, 2-of-3 N-of-M. Cadence-spaced buckets at minute 0 and 5 each have
         # 150 logs (above threshold=100). At cadence 0 only 1-of-3 has breached, so
@@ -1495,7 +1495,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data_buckets[1]["notification"] == "fire"
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_cooldown_suppresses_renotification(self, mock_query_cls):
         # window=5, cooldown=15 min. Two spikes 10 minutes apart: first fires at minute 0,
         # rolling sum drops below threshold at minute 5 (spike falls out of window) -> resolves,
@@ -1522,7 +1522,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["fire_count"] == 1
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_empty_results(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = []
 
@@ -1558,7 +1558,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_echoes_threshold_config(self, mock_query_cls):
         mock_query_cls.return_value.execute_bucketed.return_value = self._mock_cadence_buckets([(0, 10)])
 
@@ -1572,7 +1572,7 @@ class TestLogsAlertAPI(APIBaseTest):
         assert data["threshold_operator"] == "below"
 
     @freeze_time("2025-12-16T10:30:00Z")
-    @patch("products.logs.backend.alerts_api.AlertCheckQuery")
+    @patch("products.logs.backend.presentation.views.alerts_api.AlertCheckQuery")
     def test_simulate_rolling_window_excludes_current_bucket(self, mock_query_cls):
         # Regression test: the simulator's rolling sum at bucket time T must
         # match the actual evaluator's `[T-window, T)` semantics — purely past,
@@ -1728,9 +1728,11 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         )
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
+        # A None return would read as "enqueue failed" and roll back every
+        # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
             "products.logs.backend.temporal.activities.produce_internal_event",
-            return_value=None,
+            return_value=MagicMock(),
         )
         self._kafka_patcher.start()
         self.addCleanup(self._kafka_patcher.stop)

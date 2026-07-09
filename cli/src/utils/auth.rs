@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 
 use serde::{Deserialize, Serialize};
 
@@ -165,7 +165,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
     let env = EnvVarProvider { env_file };
     let env_err = match env.get_credentials() {
         Ok(token) => {
-            info!(
+            debug!(
                 "Using token from environment or --dotenv-file, for environment {}",
                 token.env_id
             );
@@ -176,7 +176,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
     let provider = HomeDirProvider;
     let dir_err = match provider.get_credentials() {
         Ok(token) => {
-            info!(
+            debug!(
                 "Using token from: {}, for environment {}",
                 provider.report_location(),
                 token.env_id

@@ -1,3 +1,4 @@
+import json
 import threading
 from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
@@ -7,16 +8,20 @@ from typing import Any, Optional, TypeVar, cast
 from django.conf import settings
 
 import structlog
-import posthoganalytics
 
 from posthog.schema import (
+    BreakdownFilter,
+    BreakdownItem,
     CachedFunnelsQueryResponse,
+    Compare,
+    CompareItem,
     DateRange,
     FunnelsQuery,
     FunnelsQueryResponse,
     FunnelTimeToConvertResults,
     FunnelVizType,
     HogQLQueryModifiers,
+    InsightActorsQueryOptionsResponse,
     ResolvedDateRangeResponse,
 )
 
@@ -42,7 +47,16 @@ from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
     ValidateFunnelStepRange,
     ValidateOptionalFunnelSteps,
 )
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    ALL_USERS_COHORT_ID,
+    BREAKDOWN_BASELINE_DISPLAY,
+    BREAKDOWN_BASELINE_STRING_LABEL,
+    BREAKDOWN_NULL_DISPLAY,
+    has_breakdown_filter,
+    humanize_breakdown_label,
+)
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -51,6 +65,9 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
+
+from products.cohorts.backend.models.cohort import Cohort
 
 logger = structlog.get_logger(__name__)
 
@@ -114,7 +131,136 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self.funnel_class.get_query()
 
     def to_actors_query(self) -> ast.SelectQuery:
+        # A persons modal opened from a 'previous' compare bar must return actors from the shifted
+        # window only; every other case uses the source's own (current) date range.
+        actors_query = self.context.actorsQuery
+        if actors_query is not None and actors_query.compare == Compare.PREVIOUS:
+            previous_context = self._previous_period_context()
+            previous_context.actorsQuery = actors_query
+            return self._actor_class_for_context(previous_context).actor_query()
         return self.funnel_actor_class.actor_query()
+
+    def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
+        res_compare: Optional[list[CompareItem]] = None
+        res_breakdown: Optional[list[BreakdownItem]] = None
+
+        # No period switch for the TRENDS viz: its actors are pinned to an absolute
+        # funnelTrendsEntrancePeriodStart, which exists in only one period's date range,
+        # so switching would always return an empty list.
+        if self._is_compare_active() and self.context.funnelsFilter.funnelVizType != FunnelVizType.TRENDS:
+            res_compare = [
+                CompareItem(label="Current", value="current"),
+                CompareItem(label="Previous", value="previous"),
+            ]
+
+        breakdown_filter = self.query.breakdownFilter
+        if has_breakdown_filter(breakdown_filter):
+            assert breakdown_filter is not None  # type checking
+            # Baseline = no breakdown filter (funnelStepBreakdown: null), mirroring the synthetic
+            # "Baseline" row the funnel steps table renders.
+            items: list[BreakdownItem] = [
+                BreakdownItem(label=BREAKDOWN_BASELINE_DISPLAY, value=BREAKDOWN_BASELINE_STRING_LABEL)
+            ]
+            if breakdown_filter.breakdown_type == "cohort":
+                items += self._cohort_breakdown_options(breakdown_filter)
+            else:
+                items += self._result_breakdown_options()
+            if len(items) > 1:  # Baseline alone means there are no values to switch between
+                res_breakdown = items
+
+        return InsightActorsQueryOptionsResponse(compare=res_compare, breakdown=res_breakdown)
+
+    def _cohort_breakdown_options(self, breakdown_filter: BreakdownFilter) -> list[BreakdownItem]:
+        # Cohort options come from the filter itself: the raw ids are what the actor query's
+        # breakdown condition matches (TRENDS-viz results only carry display names).
+        breakdown = breakdown_filter.breakdown
+        values = breakdown if isinstance(breakdown, list) else [breakdown]
+        items: list[BreakdownItem] = []
+        for value in values:
+            if value == "all" or str(value) == str(ALL_USERS_COHORT_ID):
+                items.append(BreakdownItem(label="all users", value=ALL_USERS_COHORT_ID))
+                continue
+            try:
+                cohort_id = int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                continue
+            try:
+                label = get_breakdown_cohort_name(cohort_id, self.team)
+            except Cohort.DoesNotExist:
+                label = str(cohort_id)
+            items.append(BreakdownItem(label=label, value=cohort_id))
+        return items
+
+    def _result_breakdown_options(self) -> list[BreakdownItem]:
+        items: list[BreakdownItem] = []
+        seen: set[tuple] = set()
+        for value in self._result_breakdown_values():
+            # Compare-merged results carry each breakdown value once per period; dedupe
+            # while preserving result order (current period first).
+            key = tuple(value) if isinstance(value, list) else (value,)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                BreakdownItem(label=self._breakdown_option_label(value), value=self._breakdown_option_value(value))
+            )
+        return items
+
+    def _result_breakdown_values(self) -> list[Any]:
+        results = self._own_results()
+        if self.context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+            return [row["breakdown_value"] for row in results if isinstance(row, dict) and "breakdown_value" in row]
+        if self._is_breakdown_groups(results):
+            return [
+                group[0]["breakdown_value"]
+                for group in results
+                if group and isinstance(group[0], dict) and "breakdown_value" in group[0]
+            ]
+        return []
+
+    def _own_results(self) -> list:
+        # The persons modal opens from a rendered funnel, so the insight cache is normally hot.
+        # Read cache-only first (stale results included) so options mirror what's on screen even
+        # when it's stale; on a true miss, calculate blocking so the result is computed once AND
+        # written to the insight cache instead of recalculating on every options request.
+        cached = self.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+        if isinstance(cached, CachedFunnelsQueryResponse) and cached.results:
+            return cached.results
+        response = self.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if isinstance(response, CachedFunnelsQueryResponse):
+            return response.results or []
+        return []
+
+    @staticmethod
+    def _breakdown_option_value(value: Any) -> str | int:
+        if isinstance(value, list):
+            if len(value) == 1:
+                # Safe to unwrap: the actor query compares via arrayFlatten(array(...)) on both
+                # sides, which normalizes scalar vs single-element array.
+                value = value[0]
+            else:
+                # Multi-property values must fit BreakdownItem's str|int schema; the modal parses
+                # this back into an array for funnelStepBreakdown.
+                return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            # Whole-number floats must not stringify: Python str(1.0) is "1.0" while the frontend
+            # holds 1 after the JSON round-trip (String(1) is "1"), which breaks selection matching.
+            return int(value) if value.is_integer() else str(value)
+        return str(value)
+
+    @staticmethod
+    def _breakdown_option_label(value: Any) -> str:
+        parts = value if isinstance(value, list) else [value]
+        labels = [
+            # Funnels encode a missing property value as '' (unlike trends' null sentinel).
+            BREAKDOWN_NULL_DISPLAY if part is None or str(part) == "" else humanize_breakdown_label(str(part))
+            for part in parts
+        ]
+        return ", ".join(labels)
 
     def _calculate(self):
         if self._is_compare_active():
@@ -138,7 +284,8 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings = []
 
         # TODO: can we get this from execute_hogql_query as well?
-        hogql = to_printed_hogql(query, self.team)
+        # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
+        hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
         response = execute_hogql_query(
             query_type="FunnelsQuery",
@@ -155,12 +302,16 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
         results = funnel_class._format_results(response.results)
+        total_median_conversion_time = funnel_class._extract_total_median_conversion_time(
+            response.results, response.columns
+        )
 
         if response.timings is not None:
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
             results=results,
+            total_median_conversion_time=total_median_conversion_time,
             timings=timings,
             hogql=hogql,
             modifiers=self.modifiers,
@@ -254,13 +405,34 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             ]
         )
 
-        merged_results = []
-        for row in current_response.results or []:
-            row["compare_label"] = "current"
-            merged_results.append(row)
-        for row in previous_response.results or []:
-            row["compare_label"] = "previous"
-            merged_results.append(row)
+        current_results = current_response.results or []
+        previous_results = previous_response.results or []
+
+        is_steps = self.context.funnelsFilter.funnelVizType == FunnelVizType.STEPS
+
+        if is_steps and self._is_breakdown_groups(current_results or previous_results):
+            # Breakdown STEPS return one inner funnel (a list of step dicts) per breakdown value.
+            # Compare doubles this to 2·N inner funnels — N current + N previous — tagging each
+            # step and aligning the periods by breakdown value (TRENDS keeps its flat dict rows).
+            merged_results = self._merge_breakdown_compare_groups(current_results, previous_results)
+        else:
+            # Flat STEPS returns an empty list for a period with no matching events. Backfill it
+            # with a zeroed step skeleton (cloned from the populated period) so the grouped-bar
+            # chart still draws a bar per step on both sides instead of collapsing to a single bar.
+            # TRENDS and TIME_TO_CONVERT always return a populated skeleton, so this only fires for
+            # flat STEPS.
+            if is_steps and current_results and not previous_results:
+                previous_results = self._zeroed_steps_skeleton(current_results)
+            elif is_steps and previous_results and not current_results:
+                current_results = self._zeroed_steps_skeleton(previous_results)
+
+            merged_results = []
+            for row in current_results:
+                row["compare_label"] = "current"
+                merged_results.append(row)
+            for row in previous_results:
+                row["compare_label"] = "previous"
+                merged_results.append(row)
 
         timings = list(current_response.timings or []) + list(previous_response.timings or [])
 
@@ -274,6 +446,60 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 date_to=self.query_date_range.date_to(),
             ),
         )
+
+    def _zeroed_steps_skeleton(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Clone a flat list of step dicts with all counts and conversion times zeroed.
+
+        Used for the empty side of a STEPS compare so it mirrors the populated period's step
+        names/orders/types while reporting zero conversions.
+        """
+        return [
+            {
+                **step,
+                "count": 0,
+                "people": [],
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+            }
+            for step in steps
+        ]
+
+    @staticmethod
+    def _is_breakdown_groups(results: list) -> bool:
+        """Whether a results payload is breakdown STEPS — a list of inner funnels (one list of step
+        dicts per breakdown value) rather than a flat list of step dicts."""
+        return bool(results) and all(isinstance(row, list) for row in results)
+
+    @staticmethod
+    def _breakdown_key(group: list[dict[str, Any]]) -> tuple:
+        """Hashable identity for an inner funnel — its breakdown_value (a list) as a tuple."""
+        value = group[0].get("breakdown_value") if group else None
+        return tuple(value) if isinstance(value, list) else (value,)
+
+    def _merge_breakdown_compare_groups(
+        self, current_groups: list[list[dict[str, Any]]], previous_groups: list[list[dict[str, Any]]]
+    ) -> list[list[dict[str, Any]]]:
+        """Tag each breakdown inner funnel with its period and return the combined 2·N list, aligned
+        by breakdown value. A value present in only one period is still represented on the other
+        side as a zeroed inner funnel (preserving its breakdown_value), so the chart can draw a
+        current/previous pair for every value. Emits all current groups, then all previous groups."""
+        current_by_value = {self._breakdown_key(group): group for group in current_groups}
+        previous_by_value = {self._breakdown_key(group): group for group in previous_groups}
+
+        # Current values first (the runner already ordered them by count), then previous-only values.
+        ordered_keys = list(current_by_value.keys()) + [key for key in previous_by_value if key not in current_by_value]
+
+        def tagged(group: list[dict[str, Any]], label: str) -> list[dict[str, Any]]:
+            return [{**step, "compare_label": label} for step in group]
+
+        merged: list[list[dict[str, Any]]] = []
+        for key in ordered_keys:
+            current_group = current_by_value.get(key) or self._zeroed_steps_skeleton(previous_by_value[key])
+            merged.append(tagged(current_group, "current"))
+        for key in ordered_keys:
+            previous_group = previous_by_value.get(key) or self._zeroed_steps_skeleton(current_by_value[key])
+            merged.append(tagged(previous_group, "previous"))
+        return merged
 
     def _calculate_compare_time_to_convert(self) -> FunnelsQueryResponse:
         """Compare for the TIME_TO_CONVERT viz: both histograms must share an x-axis.
@@ -353,7 +579,11 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
     def _build_previous_funnel(self):
-        """Construct a funnel (matching the current viz mode) pinned to the previous-period range.
+        """Construct a funnel (matching the current viz mode) pinned to the previous-period range."""
+        return self._funnel_class_for_context(self._previous_period_context())
+
+    def _previous_period_context(self) -> FunnelQueryContext:
+        """A query context pinned to the previous-period range.
 
         The previous query is a clone of `self.query` with its `dateRange` swapped for the
         shifted range and `compareFilter` cleared (to prevent infinite recursion if the cloned
@@ -371,14 +601,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 "compareFilter": None,
             }
         )
-        previous_context = FunnelQueryContext(
+        return FunnelQueryContext(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        return self._funnel_class_for_context(previous_context)
 
     def _funnel_class_for_context(self, context: FunnelQueryContext):
         funnelVizType = context.funnelsFilter.funnelVizType
@@ -388,17 +617,27 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             return FunnelTimeToConvertUDF(context=context)
         return FunnelUDF(context=context)
 
+    def _actor_class_for_context(self, context: FunnelQueryContext):
+        # Actors for TIME_TO_CONVERT come from the plain step funnel (FunnelUDF), not the histogram class.
+        if context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+            return FunnelTrendsUDF(context=context)
+        return FunnelUDF(context=context)
+
     def _is_compare_active(self) -> bool:
         compare_filter = self.query.compareFilter
         if compare_filter is None or not compare_filter.compare:
             return False
-        # Compare is supported for the TRENDS and TIME_TO_CONVERT viz modes. STEPS lands in a later slice.
-        if self.context.funnelsFilter.funnelVizType not in (FunnelVizType.TRENDS, FunnelVizType.TIME_TO_CONVERT):
+        # Compare is supported for the STEPS, TRENDS and TIME_TO_CONVERT viz modes. FLOW is excluded.
+        if self.context.funnelsFilter.funnelVizType not in (
+            FunnelVizType.STEPS,
+            FunnelVizType.TRENDS,
+            FunnelVizType.TIME_TO_CONVERT,
+        ):
             return False
         return self._team_flag_funnels_compare()
 
     def _team_flag_funnels_compare(self) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "product-analytics-funnels-compare",
             str(self.team.uuid),
             groups={
@@ -430,10 +669,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     @cached_property
     def funnel_actor_class(self):
-        if self.context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrendsUDF(context=self.context)
-
-        return FunnelUDF(context=self.context)
+        return self._actor_class_for_context(self.context)
 
     @property
     def exact_timerange(self):

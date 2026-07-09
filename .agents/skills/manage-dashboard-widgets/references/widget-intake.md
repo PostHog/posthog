@@ -192,7 +192,7 @@ After discover + [defaults](#defaults-and-inference), skip locked rows. Cap **6 
 | Access          | RBAC vs sibling; setup gate pattern; throttles; custom denial copy                     |
 | Sharing / MCP   | Custom `sharedPlaceholder`; extra `WidgetSpec.description` beyond `config_schema`      |
 
-Chart-primary discovery or request → stop ([architecture.md § Charts](architecture.md#charts--use-insight-tiles-not-widgets)). Defer Storybook, fixtures, OpenAPI regen to post-MVP unless engineer asks.
+Chart-primary discovery or request → stop ([architecture.md § Charts](architecture.md#charts--use-insight-tiles-not-widgets)). Storybook, fixtures, and OpenAPI regen come **after** the MVP renders — but they are required to ship a new `widget_type`, never optional. Every new widget gets dedicated stories (component + edit modal) matching the sibling pattern; do not stop at the catalog overview story. Sequence them post-MVP, but do not skip them.
 
 ## Spec fields to lock
 

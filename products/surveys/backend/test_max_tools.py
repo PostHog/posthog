@@ -1111,3 +1111,145 @@ class TestEditSurveyTool(BaseTest):
         assert "Stop" in preview
         assert "Archive" in preview
         assert "Survey to Archive" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_preserve_ids_with_real_uuids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "026fdedd-f37c-4bf6-880b-c3aaa76778e8"},
+                {"type": "open", "question": "Second?", "id": "84fb53eb-933c-498f-b567-1644fe75e549"},
+            ]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="026fdedd-f37c-4bf6-880b-c3aaa76778e8", type="open", question="First (edited)?"
+                ),
+                SimpleSurveyQuestion(
+                    id="84fb53eb-933c-498f-b567-1644fe75e549", type="open", question="Second (edited)?"
+                ),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert [q["id"] for q in updated_survey.questions] == [
+            "026fdedd-f37c-4bf6-880b-c3aaa76778e8",
+            "84fb53eb-933c-498f-b567-1644fe75e549",
+        ]
+        assert updated_survey.questions[0]["question"] == "First (edited)?"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_reorder_preserves_rating_scale_and_labels(self):
+        # Regression: a reorder or text edit must not rebuild a rating question from the semantic
+        # type map and silently flip its 10-point scale to csat's 5 or drop its custom labels.
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "What's your role?", "id": "role-uuid"},
+                {
+                    "type": "rating",
+                    "scale": 10,
+                    "display": "number",
+                    "lowerBoundLabel": "Terrible",
+                    "upperBoundLabel": "Great",
+                    "question": "How's the experience so far?",
+                    "id": "exp-uuid",
+                },
+            ]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="exp-uuid", type="csat", question="How's the experience so far?"),
+                SimpleSurveyQuestion(id="role-uuid", type="open", question="What's your role?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        exp = next(q for q in updated_survey.questions if q["id"] == "exp-uuid")
+        assert exp["type"] == "rating"
+        assert exp["scale"] == 10
+        assert exp["display"] == "number"
+        assert exp["lowerBoundLabel"] == "Terrible"
+        assert exp["upperBoundLabel"] == "Great"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_can_change_rating_scale_explicitly(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "rating", "scale": 5, "display": "number", "question": "Rate it", "id": "r1"}]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[SimpleSurveyQuestion(id="r1", type="csat", question="Rate it", scale=10)],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "r1"
+        assert updated_survey.questions[0]["scale"] == 10
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_type_change_rebuilds_but_keeps_id(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "rating", "scale": 10, "lowerBoundLabel": "Bad", "question": "Old rating", "id": "q-keep"}
+            ]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[SimpleSurveyQuestion(id="q-keep", type="open", question="Now open text")],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "q-keep"
+        assert updated_survey.questions[0]["type"] == "open"
+        assert "scale" not in updated_survey.questions[0]
+        assert "lowerBoundLabel" not in updated_survey.questions[0]
+
+    @parameterized.expand(
+        [
+            ("two_positional_labels", "1", "1"),
+            ("label_and_real_uuid", "1", "uuid-first"),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_keep_ids_unique(self, _name, first_ref, second_ref):
+        # Two inputs referencing the same existing question must not both claim its id.
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id=first_ref, type="open", question="Keeps the id?"),
+                SimpleSurveyQuestion(id=second_ref, type="open", question="Duplicate reference?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        ids = [q["id"] for q in updated_survey.questions]
+        assert ids[0] == "uuid-first"
+        assert ids[1] and ids[1] != "uuid-first"
+        assert len(set(ids)) == len(ids)

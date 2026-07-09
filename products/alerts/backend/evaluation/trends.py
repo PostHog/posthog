@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any, cast
 
 from posthog.schema import (
@@ -14,6 +15,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.insights.utils.breakdowns import humanize_breakdown_label
 
 # These helpers also back the anomaly detector, so they remain in the tasks module for now.
 from posthog.tasks.alerts.trends import (
@@ -28,11 +30,11 @@ from products.alerts.backend.evaluation.contract import (
     ExtractionResult,
     SeriesPoint,
     lookback_intervals_for,
+    zero_sentinel_series,
 )
+from products.alerts.backend.evaluation.formatting import make_trends_value_formatter
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
-
-EMPTY_RESULT_LABEL = "empty result"
 
 
 class TrendsExtractor:
@@ -48,7 +50,9 @@ class TrendsExtractor:
     normalize. Relative conditions are invalid for non-time-series insights and raise.
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
             raise ValueError(f"Unsupported alert config type: {alert.config}")
@@ -61,15 +65,14 @@ class TrendsExtractor:
         if threshold.bounds is None:
             raise ValueError("TrendsExtractor requires threshold bounds — dispatcher invariant violated")
 
+        # Render breach values the way the insight displays them (currency, prefix/postfix, decimals).
+        value_formatter = make_trends_value_formatter(query.trendsFilter, alert.team.base_currency)
+
         is_non_time_series = _is_non_time_series_trend(query)
         has_breakdown = _has_breakdown(query)
         check_current_interval = bool(config.check_ongoing_interval)
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
-
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        if query.interval == IntervalType.HOUR:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:
@@ -82,7 +85,11 @@ class TrendsExtractor:
                     else _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 )
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
                     raise ValueError(
@@ -97,7 +104,11 @@ class TrendsExtractor:
                 # against the one before it, so we need the extra lookback interval.
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 if check_current_interval and threshold.bounds.upper is None:
                     raise ValueError(
@@ -110,7 +121,11 @@ class TrendsExtractor:
                     raise ValueError("Relative alerts not supported for non time series trends")
                 filters_override = _date_range_override_for_intervals(query, last_x_intervals=lookback_intervals)
                 calculation_result = self._calculate(alert, insight, execution_mode, filters_override)
-                if (empty := self._empty_result(calculation_result, alert, has_breakdown, interval_type)) is not None:
+                if (
+                    empty := self._empty_result(
+                        calculation_result, alert, has_breakdown, interval_type, value_formatter
+                    )
+                ) is not None:
                     return empty
                 anchor_is_current = False
 
@@ -119,7 +134,12 @@ class TrendsExtractor:
 
         series = self._to_series(config, calculation_result, has_breakdown, is_non_time_series, anchor_is_current)
         # subject/framed use the ExtractionResult defaults ("The insight value", framed).
-        return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=interval_type)
+        return ExtractionResult(
+            series=series,
+            is_breakdown=has_breakdown,
+            interval_type=interval_type,
+            value_formatter=value_formatter,
+        )
 
     def _calculate(
         self,
@@ -132,7 +152,9 @@ class TrendsExtractor:
             insight,
             team=alert.team,
             execution_mode=execution_mode,
-            user=None,
+            # Scheduled alert check (no request user); attribute the read to the alert owner so
+            # warehouse HogQL access control resolves against their access.
+            user=alert.created_by,
             filters_override=filters_override,
             analytics_props={"source": EventSource.ALERT},
         )
@@ -143,27 +165,20 @@ class TrendsExtractor:
         alert: AlertConfiguration,
         has_breakdown: bool,
         interval_type: IntervalType | None,
+        value_formatter: Callable[[float], str],
     ) -> ExtractionResult | None:
         """A ``None`` result means the query layer swallowed an error — raise to avoid a misfire.
         An empty result means no data, treated as a 0 value compared against the threshold (this
-        can fire a breach, e.g. a lower-bound alert).
-
-        Two zero points (not one) so relative conditions compute 0 - 0 = 0 rather than skipping
-        for lack of a previous point; absolute reads the same 0 at the anchor."""
+        can fire a breach, e.g. a lower-bound alert)."""
         if calculation_result.result is None:
             raise RuntimeError(f"No results found for insight with alert id = {alert.id}")
         if not calculation_result.result:
-            sentinel = ComparableSeries(
-                label=EMPTY_RESULT_LABEL,
-                points=[SeriesPoint(date=None, value=0.0), SeriesPoint(date=None, value=0.0)],
-                current_index=1,
-                is_current_interval=False,
-            )
             return ExtractionResult(
-                series=[sentinel],
+                series=[zero_sentinel_series()],
                 is_breakdown=has_breakdown,
                 interval_type=interval_type,
                 empty_query_result=True,
+                value_formatter=value_formatter,
             )
         return None
 
@@ -195,7 +210,7 @@ class TrendsExtractor:
             current_index = len(points) - 1 if anchor_is_current else len(points) - 2
             series.append(
                 ComparableSeries(
-                    label=result["label"],
+                    label=humanize_breakdown_label(result["label"]),
                     points=points,
                     current_index=current_index,
                     is_current_interval=anchor_is_current,

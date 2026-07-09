@@ -65,8 +65,14 @@ class Command(BaseCommand):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            print(f"User with email '{email}' not found")
-            return
+            # Fall back to the first user so the deterministic dev key works on
+            # any local DB (e.g. one bootstrapped via SSO with a real email
+            # rather than the demo `test@posthog.com`).
+            user = User.objects.order_by("pk").first()
+            if user is None:
+                print(f"User with email '{email}' not found and no users exist")
+                return
+            print(f"User '{email}' not found; using first user '{user.email}'")
 
         secure_value = hash_key_value(DEV_API_KEY)
 

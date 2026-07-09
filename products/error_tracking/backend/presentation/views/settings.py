@@ -5,10 +5,10 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingSettings
+from products.error_tracking.backend.facade import api as error_tracking_api
 
 
-class ErrorTrackingSettingsSerializer(serializers.ModelSerializer):
+class ErrorTrackingSettingsSerializer(serializers.Serializer):
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
@@ -34,29 +34,17 @@ class ErrorTrackingSettingsSerializer(serializers.ModelSerializer):
         help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
     )
 
-    class Meta:
-        model = ErrorTrackingSettings
-        fields = [
-            "project_rate_limit_value",
-            "project_rate_limit_bucket_size_minutes",
-            "per_issue_rate_limit_value",
-            "per_issue_rate_limit_bucket_size_minutes",
-        ]
-
 
 class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
-
-    def _get_or_create_settings(self) -> ErrorTrackingSettings:
-        settings, _ = ErrorTrackingSettings.objects.get_or_create(team=self.team)
-        return settings
+    scope_object_read_actions = ["retrieve_settings"]
+    scope_object_write_actions = ["update_settings"]
 
     @extend_schema(responses={200: ErrorTrackingSettingsSerializer})
     @action(detail=False, methods=["get"])
     def retrieve_settings(self, request, *args, **kwargs):
-        settings = self._get_or_create_settings()
-        serializer = ErrorTrackingSettingsSerializer(settings)
-        return Response(serializer.data)
+        settings = error_tracking_api.get_settings(self.team.id)
+        return Response(ErrorTrackingSettingsSerializer(settings).data)
 
     @extend_schema(
         request=ErrorTrackingSettingsSerializer,
@@ -64,8 +52,7 @@ class ErrorTrackingSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=False, methods=["patch"])
     def update_settings(self, request, *args, **kwargs):
-        settings = self._get_or_create_settings()
-        serializer = ErrorTrackingSettingsSerializer(settings, data=request.data, partial=True)
+        serializer = ErrorTrackingSettingsSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        settings = error_tracking_api.update_settings(self.team.id, dict(serializer.validated_data))
+        return Response(ErrorTrackingSettingsSerializer(settings).data, status=status.HTTP_200_OK)

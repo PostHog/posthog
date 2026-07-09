@@ -26,7 +26,7 @@ import {
 
 import { funnelDataLogic } from './funnelDataLogic'
 import type { funnelPersonsModalLogicType } from './funnelPersonsModalLogicType'
-import { getBreakdownStepValues, parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
+import { parseBreakdownValue, parseEventAndProperty } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -106,6 +106,12 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
+            // A first-step drop-off (funnelStep -1) is invalid — the backend rejects it with a 500. No UI
+            // exposes one (the footer/legend hide the drop-off control on step 1, and compare's first-step
+            // volume gap is non-interactive), but guard the listener so any invalid call opens nothing.
+            if (!converted && stepNo === 1) {
+                return
+            }
             const title = funnelTitle({
                 converted,
                 step: stepNo,
@@ -125,11 +131,15 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
             const stepNo = step.order + 1
-            const breakdownValues = getBreakdownStepValues(series, series.order)
+            // See openPersonsModalForStep: a first-step drop-off (funnelStep -1) is invalid.
+            if (!converted && stepNo === 1) {
+                return
+            }
+            // No breakdown value in the title: the modal's breakdown dropdown communicates (and can
+            // change) the selected value, so a static title would go stale.
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
                 label: step.name,
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,
@@ -141,6 +151,8 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
                 source: values.querySource!,
                 funnelStep: converted ? stepNo : -stepNo,
                 funnelStepBreakdown: series.breakdown_value === 'Baseline' ? null : series.breakdown_value,
+                // In compare mode each bar belongs to one period; scope its actors to that period.
+                compare: series.compare_label,
                 includeRecordings: true,
             }
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })

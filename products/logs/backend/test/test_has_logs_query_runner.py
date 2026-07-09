@@ -106,7 +106,7 @@ class TestHasLogsAPI(ClickhouseTestMixin, APIBaseTest):
         # First call should hit the database and cache the result
         with (
             patch("products.logs.backend.has_logs_query_runner.HasLogsQueryRunner") as mock_runner,
-            patch("products.logs.backend.api.report_user_action") as mock_report,
+            patch("products.logs.backend.presentation.views.api.report_user_action") as mock_report,
         ):
             mock_runner.return_value.run.return_value = True
 

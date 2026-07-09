@@ -11,11 +11,25 @@ use crate::lex::{Kw, TokenKind};
 
 pub(super) const BP_ALIAS: u8 = 10;
 pub(super) const BP_TERNARY: u8 = 20;
-pub(super) const BP_BETWEEN: u8 = 30;
 pub(super) const BP_OR: u8 = 40;
 pub(super) const BP_AND: u8 = 50;
 pub(super) const BP_NOT: u8 = 60;
+/// `BETWEEN` binds at the comparison tier — tighter than `NOT`/`AND`/`OR`,
+/// looser than every other value operator (it's the loosest alternative in
+/// the grammar's `columnExprValue` rule, declared after `NULLISH`). This is
+/// what makes `a BETWEEN low AND high AND rest` group as
+/// `(a BETWEEN low AND high) AND rest`: the bounds are parsed above `BP_AND`
+/// so they cannot swallow the `AND` chain. The low bound is parsed at
+/// `BP_BETWEEN` (a nested `BETWEEN` chains into it, matching cpp's greedy
+/// interior operand); the high bound at `BP_BETWEEN + 1` (a trailing
+/// `BETWEEN` chains left-associatively onto the whole expression instead).
+pub(super) const BP_BETWEEN: u8 = 65;
 pub(super) const BP_NULLISH: u8 = 70;
+/// `<=>` (MySQL null-safe equality) — declared *after* `IS [NOT]
+/// DISTINCT FROM` in the grammar, so it binds one level looser:
+/// `a <=> b IS DISTINCT FROM c` parses as
+/// `IsDistinctFrom(a, IsDistinctFrom(b, c), negated=true)`.
+pub(super) const BP_NULL_SAFE_EQ: u8 = 75;
 /// `IS [NOT] DISTINCT FROM` — declared *after* `IS NULL` in the grammar,
 /// so it binds looser. `a IS NOT DISTINCT FROM b IS NOT NULL` parses
 /// as `IsDistinctFrom(a, IsNull(b))` rather than `IsNull(IsDistinctFrom)`.
@@ -51,6 +65,7 @@ pub(super) enum InfixOp {
     IRegex,
     NotRegex,
     NotIRegex,
+    NullSafeEq,
     And,
     Or,
     Nullish,
@@ -74,6 +89,7 @@ pub(super) fn infix_bp(kind: TokenKind) -> Option<(u8, u8, InfixOp)> {
         TokenKind::IRegexSingle | TokenKind::IRegexDouble => (BP_COMPARE, InfixOp::IRegex),
         TokenKind::NotRegex => (BP_COMPARE, InfixOp::NotRegex),
         TokenKind::NotIRegex => (BP_COMPARE, InfixOp::NotIRegex),
+        TokenKind::NullSafeEq => (BP_NULL_SAFE_EQ, InfixOp::NullSafeEq),
         TokenKind::Keyword(Kw::And) => (BP_AND, InfixOp::And),
         TokenKind::Keyword(Kw::Or) => (BP_OR, InfixOp::Or),
         TokenKind::Nullish => (BP_NULLISH, InfixOp::Nullish),
@@ -91,6 +107,32 @@ pub(super) fn postfix_bp(kind: TokenKind) -> Option<u8> {
         | TokenKind::DoubleColon => Some(BP_POSTFIX),
         _ => None,
     }
+}
+
+/// Can `kind` extend a `NamedArgument` primary as a value-tier infix or
+/// postfix operator? cpp's `ColumnExprNamedArg` sits in the value tier, so
+/// when the named-arg value parse stops at a bare-alias boundary
+/// (`y := 1 as x [1]`), the trailing operator re-roots onto the
+/// NamedArgument itself. Mirrors the pratt loop's dispatch: the infix
+/// table, the postfix table, and the keyword-led special-infix arms.
+/// Over-inclusion is safe — a token that then fails to attach falls back
+/// to the caller's bare-NamedArgument handling.
+pub(super) fn can_extend_named_argument(kind: TokenKind) -> bool {
+    infix_bp(kind).is_some()
+        || postfix_bp(kind).is_some()
+        || matches!(
+            kind,
+            TokenKind::Keyword(
+                Kw::Between
+                    | Kw::In
+                    | Kw::Cohort
+                    | Kw::Like
+                    | Kw::Ilike
+                    | Kw::Is
+                    | Kw::Not
+                    | Kw::Ignore
+            )
+        )
 }
 
 pub(super) fn build_infix<E: Emitter>(
@@ -116,6 +158,9 @@ pub(super) fn build_infix<E: Emitter>(
         InfixOp::IRegex => emit.compare(lhs, "=~*", rhs),
         InfixOp::NotRegex => emit.compare(lhs, "!~", rhs),
         InfixOp::NotIRegex => emit.compare(lhs, "!~*", rhs),
+        // MySQL `a <=> b` is sugar for `a IS NOT DISTINCT FROM b` (per
+        // cpp's `VISIT(ColumnExprNullSafeEq)`).
+        InfixOp::NullSafeEq => emit.is_distinct_from(lhs, rhs, true),
         InfixOp::And => merge_and_or(emit, "And", lhs, rhs),
         InfixOp::Or => merge_and_or(emit, "Or", lhs, rhs),
         InfixOp::Nullish => emit.call("ifNull", vec![lhs, rhs]),

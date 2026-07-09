@@ -3,6 +3,7 @@ import uuid
 import pytest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import override_settings
 
 from temporalio import activity
@@ -12,6 +13,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     InboxNotificationState,
@@ -19,7 +21,6 @@ from products.signals.backend.temporal.inbox_notification import (
     _compute_inbox_notification_state,
     _send_report_inbox_notifications,
 )
-from products.tasks.backend.models import Task, TaskRun
 
 TASK_QUEUE = "test-inbox-notification-queue"
 
@@ -31,12 +32,12 @@ def _make_report(team: Team, status: str = SignalReport.Status.READY) -> SignalR
 
 
 def _link_implementation_task(team: Team, report: SignalReport, *, pr_url: str | None, run_status: str) -> None:
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     task = Task.objects.create(
         team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
     )
-    SignalReportTask.objects.create(
-        team=team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-    )
+    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
     TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
 
 
@@ -58,6 +59,7 @@ def test_state_no_implementation_task(team):
 
 @pytest.mark.django_db
 def test_state_task_with_pr(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url="https://github.com/o/r/pull/1", run_status=TaskRun.Status.COMPLETED)
     state = _compute_inbox_notification_state(team.id, str(report.id))
@@ -66,6 +68,7 @@ def test_state_task_with_pr(team):
 
 @pytest.mark.django_db
 def test_state_task_running_no_pr(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.IN_PROGRESS)
     state = _compute_inbox_notification_state(team.id, str(report.id))
@@ -74,6 +77,7 @@ def test_state_task_running_no_pr(team):
 
 @pytest.mark.django_db
 def test_state_task_failed_no_pr_is_terminal(team):
+    TaskRun = apps.get_model("tasks", "TaskRun")
     report = _make_report(team)
     _link_implementation_task(team, report, pr_url=None, run_status=TaskRun.Status.FAILED)
     state = _compute_inbox_notification_state(team.id, str(report.id))
@@ -147,21 +151,24 @@ async def test_workflow_waits_then_notifies_when_pr_opens():
 @pytest.mark.parametrize(
     "states,timeout_seconds,polls",
     [
-        ([NO_TASK], 10, False),  # a task-less report can never produce a PR, so skip on the first fetch
-        ([WAIT, TERMINAL], 10, True),  # task reaches a terminal state without ever opening a PR
-        ([WAIT], 3, True),  # PR never opens, so the wait runs out the timeout
+        ([NO_TASK], 10, False),  # task-less report: no PR possible, notify immediately on the first fetch
+        ([WAIT, TERMINAL], 10, True),  # task reaches a terminal state without a PR — notify once we know
+        ([WAIT], 3, True),  # PR never opens, so notify after the wait runs out the timeout
     ],
 )
-async def test_workflow_skips_when_no_pr_is_produced(states, timeout_seconds, polls):
+async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls):
+    # The PR is enrichment, not a gate: an actionable report still notifies even when no PR
+    # is ever produced. We only poll first when an implementation task exists (to attach the
+    # PR link); a task-less report notifies right away.
     recorder = _Recorder(states)
     with override_settings(
         SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS=timeout_seconds,
         SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS=1,
     ):
         sent = await _run_workflow(recorder)
-    assert sent == 0
-    assert recorder.dispatch_calls == 0
+    assert sent == 1
+    assert recorder.dispatch_calls == 1
     if polls:
-        assert recorder.state_calls >= 2  # initial fetch + at least one poll before giving up
+        assert recorder.state_calls >= 2  # initial fetch + at least one poll while waiting for the PR
     else:
         assert recorder.state_calls == 1  # decided on the first fetch — no task means no polling

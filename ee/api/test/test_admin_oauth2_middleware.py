@@ -5,10 +5,10 @@ import secrets
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.contrib.sessions.backends.db import SessionStore
 from django.http import HttpResponse, HttpResponseRedirect
 from django.test import RequestFactory, override_settings
 
@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.session.backend import SessionStore
 
 from ee.middleware import AdminOAuth2Middleware, _get_email_from_id_token, admin_oauth2_callback
 
@@ -97,6 +98,8 @@ class TestGetEmailFromIdToken(BaseTest):
             ("30_seconds_future", 30, False),
         ]
     )
+    # Freeze so the token iat and the validation now() share one instant.
+    @freeze_time("2025-01-01T00:00:00Z")
     def test_iat_bounds_checking(self, name, iat_offset, expected_success):
         payload = {**self.base_payload, "iat": int(time.time()) + iat_offset}
         token = self.jwt_helper.create_id_token(payload)

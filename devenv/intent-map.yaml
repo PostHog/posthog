@@ -48,6 +48,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
@@ -88,6 +93,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    agent_proxy:
+        description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
+        requires: [core_infra]
+        docker_profiles: []
+
     ai_capture:
         description: 'AI event capture service'
         requires: [event_ingestion, llm_gateway]
@@ -117,6 +127,18 @@ capabilities:
     cyclotron:
         description: 'Cyclotron job queue infrastructure (includes shadow for testing)'
         requires: [core_infra]
+        docker_profiles: []
+
+    agent_runtime:
+        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
+        requires: [core_infra]
+        # SeaweedFS on :8333 — agent bundle + memory object storage (separate
+        # from the main `objectstorage` on :19000).
+        docker_profiles: [agents]
+
+    ai_gateway:
+        description: 'Local Go ai-gateway (sibling ~/Development/ai-gateway) - routes agent model calls'
+        requires: [agent_runtime]
         docker_profiles: []
 
     # Node.js capability groups - control which consumers run to reduce event loop contention
@@ -227,6 +249,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
                 property_values,
@@ -344,6 +367,7 @@ intents:
                 property_definitions,
                 property_values,
                 temporal_workflows,
+                agent_proxy,
             ]
 
     logs:
@@ -391,6 +415,10 @@ intents:
         description: 'Endpoints (the product)'
         capabilities:
             [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
+
+    agents:
+        description: 'Agent platform — ingress, runner, janitor backed by the agent_runtime_queue DB, the MCP server for authoring agents through Claude, and the local ai-gateway the runner routes through'
+        capabilities: [agent_runtime, ai_gateway, mcp_server]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'

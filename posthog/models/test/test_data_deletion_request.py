@@ -1,13 +1,25 @@
 import uuid as uuid_lib
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.test import override_settings
 
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
+from posthog.models import data_deletion_request as ddr
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    RequestType,
+    cached_compile_hogql_predicate,
+    invalidate_compiled_predicate_cache,
+)
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+
+LOCMEM_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "ddr-test"}}
 
 TEAM_ID = 99999
 
@@ -27,6 +39,16 @@ def _base_kwargs(**overrides) -> dict:
     }
     kwargs.update(overrides)
     return kwargs
+
+
+def _recording_compile() -> tuple[list[str], Callable]:
+    calls: list[str] = []
+
+    def fake_compile(obj):
+        calls.append(obj.hogql_predicate)
+        return "equals(1, 1)", {"k": "v"}
+
+    return calls, fake_compile
 
 
 @pytest.mark.parametrize(
@@ -54,16 +76,42 @@ def test_event_removal_clean_passes(events, delete_all_events):
     request.clean()
 
 
-def test_non_event_removal_cannot_set_delete_all_events():
+@pytest.mark.parametrize(
+    "events,delete_all_events",
+    [
+        (["$pageview"], False),
+        ([], True),
+    ],
+)
+def test_property_removal_clean_passes(events, delete_all_events):
     request = DataDeletionRequest(
         **_base_kwargs(
             request_type=RequestType.PROPERTY_REMOVAL,
-            events=["$pageview"],
+            events=events,
             properties=["$ip"],
-            delete_all_events=True,
+            delete_all_events=delete_all_events,
         )
     )
-    with pytest.raises(ValidationError, match="only valid for event_removal"):
+    request.clean()
+
+
+@pytest.mark.parametrize(
+    "events,delete_all_events,match",
+    [
+        ([], False, "Provide at least one event"),
+        (["$pageview"], True, "Events must be empty"),
+    ],
+)
+def test_property_removal_clean_raises(events, delete_all_events, match):
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=events,
+            properties=["$ip"],
+            delete_all_events=delete_all_events,
+        )
+    )
+    with pytest.raises(ValidationError, match=match):
         request.clean()
 
 
@@ -218,6 +266,55 @@ def test_compile_hogql_predicate_emits_unqualified_materialized_column(team, sna
     assert sql == snapshot
 
 
+def test_compile_hogql_predicate_missing_team_raises_validation_error(db):
+    """If the team no longer exists, compilation must raise ``ValidationError`` (not
+    ``Team.DoesNotExist``) so ``Model.clean()`` callers keep their contract.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    request = DataDeletionRequest(
+        **_base_kwargs(team_id=2**31 - 1, events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    with pytest.raises(ValidationError, match="team no longer exists"):
+        compile_hogql_predicate(request)
+
+
+@freeze_time("2026-06-17T12:00:00Z")
+def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
+    """A boolean-typed person property compared to a non-``true``/``false`` string must not be
+    coerced to Bool. The coercion (``accurateCastOrNull(transform(...), 'Bool')``) maps the
+    stored value to NULL, so ``person.properties.isEnterprise = 'yes'`` would silently match
+    nothing. Compiling with the team's modifiers routes it through the property-group map read
+    instead, exactly as a regular HogQL query would.
+    """
+    from posthog.models.data_deletion_request import compile_hogql_predicate
+
+    from products.event_definitions.backend.models import PropertyDefinition
+
+    team.modifiers = {"propertyGroupsMode": "optimized"}
+    team.save()
+
+    PropertyDefinition.objects.create(
+        team=team,
+        name="isEnterprise",
+        type=PropertyDefinition.Type.PERSON,
+        property_type="Boolean",
+    )
+
+    request = DataDeletionRequest(
+        **_base_kwargs(
+            team_id=team.id,
+            events=["$pageview"],
+            hogql_predicate="person.properties.isEnterprise = 'yes'",
+        )
+    )
+    sql, _ = compile_hogql_predicate(request)
+
+    assert "person_properties_map_custom" in sql
+    assert "accurateCastOrNull" not in sql
+    assert "transform(" not in sql
+
+
 def test_rendered_count_query_substitutes_parameters():
     from posthog.admin.admins.data_deletion_request_admin import build_deletion_count_query
     from posthog.clickhouse.client.escape import substitute_params_for_display
@@ -347,6 +444,7 @@ def test_person_removal_rejects_event_only_fields(overrides, match):
 def _property_kwargs(**overrides) -> dict:
     kwargs = _base_kwargs(
         request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
         properties=["$ip"],
     )
     kwargs.update(overrides)
@@ -376,3 +474,78 @@ def test_event_and_property_removal_rejects_person_fields(request_type, override
     request = DataDeletionRequest(**kwargs)
     with pytest.raises(ValidationError, match=match):
         request.clean()
+
+
+def test_team_id_immutable_after_creation():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
+    request._loaded_team_id = request.team_id  # simulate a row loaded from the DB
+    request.team_id = TEAM_ID + 1
+    with pytest.raises(ValidationError, match="team_id cannot be changed"):
+        request.clean()
+
+
+def test_team_id_unchanged_allows_other_edits():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"]))
+    request._loaded_team_id = request.team_id
+    request.events = ["$pageview", "$autocapture"]
+    request.clean()  # team_id unchanged → no raise
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_reuses_cache_on_repeat():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
+        # Second call for the same predicate is served from cache — no recompile.
+        assert cached_compile_hogql_predicate(request) == ("equals(1, 1)", {"k": "v"})
+        assert len(calls) == 1
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_when_predicate_text_changes():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
+        # Changing the predicate text recompiles via the source guard, even without explicit clear.
+        request.hogql_predicate = "properties.$browser = 'Firefox'"
+        cached_compile_hogql_predicate(request)
+        assert len(calls) == 2
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_recompiles_after_explicit_invalidation():
+    from django.core.cache import cache
+
+    cache.clear()
+    request = DataDeletionRequest(
+        **_base_kwargs(events=["$pageview"], hogql_predicate="properties.$browser = 'Chrome'")
+    )
+    calls, fake_compile = _recording_compile()
+
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=fake_compile):
+        cached_compile_hogql_predicate(request)
+        # Explicit invalidation forces a recompile on the next call.
+        invalidate_compiled_predicate_cache(request.pk)
+        cached_compile_hogql_predicate(request)
+        assert len(calls) == 2
+
+
+@override_settings(CACHES=LOCMEM_CACHE)
+def test_cached_compile_hogql_predicate_blank_predicate_skips_compile():
+    request = DataDeletionRequest(**_base_kwargs(events=["$pageview"], hogql_predicate=""))
+    with patch.object(ddr, "compile_hogql_predicate", side_effect=AssertionError("should not compile")):
+        assert cached_compile_hogql_predicate(request) == ("", {})

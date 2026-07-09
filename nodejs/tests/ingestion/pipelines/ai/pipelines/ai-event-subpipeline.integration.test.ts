@@ -1,0 +1,258 @@
+import { DateTime } from 'luxon'
+
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import {
+    AI_EVENTS_OUTPUT,
+    EVENTS_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
+import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
+import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { newPipelineBuilder } from '~/ingestion/framework/builders'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { PipelineResultType } from '~/ingestion/framework/results'
+import {
+    AiEventSubpipelineConfig,
+    AiEventSubpipelineInput,
+    createAiEventSubpipeline,
+} from '~/ingestion/pipelines/ai/pipelines/ai-event-subpipeline'
+import { PluginEvent } from '~/plugin-scaffold'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { createTestMessage } from '~/tests/helpers/kafka-message'
+import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
+import { createTestTeam } from '~/tests/helpers/team'
+import { InternalPerson, PropertyUpdateOperation } from '~/types'
+
+const team = createTestTeam()
+const message = createTestMessage()
+const headers = createTestEventHeaders()
+
+const existingPerson: InternalPerson = {
+    id: '1',
+    team_id: team.id,
+    uuid: 'person-uuid-1',
+    properties: { email: 'test@example.com' },
+    is_user_id: null,
+    is_identified: false,
+    properties_last_updated_at: {},
+    properties_last_operation: { email: PropertyUpdateOperation.Set },
+    created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
+    version: 0,
+    last_seen_at: null,
+}
+
+const mockPersonsStoreForBatch: jest.Mocked<PersonsStoreForBatch> = {
+    fetchForChecking: jest.fn().mockResolvedValue(null),
+    getPersonlessBatchResult: jest.fn().mockReturnValue(false),
+    fetchForUpdate: jest.fn().mockResolvedValue(existingPerson),
+    updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
+} as unknown as jest.Mocked<PersonsStoreForBatch>
+
+const mockGroupStoreForBatch: jest.Mocked<GroupStoreForBatch> = {
+    upsertGroup: jest.fn().mockResolvedValue(undefined),
+} as unknown as jest.Mocked<GroupStoreForBatch>
+
+function createAiEvent(overrides: Partial<PluginEvent> = {}): PluginEvent {
+    return createTestPluginEvent({
+        event: '$ai_generation',
+        team_id: team.id,
+        timestamp: '2020-02-23T02:15:00Z',
+        properties: {
+            $ai_model: 'gpt-4',
+            $ai_provider: 'openai',
+            $ai_input_tokens: 100,
+            $ai_output_tokens: 50,
+            ...overrides.properties,
+        },
+        ...overrides,
+        // Restore properties after spread since overrides may have properties
+        ...(overrides.properties
+            ? {
+                  properties: {
+                      $ai_model: 'gpt-4',
+                      $ai_provider: 'openai',
+                      $ai_input_tokens: 100,
+                      $ai_output_tokens: 50,
+                      ...overrides.properties,
+                  },
+              }
+            : {}),
+    })
+}
+
+function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) {
+    const mockOutputs = createMockIngestionOutputs<AiOutputs>()
+
+    const config: AiEventSubpipelineConfig = {
+        options: {
+            SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: true,
+            PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
+            PERSON_MERGE_ASYNC_ENABLED: false,
+            PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+            PERSON_MERGE_EVENTS_ENABLED: false,
+            PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
+            PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
+            PERSON_PROPERTIES_UPDATE_ALL: false,
+            FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+        },
+        outputs: mockOutputs,
+        teamManager: {
+            setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
+        } as any,
+        groupTypeManager: {
+            fetchGroupTypeIndex: jest.fn().mockResolvedValue(0),
+        } as any,
+        hogTransformer: {
+            transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
+        } as any,
+        topHog: (step) => step,
+        ...configOverrides,
+    }
+
+    return {
+        pipeline: createAiEventSubpipeline(newPipelineBuilder<AiEventSubpipelineInput>(), config).build(),
+        mockOutputs,
+        config,
+    }
+}
+
+function createInput(event: PluginEvent): AiEventSubpipelineInput {
+    return {
+        message,
+        event,
+        team,
+        headers,
+        personsStoreForBatch: mockPersonsStoreForBatch,
+        groupStoreForBatch: mockGroupStoreForBatch,
+    }
+}
+
+type AiOutputs =
+    | typeof EVENTS_OUTPUT
+    | typeof AI_EVENTS_OUTPUT
+    | typeof INGESTION_WARNINGS_OUTPUT
+    | typeof PERSONS_OUTPUT
+    | typeof PERSON_DISTINCT_IDS_OUTPUT
+    | typeof PERSON_MERGE_EVENTS_OUTPUT
+
+function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>, output: AiOutputs = EVENTS_OUTPUT) {
+    const call = mockOutputs.produce.mock.calls.find(([outputName]) => outputName === output)
+    if (!call) {
+        throw new Error(`No produce call for output ${output}`)
+    }
+    const [outputName, message] = call
+    const event = parseJSON(message.value!.toString())
+    return {
+        outputName: outputName as string,
+        key: message.key as string,
+        headers: message.headers as Record<string, string>,
+        event,
+        properties: parseJSON(event.properties) as Record<string, unknown>,
+    }
+}
+
+describe('AI event subpipeline integration', () => {
+    it('exercises all steps: hog transform → normalize → AI enrich → person → prepare → emit', async () => {
+        const event = createAiEvent({
+            properties: {
+                $ai_model: 'gpt-4',
+                $ai_provider: 'openai',
+                $ai_input_tokens: 1000,
+                $ai_output_tokens: 500,
+                $ai_trace_id: 12345,
+                // $set triggers person property handling
+                $set: { plan: 'enterprise' },
+                // $groups triggers group property lookup in prepareEvent
+                $groups: { company: 'posthog' },
+            },
+        })
+
+        const { pipeline, mockOutputs } = buildPipeline({
+            // Hog transform adds a property with un-normalized casing
+            hogTransformer: {
+                transformEventAndProduceMessages: (e: PluginEvent) =>
+                    Promise.resolve({
+                        event: { ...e, properties: { ...e.properties, $hog_transformed: true } },
+                        invocationResults: [{}],
+                    }),
+            } as any,
+        })
+
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+        expect(result.result.type).toBe(PipelineResultType.OK)
+
+        const { outputName, event: produced, properties } = getProduceCall(mockOutputs)
+
+        // Emit step: correct output
+        expect(outputName).toBe(EVENTS_OUTPUT)
+
+        // Split step: AI events are unconditionally duplicated to the dedicated ai_events output
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(2)
+        expect(getProduceCall(mockOutputs, AI_EVENTS_OUTPUT).event.event).toBe('$ai_generation')
+
+        // Event identity preserved
+        expect(produced.event).toBe('$ai_generation')
+        expect(produced.team_id).toBe(team.id)
+        expect(produced.distinct_id).toBe(event.distinct_id)
+
+        // Hog transform step: property was added
+        expect(properties.$hog_transformed).toBe(true)
+
+        // Normalize step: $process_person_profile defaults to true (person_mode=full)
+        expect(produced.person_mode).toBe('full')
+
+        // AI enrich step: cost calculated, trace ID normalized to string
+        expect(properties.$ai_input_cost_usd).toBeGreaterThan(0)
+        expect(properties.$ai_output_cost_usd).toBeGreaterThan(0)
+        expect(typeof properties.$ai_total_cost_usd).toBe('number')
+        expect(properties.$ai_trace_id).toBe('12345')
+
+        // Person step: person resolved from personsStore
+        expect(produced.person_id).toBe(existingPerson.uuid)
+        // $set person properties merged onto the event
+        expect(parseJSON(produced.person_properties)).toMatchObject({ email: 'test@example.com', plan: 'enterprise' })
+
+        // Prepare step: group resolved via groupTypeManager
+        expect(properties.$group_0).toBe('posthog')
+    })
+
+    it('personless: $process_person_profile=false produces event with propertyless person_mode', async () => {
+        const event = createAiEvent({
+            properties: {
+                $process_person_profile: false,
+            },
+        })
+
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+        expect(result.result.type).toBe(PipelineResultType.OK)
+
+        const { event: produced, properties } = getProduceCall(mockOutputs)
+
+        // Personless: person_mode is propertyless, person properties are empty
+        expect(produced.person_mode).toBe('propertyless')
+        expect(parseJSON(produced.person_properties)).toEqual({})
+
+        // AI enrichment still applied
+        expect(properties.$ai_input_cost_usd).toBeDefined()
+    })
+
+    it('hog transform dropping event short-circuits the pipeline', async () => {
+        const event = createAiEvent()
+
+        const { pipeline, mockOutputs } = buildPipeline({
+            hogTransformer: {
+                transformEventAndProduceMessages: () => Promise.resolve({ event: null, invocationResults: [{}] }),
+            } as any,
+        })
+
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+        expect(result.result.type).toBe(PipelineResultType.DROP)
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
+    })
+})

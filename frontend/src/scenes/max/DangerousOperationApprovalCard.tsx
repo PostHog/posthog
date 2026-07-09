@@ -1,21 +1,31 @@
 import { useValues } from 'kea'
 
-import { IconWarning } from '@posthog/icons'
+import { IconNotebook, IconWarning } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { DangerousOperationResponse } from '~/queries/schema/schema-assistant-messages'
 
 import { maxThreadLogic } from './maxThreadLogic'
 
+/**
+ * `plan_approval` reuses this card for sandbox plan-mode approvals — it only swaps the icon
+ * and the awaiting copy. `dangerous_operation` is the existing LangGraph default.
+ */
+export type ApprovalCardVariant = 'dangerous_operation' | 'plan_approval'
+
 interface DangerousOperationApprovalCardProps {
     operation: DangerousOperationResponse
+    variant?: ApprovalCardVariant
 }
 
 /**
  * In-thread approval card that shows a compact summary of the approval status.
  * The actual approval interaction happens in the input area (DangerousOperationInput).
  */
-export function DangerousOperationApprovalCard({ operation }: DangerousOperationApprovalCardProps): JSX.Element {
+export function DangerousOperationApprovalCard({
+    operation,
+    variant = 'dangerous_operation',
+}: DangerousOperationApprovalCardProps): JSX.Element {
     // Read both resolvedApprovalStatuses (frontend) and pendingApprovalsData (backend)
     // to ensure we show correct status for both new and historical approvals
     const { resolvedApprovalStatuses, pendingApprovalsData, isSharedThread } = useValues(maxThreadLogic)
@@ -31,15 +41,18 @@ export function DangerousOperationApprovalCard({ operation }: DangerousOperation
 
     const subject = isSharedThread ? 'User' : 'You'
 
+    const isPlan = variant === 'plan_approval'
+    const Icon = isPlan ? IconNotebook : IconWarning
+
     // Show pending state while waiting for resolution
     if (!resolvedStatus) {
         return (
             <div className="flex text-xs text-muted">
                 <div className="flex items-center justify-center size-5">
-                    <IconWarning />
+                    <Icon />
                 </div>
                 <div className="flex items-center gap-1 flex-1 min-w-0">
-                    <span>Awaiting approval...</span>
+                    <span>{isPlan ? 'Awaiting plan approval...' : 'Awaiting approval...'}</span>
                     <Spinner className="size-3" />
                 </div>
             </div>
@@ -59,7 +72,7 @@ export function DangerousOperationApprovalCard({ operation }: DangerousOperation
     return (
         <div className="flex text-xs text-muted">
             <div className="flex items-center justify-center size-5">
-                <IconWarning />
+                <Icon />
             </div>
             <div className="flex items-center gap-1 flex-1 min-w-0">
                 <span>{text}</span>

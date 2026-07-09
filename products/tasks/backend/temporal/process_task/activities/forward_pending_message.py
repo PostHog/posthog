@@ -8,6 +8,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 
 logger = get_logger(__name__)
 
@@ -49,10 +50,11 @@ def forward_pending_user_message(run_id: str) -> None:
     successful delivery or non-retryable failure. Keeps it in state on retryable
     failure to preserve recoverability.
     """
+    from products.tasks.backend.logic.services.agent_command import send_user_message
+    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+    from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
+    from products.tasks.backend.metrics import observe_followup_delivery_failed
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.services.agent_command import send_user_message
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.services.staged_artifacts import get_task_run_artifacts_by_id
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=run_id)
@@ -120,6 +122,7 @@ def forward_pending_user_message(run_id: str) -> None:
 
         if not result.success and result.retryable:
             retryable_delivery_error = result.error or "Retryable pending message delivery failed"
+            observe_followup_delivery_failed(task_run, retryable=True)
             logger.warning(
                 "forward_pending_message_retryable_failure",
                 run_id=run_id,
@@ -143,6 +146,7 @@ def forward_pending_user_message(run_id: str) -> None:
         if result.success:
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
+            observe_followup_delivery_failed(task_run, retryable=False)
             logger.warning(
                 "forward_pending_message_non_retryable_failure",
                 run_id=run_id,
@@ -166,6 +170,10 @@ def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str 
 
 
 def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
+    # Agent-design already streamed the reply into the plan block — don't post it again.
+    if bool((task_run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+        return
+
     from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
     reply_text = _extract_assistant_text_from_command_result(
@@ -219,8 +227,13 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
         return content.strip()
 
     if isinstance(content, list):
+        # Only text after the last tool_use is the final answer; text before it is interim narration.
+        last_tool_use = -1
+        for i, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") == "tool_use":
+                last_tool_use = i
         text_parts: list[str] = []
-        for part in content:
+        for part in content[last_tool_use + 1 :]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text" and isinstance(part.get("text"), str):

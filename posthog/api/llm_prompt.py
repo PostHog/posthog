@@ -6,16 +6,14 @@ from django.db import IntegrityError
 from django.db.models import Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
@@ -54,7 +52,7 @@ from posthog.auth import (
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_organization_from_view
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
@@ -64,7 +62,6 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt, get_p
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-LLM_PROMPT_FEATURE_FLAGS = ("prompt-management", "llm-analytics-early-adopters")
 ALLOWED_LIST_ORDERINGS = {
     "name": "name",
     "-name": "-name",
@@ -85,26 +82,6 @@ ALLOWED_LIST_ORDERINGS = {
 }
 
 
-class LLMPromptFeatureFlagPermission(BasePermission):
-    def has_permission(self, request, view) -> bool:
-        user = cast(User, request.user)
-        organization = get_organization_from_view(view)
-        org_id = str(organization.id)
-        distinct_id = user.distinct_id or str(user.uuid)
-
-        return any(
-            posthoganalytics.feature_enabled(
-                feature_flag,
-                distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-            for feature_flag in LLM_PROMPT_FEATURE_FLAGS
-        )
-
-
 @extend_schema(extensions={"x-product": "llm_analytics"})
 class LLMPromptViewSet(
     TeamAndOrgViewSetMixin,
@@ -116,7 +93,7 @@ class LLMPromptViewSet(
     scope_object = "llm_prompt"
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
-    permission_classes = [LLMPromptFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMPrompt]) -> QuerySet[LLMPrompt]:
         return get_active_prompt_queryset(self.team)
@@ -192,7 +169,7 @@ class LLMPromptViewSet(
     def _track_prompt_fetch(self, prompt: dict[str, Any]) -> None:
         if not settings.TEST:
             try:
-                capture_internal_routed(
+                capture_internal(
                     token=self.team.api_token,
                     event_name=PROMPT_FETCHED_EVENT,
                     event_source=PROMPT_FETCHED_EVENT_SOURCE,
@@ -313,6 +290,7 @@ class LLMPromptViewSet(
                 prompt_payload=payload.validated_data.get("prompt"),
                 edits=payload.validated_data.get("edits"),
                 base_version=payload.validated_data["base_version"],
+                version_description=payload.validated_data.get("version_description"),
             )
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)

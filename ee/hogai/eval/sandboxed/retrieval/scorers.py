@@ -7,23 +7,25 @@ Four binary scorers grade the retrieval flow:
 * ``LookupIdInOutput`` — does the agent's final assistant message contain
   the seeded lookup insight's ID, proving it actually queried PostHog
   rather than hallucinating?
-* ``WarehouseSchemaBeforeSql`` — did the agent call
-  ``read-data-warehouse-schema`` before every successful ``execute-sql``
-  call? Catches the failure mode where the agent guesses column names on
-  ``system.*`` tables and gets a query that fails or silently returns
-  wrong rows. Mode-agnostic: works for both v2 tools mode and CLI exec
-  mode because ``LogParser`` normalizes both to the same tool name.
+* ``InformationSchemaBeforeSql`` — did the agent discover the schema via
+  ``system.information_schema.*`` before every ``execute-sql`` that hits a
+  ``system.*`` entity table? Catches the failure mode where the agent
+  guesses column names on ``system.*`` tables and gets a query that fails
+  or silently returns wrong rows. Both the discovery step and the real
+  query are ``execute-sql`` calls, so they're told apart by SQL text.
+  Mode-agnostic: works for both v2 tools mode and CLI exec mode because
+  ``LogParser`` normalizes both to the same tool name and input.
 * ``InfoCalledBeforeTool`` — in single-exec CLI mode, did the agent run
   ``info <tool>`` before the first successful ``call <tool>``? Enforces
   the "load schema before invoking" discipline for tools whose
-  guidance lives behind ``info`` (e.g. ``execute-sql``,
-  ``read-data-warehouse-schema``). Returns ``None`` (skipped) outside CLI
-  mode, where tool schemas come bundled with the tool registration.
+  guidance lives behind ``info`` (e.g. ``execute-sql``). Returns ``None``
+  (skipped) outside CLI mode, where tool schemas come bundled with the
+  tool registration.
 
 The first two scorers walk ``output["messages"]`` (Anthropic-format) and
 ``output["seed"]`` (set by the seeder hook in ``base.py:task()``), so
 nothing has to be threaded through ``expected``. The third opts in via
-``expected = {"warehouse_schema_before_sql": {}}``.
+``expected = {"information_schema_before_sql": {}}``.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from braintrust_core.score import Scorer
 
 from ee.hogai.eval.sandboxed.log_parser import INFO_SYNTHETIC_PREFIX, LogParser
 
-__all__ = ["InfoCalledBeforeTool", "LookupIdInOutput", "SkillLoaded", "WarehouseSchemaBeforeSql"]
+__all__ = ["InfoCalledBeforeTool", "InformationSchemaBeforeSql", "LookupIdInOutput", "SkillLoaded"]
 
 
 class SkillLoaded(Scorer):
@@ -262,35 +264,55 @@ class LookupIdInOutput(Scorer):
         return ""
 
 
-class WarehouseSchemaBeforeSql(Scorer):
-    """Binary: did the agent run ``read-data-warehouse-schema`` before any successful ``execute-sql``?
+class InformationSchemaBeforeSql(Scorer):
+    """Binary: did the agent discover the schema via ``system.information_schema`` before querying ``system.*``?
 
-    Opt-in via presence of ``expected = {"warehouse_schema_before_sql": {}}``.
+    Opt-in via presence of ``expected = {"information_schema_before_sql": {}}``.
 
-    For each successful ``execute-sql`` call, requires that a successful
-    ``read-data-warehouse-schema`` call appeared earlier in the same run.
-    Mode-agnostic — walks all tool calls regardless of whether they came
-    via tools-mode dispatch or via ``posthog:exec`` unwrapping; the
-    ``LogParser`` normalizes both into the same tool name.
+    Both the discovery step and the real query are ``execute-sql`` calls, so
+    they're distinguished by the SQL text (``input["query"]``):
 
-    Score 1.0 if every successful ``execute-sql`` was preceded by a
-    successful ``read-data-warehouse-schema``. 0.0 otherwise (with the
-    offending call IDs in metadata). ``None`` when ``execute-sql`` was
-    never called successfully — the case didn't exercise the path this
-    scorer grades.
+    * a **discovery** call selects from ``system.information_schema`` (any of
+      ``.tables`` / ``.columns`` / ``.relationships`` / ``.data_types``);
+    * a **graded** call hits a ``system.*`` entity table (``system.insights``,
+      ``system.dashboards``, …) but *not* ``information_schema`` — i.e. an
+      actual entity search whose columns must be confirmed first.
+
+    Requires that every graded call was preceded by a successful discovery
+    call in the same run. Mode-agnostic — walks all tool calls whether they
+    came via tools-mode dispatch or via ``posthog:exec`` unwrapping; the
+    ``LogParser`` normalizes both into the same tool name and input.
+
+    Score 1.0 if every graded call was preceded by a successful discovery
+    call. 0.0 otherwise (with the offending call IDs in metadata). ``None``
+    when no graded call ran — the case didn't exercise the path this scorer
+    grades.
     """
 
-    SCHEMA_TOOL = "read-data-warehouse-schema"
     SQL_TOOL = "execute-sql"
 
     def _name(self) -> str:
-        return "warehouse_schema_before_sql"
+        return "information_schema_before_sql"
 
     async def _run_eval_async(self, output, expected=None, **kwargs):
         return self._evaluate(output, expected)
 
     def _run_eval_sync(self, output, expected=None, **kwargs):
         return self._evaluate(output, expected)
+
+    @staticmethod
+    def _query_text(call) -> str:
+        query = call.input.get("query") if isinstance(call.input, dict) else None
+        return query.lower() if isinstance(query, str) else ""
+
+    @classmethod
+    def _is_discovery(cls, call) -> bool:
+        return "information_schema" in cls._query_text(call)
+
+    @classmethod
+    def _is_graded(cls, call) -> bool:
+        query = cls._query_text(call)
+        return "system." in query and "information_schema" not in query
 
     def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
         if not output:
@@ -305,40 +327,40 @@ class WarehouseSchemaBeforeSql(Scorer):
         parser = LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
         calls = sorted(parser.get_tool_calls(), key=lambda c: c.position)
 
-        seen_schema = False
+        seen_discovery = False
         offenders: list[str] = []
-        successful_calls = 0
+        graded_calls = 0
         for call in calls:
-            if call.is_error:
+            if call.is_error or call.name != self.SQL_TOOL:
                 continue
-            if call.name == self.SCHEMA_TOOL:
-                seen_schema = True
+            if self._is_discovery(call):
+                seen_discovery = True
                 continue
-            if call.name == self.SQL_TOOL:
-                successful_calls += 1
-                if not seen_schema:
+            if self._is_graded(call):
+                graded_calls += 1
+                if not seen_discovery:
                     offenders.append(call.call_id)
 
-        if successful_calls == 0:
+        if graded_calls == 0:
             return Score(
                 name=self._name(),
                 score=None,
-                metadata={"reason": f"'{self.SQL_TOOL}' was never called successfully"},
+                metadata={"reason": "No 'system.*' entity-table query ran"},
             )
         if offenders:
             return Score(
                 name=self._name(),
                 score=0.0,
                 metadata={
-                    "reason": f"'{self.SQL_TOOL}' was called without a prior successful '{self.SCHEMA_TOOL}'",
+                    "reason": "'system.*' entity query ran without a prior 'system.information_schema' discovery query",
                     "offenders": offenders,
-                    "total_calls": successful_calls,
+                    "total_calls": graded_calls,
                 },
             )
         return Score(
             name=self._name(),
             score=1.0,
-            metadata={"total_calls": successful_calls},
+            metadata={"total_calls": graded_calls},
         )
 
 

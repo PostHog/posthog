@@ -16,7 +16,7 @@ clusters. Each cluster carries its tool distribution, call counts, and error
 rates — answering "what are people _trying_ to do, and does it work?" rather
 than "which tool was called".
 
-Unlike tool quality and sessions (which are plain HogQL over `mcp_tool_call`),
+Unlike tool quality and sessions (which are plain HogQL over `$mcp_tool_call`),
 clustering needs embeddings and is **not expressible in SQL**. It is served by
 two typed tools backed by a stored snapshot.
 
@@ -74,7 +74,7 @@ background. Poll `...-retrieve` until `status` returns to `idle` (done) or
 
 - Clusters are only as good as the `$mcp_intent` coverage — if few calls carry
   an intent, clusters will be sparse; cross-check intent coverage with a quick
-  `countIf(toString(properties.$mcp_intent) != '')` over `mcp_tool_call`
+  `countIf(toString(properties.$mcp_intent) != '')` over `$mcp_tool_call`
 - A cluster with high `error_rate_pct` plus high `routing_entropy` is the
   strongest "the tools don't serve this goal well" signal — worth a closer look
   at its `sample_intents` and `tool_distribution`

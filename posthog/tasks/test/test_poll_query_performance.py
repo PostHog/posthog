@@ -69,10 +69,16 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
         posthog.tasks.tasks.poll_query_performance("DIFFERENT TIME")
         mock_logger_error.assert_called_once_with("Poll query performance task terminating: another poller is running")
 
+    # Mock the inner ClickHouse-querying function: these tests exercise the task wrapper's
+    # timing/scheduling logic, not the query. Without this the wrapper runs a real query against a
+    # ClickHouse test database that this SimpleTestCase never sets up, so the call raises, gets
+    # logged, and the logging consumes a value from the fixed-length `time.time_ns` side_effect —
+    # exhausting it and surfacing as StopIteration under --reruns.
+    @patch("posthog.tasks.poll_query_performance.poll_query_performance")
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.apply_async")
     def test_poll_query_performance_runs_and_restarts_itself_with_delay(
-        self, mock_apply_async: MagicMock, mock_logger_error: MagicMock
+        self, mock_apply_async: MagicMock, mock_logger_error: MagicMock, mock_poll_query_performance_nontask: MagicMock
     ) -> None:
         redis_client = get_client()
         key = 1234
@@ -87,11 +93,16 @@ class TestPollQueryPerformanceTask(SimpleTestCase):
             Polling._encode_redis_key(mock_apply_async.call_args.kwargs["args"][0]),
         )
 
+    @patch("posthog.tasks.poll_query_performance.poll_query_performance")
     @patch("posthog.tasks.tasks.logger.error")
     @patch("posthog.tasks.tasks.poll_query_performance.delay")
+    # Stub the inner query worker the task delegates to (a different module that happens to share
+    # the name — not the task under test): the real worker makes extra time.time_ns() calls that
+    # would exhaust the 2-value mock below and flake with StopIteration.
+    @patch("posthog.tasks.poll_query_performance.poll_query_performance", MagicMock())
     @patch("time.time_ns", MagicMock(side_effect=[int(1e9), int(4e9)]))
     def test_poll_query_performance_runs_and_restarts_itself_with_no_delay_if_it_takes_too_long(
-        self, mock_delay: MagicMock, mock_logger_error: MagicMock
+        self, mock_delay: MagicMock, mock_logger_error: MagicMock, mock_poll_query_performance_nontask: MagicMock
     ) -> None:
         redis_client = get_client()
         key = 1234

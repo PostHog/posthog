@@ -1,6 +1,10 @@
-import { buildCaptureConfig, buildPlayerConfig, validateInput } from '../capture/config'
-import { parseList } from '../config'
-import { RasterizeRecordingInput } from '../types'
+import {
+    buildCaptureConfig,
+    buildPlayerConfig,
+    validateInput,
+} from '~/session-replay/recording-rasterizer/capture/config'
+import { parseList } from '~/session-replay/recording-rasterizer/config'
+import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeRecordingInput {
     return {
@@ -29,7 +33,7 @@ describe('config', () => {
 
             try {
                 jest.resetModules()
-                const { config } = await import('../config.js')
+                const { config } = await import('~/session-replay/recording-rasterizer/config.js')
                 expect(config.fallbackKeys).toEqual(['a', 'b'])
             } finally {
                 if (originalFallbackKeys === undefined) {
@@ -213,6 +217,38 @@ describe('config', () => {
             it('trim=1 produces trimFrameLimit equal to outputFps', () => {
                 const config = buildCaptureConfig(baseInput({ trim: 1, recording_fps: 24 }))
                 expect(config.trimFrameLimit).toBe(24)
+            })
+        })
+
+        describe('ffmpeg argument safety', () => {
+            it.each([
+                { field: 'trim', value: Infinity },
+                { field: 'trim', value: '10 -i /etc/passwd' },
+                { field: 'trim', value: 'not-a-number' },
+                { field: 'playback_speed', value: Infinity },
+                { field: 'playback_speed', value: '8 -vf evil' },
+                { field: 'playback_speed', value: 'NaN' },
+                { field: 'recording_fps', value: Infinity },
+                { field: 'recording_fps', value: '24; rm -rf /' },
+                { field: 'recording_fps', value: 'abc' },
+            ])('throws on non-finite $field=$value before it reaches an ffmpeg arg', ({ field, value }) => {
+                expect(() => buildCaptureConfig(baseInput({ [field]: value as any }))).toThrow(
+                    'must be a finite number'
+                )
+            })
+
+            it('emits the -t value as a single numeric token (no embedded flags)', () => {
+                const config = buildCaptureConfig(baseInput({ trim: 60 }))
+                const tOpt = config.ffmpegOutputOpts.find((o) => o.startsWith('-t'))
+                // Exactly two space-separated tokens → fluent-ffmpeg passes ['-t', '60'],
+                // so an attacker can never split the value into extra ffmpeg arguments.
+                expect(tOpt!.split(' ')).toEqual(['-t', '60'])
+            })
+
+            it('interpolates speed/fps as bare numbers into the filtergraph', () => {
+                const config = buildCaptureConfig(baseInput({ playback_speed: 8, recording_fps: 24 }))
+                expect(config.ffmpegVideoFilters).toContain('setpts=8*PTS')
+                expect(config.ffmpegVideoFilters).toContain('fps=24')
             })
         })
     })

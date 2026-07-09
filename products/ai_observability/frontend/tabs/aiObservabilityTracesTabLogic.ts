@@ -28,7 +28,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
     connect((props: AIObservabilityTracesTabLogicProps) => ({
         values: [
             aiObservabilitySharedLogic({ personId: props.personId, group: props.group }),
-            ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
+            ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters', 'searchQuery'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             featureFlagLogic,
@@ -79,6 +79,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 s.shouldFilterTestAccounts,
                 s.shouldFilterSupportTraces,
                 s.propertyFilters,
+                s.searchQuery,
                 (_, props) => props.personId,
                 (_, props) => props.group,
                 s.groupsTaxonomicTypes,
@@ -92,6 +93,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 shouldFilterTestAccounts: boolean,
                 shouldFilterSupportTraces: boolean,
                 propertyFilters,
+                searchQuery: string,
                 personId: string | undefined,
                 group: { groupKey: string; groupTypeIndex: number } | undefined,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
@@ -116,9 +118,13 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         filterTestAccounts: shouldFilterTestAccounts ?? false,
                         filterSupportTraces,
                         properties: propertyFilters,
+                        searchTerm: featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]
+                            ? searchQuery || undefined
+                            : undefined,
                         personId: personId ?? undefined,
                         groupKey: group?.groupKey,
                         groupTypeIndex: group?.groupTypeIndex,
+                        includeSentiment: showSentimentColumn,
                     },
                     columns: [
                         'id',
@@ -127,20 +133,18 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                             ? ['inputState', 'outputState']
                             : []),
                         'person',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && showSentimentColumn
-                            ? ['__llm_sentiment']
-                            : []),
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] ? ['__llm_tools'] : []),
+                        ...(showSentimentColumn ? ['__llm_sentiment'] : []),
+                        '__llm_tools',
                         'errorCount',
                         'totalLatency',
                         'usage',
                         'totalCost',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW] ? ['review'] : []),
+                        'review',
                         'createdAt',
                     ],
                     showDateRange: true,
                     showReload: true,
-                    showSearch: true,
+                    showSearch: !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH],
                     showTestAccountFilters: true,
                     showExport: false,
                     showOpenEditorButton: false,

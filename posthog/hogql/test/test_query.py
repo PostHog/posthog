@@ -24,7 +24,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
@@ -43,9 +43,9 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -316,6 +316,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+
+    @patch("posthog.hogql.direct_connection.UserAccessControl")
+    def test_get_direct_connection_source_checks_source_access(self, mock_user_access_control):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="postgres",
+        )
+        mock_user_access_control.return_value.check_access_level_for_object.return_value = False
+
+        source = get_direct_connection_source(self.team, str(selected_source.id), user=self.user)
+
+        self.assertIsNone(source)
+        checked_source = mock_user_access_control.return_value.check_access_level_for_object.call_args.args[0]
+        self.assertEqual(checked_source.pk, selected_source.pk)
+        mock_user_access_control.return_value.check_access_level_for_object.assert_called_once_with(
+            checked_source,
+            required_level="viewer",
+        )
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):

@@ -1,3 +1,5 @@
+import ipaddress
+
 import pytest
 from posthog.test.base import BaseTest
 
@@ -8,6 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
+    get_bot_operator,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
@@ -18,11 +21,12 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
 
 
 class TestTrafficTypeFunctions:
     def test_get_traffic_type_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -39,7 +43,7 @@ class TestTrafficTypeFunctions:
         assert isinstance(result.args[2], ast.ArrayAccess)
 
     def test_get_traffic_type_uses_multiMatchAnyIndex(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -52,7 +56,7 @@ class TestTrafficTypeFunctions:
         assert comparison.left.name == "multiMatchAnyIndex"
 
     def test_get_traffic_type_has_correct_patterns_and_labels(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -83,7 +87,7 @@ class TestTrafficTypeFunctions:
         assert "Automation" in label_values  # For empty UA
 
     def test_get_traffic_category_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getTrafficCategory", args=[])
+        node = ast.Call(name="getTrafficCategory", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
@@ -97,7 +101,7 @@ class TestTrafficTypeFunctions:
         assert default_arg.value == "regular"
 
     def test_get_traffic_category_returns_expected_values(self):
-        node = ast.Call(name="__preview_getTrafficCategory", args=[])
+        node = ast.Call(name="getTrafficCategory", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
@@ -120,37 +124,44 @@ class TestTrafficTypeFunctions:
 
 
 class TestIsBotFunction:
-    def test_is_bot_returns_compare_operation(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+    def test_is_bot_returns_bool_cast(self):
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
 
-        assert isinstance(result, ast.CompareOperation)
-        assert result.op == ast.CompareOperationOp.NotEq
+        assert isinstance(result, ast.Call)
+        assert result.name == "toBool"
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert comparison.op == ast.CompareOperationOp.NotEq
 
     def test_is_bot_uses_multiMatchAnyIndex(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.CompareOperation)
-        assert isinstance(result.left, ast.Call)
-        assert result.left.name == "multiMatchAnyIndex"
+        assert isinstance(result, ast.Call)
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert isinstance(comparison.left, ast.Call)
+        assert comparison.left.name == "multiMatchAnyIndex"
 
     def test_is_bot_compares_against_zero(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.CompareOperation)
-        assert isinstance(result.right, ast.Constant)
-        assert result.right.value == 0
+        assert isinstance(result, ast.Call)
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        assert isinstance(comparison.right, ast.Constant)
+        assert comparison.right.value == 0
 
 
 class TestGetBotTypeFunction:
     def test_get_bot_type_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getBotType", args=[])
+        node = ast.Call(name="getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
@@ -164,7 +175,7 @@ class TestGetBotTypeFunction:
         assert default_arg.value == ""
 
     def test_get_bot_type_returns_expected_values(self):
-        node = ast.Call(name="__preview_getBotType", args=[])
+        node = ast.Call(name="getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
@@ -192,7 +203,7 @@ class TestGetBotTypeFunction:
 
 class TestGetBotNameFunction:
     def test_get_bot_name_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getBotName", args=[])
+        node = ast.Call(name="getBotName", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_name(node=node, args=[user_agent_arg])
@@ -206,7 +217,7 @@ class TestGetBotNameFunction:
         assert default_arg.value == ""
 
     def test_get_bot_name_returns_expected_values(self):
-        node = ast.Call(name="__preview_getBotName", args=[])
+        node = ast.Call(name="getBotName", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_name(node=node, args=[user_agent_arg])
@@ -283,12 +294,14 @@ class TestTrafficTypeFunctionPatterns:
         assert safe_user_agent.args[0] == user_agent_arg
 
     def test_is_bot_preserves_user_agent_expression(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.CompareOperation)
-        index_call = result.left
+        assert isinstance(result, ast.Call)
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
+        index_call = comparison.left
         assert isinstance(index_call, ast.Call)
         assert index_call.name == "multiMatchAnyIndex"
         safe_user_agent = index_call.args[0]
@@ -299,7 +312,7 @@ class TestTrafficTypeFunctionPatterns:
 
 class TestNullHandling:
     def test_build_bot_array_lookup_wraps_user_agent_in_ifnull(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -321,13 +334,15 @@ class TestNullHandling:
         assert empty_string_arg.value == ""
 
     def test_is_bot_wraps_user_agent_in_ifnull(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result, ast.Call)
+        comparison = result.args[0]
+        assert isinstance(comparison, ast.CompareOperation)
 
-        index_call = result.left
+        index_call = comparison.left
         assert isinstance(index_call, ast.Call)
         safe_user_agent = index_call.args[0]
         assert isinstance(safe_user_agent, ast.Call)
@@ -336,6 +351,123 @@ class TestNullHandling:
         empty_string_arg = safe_user_agent.args[1]
         assert isinstance(empty_string_arg, ast.Constant)
         assert empty_string_arg.value == ""
+
+
+class TestBotIPClassification:
+    def test_is_bot_with_ip_arg_ors_ip_match_after_ua_match(self):
+        node = ast.Call(name="isLikelyBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+        ip_arg = ast.Field(chain=["properties", "$ip"])
+
+        result = is_bot(node=node, args=[user_agent_arg, ip_arg])
+
+        assert isinstance(result, ast.Call)
+        assert result.name == "toBool"
+        or_expr = result.args[0]
+        assert isinstance(or_expr, ast.Or)
+        assert len(or_expr.exprs) == 2
+        # UA branch comes first so or() short-circuits the IP check for UA-matched rows
+        ua_match = or_expr.exprs[0]
+        assert isinstance(ua_match, ast.CompareOperation)
+        assert isinstance(ua_match.left, ast.Call)
+        assert ua_match.left.name == "multiMatchAnyIndex"
+        # IP branch: one prefix-length group per collapsed prefix width, each an IN set lookup
+        ip_match = or_expr.exprs[1]
+        assert isinstance(ip_match, ast.Or)
+        for group in ip_match.exprs:
+            assert isinstance(group, ast.CompareOperation)
+            assert group.op == ast.CompareOperationOp.In
+            assert isinstance(group.left, ast.Call)
+            assert group.left.name == "tupleElement"
+
+    def test_is_bot_without_ip_arg_has_no_ip_branch(self):
+        node = ast.Call(name="isLikelyBot", args=[])
+        result = is_bot(node=node, args=[ast.Field(chain=["properties", "$user_agent"])])
+
+        assert isinstance(result, ast.Call)
+        assert isinstance(result.args[0], ast.CompareOperation)
+
+    @parameterized.expand(
+        [
+            (get_traffic_type, "Regular"),
+            (get_traffic_category, "regular"),
+            (get_bot_type, ""),
+            (get_bot_name, ""),
+            (get_bot_operator, ""),
+        ]
+    )
+    def test_lookup_builders_fall_back_to_ip_lookup_when_ua_unmatched(self, function_builder, expected_default):
+        node = ast.Call(name="test", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+        ip_arg = ast.Field(chain=["properties", "$ip"])
+
+        result = function_builder(node=node, args=[user_agent_arg, ip_arg])
+
+        assert isinstance(result, ast.Call)
+        assert result.name == "if"
+        # The unmatched-UA branch is now the IP lookup, itself defaulting to the constant
+        fallback = result.args[1]
+        assert isinstance(fallback, ast.Call)
+        assert fallback.name == "if"
+        ip_default = fallback.args[1]
+        assert isinstance(ip_default, ast.Constant)
+        assert ip_default.value == expected_default
+        # IP definition index is a multiIf over the per-definition range matches
+        ip_index_comparison = fallback.args[0]
+        assert isinstance(ip_index_comparison, ast.CompareOperation)
+        assert isinstance(ip_index_comparison.left, ast.Call)
+        assert ip_index_comparison.left.name == "multiIf"
+        assert len(ip_index_comparison.left.args) == 2 * len(BOT_IP_DEFINITIONS) + 1
+
+
+class TestBotIPDefinitionsDataStructure:
+    def test_all_definitions_have_required_fields_and_valid_vocabulary(self):
+        valid_types = {"AI Agent", "Bot", "Automation"}
+        valid_categories = {
+            "ai_crawler",
+            "ai_search",
+            "ai_assistant",
+            "search_crawler",
+            "seo_crawler",
+            "social_crawler",
+            "monitoring",
+            "http_client",
+            "headless_browser",
+        }
+        for key, ip_def in BOT_IP_DEFINITIONS.items():
+            assert ip_def.name, f"IP definition {key} missing name"
+            assert ip_def.operator, f"IP definition {key} missing operator"
+            assert ip_def.traffic_type in valid_types, f"Invalid traffic_type for {key}: {ip_def.traffic_type}"
+            assert ip_def.category in valid_categories, f"Invalid category for {key}: {ip_def.category}"
+            assert ip_def.networks, f"IP definition {key} has no networks"
+
+    def test_networks_parse_and_respect_prefix_floors(self):
+        # A range wider than these floors would classify a huge slice of the internet as
+        # bot traffic — refuse it here so a bad upstream refresh can't ship.
+        for key, ip_def in BOT_IP_DEFINITIONS.items():
+            for cidr in ip_def.networks:
+                network = ipaddress.ip_network(cidr)
+                floor = 16 if network.version == 4 else 32
+                assert network.prefixlen >= floor, f"{key} range {cidr} wider than /{floor}"
+
+    @parameterized.expand(
+        [
+            # Source IPs from the report that motivated IP-range detection: Google's mobile
+            # rendering service crawling with a real Android UA (posthog#66604).
+            "66.249.84.5",
+            "74.125.150.10",
+            "192.178.10.5",
+        ]
+    )
+    def test_reported_google_renderer_ips_are_covered(self, ip):
+        address = ipaddress.ip_address(ip)
+        covered = any(
+            address in ipaddress.ip_network(cidr)
+            for ip_def in BOT_IP_DEFINITIONS.values()
+            for cidr in ip_def.networks
+            if ipaddress.ip_network(cidr).version == address.version
+        )
+        assert covered, f"{ip} not covered by any bot IP range"
 
 
 class TestBotDefinitionsDataStructure:
@@ -468,10 +600,25 @@ class TestMacroExpansionGuard(BaseTest):
             self._print("SELECT __preview_getTrafficType(__preview_getBotName(toString(properties.x))) FROM events")
 
     def test_non_duplicating_macro_inside_duplicating_macro_is_allowed(self):
-        # isBot does not duplicate its argument, so reaching it inside a duplicating macro's
-        # expansion is bounded (not exponential) and must still resolve, not raise.
+        # One-arg isBot does not duplicate its argument, so reaching it inside a duplicating
+        # macro's expansion is bounded (not exponential) and must still resolve, not raise.
         printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
         assert "multiMatchAnyIndex" in printed
+
+    def test_two_arg_is_bot_expands_ip_ranges(self):
+        printed = self._print(
+            "SELECT isLikelyBot(toString(properties.$user_agent), toString(properties.$ip)) FROM events"
+        )
+        assert "multiMatchAnyIndex" in printed
+        assert "IPv6CIDRToRange" in printed
+
+    def test_two_arg_is_bot_nested_is_rejected(self):
+        # The two-arg form duplicates its IP argument across the per-prefix-length range
+        # checks, so nesting it is the same exponential vector as the lookup macros.
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            self._print(
+                "SELECT isLikelyBot(toString(isLikelyBot(properties.x, toString(properties.$ip))), toString(properties.$ip)) FROM events"
+            )
 
     def test_matches_action_with_macro_property_still_resolves(self):
         # matchesAction expands a user-defined action, whose hogql property filters re-parse

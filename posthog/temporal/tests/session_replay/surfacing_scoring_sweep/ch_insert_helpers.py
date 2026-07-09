@@ -21,6 +21,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    event_count,
     surfacing_score
 )
 SELECT
@@ -32,6 +33,7 @@ SELECT
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
     argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), now64(6) - INTERVAL 1 HOUR),
     argMinState(cast(NULL, 'Nullable(String)'), now64(6) - INTERVAL 1 HOUR),
+    %(event_count)s,
     %(surfacing_score)s
 """
 
@@ -45,6 +47,7 @@ INSERT INTO sharded_session_replay_events (
     first_url,
     snapshot_source,
     snapshot_library,
+    event_count,
     surfacing_score
 )
 SELECT
@@ -56,6 +59,7 @@ SELECT
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
     argMinState(cast(NULL, 'LowCardinality(Nullable(String))'), toDateTime64(%(start)s, 6, 'UTC')),
     argMinState(cast(NULL, 'Nullable(String)'), toDateTime64(%(start)s, 6, 'UTC')),
+    %(event_count)s,
     %(surfacing_score)s
 """
 
@@ -67,12 +71,14 @@ def insert_session_replay_event(
     distinct_id: str = "d1",
     start: datetime | None = None,
     end: datetime | None = None,
+    event_count: int = 1,
     surfacing_score: float | None = None,
 ) -> None:
     params = {
         "session_id": session_id,
         "team_id": team_id,
         "distinct_id": distinct_id,
+        "event_count": event_count,
         "surfacing_score": surfacing_score,
     }
     if start is None:

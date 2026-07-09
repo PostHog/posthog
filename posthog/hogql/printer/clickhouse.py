@@ -52,6 +52,26 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
+def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
+    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+
+    Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
+    events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
+    Uses a calendar-month interval so the boundary lands on the exact date (no leap-year / 365-day drift).
+    """
+    field_table_type = _table_filter_type(table_type)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Gt,
+        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Call(name="now", args=[]),
+            right=ast.Call(name="toIntervalMonth", args=[ast.Constant(value=retention_months)]),
+        ),
+        type=ast.BooleanType(),
+    )
+
+
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
 AI_BLOOM_FILTER_PROPERTIES = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
@@ -435,6 +455,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
@@ -758,6 +780,24 @@ class ClickHousePrinter(BasePrinter):
         else:
             raise ImpossibleASTError("Impossible")
 
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
+        # ClickHouse's plain divide() derives a decimal result scale of (dividend_scale - divisor_scale).
+        # When the divisor's scale exceeds the dividend's — e.g. a Decimal(38, 2) column divided by a
+        # Decimal(38, 18) one — that underflows to a negative scale and the query errors out with
+        # "Decimal result's scale is less than argument's one". divideDecimal derives a valid result scale
+        # (the max of the two operand scales, computed at runtime) instead, mirroring the currency-conversion
+        # path in _render_posthog_function_call which uses divideDecimal for the same reason.
+        if node.op == ast.ArithmeticOperationOp.Div and self._both_operands_decimal(node):
+            return f"divideDecimal({self.visit(node.left)}, {self.visit(node.right)})"
+        return super().visit_arithmetic_operation(node)
+
+    def _both_operands_decimal(self, node: ast.ArithmeticOperation) -> bool:
+        if node.left.type is None or node.right.type is None:
+            return False
+        left_type = node.left.type.resolve_constant_type(self.context)
+        right_type = node.right.type.resolve_constant_type(self.context)
+        return isinstance(left_type, ast.DecimalType) and isinstance(right_type, ast.DecimalType)
+
     def visit_call(self, node: ast.Call):
         # Property-group call optimizations (isNull/isNotNull/JSONHas over a property-group key) now run in ClickHouse
         # property resolution, which rewrites them to the keys-index `has(group, key)` form before printing.
@@ -817,8 +857,56 @@ class ClickHousePrinter(BasePrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")
+        if not system_node or table_type.table.name not in system_node.children:
+            return None
+
+        if not table_type.table.primary_key:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        from posthog.hogql.database.schema.events import EventsTable
+
+        months = self.context.events_retention_months
+        if months is None or node_type is None or not isinstance(table_type, ast.TableType):
+            return None
+        if not isinstance(table_type.table, EventsTable):
+            return None
+        return retention_floor_for_table(node_type, months)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
+        table = table_type.table
+
+        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
+        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
+        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
+        # See ClickHouse issue 80443.
+        if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (

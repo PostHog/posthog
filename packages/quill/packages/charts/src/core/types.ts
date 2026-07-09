@@ -1,13 +1,26 @@
+import type { ReactNode } from 'react'
+
+import type { LegendItem } from '../components/Legend/Legend'
+
 /** Visual theme colours consumed by chart rendering. */
 export interface ChartTheme {
     colors: string[]
     backgroundColor?: string
     axisColor?: string
+    /** Stroke color for the L-shaped axis baselines and tick marks. Falls back to `axisColor`,
+     *  then `gridColor` — set it to mute the lines without muting the tick label text. */
+    axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
+    /** Skip canvas painting while still mounting the canvas. For deterministic visual-snapshot tests. */
+    skipDraw?: boolean
 }
 
 /** Default axis id used when a series doesn't specify one. */
@@ -18,6 +31,12 @@ export const DEFAULT_Y_AXIS_ID = 'left'
  *  those run, `color` is guaranteed to be set. Public consumers should write {@link Series}
  *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
 export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
+
+/** How a series is rendered in a mixed-type chart. */
+export type SeriesType = 'line' | 'bar' | 'area'
+
+/** Series type assumed when a `Series` sets no explicit `type`. */
+export const DEFAULT_SERIES_TYPE: SeriesType = 'line'
 
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
@@ -34,8 +53,20 @@ export interface Series<Meta = unknown> {
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
      *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
     bars?: { color?: string; label?: string; meta?: Meta }[]
+    /** Bar charts only: per-bar ceiling (in value-axis units) of the bar's interactive extent. The
+     *  region beyond the ceiling is a blank, fully inert gap — no hover, tooltip, highlight, or
+     *  click (`onPointClick` passes through). On grouped charts with `bars.track`, the hatched
+     *  "share of a whole" track also fills only up to `trackData[i]` instead of the whole axis; on
+     *  stacked charts no track is drawn — the ceiling only bounds interactivity. Used by funnel
+     *  compare to show a shorter period's volume gap as empty space rather than drop-off. Omit (or
+     *  leave an entry undefined) for the default full-axis extent. */
+    trackData?: number[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
+    /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
+     *  area. Falls back to the chart's `defaultSeriesType` when omitted. Ignored by single-type
+     *  charts. */
+    type?: SeriesType
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
@@ -74,8 +105,9 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
         /** Fade the fill vertically from the series color at the top of the plot to transparent
-         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
-         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
+         *  at the baseline. Ignored when the area has a bottom edge — stacking or `lowerData`
+         *  (those need a solid fill). With a dashed `stroke.partial` the gradient is kept and only
+         *  the stroke dashes; non-gradient area fills instead hatch the dashed range. */
         gradient?: boolean
     }
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
@@ -127,7 +159,25 @@ export interface TooltipContext<Meta = unknown> {
     label: string
     /** One entry per visible series with its value and color at this index. `fraction` is set
      *  for radial charts (share of total) so renderers don't need to look the slice back up. */
-    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
+    seriesData: {
+        series: Series<Meta>
+        value: number
+        color: string
+        fraction?: number
+        /** Canvas y-pixel of the value-axis anchor for this series (top of bar segment, or dot for lines). */
+        yPixel?: number
+        /** Canvas y-pixel of the bottom of this series's bar segment. When both yPixel and
+         *  yPixelBottom are present, hover detection uses range containment rather than
+         *  distance-to-midpoint, giving correct results regardless of segment size differences. */
+        yPixelBottom?: number
+    }[]
+    /** Key of the series whose bar/segment is under the cursor. Set only by BarChart's
+     *  cursor narrowing (stacked: the visible segment containing the cursor; grouped: the
+     *  band-slot hit) — `undefined` for other chart types and for pinned rebuilds with no
+     *  cursor. May reference a series hidden from `seriesData` via `visibility.tooltip:
+     *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
+     *  `seriesData` entry exists. */
+    hoveredSeriesKey?: string
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -168,6 +218,17 @@ export interface ChartMargins {
     left: number
 }
 
+/** `showAxisLines` value — a boolean toggles both edges; `{ x, y }` toggles each independently
+ *  (an omitted edge defaults to shown). */
+export type AxisLinesConfig = boolean | { x?: boolean; y?: boolean }
+
+export function resolveAxisLines(value: AxisLinesConfig | undefined): { x: boolean; y: boolean } {
+    if (value == null || typeof value === 'boolean') {
+        return { x: !!value, y: !!value }
+    }
+    return { x: value.x ?? true, y: value.y ?? true }
+}
+
 /** Base configuration shared by all chart types. */
 export interface ChartConfig {
     // — Scale —
@@ -193,7 +254,13 @@ export interface ChartConfig {
     showGrid?: boolean
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
+    /** Draw short tick marks on the axes next to each visible tick label. Pairs with
+     *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
+    showTickMarks?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
@@ -213,18 +280,90 @@ export interface ChartConfig {
      *  with the full value revealed on hover. Also clamps the axis margin to this width so a long
      *  label can't push the plot off screen. Omit (default) to render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
+     *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
+     *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
+     *  Omit for single-axis charts. */
+    yAxes?: YAxis[]
+}
+
+/** A resolved y-axis for a multi-axis (dual y-axis) chart. One entry per distinct
+ *  {@link Series.yAxisId}; series resolve to their axis by id. Drives each axis's scale type,
+ *  tick formatting, side, and label independently. */
+export interface YAxis {
+    /** Axis id — matches {@link Series.yAxisId}. The default-axis id is {@link DEFAULT_Y_AXIS_ID}. */
+    id: string
+    /** Which side this axis renders on. */
+    position: 'left' | 'right'
+    /** Scale type for this axis. Defaults to 'linear'. */
+    scaleType?: 'linear' | 'log'
+    /** Resolved tick formatter for this axis. When omitted, ticks auto-format against their values. */
+    tickFormatter?: (value: number) => string
+    /** Axis title. */
+    label?: string
+    /** Hide this axis's tick labels and margin gutter. The scale still applies to its series. */
+    hide?: boolean
+    /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
+    startAtZero?: boolean
+}
+
+/** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
+ *  when interactive, owns the toggled-off state — clicking a row hides that series (no draw, no
+ *  scale contribution, no tooltip) and the axes rescale, matching the classic insight legend.
+ *  Pass `hiddenKeys` + `onToggleSeries` to control the state yourself instead. */
+export interface ChartLegendConfig {
+    /** Render the legend. Default false. */
+    show?: boolean
+    /** Where the legend sits relative to the plot. Default 'bottom'. */
+    position?: 'top' | 'bottom' | 'left' | 'right'
+    /** Legend alignment along its axis. Default 'center'. */
+    align?: 'start' | 'center' | 'end'
+    /** Gap in px between the legend and the plot. */
+    gap?: number
+    /** Clicking a legend item hides/shows its series. Default true when the legend is shown;
+     *  set false for a static, read-only legend. */
+    interactive?: boolean
+    /** Controlled hidden-series keys. Provide together with `onToggleSeries` to own the state;
+     *  omit for chart-managed (uncontrolled) toggling. */
+    hiddenKeys?: string[]
+    /** Initial hidden keys for the chart-managed (uncontrolled) state. Ignored when `hiddenKeys`
+     *  is set (controlled). */
+    defaultHiddenKeys?: string[]
+    /** Called whenever a series is toggled, with its key and resulting hidden state. */
+    onToggleSeries?: (key: string, hidden: boolean) => void
+    /** Wrap each rendered legend row — receives the default row node and its item, returns the
+     *  node to render. Lets consumers augment rows (e.g. a right-click context menu) while keeping
+     *  the default swatch/label/toggle rendering. Return `defaultNode` to leave a row untouched. */
+    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
 }
 
 export interface TooltipConfig {
-    /** Show a tooltip on hover. Defaults to true. Use the `tooltip` render prop on Chart to customize content. */
+    /** Show a tooltip on hover. Defaults to true. */
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
+    /** When a pinnable tooltip covers multiple series, resolve the series nearest the cursor and
+     *  fire `onPointClick` for it directly instead of pinning — skips the pin-then-click-a-row
+     *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
+     *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
+    resolveClickToNearestSeries?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
      *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
     placement?: 'follow-data' | 'top' | 'cursor'
+    // Built-in DefaultTooltip content, applied only when no `tooltip` render prop is given. See
+    // DefaultTooltipProps for semantics — these mirror it.
+    /** Second arg is the row's `seriesData` entry, for per-series formatting. */
+    valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
+    /** Transforms the raw x-axis label before showing it in the tooltip header — use to convert
+     *  ISO datetime strings to human-readable dates. */
+    labelFormatter?: (label: string) => string
+    showTotal?: boolean
+    totalLabel?: string
+    totalFormatter?: (value: number) => string
+    /** Sort series rows by value descending so the highest value appears at the top. */
+    sortedByValue?: boolean
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal
@@ -245,9 +384,6 @@ export type ValueDomain =
 export type BarFillStyle = 'flat' | 'gradient' | 'gloss'
 
 export interface BarsConfig {
-    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
-     *  segment. Defaults to 0 (square). */
-    cornerRadius?: number
     /** Draw a faint hatched track behind each bar, spanning the full plot height — for
      *  funnel-style charts where every bar is a share of a whole. Only honored when
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
@@ -288,7 +424,7 @@ export interface BarsConfig {
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
      *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
-     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  corners round at the full `barCornerRadius` even when the edge segment is a thin sliver (e.g.
      *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
      *  clamps the radius to the sliver's half-width. Defaults to `false`. */
     roundStackEnds?: boolean
@@ -297,13 +433,40 @@ export interface BarsConfig {
 export interface BarChartConfig extends ChartConfig {
     /** Defaults to `stacked`. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
-    /** Bar appearance + band-layout details (corner rounding, track, shadow, padding…). */
+    /** Bar appearance + band-layout details (track, shadow, padding, fill style…). */
     bars?: BarsConfig
+    /** Corner radius in px for the rounded end(s) of a bar. Stacked bars only round the topmost
+     *  segment (or the whole stack with {@link BarsConfig.roundStackEnds}). Defaults to 0 (square).
+     *  Same top-level key as the time-series/combo configs, so one config shape rounds every bar
+     *  chart and shared config defaults can target them all. */
+    barCornerRadius?: number
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
+    /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
+     *  at zero = off"). Applied to the primary axis only; ignored on a log scale. Defaults to false. */
+    floatBaseline?: boolean
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
+}
+
+/** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
+ *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
+export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
+    defaultSeriesType?: SeriesType
+    /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
+     *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
+    /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
+    /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
+     *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
 }
 

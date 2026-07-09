@@ -1,12 +1,14 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.error_tracking.backend.facade import api, contracts
 from products.error_tracking.backend.models import (
@@ -58,6 +60,30 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         with self.assertRaises(api.IssueNotFoundError):
             api.get_issue(issue_id=issue.id, team_id=other_team.id)
+
+    @patch("products.error_tracking.backend.logic.LinearIntegration.list_teams")
+    def test_create_external_reference_rejects_invalid_linear_team_id(self, mock_list_teams):
+        mock_list_teams.return_value = [{"id": "linear-team-id", "name": "Engineering"}]
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={"data": {"viewer": {"organization": {"urlKey": "acme"}}}},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as context:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config={"team_id": "other-team-id", "title": "Checkout TypeError", "description": ""},
+            )
+
+        assert str(context.exception) == (
+            "Invalid Linear team_id. Use integrations-linear-teams-retrieve to choose a team from this integration."
+        )
+        mock_list_teams.assert_called_once_with()
 
     def test_issue_exists(self):
         assert api.issue_exists(team_id=self.team.id) is False
@@ -160,3 +186,39 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert result.issue.id == issue.id
         assert result.issue.team_id == self.team.id
         assert result.issue.name == "Assigned issue"
+
+    def test_get_settings_creates_defaults(self):
+        settings = api.get_settings(self.team.id)
+
+        assert isinstance(settings, contracts.ErrorTrackingSettings)
+        assert settings.project_rate_limit_value is None
+        assert settings.per_issue_rate_limit_value is None
+
+    def test_update_settings_persists_and_is_partial(self):
+        api.update_settings(
+            self.team.id,
+            {"project_rate_limit_value": 100, "project_rate_limit_bucket_size_minutes": 5},
+        )
+        updated = api.update_settings(self.team.id, {"per_issue_rate_limit_value": 7})
+
+        assert updated.project_rate_limit_value == 100
+        assert updated.project_rate_limit_bucket_size_minutes == 5
+        assert updated.per_issue_rate_limit_value == 7
+        # a fresh read reflects the same persisted state, scoped to the team
+        assert api.get_settings(self.team.id) == updated
+
+    def test_update_settings_scoped_by_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        api.update_settings(self.team.id, {"project_rate_limit_value": 42})
+
+        assert api.get_settings(other_team.id).project_rate_limit_value is None
+
+    def test_spike_detection_config_get_and_update(self):
+        config = api.get_spike_detection_config(self.team.id)
+        assert isinstance(config, contracts.ErrorTrackingSpikeDetectionConfig)
+
+        updated = api.update_spike_detection_config(self.team.id, {"multiplier": 9, "threshold": 50})
+
+        assert updated.multiplier == 9
+        assert updated.threshold == 50
+        assert api.get_spike_detection_config(self.team.id) == updated

@@ -26,6 +26,8 @@ import {
     DashboardsRunWidgetsRetrieveQueryParams,
     DashboardsUpdateTextTileCreateBody,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsUpdateWidgetsBatchBody,
+    DashboardsUpdateWidgetsBatchParams,
     DashboardsWidgetsBatchCreateBody,
     DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
@@ -374,6 +376,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         if (params.pinned !== undefined) {
             body['pinned'] = params.pinned
         }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
         if (params.breakdown_colors !== undefined) {
             body['breakdown_colors'] = params.breakdown_colors
         }
@@ -525,6 +530,31 @@ const dashboardWidgetsBatchAdd = (): ToolBase<
     },
 })
 
+const DashboardWidgetsBatchUpdateSchema = DashboardsUpdateWidgetsBatchParams.omit({ project_id: true })
+    .extend(DashboardsUpdateWidgetsBatchBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateWidgetsBatchParams.shape['id']) })
+
+const dashboardWidgetsBatchUpdate = (): ToolBase<
+    typeof DashboardWidgetsBatchUpdateSchema,
+    WithPostHogUrl<Schemas.UpdateDashboardWidgetsBatchResponse>
+> => ({
+    name: 'dashboard-widgets-batch-update',
+    schema: DashboardWidgetsBatchUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardWidgetsBatchUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.widgets !== undefined) {
+            body['widgets'] = params.widgets
+        }
+        const result = await context.api.request<Schemas.UpdateDashboardWidgetsBatchResponse>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/widgets/batch_update/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
 const DashboardWidgetsRunSchema = DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
     .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
@@ -565,6 +595,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -624,6 +655,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-update-text-tile': dashboardUpdateTextTile,
     'dashboard-widget-catalog-list': dashboardWidgetCatalogList,
     'dashboard-widgets-batch-add': dashboardWidgetsBatchAdd,
+    'dashboard-widgets-batch-update': dashboardWidgetsBatchUpdate,
     'dashboard-widgets-run': dashboardWidgetsRun,
     'dashboards-get-all': dashboardsGetAll,
     'dashboards-move-tile-partial-update': dashboardsMoveTilePartialUpdate,

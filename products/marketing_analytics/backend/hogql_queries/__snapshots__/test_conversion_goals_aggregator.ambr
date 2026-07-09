@@ -83,26 +83,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -117,9 +130,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -218,26 +245,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -252,9 +292,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -353,26 +407,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'conversion'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'conversion'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -387,9 +454,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -488,26 +569,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -522,9 +616,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -627,26 +735,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -661,9 +782,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -747,26 +882,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -781,9 +929,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -867,26 +1029,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'login'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'login'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000004')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -901,9 +1076,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -1004,26 +1193,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'sign_up'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -1038,9 +1240,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
@@ -1123,26 +1339,39 @@
           FROM
           (
             SELECT
-              events.person_id,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toUnixTimestamp(events.timestamp), 0))) AS conversion_timestamps,
-              arrayFilter(x -> greater(x, 0), groupArray(if(equals(events.event, 'purchase'), toFloat(1), 0))) AS conversion_math_values,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_campaign, '')), ''))) AS conversion_campaigns,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_source, '')), ''))) AS conversion_sources,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_medium, '')), ''))) AS conversion_mediums,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_content, '')), ''))) AS conversion_contents,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.utm_term, '')), ''))) AS conversion_terms,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$referring_domain, '')), ''))) AS conversion_referring_domains,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
-              arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
+              person_id,
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
             FROM
-              events
-            WHERE
-              and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
-              events.person_id
-            HAVING
-              greater(length(conversion_timestamps), 0)) AS c
+              person_id) AS c
             LEFT JOIN (
             SELECT
               person_id,
@@ -1157,9 +1386,23 @@
               arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
               arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
             FROM
-              marketing_touchpoints_preaggregated
-            WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
             GROUP BY
               person_id) AS t ON equals(c.person_id, t.person_id))
           ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions

@@ -27,6 +27,7 @@ import { modalsLogic } from '~/scenes/experiments/modalsLogic'
 import { MultivariateFlagVariant } from '~/types'
 
 import { HoldoutSelector } from './HoldoutSelector'
+import { VariantNotes } from './VariantNotes'
 import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './VariantTag'
 
@@ -147,7 +148,10 @@ export function DistributionTable(): JSX.Element {
             },
         })
     }
-    const className = experiment?.type === 'web' ? 'w-1/2.5' : 'w-1/3'
+    // Keep every column the same width: base columns (Variant, Split, Screenshot, Notes)
+    // plus the optional Analysis and web Preview columns.
+    const columnCount = 4 + (excludedVariantsEnabled ? 1 : 0) + (experiment?.type === 'web' ? 1 : 0)
+    const className = { 4: 'w-1/4', 5: 'w-1/5', 6: 'w-1/6' }[columnCount] ?? 'w-1/4'
     const columns: LemonTableColumns<MultivariateFlagVariant> = [
         {
             className: className,
@@ -170,7 +174,9 @@ export function DistributionTable(): JSX.Element {
                   {
                       className,
                       key: 'analysis',
-                      title: 'Analysis',
+                      title: 'Include in analysis',
+                      tooltip:
+                          'Toggle off to exclude a variant from metric results. Excluded variants are still served to users but omitted from statistical analysis.',
                       render: function Analysis(_, { key }): JSX.Element {
                           /**
                            * bail early for holdouts
@@ -227,6 +233,17 @@ export function DistributionTable(): JSX.Element {
                         <VariantScreenshot variantKey={item.key} rolloutPercentage={item.rollout_percentage} />
                     </div>
                 )
+            },
+        },
+        {
+            className: className,
+            key: 'variant_notes',
+            title: 'Notes',
+            render: function Key(_, item): JSX.Element {
+                if (item.key === `holdout-${experiment.holdout?.id}`) {
+                    return <div className="h-16" />
+                }
+                return <VariantNotes variantKey={item.key} />
             },
         },
     ]

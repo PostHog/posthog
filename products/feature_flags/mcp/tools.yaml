@@ -273,6 +273,21 @@ tools:
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
+    feature-flags-staff-cache-clear-create:
+        operation: feature_flags_staff_cache_clear_create
+        enabled: false
+    feature-flags-staff-cache-entry-retrieve:
+        operation: feature_flags_staff_cache_entry_retrieve
+        enabled: false
+    feature-flags-staff-cache-list:
+        operation: feature_flags_staff_cache_list
+        enabled: false
+    feature-flags-staff-cache-rebuild-create:
+        operation: feature_flags_staff_cache_rebuild_create
+        enabled: false
+    feature-flags-staff-teams-list:
+        operation: feature_flags_staff_teams_list
+        enabled: false
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
         enabled: true
@@ -285,7 +300,10 @@ tools:
         title: Get feature flag status
         description: >
             Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
-            unknown) and a human-readable reason explaining the status.
+            unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether
+            the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use
+            the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no
+            conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
         param_overrides:
             id:
                 cast: string-int
@@ -330,6 +348,9 @@ tools:
         enabled: false
     flag-value-values-retrieve:
         operation: flag_value_values_retrieve
+        enabled: false
+    org-feature-flags-keys:
+        operation: org_feature_flags_keys
         enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
@@ -439,6 +460,7 @@ tools:
             - name
             - filters
             - active
+            - archived
             - tags
             - evaluation_contexts
             - is_remote_configuration

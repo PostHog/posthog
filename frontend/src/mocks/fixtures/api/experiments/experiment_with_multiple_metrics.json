@@ -1,5 +1,6 @@
 {
     "id": 17,
+    "is_legacy": false,
     "name": "experiment-multiple-metrics",
     "description": null,
     "start_date": "2025-06-03T14:48:37.594000Z",

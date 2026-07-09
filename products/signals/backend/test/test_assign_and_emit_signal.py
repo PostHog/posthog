@@ -20,6 +20,7 @@ from products.signals.backend.temporal.grouping import (
     assign_and_emit_signal_activity,
 )
 from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
     ExistingReportMatch,
     MatchedMetadata,
     NewReportMatch,
@@ -328,6 +329,138 @@ async def test_ready_and_resolved_repromote_to_candidate_on_any_signal(ateam, st
     # title/summary must be preserved through the transition
     assert refreshed.title == "original title"
     assert refreshed.summary == "original summary"
+
+
+# ---------------------------------------------------------------------------
+# Re-research cap: already-researched reports stop re-researching past RERESEARCH_MAX_SIGNALS
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "starting_status",
+    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
+)
+async def test_reresearch_allowed_up_to_cap(ateam, starting_status):
+    """At the boundary (the new signal brings signal_count exactly to RERESEARCH_MAX_SIGNALS), a
+    READY/RESOLVED report still re-promotes — the cap only bites once signal_count exceeds it."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=starting_status,
+        total_weight=1.5,
+        signal_count=RERESEARCH_MAX_SIGNALS - 1,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.1)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+    assert refreshed.signal_count == RERESEARCH_MAX_SIGNALS
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "starting_status",
+    [SignalReport.Status.READY, SignalReport.Status.RESOLVED],
+)
+async def test_reresearch_capped_past_threshold_still_assigns_signal(ateam, patch_side_effects, starting_status):
+    """Past the cap, a READY/RESOLVED report stops re-researching: promoted=False and status is
+    unchanged, but the signal is still counted, weighted, and emitted (not marked deleted)."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=starting_status,
+        total_weight=2.0,
+        signal_count=RERESEARCH_MAX_SIGNALS,  # post-increment lands at cap + 1
+        title="original title",
+        summary="original summary",
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == starting_status
+    assert refreshed.promoted_at is None
+    assert refreshed.signal_count == RERESEARCH_MAX_SIGNALS + 1
+    assert refreshed.total_weight == pytest.approx(2.5)
+    emit_kwargs = patch_side_effects["emit"].call_args.kwargs
+    assert emit_kwargs["metadata"].get("deleted") is not True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_reresearch_capped_emits_skipped_event(ateam, patch_side_effects):
+    """Crossing the cap fires signal_report_reresearch_skipped (after signal_assigned_to_report) so
+    the saved re-research volume is trackable as an insight."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2.0,
+        signal_count=RERESEARCH_MAX_SIGNALS,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    # The report was genuinely capped (not re-promoted), and the event reflects that.
+    assert result.promoted is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.READY
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_assigned_to_report", "signal_report_reresearch_skipped"]
+    skipped = next(
+        c.kwargs["properties"]
+        for c in patch_side_effects["capture"].call_args_list
+        if c.kwargs["event"] == "signal_report_reresearch_skipped"
+    )
+    assert skipped["report_id"] == str(report.id)
+    assert skipped["signal_count"] == RERESEARCH_MAX_SIGNALS + 1
+    assert skipped["status"] == SignalReport.Status.READY
+    assert skipped["threshold"] == RERESEARCH_MAX_SIGNALS
+    assert skipped["source_id"] == input_.source_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_reresearch_within_cap_does_not_emit_skipped_event(ateam, patch_side_effects):
+    """A READY report within the cap re-promotes normally and fires only signal_assigned_to_report."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=1.5,
+        signal_count=2,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    await assign_and_emit_signal_activity(input_)
+
+    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    assert events == ["signal_assigned_to_report"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_potential_promotes_past_cap_for_first_research(ateam):
+    """The cap only applies to re-research. A POTENTIAL report that grew past RERESEARCH_MAX_SIGNALS
+    without ever being researched still promotes for its first research."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        total_weight=WEIGHT_THRESHOLD,
+        signal_count=RERESEARCH_MAX_SIGNALS + 5,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    assert result.promoted is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
 
 
 # ---------------------------------------------------------------------------

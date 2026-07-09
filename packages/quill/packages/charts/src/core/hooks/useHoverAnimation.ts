@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 
+import { monotonicNow } from '../time'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -69,26 +70,26 @@ export function useHoverAnimation({
             cancelAnimationFrame(hoverRafRef.current)
             hoverRafRef.current = null
         }
-        if (!overlayCtx || !dimensions || !scales) {
+        if (!overlayCtx || !dimensions || !scales || themeRef.current.skipDraw) {
             return
         }
         // Restart the fade on hoverIndex change — invalidate drewVisible too so the next
         // visible frame starts at progress 0, not where the previous bar's fade left off.
         if (hoverIndex !== hoverAnimRef.current.idx) {
             hoverAnimRef.current.idx = hoverIndex
-            hoverAnimRef.current.startTime = performance.now()
+            hoverAnimRef.current.startTime = monotonicNow()
             drewVisibleRef.current = false
         }
         const resetHoverFade = (): number => {
-            hoverAnimRef.current.startTime = performance.now()
+            hoverAnimRef.current.startTime = monotonicNow()
             return 0
         }
         const tick = (): void => {
             // Pin progress to 0 while invisible — see drewVisibleRef comment above.
             if (!drewVisibleRef.current) {
-                hoverAnimRef.current.startTime = performance.now()
+                hoverAnimRef.current.startTime = monotonicNow()
             }
-            const elapsed = performance.now() - hoverAnimRef.current.startTime
+            const elapsed = monotonicNow() - hoverAnimRef.current.startTime
             const hoverProgress = hoverAnimationMs > 0 ? Math.min(1, elapsed / hoverAnimationMs) : 1
             clearAndPrepare(overlayCtx, dimensions)
             const drewVisible = drawHoverRef.current({
@@ -108,7 +109,7 @@ export function useHoverAnimation({
             drewVisibleRef.current = drewVisible
             // Recompute after the draw — the chart type may have called resetHoverFade
             // mid-draw, which would leave the cached hoverProgress stale.
-            const liveElapsed = performance.now() - hoverAnimRef.current.startTime
+            const liveElapsed = monotonicNow() - hoverAnimRef.current.startTime
             const liveProgress = hoverAnimationMs > 0 ? Math.min(1, liveElapsed / hoverAnimationMs) : 1
             if (drewVisible && liveProgress < 1 && hoverIndex >= 0) {
                 hoverRafRef.current = requestAnimationFrame(tick)

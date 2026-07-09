@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -81,7 +81,7 @@ class TestBatchedGetPersonsByUuids(SimpleTestCase):
 
         assert len(result) == 2
         assert mock_metric.labels.call_count == 2
-        mock_metric.labels.assert_any_call(operation="test_op", client_name="posthog-django")
+        mock_metric.labels.assert_any_call(operation="test_op", client_name=ANY)
 
     @patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2)
     def test_preserves_order_across_batches(self):

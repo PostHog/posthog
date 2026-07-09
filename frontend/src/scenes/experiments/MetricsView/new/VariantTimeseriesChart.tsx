@@ -1,4 +1,3 @@
-import { Chart, ChartType, TooltipModel } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 
@@ -90,7 +89,7 @@ export function VariantTimeseriesChart({
                         },
                         tooltip: {
                             enabled: false,
-                            external: ({ chart, tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) => {
+                            external: ({ chart, tooltip }) => {
                                 const canvas = chart.canvas
                                 if (!canvas) {
                                     return

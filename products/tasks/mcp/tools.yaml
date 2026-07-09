@@ -18,6 +18,24 @@ tools:
     sandbox-create:
         operation: sandbox_create
         enabled: false
+    sandbox-custom-images-build-create:
+        operation: sandbox_custom_images_build_create
+        enabled: false
+    sandbox-custom-images-builder-task-create:
+        operation: sandbox_custom_images_builder_task_create
+        enabled: false
+    sandbox-custom-images-create:
+        operation: sandbox_custom_images_create
+        enabled: false
+    sandbox-custom-images-destroy:
+        operation: sandbox_custom_images_destroy
+        enabled: false
+    sandbox-custom-images-list:
+        operation: sandbox_custom_images_list
+        enabled: false
+    sandbox-custom-images-retrieve:
+        operation: sandbox_custom_images_retrieve
+        enabled: false
     sandbox-destroy:
         operation: sandbox_destroy
         enabled: false
@@ -48,8 +66,20 @@ tools:
     task-automations-run-create:
         operation: task_automations_run_create
         enabled: false
-    task-automations-update:
-        operation: task_automations_update
+    task-channels-create:
+        operation: task_channels_create
+        enabled: false
+    task-channels-destroy:
+        operation: task_channels_destroy
+        enabled: false
+    task-channels-list:
+        operation: task_channels_list
+        enabled: false
+    task-channels-partial-update:
+        operation: task_channels_partial_update
+        enabled: false
+    task-mentions-list:
+        operation: task_mentions_list
         enabled: false
     tasks-create:
         operation: tasks_create
@@ -237,6 +267,9 @@ tools:
     tasks-runs-stream-retrieve:
         operation: tasks_runs_stream_retrieve
         enabled: false
+    tasks-runs-stream-token-retrieve:
+        operation: tasks_runs_stream_token_retrieve
+        enabled: false
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve
         enabled: false
@@ -249,6 +282,21 @@ tools:
     tasks-summaries-create:
         operation: tasks_summaries_create
         enabled: false
+    tasks-thread-messages-create:
+        operation: tasks_thread_messages_create
+        enabled: false
+    tasks-thread-messages-destroy:
+        operation: tasks_thread_messages_destroy
+        enabled: false
+    tasks-thread-messages-list:
+        operation: tasks_thread_messages_list
+        enabled: false
+    tasks-thread-messages-send-to-agent-create:
+        operation: tasks_thread_messages_send_to_agent_create
+        enabled: false
     tasks-update:
         operation: tasks_update
+        enabled: false
+    tasks-warm-create:
+        operation: tasks_warm_create
         enabled: false

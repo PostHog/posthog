@@ -5,11 +5,11 @@ import React, { useEffect, useState } from 'react'
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
@@ -28,6 +28,7 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { WebAnalyticsAchievementsModal } from 'scenes/web-analytics/achievements/WebAnalyticsAchievementsModal'
 import {
     ProductTab,
     QueryTile,
@@ -775,6 +776,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
+                <WebAnalyticsAchievementsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
                     <>
@@ -805,7 +807,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { setProductTab } = useActions(webAnalyticsLogic)
 
     // Tab switching shortcuts
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab1',
         keybind: [keyBinds.tab1],
         intent: 'Web analytics tab',
@@ -813,7 +815,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.ANALYTICS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab2',
         keybind: [keyBinds.tab2],
         intent: 'Web vitals tab',
@@ -821,7 +823,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.WEB_VITALS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab3',
         keybind: [keyBinds.tab3],
         intent: 'Page reports tab',
@@ -829,7 +831,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.PAGE_REPORTS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab4',
         keybind: [keyBinds.tab4],
         intent: 'Health tab',

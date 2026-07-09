@@ -17,8 +17,9 @@ import datetime as dt
 from django.core.management.base import BaseCommand
 
 from posthog.api.capture import capture_internal
-from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.models.team import Team
+
+from products.demo.backend.facade.api import HedgeboxMatrix
 
 
 class Command(BaseCommand):

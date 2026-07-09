@@ -23,18 +23,18 @@ export const s3Definition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function S3Fields({ isNew, formValues, configurationChanged }) {
+    Fields: function S3Fields({ isNew, formValues }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
-                configurationChanged={configurationChanged}
                 regionOptions={S3_REGION_OPTIONS}
                 awsBranded
                 allowCustomRegion
                 showEncryption
                 showEndpointUrl
                 showVirtualStyleAddressing
+                migrationNotice="S3 batch exports are moving to integration-based credentials. This export will be migrated automatically to an AWS S3 or S3-compatible destination — no action required."
             />
         )
     },

@@ -2,20 +2,23 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { XRayHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
-import goImage from 'scenes/onboarding/sdks/logos/go.svg'
-import javaImage from 'scenes/onboarding/sdks/logos/java.svg'
-import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
-import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
+import goImage from 'scenes/onboarding/shared/logos/go.svg'
+import javaImage from 'scenes/onboarding/shared/logos/java.svg'
+import nodejsImage from 'scenes/onboarding/shared/logos/nodejs.svg'
+import pythonImage from 'scenes/onboarding/shared/logos/python.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://opentelemetry.io/docs/languages/js/' },
@@ -88,7 +91,7 @@ const NoSpansPrompt = ({ className }: { className?: string }): JSX.Element | nul
             isEmpty={true}
             productKey={ProductKey.TRACING}
             className={className}
-            customHog={XRayHog}
+            customHog={HedgehogXRay}
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
                     <p className="text-sm text-secondary m-0">

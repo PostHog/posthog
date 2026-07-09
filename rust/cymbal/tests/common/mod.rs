@@ -24,11 +24,11 @@ use cymbal::stages::resolution::{
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
-    symbol::SymbolResolver,
     ResolutionStage,
 };
-use cymbal::symbol_store::chunk_id::OrChunkId;
-use cymbal::symbol_store::proguard::ProguardRef;
+use cymbal::symbolication::symbol::SymbolResolver;
+use cymbal::symbolication::symbol_store::chunk_id::OrChunkId;
+use cymbal::symbolication::symbol_store::proguard::ProguardRef;
 use cymbal::types::{
     batch::Batch, exception_properties::ExceptionProperties, operator::TeamId, stage::Stage,
     Exception, ExceptionList, Stacktrace,
@@ -109,7 +109,7 @@ impl CymbalResolution for StubServer {
     type ResolveStream = ResolveStream;
     type SubscribeStream = SubscribeStream;
 
-    /// Default Subscribe behaviour: emit freshness/draining-only `LoadEvent`s
+    /// Default Subscribe behaviour: emit freshness/draining/load `LoadEvent`s
     /// on a fast tick so snapshot-required routing can warm up quickly.
     async fn subscribe(
         &self,
@@ -129,6 +129,8 @@ impl CymbalResolution for StubServer {
                     draining: false,
                     sequence,
                     message: String::new(),
+                    in_flight: 0,
+                    max_in_flight: 64,
                 };
                 if tx.send(Ok(event)).await.is_err() {
                     return;
@@ -164,7 +166,12 @@ impl CymbalResolution for StubServer {
                         let item = match next {
                             Ok(item) => item,
                             Err(err) => {
-                                let _ignored = tx.send(Err(err)).await;
+                                // The client may close its request half as soon as every in-flight
+                                // item has a terminal outcome. Tonic can surface that as an h2 body
+                                // read error on the server task; don't turn client-side shutdown into
+                                // an extra response-stream failure after the fixture has already sent
+                                // the outcomes the test cares about.
+                                drop(err);
                                 return;
                             }
                         };
@@ -484,6 +491,7 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
         exception_handled: None,
         exception_releases: Default::default(),
         fingerprint: None,
+        fingerprint_version: None,
         proposed_fingerprint: None,
         fingerprint_record: None,
         issue_id: None,
@@ -495,5 +503,7 @@ pub fn build_event(num_exceptions: usize) -> ExceptionProperties {
         timestamp: String::new(),
         team_id: 7,
         issue: None,
+        legacy_order_exception_list: None,
+        legacy_order_resolved: None,
     }
 }

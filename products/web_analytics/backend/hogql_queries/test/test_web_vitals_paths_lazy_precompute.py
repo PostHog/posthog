@@ -11,6 +11,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     PropertyOperator,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebVitalsMetric,
     WebVitalsMetricBand,
@@ -139,7 +140,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query())
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() > 0, "expected at least one precompute job to be created"
 
     @parameterized.expand(PARITY_MATRIX)
@@ -155,7 +156,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(self._build_query(metric=metric, percentile=percentile))
         lazy = self._paths_with_values(lazy_response)
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy.keys() == raw.keys(), f"path set mismatch for {metric}/{percentile}: raw={raw}, lazy={lazy}"
         for path in raw:
             raw_band, raw_value = raw[path]
@@ -181,7 +182,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             response = self._run(
                 self._build_query(conversion_goal=CustomEventConversionGoal(customEventName="$pageview")),
             )
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -189,7 +190,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query(sampling=WebAnalyticsSampling(enabled=True)))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @parameterized.expand(
@@ -211,7 +212,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         query.dateRange = DateRange(date_from=date_from, date_to=date_to, explicitDate=True)
         with self._enable_lazy():
             response = self._run(query)
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -227,14 +228,14 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(self._build_query())
         lazy = self._paths_with_values(lazy_response)
 
-        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert raw == lazy, f"lazy/raw mismatch in IST: raw={raw}, lazy={lazy}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):
         self._seed()
         response = self._run(self._build_query(opt_in_precompute=True))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -242,7 +243,7 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed()
         with self._enable_lazy():
             response = self._run(self._build_query(opt_in_precompute=False))
-        assert response.usedLazyPrecompute is not True
+        assert response.preComputeStrategy != WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")

@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { getAndroidSteps as getAndroidStepsPA } from '../product-analytics/android'
 import { StepDefinition } from '../steps'
@@ -31,7 +31,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     if (isMyFlagEnabled) {
                                         // Do something differently for this user
                                         // Optional: fetch the payload
-                                        val matchedFlagPayload = PostHog.getFeatureFlagPayload("flag-key")
+                                        val matchedFlagPayload = PostHog.getFeatureFlagResult("flag-key")?.payload
                                     }
                                 `,
                             },
@@ -60,7 +60,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     if (enabledVariant == "variant-key") { // replace 'variant-key' with the key of your variant
                                         // Do something differently for this user
                                         // Optional: fetch the payload
-                                        val matchedFlagPayload = PostHog.getFeatureFlagPayload("flag-key")
+                                        val matchedFlagPayload = PostHog.getFeatureFlagResult("flag-key")?.payload
                                     }
                                 `,
                             },

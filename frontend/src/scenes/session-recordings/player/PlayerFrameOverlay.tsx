@@ -69,7 +69,8 @@ const PlayerFrameOverlayActions = (): JSX.Element | null => {
 }
 
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached, logicProps, playerError } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, endReached, logicProps, playerError, isWaitingForIngestion } =
+        useValues(sessionRecordingPlayerLogic)
     const { setPlay } = useActions(sessionRecordingPlayerLogic)
 
     const handlePlay = (e: MouseEvent): void => {
@@ -120,7 +121,14 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
         )
     }
     if (currentPlayerState === SessionPlayerState.BUFFER) {
-        content = (
+        content = isWaitingForIngestion ? (
+            <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
+                <div className="text-3xl italic font-medium">Still processing…</div>
+                <div className="text-sm max-w-100">
+                    This recording is finishing ingestion. It's usually ready to play within a few minutes.
+                </div>
+            </div>
+        ) : (
             <div className="SessionRecordingPlayer--buffering text-3xl italic font-medium text-white">Buffering…</div>
         )
     }

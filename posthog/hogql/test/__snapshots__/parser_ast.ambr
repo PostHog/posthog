@@ -1055,6 +1055,468 @@
   }
   '''
 # ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_and_4-989c3a6d]
+  '''
+  {
+    end: 25
+    exprs: [
+      {
+        end: 19
+        expr: {
+          end: 1
+          start: 0
+          value: 1
+        }
+        high: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 25
+        start: 24
+        value: 4
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l-a7fa6993]
+  '''
+  {
+    alias: "l"
+    end: 22
+    expr: {
+      end: 17
+      expr: {
+        end: 1
+        start: 0
+        value: 1
+      }
+      high: {
+        end: 17
+        start: 16
+        value: 3
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 2
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l_or_w-72d5980a]
+  '''
+  {
+    end: 27
+    exprs: [
+      {
+        alias: "l"
+        end: 22
+        expr: {
+          end: 17
+          expr: {
+            end: 1
+            start: 0
+            value: 1
+          }
+          high: {
+            end: 17
+            start: 16
+            value: 3
+          }
+          low: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          negated: False
+          start: 0
+        }
+        from_asterisk: False
+        hidden: False
+        start: 0
+      },
+      {
+        chain: [
+          "w"
+        ]
+        end: 27
+        from_asterisk: False
+        start: 26
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l_x_y-de9705c8]
+  '''
+  {
+    args: [
+      {
+        alias: "l"
+        end: 22
+        expr: {
+          end: 17
+          expr: {
+            end: 1
+            start: 0
+            value: 1
+          }
+          high: {
+            end: 17
+            start: 16
+            value: 3
+          }
+          low: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          negated: False
+          start: 0
+        }
+        from_asterisk: False
+        hidden: False
+        start: 0
+      },
+      {
+        chain: [
+          "x"
+        ]
+        end: 26
+        from_asterisk: False
+        start: 25
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 30
+        from_asterisk: False
+        start: 29
+      }
+    ]
+    distinct: False
+    end: 30
+    name: "if"
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[x_between_1_and_2_3_and_4-6a901da6]
+  '''
+  {
+    end: 31
+    exprs: [
+      {
+        end: 25
+        expr: {
+          chain: [
+            "x"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        high: {
+          end: 25
+          left: {
+            end: 18
+            start: 17
+            value: 2
+          }
+          op: "*"
+          right: {
+            end: 24
+            start: 23
+            value: 3
+          }
+          start: 16
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 1
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 31
+        start: 30
+        value: 4
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[x_between_1_and_2_or_y-d26bfb89]
+  '''
+  {
+    end: 26
+    exprs: [
+      {
+        end: 21
+        expr: {
+          chain: [
+            "x"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        high: {
+          end: 20
+          start: 19
+          value: 2
+        }
+        low: {
+          end: 12
+          start: 11
+          value: 1
+        }
+        negated: False
+        start: 0
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 26
+        from_asterisk: False
+        start: 25
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_1_and_lambda_a_a-7392e6a1]
+  '''
+  {
+    end: 28
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      args: [
+        "a"
+      ]
+      end: 28
+      expr: {
+        chain: [
+          "a"
+        ]
+        end: 28
+        from_asterisk: False
+        start: 27
+      }
+      start: 16
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 1
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_1_and_p_2-ace9f108]
+  '''
+  {
+    end: 22
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      name: "p"
+      value: {
+        end: 22
+        start: 21
+        value: 2
+      }
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 1
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_case_when_a_then_b_else_c_end_and_d-2de7cc71]
+  '''
+  {
+    end: 45
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      chain: [
+        "d"
+      ]
+      end: 45
+      from_asterisk: False
+      start: 44
+    }
+    low: {
+      args: [
+        {
+          chain: [
+            "a"
+          ]
+          end: 21
+          from_asterisk: False
+          start: 20
+        },
+        {
+          chain: [
+            "b"
+          ]
+          end: 28
+          from_asterisk: False
+          start: 27
+        },
+        {
+          chain: [
+            "c"
+          ]
+          end: 35
+          from_asterisk: False
+          start: 34
+        }
+      ]
+      distinct: False
+      end: 39
+      name: "if"
+      start: 10
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_interval_1_day_and_interval_2_day-686eb148]
+  '''
+  {
+    end: 43
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      args: [
+        {
+          end: 39
+          start: 38
+          value: 2
+        }
+      ]
+      distinct: False
+      end: 43
+      name: "toIntervalDay"
+      start: 29
+    }
+    low: {
+      args: [
+        {
+          end: 20
+          start: 19
+          value: 1
+        }
+      ]
+      distinct: False
+      end: 24
+      name: "toIntervalDay"
+      start: 10
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_lambda_a_a_and_b-55d34722]
+  '''
+  {
+    end: 30
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      chain: [
+        "b"
+      ]
+      end: 30
+      from_asterisk: False
+      start: 29
+    }
+    low: {
+      args: [
+        "a"
+      ]
+      end: 23
+      expr: {
+        chain: [
+          "a"
+        ]
+        end: 23
+        from_asterisk: False
+        start: 22
+      }
+      start: 11
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
 # name: test_between_not_lambda_lower_bound[a_between_not_lambda_x_b_and_c-6ea2de79]
   '''
   {
@@ -2093,6 +2555,62 @@
   }
   '''
 # ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_a_date_date-686a8c1d]
+  '''
+  {
+    end: 37
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(a(date'', date''))"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_date-62774d40]
+  '''
+  {
+    end: 21
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(date'')"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_date_date-58ea95cb]
+  '''
+  {
+    end: 32
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(date'', date'')"
+  }
+  '''
+# ---
+# name: test_cast_type_param_admits_date_literal_as_raw_text[cast_0_as_a_timestamp-a5dc2724]
+  '''
+  {
+    end: 26
+    expr: {
+      end: 6
+      start: 5
+      value: 0
+    }
+    start: 0
+    type_name: "a(timestamp'')"
+  }
+  '''
+# ---
 # name: test_cast_type_param_group_mode_classification[cast_x_as_DateTime64_3_UTC-416fe76a]
   '''
   {
@@ -2677,6 +3195,440 @@
         from_asterisk: False
         hidden: False
         start: 11
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_0_FROM_a_JOIN_a_ON_a_a-a7392f7f]
+  '''
+  {
+    end: 33
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 0
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 28
+          expr: {
+            end: 28
+            start: 26
+            value: ""
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "a"
+          end: 33
+          join_type: "CROSS JOIN"
+          start: 30
+          table: {
+            chain: [
+              "a"
+            ]
+            end: 31
+            from_asterisk: False
+            start: 30
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "a"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_0_FROM_a_JOIN_a_ON_x_y_b_b-67d4e208]
+  '''
+  {
+    end: 36
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 0
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 31
+          expr: {
+            end: 31
+            left: {
+              chain: [
+                "x"
+              ]
+              end: 27
+              from_asterisk: False
+              start: 26
+            }
+            op: "=="
+            right: {
+              chain: [
+                "y"
+              ]
+              end: 31
+              from_asterisk: False
+              start: 30
+            }
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "b"
+          end: 36
+          join_type: "CROSS JOIN"
+          start: 33
+          table: {
+            chain: [
+              "b"
+            ]
+            end: 34
+            from_asterisk: False
+            start: 33
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "a"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_1_FROM_a_JOIN_b_ON_1_c_c-18367b47]
+  '''
+  {
+    end: 32
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            end: 27
+            start: 26
+            value: 1
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "c"
+          end: 32
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            chain: [
+              "c"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_select_1_s-124faa4f]
+  '''
+  {
+    end: 41
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "s"
+          end: 41
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            end: 38
+            select: [
+              {
+                end: 38
+                start: 37
+                value: 1
+              }
+            ]
+            start: 30
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_y_FINAL-03644779]
+  '''
+  {
+    end: 36
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          end: 36
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            chain: [
+              "y"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+          table_final: True
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_y_z_w-431f4637]
+  '''
+  {
+    end: 35
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "z"
+          end: 32
+          join_type: "CROSS JOIN"
+          next_join: {
+            end: 35
+            join_type: "CROSS JOIN"
+            start: 34
+            table: {
+              chain: [
+                "w"
+              ]
+              end: 35
+              from_asterisk: False
+              start: 34
+            }
+          }
+          start: 29
+          table: {
+            chain: [
+              "y"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
       }
     }
     start: 0
@@ -3643,6 +4595,232 @@
   }
   '''
 # ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct-1e756ee3]
+  '''
+  {
+    end: 17
+    select: [
+      {
+        args: []
+        distinct: False
+        end: 17
+        name: "distinct"
+        start: 7
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_FROM_a-4a6b925e]
+  '''
+  {
+    end: 24
+    select: [
+      {
+        args: []
+        distinct: False
+        end: 17
+        name: "distinct"
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 24
+      start: 23
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 24
+        from_asterisk: False
+        start: 23
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_x-5ba596b3]
+  '''
+  {
+    distinct: True
+    end: 18
+    select: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 17
+        from_asterisk: False
+        start: 16
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_x_y-53d4dfad]
+  '''
+  {
+    distinct: True
+    end: 21
+    select: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 17
+        from_asterisk: False
+        start: 16
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 21
+        from_asterisk: False
+        start: 20
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct-a497c582]
+  '''
+  {
+    args: [
+      {
+        args: []
+        distinct: False
+        end: 16
+        name: "distinct"
+        start: 6
+      }
+    ]
+    distinct: False
+    end: 17
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_1-bd3399dd]
+  '''
+  {
+    args: [
+      {
+        end: 20
+        left: {
+          args: []
+          distinct: False
+          end: 16
+          name: "distinct"
+          start: 6
+        }
+        op: "+"
+        right: {
+          end: 20
+          start: 19
+          value: 1
+        }
+        start: 6
+      }
+    ]
+    distinct: False
+    end: 21
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_x-89c223b1]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 16
+        from_asterisk: False
+        start: 15
+      }
+    ]
+    distinct: True
+    end: 18
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[count_distinct_x-ba7e2428]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 16
+        from_asterisk: False
+        start: 15
+      }
+    ]
+    distinct: True
+    end: 17
+    name: "count"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[f_distinct-390b20d3]
+  '''
+  {
+    args: [
+      {
+        args: []
+        distinct: False
+        end: 12
+        name: "distinct"
+        start: 2
+      }
+    ]
+    distinct: False
+    end: 13
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[f_x_distinct-55bb2ea1]
+  '''
+  {
+    args: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 3
+        from_asterisk: False
+        start: 2
+      },
+      {
+        args: []
+        distinct: False
+        end: 15
+        name: "distinct"
+        start: 5
+      }
+    ]
+    distinct: False
+    end: 16
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
 # name: test_empty_paren_only_clauses_rejected[COLUMNS_REPLACE_a_AS_b-2108574c]
   '''
   {
@@ -3873,6 +5051,33 @@
         start: 33
       }
     ]
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[1-4927ce04]
+  '''
+  {
+    end: 4
+    start: 3
+    value: 1
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[da39a3ee]
+  '''
+  {
+    end: 2
+    start: 0
+    value: ""
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[x-11f6ad8e]
+  '''
+  {
+    end: 3
+    start: 2
+    value: "x"
   }
   '''
 # ---
@@ -5152,6 +6357,173 @@
     ]
     end: 44
     kind: "outer"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-10320115]
+  '''
+  {
+    attributes: []
+    end: 11
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-c1b9c988]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            end: 4
+            start: 3
+            value: " "
+          }
+        ]
+      }
+    ]
+    end: 8
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-f61bc7e2]
+  '''
+  {
+    attributes: []
+    end: 7
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_a-f78190c8]
+  '''
+  {
+    attributes: []
+    end: 12
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_1-b6770467]
+  '''
+  {
+    attributes: [
+      {
+        end: 9
+        name: "b"
+        start: 4
+        value: {
+          end: 8
+          start: 7
+          value: 1
+        }
+      }
+    ]
+    end: 12
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_1-d73b5c66]
+  '''
+  {
+    attributes: [
+      {
+        end: 8
+        name: "b"
+        start: 3
+        value: {
+          end: 7
+          start: 6
+          value: 1
+        }
+      }
+    ]
+    end: 10
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_a-7f014af6]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            attributes: []
+            end: 11
+            kind: "b"
+            start: 5
+          }
+        ]
+      }
+    ]
+    end: 17
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_b_f_x-ac22291c]
+  '''
+  {
+    attributes: [
+      {
+        end: 10
+        name: "b"
+        start: 4
+        value: {
+          end: 9
+          start: 8
+          value: "x"
+        }
+      }
+    ]
+    end: 13
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[a_x_a-08a3bec8]
+  '''
+  {
+    attributes: [
+      {
+        name: "children"
+        value: [
+          {
+            end: 4
+            start: 3
+            value: "x"
+          }
+        ]
+      }
+    ]
+    end: 8
+    kind: "a"
+    start: 0
+  }
+  '''
+# ---
+# name: test_hogqlx_tight_vs_loose_tags[x-b5b588c7]
+  '''
+  {
+    attributes: []
+    end: 8
+    kind: "x"
     start: 0
   }
   '''
@@ -9557,6 +10929,735 @@
   }
   '''
 # ---
+# name: test_named_argument_reroots_trailing_value_operator[a_1_2-914064e1]
+  '''
+  {
+    declarations: [
+      {
+        end: 11
+        left: {
+          name: "a"
+          value: {
+            end: 6
+            start: 5
+            value: 1
+          }
+        }
+        right: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        start: 0
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[arr_w_1_as_x_2-c8b91d5f]
+  '''
+  {
+    array: {
+      chain: [
+        "arr"
+      ]
+      end: 3
+      from_asterisk: False
+      start: 0
+    }
+    end: 20
+    nullish: False
+    property: {
+      end: 19
+      left: {
+        name: "w"
+        value: {
+          alias: "x"
+          end: 15
+          expr: {
+            end: 10
+            start: 9
+            value: 1
+          }
+          from_asterisk: False
+          hidden: False
+          start: 9
+        }
+      }
+      op: "+"
+      right: {
+        end: 19
+        start: 18
+        value: 2
+      }
+      start: 4
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_1-2cf0ea2d]
+  '''
+  {
+    args: [
+      {
+        name: "y"
+        value: {
+          array: {
+            end: 8
+            start: 7
+            value: 1
+          }
+          end: 12
+          nullish: False
+          property: {
+            end: 11
+            start: 10
+            value: 1
+          }
+          start: 7
+        }
+      }
+    ]
+    distinct: False
+    end: 13
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_as_x_1-f6c237d7]
+  '''
+  {
+    args: [
+      {
+        array: {
+          name: "y"
+          value: {
+            alias: "x"
+            end: 13
+            expr: {
+              end: 8
+              start: 7
+              value: 1
+            }
+            from_asterisk: False
+            hidden: False
+            start: 7
+          }
+        }
+        end: 17
+        nullish: False
+        property: {
+          end: 16
+          start: 15
+          value: 1
+        }
+        start: 2
+      }
+    ]
+    distinct: False
+    end: 18
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_as_x_2_z-80bfa5b8]
+  '''
+  {
+    args: [
+      {
+        end: 17
+        left: {
+          name: "y"
+          value: {
+            alias: "x"
+            end: 13
+            expr: {
+              end: 8
+              start: 7
+              value: 1
+            }
+            from_asterisk: False
+            hidden: False
+            start: 7
+          }
+        }
+        op: "+"
+        right: {
+          end: 17
+          start: 16
+          value: 2
+        }
+        start: 2
+      },
+      {
+        chain: [
+          "z"
+        ]
+        end: 20
+        from_asterisk: False
+        start: 19
+      }
+    ]
+    distinct: False
+    end: 21
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[for_y_1_as_x_1_a_b-02e62a01]
+  '''
+  {
+    declarations: [
+      {
+        body: {
+          declarations: []
+          end: 30
+          start: 28
+        }
+        condition: {
+          chain: [
+            "a"
+          ]
+          end: 23
+          from_asterisk: False
+          start: 22
+        }
+        end: 30
+        increment: {
+          chain: [
+            "b"
+          ]
+          end: 26
+          from_asterisk: False
+          start: 25
+        }
+        initializer: {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 16
+              expr: {
+                end: 11
+                start: 10
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 10
+            }
+          }
+          end: 20
+          nullish: False
+          property: {
+            end: 19
+            start: 18
+            value: 1
+          }
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 30
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[select_1_from_f_y_1_as_x_1-138cf723]
+  '''
+  {
+    end: 32
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 32
+      start: 14
+      table: {
+        chain: [
+          "f"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 27
+              expr: {
+                end: 22
+                start: 21
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 21
+            }
+          }
+          end: 31
+          nullish: False
+          property: {
+            end: 30
+            start: 29
+            value: 1
+          }
+          start: 16
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[select_f_y_1_as_x_1-db320dfd]
+  '''
+  {
+    end: 25
+    select: [
+      {
+        args: [
+          {
+            array: {
+              name: "y"
+              value: {
+                alias: "x"
+                end: 20
+                expr: {
+                  end: 15
+                  start: 14
+                  value: 1
+                }
+                from_asterisk: False
+                hidden: False
+                start: 14
+              }
+            }
+            end: 24
+            nullish: False
+            property: {
+              end: 23
+              start: 22
+              value: 1
+            }
+            start: 9
+          }
+        ]
+        distinct: False
+        end: 25
+        name: "f"
+        start: 7
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1-98c7830a]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          end: 6
+          start: 5
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 6
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x-b6c8393d]
+  '''
+  {
+    declarations: [
+      {
+        end: 11
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          alias: "x"
+          end: 11
+          expr: {
+            end: 6
+            start: 5
+            value: 1
+          }
+          from_asterisk: False
+          hidden: False
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_1-4e211e16]
+  '''
+  {
+    declarations: [
+      {
+        end: 15
+        expr: {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          end: 15
+          nullish: False
+          property: {
+            end: 14
+            start: 13
+            value: 1
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 15
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_1-c0366f6a]
+  '''
+  {
+    array: {
+      name: "y"
+      value: {
+        alias: "x"
+        end: 12
+        expr: {
+          end: 7
+          start: 6
+          value: 1
+        }
+        from_asterisk: False
+        hidden: False
+        start: 6
+      }
+    }
+    end: 16
+    nullish: False
+    property: {
+      end: 15
+      start: 14
+      value: 1
+    }
+    start: 1
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_2-ec390339]
+  '''
+  {
+    declarations: [
+      {
+        end: 15
+        expr: {
+          end: 15
+          left: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          op: "+"
+          right: {
+            end: 15
+            start: 14
+            value: 2
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 15
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_Int-347c83f4]
+  '''
+  {
+    declarations: [
+      {
+        end: 18
+        expr: {
+          end: 18
+          expr: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          start: 0
+          type_name: "int"
+        }
+        start: 0
+      }
+    ]
+    end: 18
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_and_2-10634775]
+  '''
+  {
+    declarations: [
+      {
+        end: 17
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          end: 17
+          exprs: [
+            {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            },
+            {
+              end: 17
+              start: 16
+              value: 2
+            }
+          ]
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 17
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_between_1_and_2-a2588d54]
+  '''
+  {
+    declarations: [
+      {
+        end: 27
+        expr: {
+          end: 27
+          expr: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          high: {
+            end: 27
+            start: 26
+            value: 2
+          }
+          low: {
+            end: 21
+            start: 20
+            value: 1
+          }
+          negated: False
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 27
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_not_in_1_2-2fc79af9]
+  '''
+  {
+    declarations: [
+      {
+        end: 24
+        expr: {
+          end: 24
+          left: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          op: "not in"
+          right: {
+            end: 24
+            exprs: [
+              {
+                end: 21
+                start: 20
+                value: 1
+              },
+              {
+                end: 23
+                start: 22
+                value: 2
+              }
+            ]
+            start: 19
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 24
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_x_2-028a1ec6]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          chain: [
+            "x"
+          ]
+          end: 6
+          from_asterisk: False
+          start: 5
+        }
+        start: 0
+      },
+      {
+        end: 11
+        expr: {
+          end: 11
+          left: {
+            chain: [
+              "*"
+            ]
+            end: 8
+            from_asterisk: False
+            start: 7
+          }
+          op: "=="
+          right: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          start: 7
+        }
+        start: 7
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
 # name: test_not_with_keyword_infix_treats_not_as_field[NOT_BETWEEN_1_AND_2-28f8fa9b]
   '''
   {
@@ -9969,6 +12070,237 @@
       }
       start: 10
     }
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0-791e981a]
+  '''
+  {
+    end: 19
+    expr: {
+      end: 1
+      start: 0
+      value: 0
+    }
+    high: {
+      end: 18
+      start: 17
+      value: 0
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 0
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0_as_x-17fd83ba]
+  '''
+  {
+    alias: "x"
+    end: 26
+    expr: {
+      end: 21
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 19
+        start: 18
+        value: 0
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_0_as_x-ed0ebee8]
+  '''
+  {
+    alias: "x"
+    end: 24
+    expr: {
+      end: 19
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 18
+        start: 17
+        value: 0
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_between_0_and_5_as_x-af6c11dc]
+  '''
+  {
+    alias: "x"
+    end: 22
+    expr: {
+      end: 17
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 17
+        start: 16
+        value: 5
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 0
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[0_not_between_0_and_0_as_x-af34ddad]
+  '''
+  {
+    alias: "x"
+    end: 28
+    expr: {
+      end: 23
+      expr: {
+        end: 1
+        start: 0
+        value: 0
+      }
+      high: {
+        end: 22
+        start: 21
+        value: 0
+      }
+      low: {
+        end: 15
+        start: 14
+        value: 0
+      }
+      negated: True
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[1_between_2_and_3_4_5-d5932787]
+  '''
+  {
+    args: [
+      {
+        end: 19
+        expr: {
+          end: 1
+          start: 0
+          value: 1
+        }
+        high: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 23
+        start: 22
+        value: 4
+      },
+      {
+        end: 27
+        start: 26
+        value: 5
+      }
+    ]
+    distinct: False
+    end: 27
+    name: "if"
+    start: 0
+  }
+  '''
+# ---
+# name: test_parenthesized_between_high_end_position_with_hoist[1_between_2_and_3_4_as_x-9fc935a7]
+  '''
+  {
+    alias: "x"
+    end: 28
+    expr: {
+      end: 23
+      expr: {
+        end: 1
+        start: 0
+        value: 1
+      }
+      high: {
+        end: 22
+        left: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        op: "+"
+        right: {
+          end: 22
+          start: 21
+          value: 4
+        }
+        start: 17
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 2
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
     start: 0
   }
   '''
@@ -12800,6 +15132,38 @@
   }
   '''
 # ---
+# name: test_placeholder_discarded_interpolate_must_be_terminated[x_order_by_1_interpolate_6-90b7bb71]
+  '''
+  {
+    end: 3
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 2
+      from_asterisk: False
+      start: 1
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_placeholder_discarded_interpolate_must_be_terminated[x_order_by_1_interpolate_a-8d94abdf]
+  '''
+  {
+    end: 3
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 2
+      from_asterisk: False
+      start: 1
+    }
+    start: 0
+  }
+  '''
+# ---
 # name: test_placeholder_statement_then_postfix_call_or_property[1-26a9fdff]
   '''
   {
@@ -14999,6 +17363,163 @@
         start: 0
       }
       start: 0
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_1_2-3d1f9a13]
+  '''
+  {
+    end: 21
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 21
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          end: 17
+          start: 16
+          value: 1
+        },
+        {
+          end: 20
+          start: 19
+          value: 2
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_SELECT_1-24fdd15d]
+  '''
+  {
+    end: 27
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 27
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          end: 25
+          select: [
+            {
+              end: 25
+              start: 24
+              value: 1
+            }
+          ]
+          start: 17
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_b-135bc7d5]
+  '''
+  {
+    end: 18
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 18
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          chain: [
+            "b"
+          ]
+          end: 17
+          from_asterisk: False
+          start: 16
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_x_1-1c06ea1f]
+  '''
+  {
+    end: 23
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 23
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          name: "x"
+          value: {
+            end: 22
+            start: 21
+            value: 1
+          }
+        }
+      ]
     }
     start: 0
   }

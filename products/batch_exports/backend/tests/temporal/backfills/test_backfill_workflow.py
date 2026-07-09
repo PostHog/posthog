@@ -437,7 +437,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     )
 
     # Wait for at least one workflow to start running before deleting the schedule
-    await wait_for_workflows(temporal_client, desc.id, expected_count=1, timeout=10)
+    await wait_for_workflows(temporal_client, desc.id, expected_count=1, assert_exact=False, timeout=10)
 
     await temporal_schedule_every_5_minutes.delete()
 

@@ -246,7 +246,7 @@ export function setLinkMark(marks: NotebookInlineMark[], href: string | null): N
     return nextMarks.length ? nextMarks : undefined
 }
 
-/** Wraps the selected range in a ref mark (`<ref id="…">`), anchoring an inline chat to it. */
+/** Wraps the selected range in a ref mark (`<ref id="…">`), anchoring an inline AI prompt to it. */
 export function setInlineRefMark(
     nodes: NotebookInlineNode[],
     range: NotebookTextSelectionRange,
@@ -289,7 +289,7 @@ export function setInlineRefMark(
     return normalizeInlineNodes(output)
 }
 
-/** Removes ref marks with the given id, keeping the text — used when the paired chat is deleted. */
+/** Removes ref marks with the given id, keeping the text when the paired prompt is deleted. */
 export function removeInlineRefMark(nodes: NotebookInlineNode[], refId: string): NotebookInlineNode[] {
     let didChange = false
     const output = nodes.map((node) => {

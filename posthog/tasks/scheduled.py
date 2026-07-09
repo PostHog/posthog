@@ -7,7 +7,6 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
-from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
@@ -18,7 +17,7 @@ from posthog.tasks.email import (
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
 )
-from posthog.tasks.gateway_credential import refresh_gateway_credentials
+from posthog.tasks.gateway_credential import drain_gateway_credential_last_used_task, refresh_gateway_credentials
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
     verify_and_fix_flag_definitions_without_cohorts_cache_task,
@@ -27,7 +26,11 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.remote_config import sync_all_remote_configs
+from posthog.tasks.remote_config import (
+    cleanup_stale_remote_config_expiry_tracking_task,
+    refresh_expiring_remote_config_cache_entries,
+    sync_all_remote_configs,
+)
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
@@ -55,6 +58,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    redispatch_orphaned_queued_task_runs,
     refresh_activity_log_fields_cache,
     send_org_usage_reports,
     start_poll_query_performance,
@@ -69,19 +73,26 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
-from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
-from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
-from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.conversations.backend.tasks import (
+    flush_pending_email_replies,
+    poll_teams_shared_channels,
+    wake_snoozed_tickets,
+)
+from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
+from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
+from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
+    drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
 )
-from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
+from products.reminders.backend.tasks import process_due_reminders
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
     cleanup_deleted_streamlit_app_zips,
@@ -89,6 +100,8 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
+from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -223,12 +236,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="gateway credential cache sync",
     )
 
+    # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        drain_gateway_credential_last_used_task.s(),
+        name="gateway credential last-used drain",
+    )
+
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="0"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
+    )
+
+    # Re-dispatch orphaned QUEUED task runs whose on_commit dispatch was lost - every 2 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        redispatch_orphaned_queued_task_runs.s(),
+        name="redispatch orphaned queued task runs",
     )
 
     # Flags cache sync - hourly
@@ -264,6 +292,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_stale_flag_definitions_expiry_tracking_task.s(),
         name="flag definitions cache expiry tracking cleanup",
+    )
+
+    # Remote config (array/config.json) cache refresh - hourly at minute 45
+    sender.add_periodic_task(
+        crontab(hour="*", minute="45"),
+        refresh_expiring_remote_config_cache_entries.s(),
+        name="refresh expiring remote config cache entries",
+    )
+
+    # Remote config cache expiry tracking cleanup - daily at 3:45 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="45"),
+        cleanup_stale_remote_config_expiry_tracking_task.s(),
+        name="remote config cache expiry tracking cleanup",
     )
 
     # Team metadata cache verification - hourly at minute 20
@@ -304,12 +346,31 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    # Flag definitions self-heal - every minute. Drains the queue the Rust
+    # /flags/definitions endpoint fills on cache miss and rebuilds those caches,
+    # so a missing entry heals in ~1 min instead of waiting for the hourly verifier.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        drain_flag_definitions_rebuild_requests.s(),
+        name="drain flag definitions rebuild requests",
+        expires_seconds=60,
+    )
+
     # Feature flags local-eval canary - every 5 minutes
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),
         feature_flags_local_eval_canary_task.s(),
         name="feature flags local-eval canary",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        report_stuck_heatmap_screenshots.s(),
+        name="report stuck heatmap screenshots",
         expires_seconds=5 * 60,
     )
 
@@ -323,6 +384,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="verify and fix auth token cache",
         # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
         # task survives moderate worker downtime without being dropped.
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="20"),
+        sweep_web_analytics_achievement_team_tracks.s(),
+        name="web analytics achievements team-track sweep",
     )
 
     # Update events table partitions twice a week
@@ -485,6 +553,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        process_due_reminders.s(),
+        name="process due reminders",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
@@ -653,6 +728,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Pull ambient messages from MS Teams shared channels (which never push them
+    # over the bot webhook) into the ticket pipeline via Graph messages/delta.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        poll_teams_shared_channels.s(),
+        name="poll teams shared channels",
     )
     # Delete expired Streamlit bridge OAuth tokens.
     sender.add_periodic_task(

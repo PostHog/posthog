@@ -11,21 +11,27 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.utils import gate_surfacing_score_order
 
 
 class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
     query: RecordingsQuery
     cached_response: CachedRecordingsQueryResponse
 
-    def _calculate(self) -> RecordingsQueryResponse:
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
-
-        listing = SessionRecordingListFromQuery(
+    def _listing(self) -> SessionRecordingListFromQuery:
+        # `surfacing_score` ordering is flag-gated; gate here so every path that materializes the query
+        # (the MCP/query endpoint via `_calculate`, plus `to_query` for explain/debug) shares one check.
+        gate_surfacing_score_order(self.query, self.user)
+        return SessionRecordingListFromQuery(
             team=self.team,
             query=self.query,
             hogql_query_modifiers=self.modifiers,
         )
-        result = listing.run()
+
+    def _calculate(self) -> RecordingsQueryResponse:
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
+
+        result = self._listing().run()
 
         recordings = [self._map_recording(row) for row in result.results]
 
@@ -36,12 +42,7 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
         )
 
     def to_query(self):
-        listing = SessionRecordingListFromQuery(
-            team=self.team,
-            query=self.query,
-            hogql_query_modifiers=self.modifiers,
-        )
-        return listing.get_query()
+        return self._listing().get_query()
 
     @staticmethod
     def _map_recording(row: dict[str, Any]) -> SessionRecordingType:

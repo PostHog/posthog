@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, Exists, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce
 
 from opentelemetry import trace
@@ -78,19 +78,29 @@ def apply_trigram_search(
     span_prefix: str,
     fields: tuple[TrigramSearchField, ...],
     include_tag_search: bool = False,
+    extra_exact_q: Q | None = None,
     tiebreakers: tuple[str, ...] = (),
 ) -> QuerySet:
-    """Apply trigram + literal-substring search across `fields`, then order exact-first.
+    """Apply trigram + literal-substring search across `fields`, returning both match tiers.
 
     Two predicates select the rows. The literal `icontains` predicate (`exact_q`) catches
     tokens dense with non-alphanumerics — emails, UUIDs, dotted identifiers — where pg_trgm
     splits at punctuation and scores below threshold. The trigram word-similarity predicate
     (`similar_q`) catches typos and prefix-as-you-type. A row matching `exact_q` is flagged
-    `_is_exact=1` and sorts ahead of fuzzy-only matches via the leading `-_is_exact` order key.
+    `_is_exact=1`.
 
-    Within each exactness tier, `_search_score` ranks rows by each field's weighted word
-    similarity (plus full-string similarity where `include_full` is set). `tiebreakers` are
-    appended after the score (e.g. `-pinned`, `name`).
+    Callers must pair this with `drop_similar_when_exact_exists` applied as the final filter
+    on the queryset — that is what implements the "exact matches only, unless there are none"
+    response contract. The tier decision lives there, not here, because it has to see the
+    fully filtered row set (see that function's docstring).
+
+    `_search_score` ranks rows by each field's weighted word similarity (plus full-string
+    similarity where `include_full` is set). `tiebreakers` are appended after the score
+    (e.g. `-pinned`, `name`).
+
+    `extra_exact_q` OR's caller-supplied predicates into the exact tier — for structured
+    fields that don't fit trigram (a commit-SHA prefix, an exact numeric id). Rows matched
+    this way are flagged `_is_exact=1` and sort with the literal-substring matches.
 
     When `include_tag_search=True`, rows whose tag names contain the term also match (as
     `exact`), and `.distinct()` dedups the tag-join fan-out.
@@ -117,6 +127,8 @@ def apply_trigram_search(
         if f.literal:
             # nosemgrep: orm-field-injection — f.field is a developer-defined TrigramSearchField path, not user input; only `search` is user-controlled and it is the bound value
             exact_q |= Q(**{f"{f.field}__icontains": search})
+    if extra_exact_q is not None:
+        exact_q |= extra_exact_q
     if include_tag_search:
         matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
         exact_q |= Q(id__in=matching_tag_ids)
@@ -133,17 +145,30 @@ def apply_trigram_search(
             component = component + F(f"_full_{f.key}")
         search_score = component if search_score is None else search_score + component
 
-    result = (
-        queryset.annotate(**word_annotations)
-        .annotate(
-            _is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()),
-            _search_score=search_score,
-        )
-        .filter(exact_q | similar_q)
-        .order_by("-_is_exact", "-_search_score", *tiebreakers)
+    annotated = queryset.annotate(**word_annotations).annotate(
+        _is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()),
+        _search_score=search_score,
     )
 
+    result = annotated.filter(exact_q | similar_q)
     if include_tag_search:
         result = result.distinct()
 
-    return result
+    return result.order_by("-_search_score", *tiebreakers)
+
+
+def drop_similar_when_exact_exists(queryset: QuerySet) -> QuerySet:
+    """Keep only exact matches when any exist; otherwise keep the similar matches, so a
+    typo'd query still finds something. Without this, a caller re-sort (e.g. by
+    last-modified) fills the visible area with similar matches and buries the exact hits.
+
+    Must be the final filter on a searched queryset — the "any exact match?" probe is an
+    EXISTS subquery over the queryset as passed in, so the tier decision sees exactly the
+    rows the response will draw from. Applied any earlier, a subsequent filter could remove
+    every exact match and the response would be empty despite surviving similar matches.
+
+    No-op when the queryset was not searched (no `_is_exact` annotation)."""
+    if "_is_exact" not in queryset.query.annotations:
+        return queryset
+    exact_matches = queryset.order_by().filter(_is_exact=1).values("pk")
+    return queryset.filter(Q(_is_exact=1) | ~Exists(exact_matches))

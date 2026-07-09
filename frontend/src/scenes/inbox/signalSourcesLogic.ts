@@ -1,18 +1,19 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
-import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
+import { captureSignalSourceConnected } from './inboxAnalytics'
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
@@ -20,9 +21,9 @@ export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
-    SignalSourceType.ISSUE_CREATED,
-    SignalSourceType.ISSUE_REOPENED,
-    SignalSourceType.ISSUE_SPIKING,
+    SignalSourceType.IssueCreated,
+    SignalSourceType.IssueReopened,
+    SignalSourceType.IssueSpiking,
 ]
 
 const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
@@ -35,26 +36,26 @@ const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
     }
 > = {
     Github: {
-        sourceProduct: SignalSourceProduct.GITHUB,
-        sourceType: SignalSourceType.ISSUE,
+        sourceProduct: SignalSourceProduct.Github,
+        sourceType: SignalSourceType.Issue,
         requiredTable: 'issues',
         enableErrorMessage: 'Failed to enable GitHub Issues',
     },
     Linear: {
-        sourceProduct: SignalSourceProduct.LINEAR,
-        sourceType: SignalSourceType.ISSUE,
+        sourceProduct: SignalSourceProduct.Linear,
+        sourceType: SignalSourceType.Issue,
         requiredTable: 'issues',
         enableErrorMessage: 'Failed to enable Linear Issues',
     },
     Zendesk: {
-        sourceProduct: SignalSourceProduct.ZENDESK,
-        sourceType: SignalSourceType.TICKET,
+        sourceProduct: SignalSourceProduct.Zendesk,
+        sourceType: SignalSourceType.Ticket,
         requiredTable: 'tickets',
         enableErrorMessage: 'Failed to enable Zendesk Tickets',
     },
     PgAnalyze: {
-        sourceProduct: SignalSourceProduct.PGANALYZE,
-        sourceType: SignalSourceType.ISSUE,
+        sourceProduct: SignalSourceProduct.Pganalyze,
+        sourceType: SignalSourceType.Issue,
         requiredTable: 'issues',
         enableErrorMessage: 'Failed to enable pganalyze',
     },
@@ -117,7 +118,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        values: [
+            sourcesDataLogic,
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [sourcesDataLogic, ['loadSources']],
     })),
 
@@ -138,6 +144,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleHealthChecks: true,
+        toggleEvalReports: true,
+        toggleConversations: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
     }),
@@ -182,15 +190,19 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             toggleSessionAnalysis: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(
                     state,
-                    SignalSourceProduct.SESSION_REPLAY,
-                    SignalSourceType.SESSION_ANALYSIS_CLUSTER
+                    SignalSourceProduct.SessionReplay,
+                    SignalSourceType.SessionAnalysisCluster
                 ),
             toggleDataWarehouseSource: (state: SignalSourceConfig[] | null, { dwSource }) => {
                 const { sourceProduct, sourceType } = DATA_WAREHOUSE_SOURCE_CONFIG[dwSource]
                 return toggleSourceConfigState(state, sourceProduct, sourceType)
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
-                toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+                toggleSourceConfigState(state, SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue),
+            toggleEvalReports: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport),
+            toggleConversations: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.Conversations, SignalSourceType.Ticket),
         },
         togglingSourceKeys: [
             new Set<string>(),
@@ -230,29 +242,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.SESSION_REPLAY &&
-                        c.source_type === SignalSourceType.SESSION_ANALYSIS_CLUSTER
+                        c.source_product === SignalSourceProduct.SessionReplay &&
+                        c.source_type === SignalSourceType.SessionAnalysisCluster
                 ) ?? null,
         ],
         githubIssuesConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
-                    (c) => c.source_product === SignalSourceProduct.GITHUB && c.source_type === SignalSourceType.ISSUE
+                    (c) => c.source_product === SignalSourceProduct.Github && c.source_type === SignalSourceType.Issue
                 ) ?? null,
         ],
         linearIssuesConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
-                    (c) => c.source_product === SignalSourceProduct.LINEAR && c.source_type === SignalSourceType.ISSUE
+                    (c) => c.source_product === SignalSourceProduct.Linear && c.source_type === SignalSourceType.Issue
                 ) ?? null,
         ],
         zendeskTicketsConfig: [
             (s) => [s.sourceConfigs],
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
-                    (c) => c.source_product === SignalSourceProduct.ZENDESK && c.source_type === SignalSourceType.TICKET
+                    (c) => c.source_product === SignalSourceProduct.Zendesk && c.source_type === SignalSourceType.Ticket
                 ) ?? null,
         ],
         pgAnalyzeIssuesConfig: [
@@ -260,29 +272,42 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.PGANALYZE && c.source_type === SignalSourceType.ISSUE
+                        c.source_product === SignalSourceProduct.Pganalyze && c.source_type === SignalSourceType.Issue
+                ) ?? null,
+        ],
+        conversationsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.Conversations &&
+                        c.source_type === SignalSourceType.Ticket
                 ) ?? null,
         ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
-                keys.has(`${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`),
+                keys.has(`${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`),
+        ],
+        isConversationsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.Conversations}_${SignalSourceType.Ticket}`),
         ],
         isGithubIssuesToggling: [
             (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.GITHUB}_${SignalSourceType.ISSUE}`),
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.Github}_${SignalSourceType.Issue}`),
         ],
         isLinearIssuesToggling: [
             (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.LINEAR}_${SignalSourceType.ISSUE}`),
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.Linear}_${SignalSourceType.Issue}`),
         ],
         isZendeskTicketsToggling: [
             (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.ZENDESK}_${SignalSourceType.TICKET}`),
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.Zendesk}_${SignalSourceType.Ticket}`),
         ],
         isPgAnalyzeIssuesToggling: [
             (s) => [s.togglingSourceKeys],
-            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.PGANALYZE}_${SignalSourceType.ISSUE}`),
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.Pganalyze}_${SignalSourceType.Issue}`),
         ],
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
@@ -293,14 +318,28 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
                 sourceConfigs?.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.HEALTH_CHECKS &&
-                        c.source_type === SignalSourceType.HEALTH_ISSUE
+                        c.source_product === SignalSourceProduct.HealthChecks &&
+                        c.source_type === SignalSourceType.HealthIssue
                 ) ?? null,
         ],
         isHealthChecksToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
-                keys.has(`${SignalSourceProduct.HEALTH_CHECKS}_${SignalSourceType.HEALTH_ISSUE}`),
+                keys.has(`${SignalSourceProduct.HealthChecks}_${SignalSourceType.HealthIssue}`),
+        ],
+        evalReportsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.EvaluationReport
+                ) ?? null,
+        ],
+        isEvalReportsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.LlmAnalytics}_${SignalSourceType.EvaluationReport}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -311,7 +350,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 return ERROR_TRACKING_SIGNAL_SOURCE_TYPES.every((sourceType) => {
                     const c = sourceConfigs.find(
                         (row) =>
-                            row.source_product === SignalSourceProduct.ERROR_TRACKING && row.source_type === sourceType
+                            row.source_product === SignalSourceProduct.ErrorTracking && row.source_type === sourceType
                     )
                     return c?.enabled === true
                 })
@@ -323,7 +362,18 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         ],
         enabledSourcesCount: [
             (s) => [s.sourceConfigs],
-            (sourceConfigs: SignalSourceConfig[] | null): number => sourceConfigs?.filter((c) => c.enabled).length ?? 0,
+            // The scout gate is a meta-toggle surfaced in the Scout troop section, not a generic
+            // signal source — exclude it so a scout-only project doesn't show the "Signal sources"
+            // setup card as done with a phantom "1 watching".
+            (sourceConfigs: SignalSourceConfig[] | null): number =>
+                sourceConfigs?.filter(
+                    (c) =>
+                        c.enabled &&
+                        !(
+                            c.source_product === SignalSourceProduct.SignalsScout &&
+                            c.source_type === SignalSourceType.CrossSourceIssue
+                        )
+                ).length ?? 0,
         ],
         hasNoSources: [
             (s) => [s.sourceConfigs, s.enabledSourcesCount],
@@ -379,14 +429,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const mapping: Partial<
                     Record<ExternalDataSourceType, { sourceProduct: SignalSourceProduct; sourceType: SignalSourceType }>
                 > = {
-                    Github: { sourceProduct: SignalSourceProduct.GITHUB, sourceType: SignalSourceType.ISSUE },
-                    Linear: { sourceProduct: SignalSourceProduct.LINEAR, sourceType: SignalSourceType.ISSUE },
-                    Zendesk: { sourceProduct: SignalSourceProduct.ZENDESK, sourceType: SignalSourceType.TICKET },
-                    PgAnalyze: { sourceProduct: SignalSourceProduct.PGANALYZE, sourceType: SignalSourceType.ISSUE },
+                    Github: { sourceProduct: SignalSourceProduct.Github, sourceType: SignalSourceType.Issue },
+                    Linear: { sourceProduct: SignalSourceProduct.Linear, sourceType: SignalSourceType.Issue },
+                    Zendesk: { sourceProduct: SignalSourceProduct.Zendesk, sourceType: SignalSourceType.Ticket },
+                    PgAnalyze: { sourceProduct: SignalSourceProduct.Pganalyze, sourceType: SignalSourceType.Issue },
                 }
                 const mapped = mapping[product]
                 if (mapped) {
-                    actions.toggleSignalSource({ ...mapped, enabled: true })
+                    actions.toggleSignalSource({ ...mapped, enabled: true, viaSetupWizard: true })
                 }
                 actions.closeDataSourceSetup()
             },
@@ -414,6 +464,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleSignalSourceSuccess(params)
+                    // Only a successful enable counts as a connection. First-time when there was no
+                    // persisted (non-placeholder) config for this product/type before the toggle.
+                    if (enabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct,
+                            sourceType,
+                            isFirstConnection: !(existing && !existing.id.startsWith('new_')),
+                            viaSetupWizard: params.viaSetupWizard ?? false,
+                        })
+                    }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
                     breakpoint()
@@ -426,17 +486,21 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             toggleErrorTracking: async (_, breakpoint) => {
                 const desiredEnabled = !values.errorTrackingIsFullyEnabled
                 const configs = values.sourceConfigs ?? []
+                // First connection when no persisted error-tracking config existed before this enable.
+                const wasConnected = configs.some(
+                    (c) => c.source_product === SignalSourceProduct.ErrorTracking && !c.id.startsWith('new_')
+                )
                 try {
                     for (const sourceType of ERROR_TRACKING_SIGNAL_SOURCE_TYPES) {
                         const existing = configs.find(
                             (c) =>
-                                c.source_product === SignalSourceProduct.ERROR_TRACKING && c.source_type === sourceType
+                                c.source_product === SignalSourceProduct.ErrorTracking && c.source_type === sourceType
                         )
                         if (existing && !existing.id.startsWith('new_')) {
                             await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
                         } else if (desiredEnabled) {
                             await api.signalSourceConfigs.create({
-                                source_product: SignalSourceProduct.ERROR_TRACKING,
+                                source_product: SignalSourceProduct.ErrorTracking,
                                 source_type: sourceType,
                                 enabled: true,
                                 config: {},
@@ -445,6 +509,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     breakpoint()
                     actions.toggleErrorTrackingComplete()
+                    if (desiredEnabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct: SignalSourceProduct.ErrorTracking,
+                            sourceType: SignalSourceType.IssueCreated,
+                            isFirstConnection: !wasConnected,
+                            viaSetupWizard: false,
+                        })
+                    }
                     actions.loadSourceConfigs()
                 } catch (error: any) {
                     breakpoint() // re-throws if superseded, skipping the lines below
@@ -458,8 +530,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const config = values.sessionAnalysisConfig
                 const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.SESSION_REPLAY,
-                    sourceType: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                    sourceProduct: SignalSourceProduct.SessionReplay,
+                    sourceType: SignalSourceType.SessionAnalysisCluster,
                     enabled: desiredEnabled,
                 })
             },
@@ -469,8 +541,29 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const config = values.healthChecksConfig
                 const desiredEnabled = config?.enabled ?? true
                 actions.toggleSignalSource({
-                    sourceProduct: SignalSourceProduct.HEALTH_CHECKS,
-                    sourceType: SignalSourceType.HEALTH_ISSUE,
+                    sourceProduct: SignalSourceProduct.HealthChecks,
+                    sourceType: SignalSourceType.HealthIssue,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleEvalReports: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.evalReportsConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.LlmAnalytics,
+                    sourceType: SignalSourceType.EvaluationReport,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleConversations: () => {
+                const config = values.conversationsConfig
+                // Send the flipped target state. A missing config row means "off", so first toggle enables.
+                const desiredEnabled = !(config?.enabled ?? false)
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.Conversations,
+                    sourceType: SignalSourceType.Ticket,
                     enabled: desiredEnabled,
                 })
             },
@@ -494,8 +587,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         })
                     } else {
                         await api.signalSourceConfigs.create({
-                            source_product: SignalSourceProduct.SESSION_REPLAY,
-                            source_type: SignalSourceType.SESSION_ANALYSIS_CLUSTER,
+                            source_product: SignalSourceProduct.SessionReplay,
+                            source_type: SignalSourceType.SessionAnalysisCluster,
                             config: { recording_filters: filters },
                             enabled: true,
                         })
@@ -514,7 +607,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     if (
                         existing &&
                         existing.id !==
-                            `new_${SignalSourceProduct.SESSION_REPLAY}_${SignalSourceType.SESSION_ANALYSIS_CLUSTER}`
+                            `new_${SignalSourceProduct.SessionReplay}_${SignalSourceType.SessionAnalysisCluster}`
                     ) {
                         await api.signalSourceConfigs.update(existing.id, { config: {}, enabled: true })
                         lemonToast.success('Session analysis filters cleared')
@@ -528,9 +621,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         }
     }),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            if (posthog.isFeatureEnabled(FEATURE_FLAGS.PRODUCT_AUTONOMY)) {
+            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY]) {
                 // The condition allows us to safely mount this logic for user without the product autonomy feature flag
                 // without needlessly loading the source configs
                 actions.loadSourceConfigs()

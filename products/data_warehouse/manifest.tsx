@@ -16,8 +16,7 @@ export const manifest: ProductManifest = {
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
             activityScope: 'DataWarehouse',
-            description:
-                'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
+            description: "Manage your organization's shared data warehouse.",
             iconType: 'data_warehouse',
         },
         Models: {
@@ -96,7 +95,7 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
+        dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
         models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
         nodeDetail: (id: string): string => `/models/${id}`,
         sources: (): string => '/data-management/sources',
@@ -189,14 +188,6 @@ export const manifest: ProductManifest = {
             iconType: 'managed_viewsets',
             href: urls.dataWarehouseManagedViewsets(),
             flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-        },
-        {
-            path: 'Exports',
-            category: 'Pipeline',
-            iconType: 'exports',
-            href: urls.exports(),
-            sceneKey: 'Exports',
-            sceneKeys: ['Exports'],
         },
     ],
 }

@@ -11,8 +11,8 @@ type Params = z.infer<typeof schema>
 type Result = {
     received: boolean
     summary: string
+    feedback_type: Params['feedback_type']
     sentiment: Params['sentiment']
-    category: Params['category']
     message: string
 }
 
@@ -32,7 +32,9 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
     try {
         await context.trackEvent(AnalyticsEvent.MCP_FEEDBACK_SUBMITTED, {
             feedback_summary: params.summary,
+            feedback_type: params.feedback_type,
             feedback_sentiment: params.sentiment,
+            feedback_product_area: params.product_area,
             feedback_category: params.category,
             feedback_task_completed: params.task_completed,
             feedback_tools_used: params.tools_used,
@@ -48,8 +50,8 @@ export const submitFeedbackHandler: ToolBase<typeof schema, Result>['handler'] =
     return {
         received: true,
         summary: params.summary,
+        feedback_type: params.feedback_type,
         sentiment: params.sentiment,
-        category: params.category,
         message: RESPONSE_MESSAGE,
     }
 }

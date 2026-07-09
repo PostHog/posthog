@@ -45,31 +45,21 @@ class ChannelTypeExprs:
 def create_initial_domain_type(
     name: str, timings: Optional[HogQLTimings] = None, properties_path: Optional[list[str]] = None
 ) -> ExpressionField:
-    if timings is None:
-        timings = HogQLTimings()
-
     if not properties_path:
         properties_path = ["properties"]
-
-    with timings.measure("initial_domain_type_expr"):
-        expr = _initial_domain_type_expr()
-
+    # One call expanded in the resolver (see expand_domain_type_call), like the channel type.
     return ExpressionField(
         name=name,
-        expr=replace_placeholders(
-            expr,
-            {
-                "referring_domain": ast.Call(
-                    name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
-                )
-            },
+        expr=ast.Call(
+            name=DOMAIN_TYPE_FUNCTION,
+            args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])])],
         ),
         isolate_scope=True,
     )
 
 
 @cache
-def _initial_domain_type_expr() -> ast.Expr:
+def _domain_type_expr() -> ast.Expr:
     return parse_expr(
         """
 if(
@@ -79,6 +69,15 @@ if(
 )
 """
     )
+
+
+# Referring-domain classification; expanded to SQL in the resolver (never a real CH function).
+DOMAIN_TYPE_FUNCTION = "_domainType"
+
+
+def expand_domain_type_call(args: list[ast.Expr]) -> ast.Expr:
+    # Resolver-side expansion of _domainType(referring_domain).
+    return replace_placeholders(_domain_type_expr(), {"referring_domain": args[0]})
 
 
 def create_initial_channel_type(
@@ -231,6 +230,27 @@ def custom_rule_to_expr(custom_rule: "CustomChannelRule", source_exprs: ChannelT
         return ast.Call(name=custom_rule.combiner.lower(), args=conditions)
 
 
+# Default channel-type classification; the resolver expands it to SQL (never a real ClickHouse function).
+DEFAULT_CHANNEL_TYPE_FUNCTION = "_defaultChannelType"
+
+
+def expand_default_channel_type_call(args: list[ast.Expr]) -> ast.Expr:
+    # args are the source exprs in the order create_channel_type_expr emits them.
+    campaign, medium, source, referring_domain, has_gclid, has_fbclid, gad_source = args
+    return replace_placeholders(
+        _initial_default_channel_rules_expr(),
+        placeholders={
+            "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),
+            "medium": wrap_with_lower(wrap_with_null_if_empty(medium)),
+            "source": wrap_with_lower(wrap_with_null_if_empty(source)),
+            "referring_domain": referring_domain,
+            "has_gclid": has_gclid,
+            "has_fbclid": has_fbclid,
+            "gad_source": wrap_with_null_if_empty(gad_source),
+        },
+    )
+
+
 def create_channel_type_expr(
     custom_rules: Optional[list["CustomChannelRule"]],
     source_exprs: ChannelTypeExprs,
@@ -249,26 +269,21 @@ def create_channel_type_expr(
             if_args.append(ast.Constant(value=None))
             custom_rule_expr = ast.Call(name="multiIf", args=if_args)
 
-    with timings.measure("default_channel_rules_parse"):
-        builtin_rules_expr = _initial_default_channel_rules_expr()
-    with timings.measure("default_channel_rules_replace"):
-        builtin_rules = replace_placeholders(
-            builtin_rules_expr,
-            placeholders={
-                "campaign": wrap_with_lower(wrap_with_null_if_empty(source_exprs.campaign)),
-                "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
-                "source": wrap_with_lower(wrap_with_null_if_empty(source_exprs.source)),
-                "referring_domain": source_exprs.referring_domain,
-                "has_gclid": source_exprs.has_gclid,
-                "has_fbclid": source_exprs.has_fbclid,
-                "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
-            },
-        )
+    # One call rather than inlining the multiIf, so only queries that select the field pay the expansion.
+    builtin_rules: ast.Expr = ast.Call(
+        name=DEFAULT_CHANNEL_TYPE_FUNCTION,
+        args=[
+            source_exprs.campaign,
+            source_exprs.medium,
+            source_exprs.source,
+            source_exprs.referring_domain,
+            source_exprs.has_gclid,
+            source_exprs.has_fbclid,
+            source_exprs.gad_source,
+        ],
+    )
     if custom_rule_expr:
-        return ast.Call(
-            name="coalesce",
-            args=[custom_rule_expr, builtin_rules],
-        )
+        return ast.Call(name="coalesce", args=[custom_rule_expr, builtin_rules])
     else:
         return builtin_rules
 

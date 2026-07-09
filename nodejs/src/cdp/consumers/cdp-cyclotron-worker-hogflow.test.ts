@@ -2,18 +2,15 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PostgresUse } from '~/utils/db/postgres'
-import { UUIDT } from '~/utils/utils'
-import {
-    InternalPersonWithDistinctId,
-    PersonReadRepository,
-} from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { Hub, InternalPerson, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
 import {
@@ -357,6 +354,20 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 email: 'batch@posthog.com',
             })
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
+        })
+
+        it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
+            const results = (await processor.processInvocations(
+                invocations
+            )) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            // invocation1 (distinct_A_1) resolves to Person A 1 — its UUID is written back into
+            // state.personId, so a later re-park keeps person_id even if re-resolution transiently misses.
+            // clickhouse_person wakes match on person_id only, so this is what lets a person-property
+            // change wake the wait without relying on the polling backstop.
+            expect(results[0].invocation.state.personId).toBe('dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1')
+            // invocation4 (missing_person) resolves to nothing — no person_id to persist.
+            expect(results[3].invocation.state.personId).toBeUndefined()
         })
 
         it('should skip invocations when workflow is disabled after being queued', async () => {

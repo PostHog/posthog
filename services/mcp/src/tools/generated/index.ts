@@ -15,6 +15,7 @@ import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
+import { GENERATED_TOOLS as data_management } from './data_management'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as docs } from './docs'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
@@ -31,6 +32,7 @@ import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
+import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
@@ -38,6 +40,7 @@ import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
+import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as replay_vision } from './replay_vision'
 import { GENERATED_TOOLS as signals } from './signals'
@@ -67,6 +70,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...core,
     ...customer_analytics,
     ...dashboards,
+    ...data_management,
     ...data_warehouse,
     ...docs,
     ...early_access_features,
@@ -83,6 +87,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...logs,
     ...marketing_analytics,
     ...mcp_analytics,
+    ...mcp_store,
     ...metrics,
     ...notebooks,
     ...persons,
@@ -90,6 +95,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,
+    ...reminders,
     ...replay,
     ...replay_vision,
     ...signals,

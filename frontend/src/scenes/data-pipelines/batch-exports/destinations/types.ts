@@ -40,5 +40,5 @@ export interface DestinationDefinition {
     eventTableOverrides?: EventTableOverrides
     // Lift integration_id from destination.integration during deserialize and push it back during save.
     usesIntegration?: boolean
-    Fields: React.FC<{ isNew: boolean; formValues: Record<string, any>; configurationChanged: boolean }>
+    Fields: React.FC<{ isNew: boolean; formValues: Record<string, any> }>
 }

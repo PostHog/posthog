@@ -5,6 +5,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -21,10 +22,52 @@ from posthog.models.integration import Integration
 from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.models.evaluation_configs import (
+    REPORTABLE_OUTPUT_TYPES,
+    evaluation_supports_reports,
+)
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+from products.ai_observability.backend.models.evaluations import EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
+
+SCHEDULE_RRULE_ERROR = (
+    "Scheduled reports support daily or weekly cadences. Use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'."
+)
+VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+
+
+def default_schedule_anchor() -> dt.datetime:
+    return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+
+class EvaluationReportListQuerySerializer(serializers.Serializer):
+    evaluation = serializers.UUIDField(
+        required=False,
+        help_text="Only return report configs for this evaluation UUID.",
+    )
+
+
+def validate_report_schedule_rrule(rrule_string: str) -> None:
+    parts: dict[str, str] = {}
+    for part in rrule_string.split(";"):
+        if "=" not in part:
+            raise ValueError(SCHEDULE_RRULE_ERROR)
+        key, value = part.split("=", 1)
+        if key in parts:
+            raise ValueError(SCHEDULE_RRULE_ERROR)
+        parts[key] = value
+
+    if parts == {"FREQ": "DAILY"}:
+        return
+
+    if set(parts) == {"FREQ", "BYDAY"} and parts["FREQ"] == "WEEKLY":
+        weekdays = parts["BYDAY"].split(",")
+        if weekdays and all(day in VALID_WEEKDAYS for day in weekdays) and len(weekdays) == len(set(weekdays)):
+            return
+
+    raise ValueError(SCHEDULE_RRULE_ERROR)
 
 
 class EvaluationReportSerializer(serializers.ModelSerializer):
@@ -50,33 +93,40 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
         ]
-        read_only_fields = ["id", "next_delivery_date", "last_delivered_at", "created_by", "created_at"]
+        read_only_fields = [
+            "id",
+            "starts_at",
+            "timezone_name",
+            "next_delivery_date",
+            "deleted",
+            "last_delivered_at",
+            "created_by",
+            "created_at",
+        ]
         extra_kwargs = {
             "evaluation": {"help_text": "UUID of the evaluation this report config belongs to."},
             "frequency": {
                 "help_text": (
                     "How report generation is triggered. 'every_n' fires once N new evaluation results have "
                     "accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence "
-                    "defined by rrule + starts_at + timezone_name."
+                    "defined by rrule."
                 )
             },
             "rrule": {
                 "help_text": (
-                    "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the "
-                    "anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+                    "RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are "
+                    "supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is "
+                    "'scheduled'; ignored otherwise."
                 )
             },
             "starts_at": {
                 "help_text": (
-                    "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation "
-                    "is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
+                    "Read-only anchor datetime used to expand scheduled reports. The server sets this automatically "
+                    "when a report is switched to scheduled mode."
                 )
             },
             "timezone_name": {
-                "help_text": (
-                    "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across "
-                    "DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
-                )
+                "help_text": "Read-only timezone used for scheduled reports. Evaluation reports use UTC."
             },
             "delivery_targets": {
                 "help_text": (
@@ -89,7 +139,12 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 "help_text": "Maximum number of evaluation runs included in each report. Defaults to 200."
             },
             "enabled": {"help_text": "Whether report delivery is active. Disabled configs do not fire."},
-            "deleted": {"help_text": "Set to true to soft-delete this report config."},
+            "deleted": {
+                "help_text": (
+                    "Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use "
+                    "enabled=false to stop deliveries."
+                )
+            },
             "report_prompt_guidance": {
                 "help_text": (
                     "Optional custom instructions appended to the AI report prompt to steer focus, scope, or "
@@ -125,6 +180,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             },
         }
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.created_instance = True
+
     def validate_evaluation(self, value):
         # Prevent creating a report in team A that references team B's evaluation:
         # the FK queryset is unscoped, so a user with access to multiple teams could
@@ -132,12 +191,20 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
+        if not evaluation_supports_reports(value.output_type):
+            raise serializers.ValidationError("Reports are only supported for boolean evaluations.")
+        if value.target == EvaluationTarget.TRACE:
+            raise serializers.ValidationError("Reports are not yet supported for trace-level evaluations.")
         return value
 
     def validate_rrule(self, value: str) -> str:
         # Allow empty for count-triggered reports; cross-field validation enforces required-when-scheduled.
         if not value:
             return value
+        try:
+            validate_report_schedule_rrule(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
         try:
             validate_rrule(value)
         except ValueError as exc:
@@ -147,6 +214,28 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if (
+            self.instance is not None
+            and isinstance(self.initial_data, dict)
+            and "evaluation" in self.initial_data
+            and str(self.initial_data["evaluation"]) != str(self.instance.evaluation_id)
+        ):
+            raise serializers.ValidationError({"evaluation": "Report configs cannot be moved to another evaluation."})
+        if isinstance(self.initial_data, dict) and "deleted" in self.initial_data:
+            try:
+                submitted_deleted = serializers.BooleanField().to_internal_value(self.initial_data["deleted"])
+            except serializers.ValidationError as exc:
+                raise serializers.ValidationError({"deleted": exc.detail}) from exc
+            current_deleted = self.instance.deleted if self.instance is not None else False
+            if submitted_deleted != current_deleted:
+                raise serializers.ValidationError(
+                    {
+                        "deleted": (
+                            "Report configs are deleted only when their evaluation is deleted. "
+                            "Disable delivery with enabled=false."
+                        )
+                    }
+                )
         # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
         # by the field-level min_value / max_value validators. This block only handles the
         # cross-field "required" rules that the field validators can't express on their own.
@@ -165,11 +254,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")
             if not rrule_str:
                 raise serializers.ValidationError({"rrule": "Required when frequency is 'scheduled'."})
-            starts_at = (
-                attrs.get("starts_at") if "starts_at" in attrs else (self.instance.starts_at if self.instance else None)
-            )
-            if starts_at is None:
-                raise serializers.ValidationError({"starts_at": "Required when frequency is 'scheduled'."})
+            if not self.instance or self.instance.starts_at is None:
+                attrs["starts_at"] = default_schedule_anchor()
+            attrs["timezone_name"] = "UTC"
         return attrs
 
     def validate_delivery_targets(self, value: list) -> list:
@@ -213,9 +300,29 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         request = self.context["request"]
         team = self.context["get_team"]()
-        validated_data["team"] = team
-        validated_data["created_by"] = request.user
-        return super().create(validated_data)
+        evaluation = validated_data["evaluation"]
+        defaults = {**validated_data, "created_by": request.user}
+        report, created = EvaluationReport.objects.get_or_create(
+            evaluation=evaluation,
+            team_id=team.id,
+            defaults=defaults,
+        )
+        self.created_instance = created
+        if created:
+            return report
+
+        for field, value in validated_data.items():
+            if field != "evaluation":
+                setattr(report, field, value)
+        if report.created_by_id is None:
+            report.created_by = request.user
+        report.save()
+        return report
+
+
+class EvaluationReportUpdateSerializer(EvaluationReportSerializer):
+    class Meta(EvaluationReportSerializer.Meta):
+        read_only_fields = [*EvaluationReportSerializer.Meta.read_only_fields, "evaluation"]
 
 
 class EvaluationReportListSerializer(EvaluationReportSerializer):
@@ -289,26 +396,38 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def get_serializer_class(self):
         if self.action == "list" and self._is_mcp_request(self.request):
             return EvaluationReportListSerializer
+        if self.action in ("update", "partial_update"):
+            return EvaluationReportUpdateSerializer
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id, evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES).order_by(
+            "-created_at"
+        )
         if self.action not in ("update", "partial_update"):
             queryset = queryset.filter(deleted=False)
 
         evaluation_id = self.request.query_params.get("evaluation")
         if evaluation_id:
-            queryset = queryset.filter(evaluation_id=evaluation_id)
+            query_serializer = EvaluationReportListQuerySerializer(data={"evaluation": evaluation_id})
+            query_serializer.is_valid(raise_exception=True)
+            queryset = queryset.filter(evaluation_id=query_serializer.validated_data["evaluation"])
 
         return queryset
 
     @llma_track_latency("llma_evaluation_reports_list")
+    @extend_schema(parameters=[EvaluationReportListQuerySerializer])
     def list(self, request: Request, *args, **kwargs) -> Response:
         return super().list(request, *args, **kwargs)
 
     @llma_track_latency("llma_evaluation_reports_create")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        status_code = status.HTTP_201_CREATED if getattr(serializer, "created_instance", True) else status.HTTP_200_OK
+        return Response(serializer.data, status=status_code, headers=headers)
 
     @llma_track_latency("llma_evaluation_reports_retrieve")
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -322,11 +441,22 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(
+        responses={405: None},
+        description=(
+            "Evaluation report configs are deleted only when their evaluation is deleted. "
+            "Use PATCH enabled=false to stop delivery."
+        ),
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         instance = serializer.save()
+        was_created = serializer.created_instance
         report_user_action(
             self.request.user,
-            "llma evaluation report created",
+            "llma evaluation report created" if was_created else "llma evaluation report updated",
             {
                 "evaluation_report_id": str(instance.id),
                 "evaluation_id": str(instance.evaluation_id),
@@ -354,13 +484,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
             "delivery_targets",
             "max_sample_size",
             "enabled",
-            "deleted",
             "report_prompt_guidance",
             "trigger_threshold",
             "cooldown_minutes",
             "daily_run_cap",
         ]
-        is_deletion = serializer.validated_data.get("deleted") is True and not serializer.instance.deleted
 
         changed_fields: list[str] = []
         for field in tracked_fields:
@@ -372,19 +500,7 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
 
         instance = serializer.save()
 
-        if is_deletion:
-            report_user_action(
-                self.request.user,
-                "llma evaluation report deleted",
-                {
-                    "evaluation_report_id": str(instance.id),
-                    "evaluation_id": str(instance.evaluation_id),
-                    "was_enabled": serializer.instance.enabled,
-                },
-                team=self.team,
-                request=self.request,
-            )
-        elif changed_fields:
+        if changed_fields:
             event_properties: dict[str, Any] = {
                 "evaluation_report_id": str(instance.id),
                 "evaluation_id": str(instance.evaluation_id),
@@ -420,6 +536,16 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
         report = self.get_object()
+        if not evaluation_supports_reports(report.evaluation.output_type):
+            return Response(
+                {"error": "Reports are only supported for boolean evaluations."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if report.evaluation.target == EvaluationTarget.TRACE:
+            return Response(
+                {"error": "Reports are not yet supported for trace-level evaluations."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME

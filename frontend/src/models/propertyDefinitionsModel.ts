@@ -3,7 +3,6 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { isKeyOf } from 'lib/utils/guards'
@@ -431,8 +430,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 return
             }
 
-            const start = performance.now()
-
             await breakpoint(300)
             actions.setOptionsLoading(propertyKey)
             actions.abortAnyRunningQuery()
@@ -487,16 +484,6 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     clearTimeout(cache.pollingTimeouts[propertyKey])
                     delete cache.pollingTimeouts[propertyKey]
                 }
-
-                await captureTimeToSeeData(teamLogic.values.currentTeamId, {
-                    type: 'property_values_load',
-                    context: 'filters',
-                    action: type,
-                    primary_interaction_id: '',
-                    status: 'success',
-                    time_to_see_data_ms: Math.floor(performance.now() - start),
-                    api_response_bytes: 0,
-                })
             } catch (e) {
                 // Bail if a newer listener invocation has superseded this one
                 breakpoint()
@@ -539,17 +526,32 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
         propertyDefinitionStorage: [
-            (s) => [s.rawPropertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
-            (rawPropertyDefinitionStorage, eventMetadataPropertyDefinitions): PropertyDefinitionStorage => {
-                const metadataDefinitions = Object.fromEntries(
+            (s) => [
+                s.rawPropertyDefinitionStorage,
+                s.eventMetadataPropertyDefinitions,
+                s.personMetadataPropertyDefinitions,
+            ],
+            (
+                rawPropertyDefinitionStorage,
+                eventMetadataPropertyDefinitions,
+                personMetadataPropertyDefinitions: PropertyDefinition[]
+            ): PropertyDefinitionStorage => {
+                const eventMetadataDefinitions = Object.fromEntries(
                     eventMetadataPropertyDefinitions.map((definition) => [
                         `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
                         definition,
                     ])
                 )
+                const personMetadataDefinitions = Object.fromEntries(
+                    personMetadataPropertyDefinitions.map((definition) => [
+                        `${PropertyDefinitionType.PersonMetadata}/${definition.id}`,
+                        definition,
+                    ])
+                )
                 return {
                     ...rawPropertyDefinitionStorage,
-                    ...metadataDefinitions,
+                    ...eventMetadataDefinitions,
+                    ...personMetadataDefinitions,
                 }
             },
         ],
@@ -654,6 +656,18 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     return Array.isArray(valueToFormat) ? formattedValues : formattedValues[0]
                 }
             },
+        ],
+        personMetadataPropertyDefinitions: [
+            () => [],
+            () =>
+                [
+                    {
+                        id: 'created_at',
+                        name: 'created_at',
+                        property_type: PropertyType.DateTime,
+                        type: PropertyDefinitionType.PersonMetadata,
+                    },
+                ] as PropertyDefinition[],
         ],
         eventMetadataPropertyDefinitions: [
             (s) => [s.groupTypes],

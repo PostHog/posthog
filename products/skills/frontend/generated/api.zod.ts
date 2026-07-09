@@ -43,7 +43,10 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .max(llmSkillsCreateBodyCompatibilityMax)
             .optional()
             .describe('Environment requirements (intended product, system packages, network access, etc.).'),
-        allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+        allowed_tools: zod
+            .array(zod.string())
+            .optional()
+            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
         files: zod
             .array(
@@ -66,6 +69,30 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
             .describe('Bundled files to include with the initial version (scripts, references, assets).'),
     })
     .describe('Create serializer — accepts bundled files as write-only input on POST.')
+
+export const LlmSkillsImportCreateBody = /* @__PURE__ */ zod.object({
+    file: zod
+        .url()
+        .describe(
+            'A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts\/, references\/, assets\/).'
+        ),
+})
+
+/**
+ * Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+ *
+ * Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+ */
+export const llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault = false
+
+export const LlmSkillsMarketplaceInstallCommandCreateBody = /* @__PURE__ */ zod.object({
+    rotate: zod
+        .boolean()
+        .default(llmSkillsMarketplaceInstallCommandCreateBodyRotateDefault)
+        .describe(
+            "Roll the existing marketplace credential to issue a fresh token, replacing the old one (this invalidates any setup using the previous token). Ignored when no credential exists yet — the first call always mints one. Only affects this user's own credential."
+        ),
+})
 
 export const llmSkillsNamePartialUpdateBodyDescriptionMax = 4096
 
@@ -113,7 +140,10 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmSkillsNamePartialUpdateBodyCompatibilityMax)
         .optional()
         .describe('Environment requirements.'),
-    allowed_tools: zod.array(zod.string()).optional().describe('List of pre-approved tools the skill may use.'),
+    allowed_tools: zod
+        .array(zod.string())
+        .optional()
+        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(

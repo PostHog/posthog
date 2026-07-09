@@ -47,6 +47,7 @@ const run: RunApi = {
     completed_at: '2026-06-10T00:01:00Z',
     is_stale: false,
     metadata: {},
+    search_match_type: null,
 }
 
 const snapshot = (overrides: Partial<SnapshotApi>): SnapshotApi => ({
@@ -87,6 +88,13 @@ const snapshots = {
     ],
 }
 
+// A push to the default branch — no PR, tracking-only. Nothing to approve.
+const masterRun: RunApi = {
+    ...run,
+    branch: 'master',
+    pr_number: null,
+}
+
 const emptyList = { count: 0, next: null, previous: null, results: [] }
 
 const meta: Meta = {
@@ -115,3 +123,18 @@ export default meta
 
 // The finalize action carries an opt-in "Also comment on the PR" checkbox beside it.
 export const ReadyToFinalize: StoryObj = {}
+
+// A default-branch run is reporting-only: no finalize action, no per-snapshot accept/reject/tolerate —
+// just an informational banner. Snapshots still have changes, but there's nothing to approve.
+export const TrackingOnlyMasterRun: StoryObj = {
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="visual-review-snapshot-thumbnail"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: masterRun,
+            },
+        }),
+    ],
+}

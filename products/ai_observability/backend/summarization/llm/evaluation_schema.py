@@ -1,5 +1,5 @@
 """
-Pydantic schema for structured LLM evaluation summary outputs.
+Pydantic schema for structured evaluation summary outputs.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,7 +31,7 @@ class EvaluationSummaryStatistics(BaseModel):
 
 
 class EvaluationSummaryResponse(BaseModel):
-    """Structured response from LLM evaluation summarization."""
+    """Structured response from AI-powered evaluation summarization."""
 
     model_config = ConfigDict(extra="forbid")
 

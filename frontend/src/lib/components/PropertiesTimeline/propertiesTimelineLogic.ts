@@ -2,9 +2,8 @@ import { actions, afterMount, connect, kea, key, path, props, reducers, selector
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
-import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
-import { uuid } from 'lib/utils/dom'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -66,21 +65,10 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const queryId = uuid()
-                        const response = await apiGetWithTimeToSeeDataTracking<RawPropertiesTimelineResult>(
+                        const response = await api.get<RawPropertiesTimelineResult>(
                             `api/environments/${values.currentTeamId}/persons/${
                                 props.actor.id
-                            }/properties_timeline/?${toParams(props.filter)}`,
-                            values.currentTeamId,
-                            {
-                                type: 'properties_timeline_load',
-                                context: 'actors_modal',
-                                primary_interaction_id: queryId,
-                                query_id: queryId,
-                                insights_fetched: 1,
-                                insights_fetched_cached: 0, // TODO: Cache properties timeline requests eventually
-                                is_primary_interaction: true,
-                            }
+                            }/properties_timeline/?${toParams(props.filter)}`
                         )
                         if (response.points.length === 0) {
                             // It should not be possible for a properties timeline to have zero points, as all actors

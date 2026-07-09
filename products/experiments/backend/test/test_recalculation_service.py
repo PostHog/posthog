@@ -1,12 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -18,7 +23,9 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    build_timeseries_cold_start_payload,
     get_latest_recalculation,
+    get_live_query_progress,
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
@@ -227,7 +234,7 @@ class TestRecalculationService(BaseTest):
             exp.exposure_criteria,
             only_count_matured_users=exp.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        recalc_fp = compute_recalc_fingerprint(config_fp)
 
         # The row from THIS run (recalc-fingerprinted) — must be returned.
         ExperimentMetricResult.objects.create(
@@ -278,7 +285,7 @@ class TestRecalculationService(BaseTest):
             exp.exposure_criteria,
             only_count_matured_users=exp.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        recalc_fp = compute_recalc_fingerprint(config_fp)
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -325,3 +332,192 @@ class TestRecalculationService(BaseTest):
         exp = self._launched_experiment()
         recalc = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
         assert get_run_results(recalc) == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestTimeseriesColdStartPayload(BaseTest):
+    def _flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key=key,
+            name=f"Flag for {key}",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    def _experiment(self, flag_key: str, metric_uuids: list[str]) -> Experiment:
+        exp = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=self._flag(flag_key),
+            name="exp",
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        exp.metrics = [_mean_metric(uuid) for uuid in metric_uuids]
+        exp.save()
+        return exp
+
+    def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
+        assert exp.metrics and exp.start_date is not None
+        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
+        return compute_metric_fingerprint(
+            metric_dict,
+            exp.start_date,
+            get_experiment_stats_method(exp),
+            exp.exposure_criteria,
+            only_count_matured_users=exp.only_count_matured_users,
+        )
+
+    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
+        assert exp.start_date is not None
+        ExperimentMetricResult.objects.create(
+            experiment=exp,
+            metric_uuid=metric_uuid,
+            fingerprint=self._config_fp(exp, metric_uuid),
+            query_from=exp.start_date,
+            query_to=query_to,
+            status="completed" if result is not None else "failed",
+            result=result,
+        )
+
+    def test_returns_none_when_no_timeseries_data(self):
+        exp = self._experiment("ts-none", ["m1"])
+        assert build_timeseries_cold_start_payload(exp) is None
+
+    def test_builds_completed_fallback_from_latest_point(self):
+        exp = self._experiment("ts-one", ["m1"])
+        older = datetime(2026, 2, 1, tzinfo=UTC)
+        latest = datetime(2026, 2, 2, tzinfo=UTC)
+        self._timeseries_point(exp, "m1", older, {"stale": True})
+        self._timeseries_point(exp, "m1", latest, {"ok": True})
+
+        payload = build_timeseries_cold_start_payload(exp)
+        assert payload is not None
+        assert payload["result_source"] == "timeseries_fallback"
+        assert payload["status"] == "completed"
+        # query_to and completed_at both pin to the freshest point so the frontend staleness path can fire.
+        assert payload["query_to"] == latest
+        assert payload["completed_at"] == latest
+        assert payload["completed_metrics"] == 1
+        results = {r["metric_uuid"]: r for r in payload["results"]}
+        assert results["m1"]["status"] == "completed"
+        assert results["m1"]["result"] == {"ok": True}
+
+    def test_omits_metrics_without_a_timeseries_point(self):
+        exp = self._experiment("ts-partial", ["m1", "m2"])
+        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        # m2 has no point.
+
+        payload = build_timeseries_cold_start_payload(exp)
+        assert payload is not None
+        assert payload["total_metrics"] == 2
+        assert payload["completed_metrics"] == 1
+        uuids = {r["metric_uuid"] for r in payload["results"]}
+        assert uuids == {"m1"}
+
+    def test_config_fingerprint_mismatch_yields_no_point(self):
+        exp = self._experiment("ts-drift", ["m1"])
+        # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
+        self._timeseries_point(exp, "m1", datetime(2026, 2, 2, tzinfo=UTC), {"ok": True})
+        exp.exposure_criteria = {"filterTestAccounts": True}
+        exp.save()
+        assert build_timeseries_cold_start_payload(exp) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgress(BaseTest):
+    def _recalc(self, status: str) -> ExperimentMetricsRecalculation:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"live-{status}", name="live")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live")
+        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status=status)
+
+    @parameterized.expand([("pending",), ("completed",), ("failed",)])
+    def test_returns_none_without_querying_clickhouse_when_not_in_progress(self, status: str):
+        recalc = self._recalc(status)
+        with team_scope(self.team.id, canonical=True):
+            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+                assert get_live_query_progress(recalc) is None
+        mock_execute.assert_not_called()
+
+    def test_returns_none_without_querying_clickhouse_when_team_context_mismatches(self):
+        # system.processes is cluster-global; the team boundary is the query_id prefix. The team-context guard
+        # is the fail-closed backstop against a caller passing a row from a different team than the request scope.
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id + 1, canonical=True):
+            with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+                assert get_live_query_progress(recalc) is None
+        mock_execute.assert_not_called()
+
+    def test_maps_system_processes_aggregate_for_in_progress_run(self):
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                return_value=[(1_284_512, 9_800_000, 41_000_000, 250_000, 3)],
+            ):
+                progress = get_live_query_progress(recalc)
+        assert progress == {
+            "rows_read": 1_284_512,
+            "estimated_rows_total": 9_800_000,
+            "bytes_read": 41_000_000,
+            "active_cpu_time": 250_000,
+            "running_metrics": 3,
+        }
+
+    def test_maps_all_zero_row_to_zeros_while_in_progress(self):
+        # system.processes returns one all-zero row in the ~5s gaps between per-metric queries. That's a real,
+        # non-terminal state: return zeros (not None) so the poll can tell "in-flight, idle" from "run finished".
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                return_value=[(0, 0, 0, 0, 0)],
+            ):
+                progress = get_live_query_progress(recalc)
+        assert progress == {
+            "rows_read": 0,
+            "estimated_rows_total": 0,
+            "bytes_read": 0,
+            "active_cpu_time": 0,
+            "running_metrics": 0,
+        }
+
+    def test_returns_none_when_clickhouse_read_raises(self):
+        # The live read is best-effort on the poll's hot path: a ClickHouse hiccup must degrade to None, never
+        # bubble up and 500 the recalculation-detail endpoint (which also carries status + derived counters).
+        recalc = self._recalc("in_progress")
+        with team_scope(self.team.id, canonical=True):
+            with patch(
+                "products.experiments.backend.recalculation.sync_execute",
+                side_effect=Exception("clusterAllReplicas unavailable"),
+            ):
+                assert get_live_query_progress(recalc) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgressFinishedQueries(BaseTest, ClickhouseTestMixin):
+    def test_counts_rows_from_queries_finished_during_the_run(self):
+        # The per-metric queries usually outlive no single 2s poll: a query that finishes between polls must
+        # still be visible via system.query_log, otherwise the run's progress reads zero for its whole life.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="live-ql", name="live-ql")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live-ql")
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=self.team, experiment=exp, status="in_progress", started_at=timezone.now()
+        )
+
+        with tags_context(
+            team_id=self.team.id,
+            client_query_id=f"experiment_metric_recalc_{recalc.id}_metric-1",
+            product=Product.EXPERIMENTS,
+            feature=Feature.CACHE_WARMUP,
+        ):
+            sync_execute("SELECT sum(number) FROM numbers(1000)", team_id=self.team.id)
+        sync_execute("SYSTEM FLUSH LOGS")
+
+        with team_scope(self.team.id, canonical=True):
+            progress = get_live_query_progress(recalc)
+
+        assert progress is not None
+        assert progress["rows_read"] == 1000
+        assert progress["estimated_rows_total"] == 1000
+        assert progress["running_metrics"] == 0

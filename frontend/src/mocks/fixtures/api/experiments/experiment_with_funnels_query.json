@@ -1,5 +1,6 @@
 {
     "id": 13,
+    "is_legacy": true,
     "name": "experiment-funnels-query",
     "description": null,
     "start_date": "2025-05-20T14:16:00Z",

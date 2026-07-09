@@ -21,6 +21,12 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'short', label: 'Short Number' },
 ]
 
+// The Metric display type reads as a single headline number, so it defaults to short numbers (e.g. "1.2k");
+// other displays have no default unit. Returns the format to fall back to when none is explicitly set.
+export const defaultAggregationAxisFormatForDisplay = (
+    display: ChartDisplayType | null | undefined
+): AggregationAxisFormat | undefined => (display === ChartDisplayType.Metric ? 'short' : undefined)
+
 export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> = {
     numeric: '',
     duration: 's',
@@ -28,7 +34,7 @@ export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> =
     percentage: '%',
     percentage_scaled: '%',
     currency: '$',
-    short: 'nr',
+    short: 'Short',
 }
 // this function needs to support a trendsFilter as part of an insight query and
 // legacy trend filters, as we still return these as part of a data response
@@ -85,7 +91,14 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${aggregationAxisPrefix || ''}${formattedValue}${aggregationAxisPostfix || ''}`
+    // Currency format already embeds the symbol, so a matching prefix ("$" + "$94.02") would double it.
+    const effectivePrefix =
+        aggregationAxisFormat === 'currency' &&
+        aggregationAxisPrefix &&
+        formattedValue.startsWith(aggregationAxisPrefix)
+            ? ''
+            : aggregationAxisPrefix || ''
+    return `${effectivePrefix}${formattedValue}${aggregationAxisPostfix || ''}`
 }
 
 export const formatPercentStackAxisValue = (

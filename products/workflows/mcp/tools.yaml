@@ -36,6 +36,12 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
+    hog-flows-asset-content-retrieve:
+        operation: hog_flows_asset_content_retrieve
+        enabled: false
+    hog-flows-assets-retrieve:
+        operation: hog_flows_assets_retrieve
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
@@ -57,6 +63,9 @@ tools:
     hog-flows-partial-update:
         operation: hog_flows_partial_update
         enabled: false
+    hog-flows-rerun-create:
+        operation: hog_flows_rerun_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false
@@ -71,6 +80,9 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-batch-jobs-status-update:
+        operation: internal_hog_flows_batch_jobs_status_update
         enabled: false
     internal-hog-flows-process-due-schedules-create:
         operation: internal_hog_flows_process_due_schedules_create
@@ -93,19 +105,20 @@ tools:
         enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. Needs an actions array with exactly one type='trigger' (config.type:
-            event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay
-            (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate
-            with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages).
-            The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator})
-            and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property
-            conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a
-            static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every
-            occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking
-            (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times
-            over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch
-            workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring
-            schedule with workflows-schedule-create.
+            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
+            first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door,
+            since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger'
+            (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
+            (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
+            edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
+            per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch
+            condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition;
+            omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never
+            hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts
+            to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per
+            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
+            unsupported; reject it and explain why.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -236,7 +249,9 @@ tools:
             nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result
             fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise
             nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned,
-            so you don't need to re-fetch before the next edit.
+            so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each
+            condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition.
+            Re-test the changed path with workflows-test-run after patching.
     workflows-stats:
         operation: hog_flows_metrics_retrieve
         enabled: true
@@ -264,9 +279,13 @@ tools:
             idempotent: false
         title: Test-run workflow
         description: >
-            Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async
-            actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects.
-            Optional current_action_id starts from a specific node. Returns the execution trace.
+            Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result
+            includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit
+            current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
+            To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
+            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
+            Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side
+            effects. Returns the step's execution trace.
         exclude_params:
             - configuration
     workflows-update:
@@ -281,14 +300,12 @@ tools:
         enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
-            Update a workflow by ID. Draft only — active workflows are read-only via MCP for now (editing risks breaking
-            already-scheduled runs); create a new draft for changes instead. Status changes go through workflows-enable
-            / workflows-archive. A batch audience is config.filters.properties — person-property conditions and/or
-            cohort references. Prefer person properties or a dynamic (filter-based) cohort, which re-evaluate, over a
-            static frozen-list cohort. An event trigger fires on every occurrence matching the event and the trigger's
-            filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering).
-            Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the
-            user requests one, reject it and explain why.
+            Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally
+            validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch
+            can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when
+            you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP
+            (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes
+            go through workflows-enable / workflows-archive.
         exclude_params:
             - status
         ui_app: workflow

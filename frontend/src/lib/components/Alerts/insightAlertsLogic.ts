@@ -2,15 +2,23 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, BreakdownFilter, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery, hasBreakdownFilter } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import {
+    containsHogQLQuery,
+    hasBreakdownFilter,
+    isFunnelsQuery,
+    isInsightVizNode,
+    isTrendsQuery,
+} from '~/queries/utils'
+import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
-import { AlertType, AnomalyPoint } from './types'
+import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -23,8 +31,78 @@ export interface InsightAlertsLogicProps {
     deferInitialAlertsLoad?: boolean
 }
 
-export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
+export const areAlertsSupportedForInsight = (
+    query?: Record<string, any> | null,
+    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+): boolean => {
+    if (!query) {
+        return false
+    }
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
+        return true
+    }
+    if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
+        // and flow (a sankey) have no conversion-rate metric, so they aren't supported.
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
+    }
+    return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+}
+
+// List only the insight types this account can actually alert on — naming a flag-gated type the
+// user doesn't have would disclose an unreleased feature.
+const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
+    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+
+export const alertsUnsupportedReason = (
+    options: {
+        hogqlAlertsEnabled?: boolean
+        funnelAlertsEnabled?: boolean
+    },
+    query?: Record<string, any> | null
+): string => {
+    // A funnel on a viz type without a conversion-rate metric otherwise reads as a contradiction —
+    // "funnel insights are supported" while standing on a blocked funnel. Name the real reason instead.
+    if (options.funnelAlertsEnabled && query && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        if (vizType === FunnelVizType.TimeToConvert || vizType === FunnelVizType.Flow) {
+            return "Alerts track a conversion rate, which time-to-convert and flow funnels don't have. Switch to the steps or trends view to add an alert."
+        }
+    }
+    return `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
+}
+
+/** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
+export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
+    return alerts.flatMap((alert) => {
+        if (
+            alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
+            alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
+            !alert.threshold.configuration.bounds
+        ) {
+            return []
+        }
+
+        const bounds = alert.threshold.configuration.bounds
+
+        const annotations: GoalLine[] = []
+        if (bounds.upper != null) {
+            annotations.push({
+                label: `${alert.name} Upper Threshold`,
+                value: bounds.upper,
+            })
+        }
+
+        if (bounds.lower != null) {
+            annotations.push({
+                label: `${alert.name} Lower Threshold`,
+                value: bounds.lower,
+            })
+        }
+
+        return annotations
+    })
 }
 
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
@@ -47,6 +125,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             ['showAlertThresholdLines', 'breakdownFilter'],
             insightLogic(props.insightLogicProps),
             ['insight'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -98,38 +178,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     selectors({
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
-            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
-                const result = alerts.flatMap((alert) => {
-                    if (
-                        !showAlertThresholdLines ||
-                        alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
-                        alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
-                        !alert.threshold.configuration.bounds
-                    ) {
-                        return []
-                    }
-
-                    const bounds = alert.threshold.configuration.bounds
-
-                    const annotations = []
-                    if (bounds?.upper != null) {
-                        annotations.push({
-                            label: `${alert.name} Upper Threshold`,
-                            value: bounds?.upper,
-                        })
-                    }
-
-                    if (bounds?.lower != null) {
-                        annotations.push({
-                            label: `${alert.name} Lower Threshold`,
-                            value: bounds?.lower,
-                        })
-                    }
-
-                    return annotations
-                })
-                return result
-            },
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
+                showAlertThresholdLines ? alertsToThresholdGoalLines(alerts) : [],
         ],
         /** Whether the insight has any detector-based alerts (used to show/hide the toggle). */
         hasDetectorAlerts: [
@@ -165,7 +215,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     if (!alert.detector_config || !alert.checks?.length) {
                         return []
                     }
-                    const defaultSeriesIndex = alert.config?.series_index ?? 0
+                    const defaultSeriesIndex = isTrendsAlertConfig(alert.config) ? alert.config.series_index : 0
                     return alert.checks.flatMap((check) => {
                         if (!check.triggered_dates?.length) {
                             return []
@@ -204,7 +254,12 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
+            const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
+            const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
+            if (
+                values.alerts.length === 0 ||
+                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
+            ) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

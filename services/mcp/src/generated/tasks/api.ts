@@ -33,12 +33,13 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
+    channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     created_by: zod.number().optional().describe('Filter by creator user ID'),
     internal: zod
-        .boolean()
+        .enum(['true', 'false', 'all'])
         .optional()
         .describe(
-            'When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.'
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.\n\n* `true` - true\n* `false` - false\n* `all` - all"
         ),
     limit: zod
         .number()
@@ -70,10 +71,11 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * Retrieve a single task by ID.
+ * @summary Get task
  */
 export const TasksRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -115,10 +117,11 @@ export const TasksRunsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * API for managing task runs. Each run represents an execution of a task.
+ * Retrieve a single run for a specific task.
+ * @summary Get task run
  */
 export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task run.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -132,7 +135,7 @@ export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * @summary Get filtered task run session logs
  */
 export const TasksRunsSessionLogsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task run.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(

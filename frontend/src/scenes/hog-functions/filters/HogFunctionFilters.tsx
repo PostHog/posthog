@@ -1,15 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
+import { DataWarehouseColumnsHint } from 'lib/components/CyclotronJob/DataWarehouseColumnsHint'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import MaxTool from 'scenes/max/MaxTool'
@@ -100,6 +102,17 @@ export function HogFunctionFilters({
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
+
+    // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
+    // automatically in this scene — kick it off when a warehouse table is the source.
+    const { dataWarehouseTables, dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { loadDatabase } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (isDataWarehouse && !dataWarehouseTables.length) {
+            loadDatabase()
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isDataWarehouse])
 
     const excludedProperties: ExcludedProperties = {
         [TaxonomicFilterGroupType.EventProperties]: [
@@ -214,6 +227,13 @@ export function HogFunctionFilters({
                     const filters = (value ?? {}) as CyclotronJobFiltersType
                     const currentFilters = newFilters ?? filters
 
+                    const dataWarehouseTableName = isDataWarehouse
+                        ? currentFilters?.data_warehouse?.[0]?.table_name
+                        : undefined
+                    const dataWarehouseColumns = dataWarehouseTableName
+                        ? Object.values(dataWarehouseTablesMap[dataWarehouseTableName]?.fields ?? {})
+                        : []
+
                     const onChange = (newValue: CyclotronJobFiltersType): void => {
                         if (oldFilters && newFilters) {
                             clearFiltersDiff()
@@ -289,7 +309,7 @@ export function HogFunctionFilters({
                                             isTransformation
                                                 ? [TaxonomicFilterGroupType.Events]
                                                 : isDataWarehouse
-                                                  ? [TaxonomicFilterGroupType.DataWarehouse]
+                                                  ? [TaxonomicFilterGroupType.DataWarehouseSourceTables]
                                                   : [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
@@ -310,6 +330,13 @@ export function HogFunctionFilters({
                                         excludedProperties={excludedProperties}
                                         allowNonCapturedEvents
                                     />
+                                    {dataWarehouseTableName ? (
+                                        <DataWarehouseColumnsHint
+                                            schemaColumns={dataWarehouseColumns}
+                                            tableName={dataWarehouseTableName}
+                                            personAvailable
+                                        />
+                                    ) : null}
                                 </>
                             ) : null}
                             {oldFilters && newFilters && (

@@ -1,7 +1,31 @@
+import { getMissingScopes, IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { ICONS } from 'lib/integrations/utils'
 
+import { IntegrationType } from '~/types'
+
 import { SlackIntegration } from '../components/SlackIntegration'
+import { useSlackRequiredScopes } from '../components/slackScopes'
 import { defineIntegration } from '../integrationDefinition'
+import { IntegrationStatus } from '../integrationTypes'
+
+// Render the scopes-mismatch banner directly under the OAuth success card so an install with
+// the wrong scope set surfaces it while the user is still in the install flow, instead of
+// hiding it behind a separate trip to Settings → Integrations that they have no reason to take.
+function SlackPostConnect({ integration }: { integration: IntegrationType }): JSX.Element {
+    const requiredScopes = useSlackRequiredScopes()
+    return <IntegrationScopesWarning integration={integration} schema={{ requiredScopes: requiredScopes.join(' ') }} />
+}
+
+// Aggregate status feeding the landing page headline: any install missing required scopes
+// drops the whole page into the "needs attention" state. ``getMissingScopes`` returns []
+// for legacy rows that have no scopes recorded — same fail-open behavior as the banner.
+function useSlackStatus(integrations: IntegrationType[]): IntegrationStatus {
+    const requiredScopes = useSlackRequiredScopes()
+    const anyNeedsAttention = integrations.some(
+        (integration) => getMissingScopes(integration, requiredScopes).length > 0
+    )
+    return anyNeedsAttention ? 'needs_attention' : 'ok'
+}
 
 export const Slack = defineIntegration(
     {
@@ -21,6 +45,8 @@ export const Slack = defineIntegration(
             'Manage feature flags, experiments, and surveys from Slack',
         ],
         docsUrl: 'https://posthog.com/docs/webhooks/slack',
+        PostConnect: SlackPostConnect,
+        useStatus: useSlackStatus,
     },
     SlackIntegration
 )

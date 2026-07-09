@@ -1,4 +1,4 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
@@ -13,18 +13,43 @@ export function canArchiveExperiment(
     return !experiment.archived && hasEnded(experiment)
 }
 
-export function confirmArchiveExperiment(onConfirm: () => void): void {
+export function confirmArchiveExperiment(
+    experiment: Pick<Experiment, 'feature_flag'>,
+    onConfirm: (disableFeatureFlag: boolean) => void
+): void {
+    // Only an enabled flag needs a decision — a disabled flag is archived automatically.
+    const flagIsEnabled = !!experiment.feature_flag?.active
+    let disableFeatureFlag = false
+
     LemonDialog.open({
         title: 'Archive this experiment?',
         content: (
-            <div className="text-sm text-secondary">
-                This action will hide the experiment from the list by default. It can be restored at any time.
+            <div className="flex flex-col gap-3">
+                <div className="text-sm text-secondary">
+                    This action will hide the experiment from the list by default. It can be restored at any time.
+                </div>
+                {flagIsEnabled && (
+                    <LemonCheckbox
+                        defaultChecked={false}
+                        onChange={(checked) => {
+                            disableFeatureFlag = checked
+                        }}
+                        label={
+                            <span>
+                                Also disable and archive the linked feature flag{' '}
+                                <code>{experiment.feature_flag?.key}</code>. It's still enabled — if your code still
+                                references it, users will fall back to the default. Only do this after removing it from
+                                your codebase.
+                            </span>
+                        }
+                    />
+                )}
             </div>
         ),
         primaryButton: {
             children: 'Archive',
             type: 'primary',
-            onClick: onConfirm,
+            onClick: () => onConfirm(disableFeatureFlag),
             size: 'small',
         },
         secondaryButton: {

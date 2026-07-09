@@ -6,11 +6,14 @@ import { TimeSeriesBarChart, TimeSeriesLineChart, type TooltipConfig } from '@po
 
 import { buildRetentionChartModel } from 'products/product_analytics/frontend/insights/retention/shared/retentionChartTransforms'
 
+import { ChartHeader } from './ChartHeader'
 import { Select } from './charts'
-import { CHART_THEME, colorAt } from './charts/theme'
+import { colorAt, useMcpChartTheme } from './charts/theme'
 import type { RetentionVisualizerProps } from './types'
 
 type ChartMode = 'line' | 'bar'
+
+const TITLE = 'Retention'
 
 const CHART_MODE_OPTIONS = [
     { value: 'line' as const, label: 'Line' },
@@ -21,6 +24,7 @@ const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 export function RetentionVisualizer({ query, results }: RetentionVisualizerProps): ReactElement {
     const [chartMode, setChartMode] = useState<ChartMode>('line')
+    const theme = useMcpChartTheme()
 
     // No cohort cap — mirrors the web, which renders every cohort and lets colors wrap past the palette.
     const { series, labels, lineConfig, barConfig } = useMemo(
@@ -44,26 +48,29 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
 
     if (!results || results.length === 0 || series.length === 0 || labels.length === 0) {
         return (
-            <Empty>
-                <EmptyHeader>
-                    <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
-                    <EmptyDescription>No retention data available</EmptyDescription>
-                </EmptyHeader>
-            </Empty>
+            <div>
+                <ChartHeader title={TITLE} />
+                <Empty>
+                    <EmptyHeader>
+                        <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
+                        <EmptyDescription>No retention data available</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            </div>
         )
     }
 
     return (
         <div>
-            <div className="mb-2 flex items-center justify-end">
+            <ChartHeader title={TITLE}>
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
-            </div>
+            </ChartHeader>
             <div className="flex flex-col w-full h-[400px]">
                 {chartMode === 'bar' ? (
-                    <TimeSeriesBarChart series={series} labels={labels} theme={CHART_THEME} config={barConfig} />
+                    <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={barConfig} />
                 ) : (
-                    <TimeSeriesLineChart series={series} labels={labels} theme={CHART_THEME} config={lineConfig} />
+                    <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={lineConfig} />
                 )}
             </div>
         </div>

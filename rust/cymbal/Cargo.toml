@@ -20,6 +20,7 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
+common-posthog = { path = "../common/posthog" }
 cymbal-proto = { path = "../cymbal-proto" }
 posthog-symbol-data = { path = "../common/symbol_data" }
 hogvm = { path = "../common/hogvm" }
@@ -33,6 +34,7 @@ zip = "4.0"
 proguard = "5.6.2"
 reqwest = { workspace = true }
 sha2 = "0.10.8"
+semver = "1.0"
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 uuid = { workspace = true }
@@ -49,14 +51,19 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tiktoken-rs.workspace = true
 tonic = { workspace = true }
 tokio-stream = "0.1"
+personhog-common = { path = "../personhog-common" }
+async-stream = { workspace = true }
+subtle = "2.6"
 
 
 [dev-dependencies]
-cymbal-resolution = { path = "../cymbal-resolution" }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
 tower.workspace = true
+# For decompressing the committed native ELF test fixture
+zstd = "0.13"
+testcontainers = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,5 +1,6 @@
 from django.core.exceptions import ImproperlyConfigured
 
+from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env, get_list
 
 # Agent janitor service — Django proxies session list/detail/cancel requests here.
@@ -19,8 +20,10 @@ if AGENT_INGRESS_ROUTING_MODE not in ("domain", "path"):
 AGENT_INGRESS_DOMAIN_SUFFIX = get_from_env("AGENT_INGRESS_DOMAIN_SUFFIX", "")
 
 # Public base URL for agent-ingress in "path" mode (Slack callbacks, webhooks);
-# empty → the slack_events_url field is omitted from API responses.
-AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "")
+# empty → the slack_events_url field is omitted from API responses. In local dev
+# (DEBUG=True) we default to the local agent-ingress port so URLs surface
+# without requiring a tunnel; production must set this explicitly.
+AGENT_INGRESS_PUBLIC_URL = get_from_env("AGENT_INGRESS_PUBLIC_URL", "http://localhost:3030" if DEBUG else "")
 
 # Shared HMAC key for trusted-service JWTs across the agent platform. Empty
 # default fails safe: the janitor client skips the mint and the receiver 401s,
@@ -31,7 +34,10 @@ AGENT_INTERNAL_SIGNING_KEY = get_from_env("AGENT_INTERNAL_SIGNING_KEY", "")
 # a server-minted globally-unique slug (the slug is a single global namespace —
 # see AgentApplication). This is our escape hatch so first-party agents (e.g.
 # the concierge) keep a stable, human-readable slug across environments.
-# Comma-separated team ids; empty (default) → no team may set an explicit slug.
+# Comma-separated team ids. In local dev (DEBUG) the default project (1) is
+# allowlisted so the example seeder is idempotent and agents get stable,
+# human-readable slugs (e.g. `posthog-ai`) for Slack routing; prod sets it
+# explicitly (empty → no team may set an explicit slug).
 AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS: set[int] = {
-    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", ""))
+    int(team_id) for team_id in get_list(get_from_env("AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS", "1" if DEBUG else ""))
 }

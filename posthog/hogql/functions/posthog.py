@@ -36,6 +36,10 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
     "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
     "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
+    # Expanded to SQL in the resolver's visit_call; these never map to a real CH function. (The
+    # bot/traffic-type functions are registered further down; the resolver expands them too.)
+    "_defaultChannelType": HogQLFunctionMeta("_defaultChannelType", 7, 7),
+    "_domainType": HogQLFunctionMeta("_domainType", 1, 1),
     # posthog/models/exchange_rate/sql.py
     # convertCurrency(from_currency, to_currency, amount, timestamp?)
     "convertCurrency": HogQLFunctionMeta(
@@ -89,7 +93,45 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), DateTimeType(), DateTimeType()), StringType()),
         ],
     ),
-    # traffic type classification functions (experimental)
+    # Bot / traffic-type classification functions. The optional second argument is the
+    # client IP, matched against operator-published bot IP ranges.
+    "getTrafficType": HogQLFunctionMeta(
+        "getTrafficType",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getTrafficCategory": HogQLFunctionMeta(
+        "getTrafficCategory",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "isLikelyBot": HogQLFunctionMeta(
+        "isLikelyBot",
+        1,
+        2,
+        signatures=[((StringType(),), BooleanType()), ((StringType(), StringType()), BooleanType())],
+    ),
+    "getBotType": HogQLFunctionMeta(
+        "getBotType",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getBotName": HogQLFunctionMeta(
+        "getBotName",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    "getBotOperator": HogQLFunctionMeta(
+        "getBotOperator",
+        1,
+        2,
+        signatures=[((StringType(),), StringType()), ((StringType(), StringType()), StringType())],
+    ),
+    # Deprecated __preview_* aliases — kept so ad-hoc queries written against the preview names keep working.
     "__preview_getTrafficType": HogQLFunctionMeta(
         "__preview_getTrafficType", 1, 1, signatures=[((StringType(),), StringType())]
     ),

@@ -12,8 +12,8 @@ class NotebooksConfig(AppConfig):
             register_post_delete_hook,
             register_post_restore_hook,
         )
+        from posthog.helpers.impersonation import is_impersonated
         from posthog.models.activity_logging.activity_log import Change
-        from posthog.models.activity_logging.model_activity import is_impersonated_session
         from posthog.models.user import User
 
         # Lives in its own module: the API module's imports reach the kernel runtime and the
@@ -45,7 +45,7 @@ class NotebooksConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(context.request) if context.request else False,
+                was_impersonated=is_impersonated(context.request),
             )
 
         def _post_restore(context, notebook):
@@ -65,7 +65,7 @@ class NotebooksConfig(AppConfig):
                 organization_id=organization.id,
                 team_id=team_id,
                 user=user,
-                was_impersonated=is_impersonated_session(context.request) if context.request else False,
+                was_impersonated=is_impersonated(context.request),
                 changes=[Change(type="Notebook", action="changed", field="deleted", before=True, after=False)],
             )
 

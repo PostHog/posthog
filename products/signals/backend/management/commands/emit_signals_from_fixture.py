@@ -6,8 +6,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
-from posthog.temporal.data_imports.signals import get_signal_config
-from posthog.temporal.data_imports.signals.pipeline import run_signal_pipeline
+
+from products.signals.backend.emission import get_signal_config
+from products.signals.backend.emission.pipeline import run_signal_pipeline
 
 # Maps the CLI --type arg to (registry source_type, registry schema_name, fixture filename).
 # These sources are auto-registered at module load by registry._register_all_emitters().

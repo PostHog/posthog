@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FunnelLayout } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -12,6 +12,7 @@ import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
     ChartDisplayType,
+    FunnelVizType,
     InsightModel,
     InsightShortId,
     InsightType,
@@ -360,6 +361,56 @@ describe('insightVizDataLogic', () => {
                 explicitDate: false,
             })
         })
+
+        it('auto-selects quarter interval for >36-month range when flag is on', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({
+                    date_from: '2020-01-01',
+                    date_to: '2024-01-01',
+                    explicitDate: true,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: expect.objectContaining({
+                            interval: 'quarter',
+                        }),
+                    },
+                })
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
+            })
+        })
+
+        it('auto-selects month interval for >36-month range when flag is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({
+                    date_from: '2020-01-01',
+                    date_to: '2024-01-01',
+                    explicitDate: true,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: expect.objectContaining({
+                            interval: 'month',
+                        }),
+                    },
+                })
+        })
     })
 
     describe('updateBreakdownFilter', () => {
@@ -497,6 +548,28 @@ describe('insightVizDataLogic', () => {
                 layout: FunnelLayout.horizontal,
             })
         })
+
+        it('clears the breakdown when switching to the Metric display', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
+                    breakdown_type: 'event',
+                    breakdown: '$browser',
+                })
+            }).toFinishAllListeners()
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual({
+                breakdown_type: 'event',
+                breakdown: '$browser',
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.Metric })
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                trendsFilter: { display: ChartDisplayType.Metric },
+            })
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toBeUndefined()
+        })
     })
 
     describe('activeUsersMath', () => {
@@ -561,7 +634,30 @@ describe('insightVizDataLogic', () => {
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
+                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
                 },
+            })
+        })
+
+        it('unhides quarter and year when the flag is enabled', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
+            })
+
+            expect(builtInsightVizDataLogic.values.enabledIntervals.quarter).toEqual({
+                label: 'quarter',
+                newDateFrom: '-3y',
+                hidden: false,
+            })
+            expect(builtInsightVizDataLogic.values.enabledIntervals.year).toEqual({
+                label: 'year',
+                newDateFrom: '-5y',
+                hidden: false,
+            })
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
             })
         })
 
@@ -597,7 +693,42 @@ describe('insightVizDataLogic', () => {
                             'Grouping by month is not supported on insights with weekly active users series.',
                     },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: {
+                        label: 'quarter',
+                        newDateFrom: '-3y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by quarter is not supported on insights with weekly active users series.',
+                    },
+                    year: {
+                        label: 'year',
+                        newDateFrom: '-5y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by year is not supported on insights with weekly active users series.',
+                    },
                 },
+            })
+        })
+
+        it('snaps interval to week when switching series to WAU on a quarter-grouped query', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                interval: 'quarter',
+            } as Partial<TrendsQuery>)
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ interval: 'week' }),
             })
         })
 
@@ -902,6 +1033,39 @@ describe('insightVizDataLogic', () => {
                     },
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isBreakdownSeries: true })
+        })
+    })
+
+    describe('supportsCompare', () => {
+        const setFunnelVizType = (funnelVizType: FunnelVizType): void => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                ...funnelsQueryDefault,
+                funnelsFilter: { ...funnelsQueryDefault.funnelsFilter, funnelVizType },
+            } as FunnelsQuery)
+        }
+
+        it.each([
+            [FunnelVizType.Steps, true],
+            [FunnelVizType.Trends, true],
+            [FunnelVizType.TimeToConvert, true],
+            // FLOW is excluded — the backend ignores compare for it.
+            [FunnelVizType.Flow, false],
+        ] as [FunnelVizType, boolean][])('flag on, %s viz → %s', (funnelVizType, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: true,
+            })
+            setFunnelVizType(funnelVizType)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(expected)
+        })
+
+        it('flag off → compare unsupported even for steps viz', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]: false,
+            })
+            setFunnelVizType(FunnelVizType.Steps)
+
+            expect(builtInsightVizDataLogic.values.supportsCompare).toBe(false)
         })
     })
 })

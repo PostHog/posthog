@@ -27,7 +27,7 @@ from typing import Literal, cast
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
@@ -41,7 +41,7 @@ from posthog.hogql.type_system import (
     runtime_type_from_constant_type,
 )
 from posthog.hogql.utils import ilike_matches, like_matches
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
@@ -301,6 +301,18 @@ def _materialized_head_expr(
     return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
 
 
+def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
+    """`has(map, key) ? map[key] : null` for a physical ClickHouse Map column — a missing key reads NULL, not ''."""
+    return ast.Call(
+        name="if",
+        args=[
+            ast.Call(name="has", args=[clone_expr(blob), ast.Constant(value=key)]),
+            ast.ArrayAccess(array=clone_expr(blob), property=ast.Constant(value=key)),
+            ast.Constant(value=None),
+        ],
+    )
+
+
 def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> ast.Expr | None:
     """The backing-column read for a `PropertyAccess`, or None to leave it as the JSON extract.
 
@@ -325,9 +337,19 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     source = resolve_materialized_property_source(field_type, first_key, context)
-    _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
+        # A physical Map column (logs/spans/metrics attributes) reads an un-grouped key via map subscript — the JSON
+        # fallback would print JSONExtract, which ClickHouse rejects on a Map. Plain JSON blobs (events.properties)
+        # keep the JSON fallback.
+        if isinstance(field_type.resolve_database_field(context), MapStringDatabaseField):
+            _record_property_usage(context, "map_subscript")
+            map_head = _map_value_read(node.expr, first_key)
+            if not deeper_keys:
+                return map_head
+            return ast.PropertyAccess(expr=map_head, keys=deeper_keys, type=ast.StringType(nullable=True))
+        _record_property_usage(context, None)
         return None
+    _record_property_usage(context, source.kind)
 
     head = _materialized_head_expr(
         source,
@@ -393,11 +415,16 @@ _OPTIMIZER_COMPATIBLE_COMPARISONS = {
 }
 
 
+# The fired subset of the range-rewrite outcomes (`_RANGE_REWRITE_RESULTS` in observability.py). Kept explicit so a
+# future outcome label opts into the usage side effect below deliberately rather than via a name prefix.
+_FIRED_RANGE_REWRITE_RESULTS = frozenset({"fired_compare", "fired_if_null"})
+
+
 def _record_range_rewrite(context: HogQLContext, result: str) -> None:
     if context.type_observability is None:
         return
     context.type_observability.record_materialized_range_rewrite(result)
-    if result.startswith("fired"):
+    if result in _FIRED_RANGE_REWRITE_RESULTS:
         # A fired rewrite reads the materialized column directly, bypassing the value-substitution path that normally
         # accounts for the materialized access, so record the usage here.
         context.type_observability.record_materialized_property_usage("materialized_column")
@@ -407,6 +434,7 @@ _USAGE_BY_SOURCE_KIND = {
     "materialized_column": "materialized_column",
     "dmat": "dynamic_materialized_column",
     "property_group": "property_group",
+    "map_subscript": "map_subscript",
 }
 
 
@@ -836,7 +864,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         cmp = _call(op_name, [prop.bare_column(), _const(node.right.value)])
         if prop.source.is_nullable:
-            _record_range_rewrite(self.context, "fired_compare")
+            _record_range_rewrite(self.context, "fired_if_null")
             return _call("and", [cmp, prop.is_not_null()])
         # Non-nullable: exclude the '' / 'null' sentinels inline so the bare comparison stays index-eligible.
         _record_range_rewrite(self.context, "fired_compare")
@@ -859,7 +887,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind != "materialized_column" or _is_string_column(source):
+        if source is None:
+            return None  # no backing column — not a rewrite candidate, nothing to record
+        if source.kind != "materialized_column" or _is_string_column(source):
+            # The backing column stores the value as a string (string mat column, dmat, or property-group map), where a
+            # bare range comparison would order lexicographically — unsafe, so the rewrite is skipped. This is the
+            # common shape: numeric/datetime properties materialize to string columns unless a typed column was created.
+            _record_range_rewrite(self.context, "skipped")
             return None
 
         physical = _column_constant_type(source)
@@ -897,7 +931,7 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         column = _OptimizableProperty(field_type=field_type, key=property_name, source=source)
         cmp = _call(op_name, [column.bare_column(), right_expr])
-        _record_range_rewrite(self.context, "fired_compare")
+        _record_range_rewrite(self.context, "fired_if_null")  # always nullable here, so the rewrite is null-guarded
         return _call("and", [cmp, column.is_not_null()])
 
     def _operand_semantic_type(self, expr: ast.Expr) -> ast.ConstantType | None:

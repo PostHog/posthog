@@ -4,8 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/utils/actions'
-import { isLaunched } from 'scenes/experiments/experimentsLogic'
-import { urls } from 'scenes/urls'
+import { isLaunched } from 'scenes/experiments/experimentStatus'
 
 import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -16,10 +15,11 @@ import {
     setSanitizedHTML,
     setSanitizedStyle,
 } from '~/toolbar/experiments/sanitize'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
+import { urls } from '~/toolbar/urls'
 import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
@@ -193,45 +193,32 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const { uiHost } = values
                 const { selectedExperimentId } = values
 
-                let response: WebExperiment
-                try {
-                    let res: Response
-                    if (selectedExperimentId && selectedExperimentId !== 'new') {
-                        res = await toolbarFetch(
-                            `/api/projects/@current/web_experiments/${selectedExperimentId}/`,
-                            'PATCH',
-                            experimentToSave
-                        )
-                    } else {
-                        res = await toolbarFetch(`/api/projects/@current/web_experiments/`, 'POST', experimentToSave)
-                    }
+                const isUpdate = selectedExperimentId && selectedExperimentId !== 'new'
+                const result = isUpdate
+                    ? await toolbarApi.webExperiments.update(selectedExperimentId, experimentToSave, {
+                          context: 'save_experiment',
+                          toastOnError: 'Failed to save experiment',
+                      })
+                    : await toolbarApi.webExperiments.create(experimentToSave, {
+                          context: 'save_experiment',
+                          toastOnError: 'Failed to save experiment',
+                      })
 
-                    if (!res.ok) {
-                        const errorData = await res.json().catch(() => ({}))
-                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
-                    }
-
-                    response = await res.json()
-
-                    experimentsLogic.actions.updateExperiment({ experiment: response })
-                    actions.selectExperiment(null)
-
-                    lemonToast.success('Experiment saved', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
-                        },
-                    })
-                    breakpoint()
-                } catch (e) {
-                    toolbarLogger.error('experiments', 'Failed to save experiment', {
-                        experimentId: selectedExperimentId,
-                    })
-                    captureToolbarException(e, 'experiment_save')
-                    if (e instanceof Error) {
-                        lemonToast.error(`Experiment save failed: ${e.message}`)
-                    }
+                if (!result.ok) {
+                    return
                 }
+                const response = result.data
+
+                experimentsLogic.actions.updateExperiment({ experiment: response })
+                actions.selectExperiment(null)
+
+                lemonToast.success('Experiment saved', {
+                    button: {
+                        label: 'Open in PostHog',
+                        action: () => window.open(joinWithUiHost(uiHost, urls.experiment(response.id)), '_blank'),
+                    },
+                })
+                breakpoint()
             },
 
             // whether we show errors after touch (true) or submit (false)

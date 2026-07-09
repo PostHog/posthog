@@ -15,6 +15,16 @@
             },
             "required": ["projectId"]
         },
+        "AgentResolveResourceSchema": {
+            "type": "object",
+            "properties": {
+                "resource": {
+                    "type": "string",
+                    "description": "Which builder playbook to fetch. Accepts either a bare id (one of: authenticating-as-the-user, authoring-new-agents, choosing-the-model, cost-and-quota-analysis, debugging-sessions, designing-mcp-surfaces, editing-agents-safely, platform-mental-model, querying-ai-observability, reading-an-agent, running-and-evaluating-tests, secrets-and-integrations, setting-up-slack-app) or its URI form (`posthog://agent-platform/playbooks/<id>`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory."
+                }
+            },
+            "required": ["resource"]
+        },
         "BusinessKnowledgeUrlSourceCreateSchema": {
             "type": "object",
             "properties": {
@@ -40,6 +50,11 @@
                     "description": "How often to auto-refresh this source in the background. Defaults to \"manual\" (no auto-refresh).",
                     "type": "string",
                     "enum": ["manual", "1h", "6h", "24h", "7d"]
+                },
+                "always_include": {
+                    "default": false,
+                    "description": "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction), not just when it matches a query.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "url"]
@@ -333,7 +348,7 @@
                     "type": "boolean"
                 },
                 "connectionId": {
-                    "description": "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
+                    "description": "Optional id of an external data source (e.g. a Postgres, DuckDB, or MySQL direct-query connection). When set, runs the query against that source instead of the ClickHouse catalog. Use external-data-sources-list to discover available connection ids.",
                     "type": "string"
                 }
             },
@@ -375,7 +390,7 @@
                 "type": "string"
             },
             "additionalProperties": {},
-            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type."
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link."
         },
         "ExternalDataSourceTypeSchema": {
             "type": "string",
@@ -387,14 +402,24 @@
                 "summary": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "A one-sentence headline naming the problem (e.g. \"query-trends descriptions made it hard to choose between trends and funnels\"). Only submit when something went wrong or was missing — never for positive or \"everything worked\" feedback."
+                    "description": "A one-sentence headline capturing the feedback (e.g. \"session replay scrubber jumps backwards when you click the timeline\", \"query-trends descriptions made it hard to choose between trends and funnels\", or \"the new SQL editor autocomplete is excellent\")."
+                },
+                "feedback_type": {
+                    "type": "string",
+                    "enum": ["product", "mcp", "docs", "other"],
+                    "description": "What this feedback is about. \"product\" = any PostHog product or feature (insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.). \"mcp\" = this MCP server itself — a tool, its input schema, response format, an error, or these instructions. \"docs\" = PostHog documentation. \"other\" = anything that doesn't fit the above."
                 },
                 "sentiment": {
                     "type": "string",
-                    "enum": ["negative", "mixed"],
-                    "description": "How much the MCP server got in your way for this task. Use \"negative\" if it blocked you, \"mixed\" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems."
+                    "enum": ["positive", "neutral", "negative", "mixed"],
+                    "description": "The overall tone. Use \"negative\" for something broken or blocking, \"mixed\" for mostly-fine-but-with-a-concrete-problem, \"neutral\" for a suggestion or feature request with no strong sentiment, and \"positive\" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems."
+                },
+                "product_area": {
+                    "description": "The PostHog product or area this is about, in free text (e.g. \"session replay\", \"insights\", \"data warehouse\", \"feature flags\", \"docs\"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.",
+                    "type": "string"
                 },
                 "category": {
+                    "description": "For MCP feedback (`feedback_type: \"mcp\"`) only: the single category that best describes the dominant theme. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue. Omit for product, docs, or other feedback.",
                     "type": "string",
                     "enum": [
                         "tool_correctness",
@@ -406,26 +431,25 @@
                         "performance",
                         "error_message",
                         "other"
-                    ],
-                    "description": "The single category that best describes the dominant theme of this feedback. Pick \"missing_tool\" if a capability was absent, \"tool_description\" if the tool docs were unclear, \"tool_input_schema\" if input args were confusing, \"tool_output_format\" if the response was hard to consume, \"instructions_clarity\" if these MCP instructions were unclear, \"tool_correctness\" if a tool returned wrong data, \"error_message\" if an error was unhelpful, \"performance\" if latency was the issue."
+                    ]
                 },
                 "task_completed": {
-                    "type": "boolean",
-                    "description": "Were you able to complete the user's task using PostHog MCP tools? Be honest — \"false\" is just as useful as \"true\"."
+                    "description": "Were you able to complete the user's task? Be honest — \"false\" is just as useful as \"true\". Most relevant when `feedback_type` is \"mcp\".",
+                    "type": "boolean"
                 },
                 "tools_used": {
-                    "description": "The tool names you called while working on the user's task (e.g. [\"read-data-schema\", \"query-trends\"]). Helps us correlate feedback to specific tools.",
+                    "description": "The MCP tool names you called while working on the user's task (e.g. [\"read-data-schema\", \"query-trends\"]). Helps us correlate feedback to specific tools.",
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
                 "friction_points": {
-                    "description": "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data.",
+                    "description": "Clear, concise bullet points describing the friction — what was confusing, broken, slow, or missing. Quote the exact product surface, tool name, parameter, or error text where you can. Omit for purely positive feedback.",
                     "type": "string"
                 },
                 "suggested_improvement": {
-                    "description": "The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. \"add a `filters` example to query-funnel's description\"). If you cannot name a specific change, do not submit feedback.",
+                    "description": "The single most impactful, concrete change that would address this feedback, if you can name one (e.g. \"add a `filters` example to query-funnel's description\", or \"let the replay scrubber snap to the nearest event\"). Optional — praise or an observation doesn't need one.",
                     "type": "string"
                 },
                 "user_request": {
@@ -433,11 +457,11 @@
                     "type": "string"
                 },
                 "details": {
-                    "description": "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points.",
+                    "description": "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points.",
                     "type": "string"
                 }
             },
-            "required": ["summary", "sentiment", "category", "task_completed"]
+            "required": ["summary", "feedback_type", "sentiment"]
         },
         "InsightQueryInputSchema": {
             "type": "object",
@@ -663,6 +687,34 @@
             "type": "object",
             "properties": {},
             "description": "No input required. Returns core data warehouse schemas."
+        },
+        "SavedMetricsAttachSchema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991,
+                        "description": "ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list."
+                    },
+                    "metadata": {
+                        "description": "Optional per-link metadata. Omit to default this metric to primary.",
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["primary", "secondary"],
+                                "description": "Whether this metric is a primary or secondary metric on the experiment."
+                            }
+                        },
+                        "required": ["type"]
+                    }
+                },
+                "required": ["id"]
+            },
+            "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
         },
         "ScoreDefinitionConfigSchema": {
             "anyOf": [

@@ -15,6 +15,7 @@ class DataWarehouseSchemaMixin(QueryContextProtocol):
             # Lazily create once
             self._hogql_database = Database.create_for(
                 team=self.context.team,
+                user=self.context.user,
                 modifiers=self.context.modifiers,
             )
         return self._hogql_database

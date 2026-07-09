@@ -7,25 +7,20 @@ import os
 import re
 import sys
 import json
-import shlex
 import argparse
 import subprocess
 import urllib.error
 import urllib.request
-from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, cast
 
 JsonObject = dict[str, object]
-DecisionAction = Literal["rerun", "skip deterministic", "skip unknown", "skip cap reached"]
+# Observe-only: we classify failed CI jobs and record what reruns do, but never rerun anything.
+DecisionAction = Literal["observe", "skip deterministic", "skip non-test"]
 
-# Insight lifecycle states worth acting on, mirroring hogli ci:insights' actionable set.
-ACTIVE_INSIGHT_STATUSES = {"proposed", "in_progress", "in_review"}
 DEFAULT_ALLOWED_WORKFLOWS = ("Backend CI", "Dagster CI", "E2E CI Playwright")
-MAX_QUERY_COUNT = 8
-MAX_INSIGHTS_PER_QUERY = 3
-
 DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com"
 DECISION_EVENT = "ci_flake_overseer_decision"
 OUTCOME_EVENT = "ci_flake_overseer_rerun_outcome"
@@ -35,47 +30,40 @@ def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
     return tuple(re.compile(pattern, re.IGNORECASE) for pattern in patterns)
 
 
-DETERMINISTIC_JOB_PATTERNS = compile_patterns(
-    r"\brepo checks?\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual\b",
-    r"\bsnapshot\b",
-    r"\bstorybook\b",
-    r"\btach\b",
-    r"\bimport-linter\b",
+def compile_classified(*rules: tuple[str, str]) -> tuple[tuple[re.Pattern[str], str], ...]:
+    return tuple((re.compile(pattern, re.IGNORECASE), failure_class) for pattern, failure_class in rules)
+
+
+# Jobs/steps whose failures a rerun can't fix — excluded from the flake measurement.
+# Each rule carries a stable failure-class key (matching `hogli ci:preflight` check
+# keys where the two overlap) so dashboards can group deterministic failures that
+# reached CI and join them against local preflight interceptions.
+DETERMINISTIC_JOB_RULES = compile_classified(
+    (r"\brepo checks?\b", "repo-checks"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bstorybook\b", "storybook"),
+    (r"\btach\b", "module-boundaries"),
+    (r"\bimport-linter\b", "module-boundaries"),
 )
 
-DETERMINISTIC_STEP_PATTERNS = compile_patterns(
-    r"\bcheck module boundaries\b",
-    r"\bproduct facade enforcement\b",
-    r"\bopenapi\b",
-    r"\bmigrations?\b",
-    r"\blint\b",
-    r"\btype ?check\b",
-    r"\btypescript\b",
-    r"\bvisual review\b",
-    r"\bsnapshot\b",
-    r"\bverify changed playwright tests are stable\b",
-    r"\bverify new snapshots\b",
-)
-
-DETERMINISTIC_LOG_PATTERNS = compile_patterns(
-    r"Repo checks failed deterministically",
-    r"OpenAPI (?:type )?checks? failed deterministically",
-    r"A retry cannot fix this failure",
-    r"tach check --dependencies --interfaces",
-    r"\blint-imports\b",
-    r"OpenAPI types are out of date",
-    r"hogli build:openapi",
-    r"makemigrations --check",
-    r"Snapshot commit job failed",
-    r"does not match (?:the )?snapshot",
-    r"__diff_output__",
-    r"Visual Review did not complete successfully",
+DETERMINISTIC_STEP_RULES = compile_classified(
+    (r"\bcheck module boundaries\b", "module-boundaries"),
+    (r"\bproduct facade enforcement\b", "module-boundaries"),
+    (r"\bopenapi\b", "openapi"),
+    (r"\bmigrations?\b", "migrations"),
+    (r"\blint\b", "lint"),
+    (r"\btype ?check\b", "typecheck"),
+    (r"\btypescript\b", "typecheck"),
+    (r"\bvisual review\b", "visual-review"),
+    (r"\bsnapshot\b", "snapshot"),
+    (r"\bverify changed playwright tests are stable\b", "playwright-stability"),
+    (r"\bverify new snapshots\b", "snapshot"),
 )
 
 TEST_STEP_PATTERNS = compile_patterns(
@@ -93,25 +81,8 @@ TEST_JOB_PATTERNS = compile_patterns(
     r"\bplaywright e2e tests\b",
 )
 
-# Case-sensitive: test identifiers and error codes are matched exactly as they appear in logs.
-FAILURE_QUERY_PATTERNS = tuple(
-    re.compile(pattern)
-    for pattern in (
-        r"FAILED\s+([A-Za-z0-9_./:-]+(?:::[A-Za-z0-9_./:-]+)*(?:\[[^\]\n]+\])?)",
-        r"([A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:\[\]./-]+)",
-        r"\b(test_[A-Za-z0-9_]+)\b",
-        r"([A-Za-z0-9_./-]+\.spec\.tsx?:\d+:\d+\s+›\s+[^\n]+)",
-        r"\[[^\]\n]+\]\s+›\s+([^\n]{10,180})",
-        r"\b([A-Z][A-Z0-9_]{8,})\b",
-    )
-)
-
 
 class ExternalCommandError(Exception):
-    pass
-
-
-class InsightsUnavailable(Exception):
     pass
 
 
@@ -128,6 +99,9 @@ class Job:
     conclusion: str | None
     run_attempt: int
     html_url: str
+    # A genuine re-run advances started_at; a carried-over job keeps the prior attempt's value byte-for-byte
+    # (run_attempt reports the latest attempt for every job either way), so started_at is the re-run signal.
+    started_at: str | None = None
     steps: tuple[Step, ...] = ()
 
     def failed_step_names(self) -> tuple[str, ...]:
@@ -143,15 +117,10 @@ class WorkflowRun:
     head_sha: str
     run_attempt: int
     html_url: str
-
-
-@dataclass(frozen=True)
-class FlakeMatch:
-    insight_id: str
-    title: str
-    confidence: int
-    matched_query: str
-    summary: str
+    head_branch: str = ""
+    event: str = ""
+    # Empty `pull_requests` (e.g. fork PRs) collapses to None; head_branch stays the primary join key.
+    pr_number: int | None = None
 
 
 @dataclass(frozen=True)
@@ -159,11 +128,10 @@ class Decision:
     action: DecisionAction
     reason: str
     job: Job
-    match: FlakeMatch | None = None
-
-
-class InsightsSource(Protocol):
-    def find_flake(self, queries: tuple[str, ...], workflow_name: str, log: str) -> FlakeMatch | None: ...
+    # Which signal classified an `observe`: the job name or a failed step. Surfaces silent allowlist drift.
+    classified_via: str | None = None
+    # Canonical failure-class key for `skip deterministic` decisions (see the rule tables above).
+    failure_class: str | None = None
 
 
 def as_str(value: object) -> str | None:
@@ -192,16 +160,6 @@ def as_bool_string(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def env_int(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
 def run_command(args: tuple[str, ...], timeout_seconds: int = 30) -> str:
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
@@ -219,89 +177,9 @@ def gh_json(repo: str, path: str) -> JsonObject:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def gh_text(repo: str, path: str) -> str:
-    return run_command(("gh", "api", f"repos/{repo}/{path}", "--method", "GET"), timeout_seconds=90)
-
-
-def gh_post(repo: str, path: str) -> None:
-    run_command(("gh", "api", f"repos/{repo}/{path}", "--method", "POST", "--silent"), timeout_seconds=30)
-
-
-class CiInsightsSource:
-    def __init__(self, command: tuple[str, ...], confidence_threshold: int, timeout_seconds: int) -> None:
-        self.command = command
-        self.confidence_threshold = confidence_threshold
-        self.timeout_seconds = timeout_seconds
-
-    def find_flake(self, queries: tuple[str, ...], workflow_name: str, log: str) -> FlakeMatch | None:
-        for query in queries:
-            for insight in self.search(query)[:MAX_INSIGHTS_PER_QUERY]:
-                insight_id = as_str(insight.get("id"))
-                if not insight_id:
-                    continue
-                # The search payload omits confidence/status; only the detailed view can gate a rerun.
-                detail = self.view(insight_id)
-                if not detail:
-                    continue
-                match = self.flake_match(detail, query, workflow_name, log)
-                if match is not None:
-                    return match
-        return None
-
-    def search(self, query: str) -> list[JsonObject]:
-        raw = self.run((*self.command, "search", query, "--json"))
-        parsed = json.loads(raw)
-        return as_object_list(parsed)
-
-    def view(self, insight_id: str) -> JsonObject:
-        raw = self.run((*self.command, "view", insight_id, "--json"))
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else {}
-
-    def run(self, args: tuple[str, ...]) -> str:
-        try:
-            return run_command(args, timeout_seconds=self.timeout_seconds)
-        except ExternalCommandError as exc:
-            raise InsightsUnavailable(str(exc)) from exc
-
-    def flake_match(
-        self,
-        insight: JsonObject,
-        query: str,
-        workflow_name: str,
-        log: str,
-    ) -> FlakeMatch | None:
-        confidence = as_int(insight.get("hypothesis_confidence")) or 0
-        if confidence < self.confidence_threshold:
-            return None
-        status = (as_str(insight.get("status")) or "").lower()
-        if status not in ACTIVE_INSIGHT_STATUSES:
-            return None
-        source_ref = as_object(insight.get("source_ref"))
-        insight_workflow = as_str(source_ref.get("workflow_name"))
-        if insight_workflow and insight_workflow != workflow_name:
-            return None
-
-        text = insight_text(insight)
-        if re.search(r"\bflak(?:y|e|iness)\b|\bintermittent(?:ly)?\b", text, re.IGNORECASE) is None:
-            return None
-        # Require a concrete signature shared by the failure and the insight; matching on the
-        # flakiness keyword alone would rerun unrelated failures.
-        terms = significant_query_terms(query)
-        if not terms:
-            return None
-        text_lower = text.lower()
-        log_lower = log.lower()
-        if not any(term.lower() in text_lower and term.lower() in log_lower for term in terms):
-            return None
-
-        return FlakeMatch(
-            insight_id=as_str(insight.get("id")) or "ci-insight",
-            title=as_str(insight.get("title")) or "CI insight",
-            confidence=confidence,
-            matched_query=query,
-            summary=as_str(insight.get("summary")) or "",
-        )
+def pr_number_from_object(raw: JsonObject) -> int | None:
+    pulls = as_object_list(raw.get("pull_requests"))
+    return as_int(pulls[0].get("number")) if pulls else None
 
 
 def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
@@ -313,6 +191,9 @@ def workflow_run_from_object(raw: JsonObject) -> WorkflowRun:
         head_sha=as_str(raw.get("head_sha")) or "",
         run_attempt=as_int(raw.get("run_attempt")) or 1,
         html_url=as_str(raw.get("html_url")) or "",
+        head_branch=as_str(raw.get("head_branch")) or "",
+        event=as_str(raw.get("event")) or "",
+        pr_number=pr_number_from_object(raw),
     )
 
 
@@ -335,6 +216,7 @@ def job_from_object(raw: JsonObject, run_attempt: int) -> Job:
         # Trust the job's own attempt over the requested one — the fallback endpoint returns the latest attempt.
         run_attempt=as_int(raw.get("run_attempt")) or run_attempt,
         html_url=as_str(raw.get("html_url")) or "",
+        started_at=as_str(raw.get("started_at")),
         steps=tuple(
             Step(name=as_str(step.get("name")) or "", conclusion=as_str(step.get("conclusion")))
             for step in as_object_list(raw.get("steps"))
@@ -342,13 +224,18 @@ def job_from_object(raw: JsonObject, run_attempt: int) -> Job:
     )
 
 
-def fetch_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Job, ...]:
+def fetch_jobs(repo: str, run_id: int, run_attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
     jobs: list[Job] = []
     page = 1
     while True:
         try:
             raw = gh_json(repo, f"actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100&page={page}")
         except ExternalCommandError:
+            # The non-attempt endpoint returns the LATEST attempt, so it can't stand in for an arbitrary
+            # prior attempt. Strict callers need exact rows, so fail closed (drop any partial pages) rather
+            # than return a truncated set or a masquerading attempt.
+            if strict:
+                return ()
             raw = gh_json(repo, f"actions/runs/{run_id}/jobs?per_page=100&page={page}")
         page_jobs = as_object_list(raw.get("jobs"))
         jobs.extend(job_from_object(job, run_attempt) for job in page_jobs)
@@ -357,267 +244,86 @@ def fetch_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Job, ...]:
         page += 1
 
 
-def fetch_runs_for_head_sha(repo: str, workflow_id: int, head_sha: str) -> tuple[WorkflowRun, ...]:
-    if workflow_id == 0 or not head_sha:
-        return ()
-    runs: list[WorkflowRun] = []
-    page = 1
-    while True:
-        raw = gh_json(repo, f"actions/workflows/{workflow_id}/runs?head_sha={head_sha}&per_page=100&page={page}")
-        page_runs = as_object_list(raw.get("workflow_runs"))
-        runs.extend(workflow_run_from_object(run) for run in page_runs)
-        if len(page_runs) < 100:
-            return tuple(runs)
-        page += 1
-
-
-def prior_rerun_cap_reason(repo: str, workflow_run: WorkflowRun, job: Job, max_reruns_per_job: int) -> str | None:
-    try:
-        prior_runs = fetch_runs_for_head_sha(repo, workflow_run.workflow_id, workflow_run.head_sha)
-    except ExternalCommandError:
-        return None
-    for prior_run in prior_runs:
-        if prior_run.id == workflow_run.id or prior_run.run_attempt <= max_reruns_per_job:
-            continue
-        try:
-            prior_jobs = fetch_jobs(repo, prior_run.id, prior_run.run_attempt)
-        except ExternalCommandError:
-            continue
-        if any(prior_job.name == job.name for prior_job in prior_jobs):
-            return (
-                f"matching job already reached attempt {prior_run.run_attempt} for head SHA "
-                f"{workflow_run.head_sha} in run {prior_run.id}"
-            )
-    return None
-
-
-def deterministic_metadata_reason(job: Job) -> str | None:
-    for pattern in DETERMINISTIC_JOB_PATTERNS:
+def deterministic_match(job: Job) -> tuple[str, str] | None:
+    for pattern, failure_class in DETERMINISTIC_JOB_RULES:
         if pattern.search(job.name):
-            return f"job name matches deterministic rule `{pattern.pattern}`"
+            return f"job name matches deterministic rule `{pattern.pattern}`", failure_class
     for step_name in job.failed_step_names():
-        for pattern in DETERMINISTIC_STEP_PATTERNS:
+        for pattern, failure_class in DETERMINISTIC_STEP_RULES:
             if pattern.search(step_name):
-                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`"
+                return f"failed step `{step_name}` matches deterministic rule `{pattern.pattern}`", failure_class
     return None
 
 
-def deterministic_log_reason(log: str) -> str | None:
-    for pattern in DETERMINISTIC_LOG_PATTERNS:
-        if pattern.search(log):
-            return f"log matches deterministic rule `{pattern.pattern}`"
+def test_failure_source(job: Job) -> str | None:
+    if any(pattern.search(job.name) for pattern in TEST_JOB_PATTERNS):
+        return "job_name"
+    if any(pattern.search(step_name) for step_name in job.failed_step_names() for pattern in TEST_STEP_PATTERNS):
+        return "step"
     return None
 
 
 def is_test_job_failure(job: Job) -> bool:
-    if any(pattern.search(job.name) for pattern in TEST_JOB_PATTERNS):
-        return True
-    return any(pattern.search(step_name) for step_name in job.failed_step_names() for pattern in TEST_STEP_PATTERNS)
+    return test_failure_source(job) is not None
 
 
-def extract_failure_queries(log: str) -> tuple[str, ...]:
-    queries: list[str] = []
-    for pattern in FAILURE_QUERY_PATTERNS:
-        for match in pattern.finditer(log):
-            query = " ".join(match.group(1).strip().split())
-            if query and query not in queries:
-                queries.append(query[:220])
-            if len(queries) >= MAX_QUERY_COUNT:
-                return tuple(queries)
-    return tuple(queries)
+def classify_job(job: Job) -> Decision:
+    deterministic = deterministic_match(job)
+    if deterministic is not None:
+        reason, failure_class = deterministic
+        return Decision(action="skip deterministic", reason=reason, job=job, failure_class=failure_class)
+    source = test_failure_source(job)
+    if source is None:
+        return Decision(action="skip non-test", reason="failed job or step is not an allowlisted test runner", job=job)
+    return Decision(
+        action="observe", reason="test job failure tracked for rerun outcome", job=job, classified_via=source
+    )
 
 
-def significant_query_terms(query: str) -> tuple[str, ...]:
-    terms: list[str] = []
-    for pattern in (r"\b(test_[A-Za-z0-9_]+)\b", r"\b([A-Z][A-Z0-9_]{8,})\b"):
-        terms.extend(match.group(1) for match in re.finditer(pattern, query))
-    if not terms and len(query) >= 12:
-        terms.append(query)
-    return tuple(dict.fromkeys(terms))
+def classify_failed_jobs(repo: str, run_id: int, run_attempt: int) -> tuple[Decision, ...]:
+    return tuple(
+        classify_job(job) for job in fetch_jobs(repo, run_id, run_attempt) if job.conclusion in {"failure", "timed_out"}
+    )
 
 
-def insight_text(insight: JsonObject) -> str:
-    parts = [
-        as_str(insight.get("title")) or "",
-        as_str(insight.get("summary")) or "",
-        as_str(insight.get("hypothesis_content")) or "",
-    ]
-    for finding in as_object_list(insight.get("findings")):
-        parts.append(as_str(finding.get("content")) or "")
-    return "\n".join(parts)
-
-
-def classify_job(
-    job: Job,
-    get_log: Callable[[], str],
-    insights: InsightsSource,
-    workflow_name: str,
-    max_reruns_per_job: int,
-    get_cap_reached_reason: Callable[[], str | None] | None = None,
-) -> Decision:
-    # Resolve every cheap, metadata-only outcome before downloading the (potentially large) job log.
-    metadata_deterministic = deterministic_metadata_reason(job)
-    if metadata_deterministic is not None:
-        return Decision(action="skip deterministic", reason=metadata_deterministic, job=job)
-    # Gate on test-type before the rerun cap so a non-test job never reports "skip cap reached"
-    # (which would imply raising the cap could help); the cap only ever applies to test jobs.
-    if not is_test_job_failure(job):
-        return Decision(action="skip unknown", reason="failed job or step is not an allowlisted test runner", job=job)
-    if job.run_attempt > max_reruns_per_job:
-        return Decision(
-            action="skip cap reached",
-            reason=f"run attempt {job.run_attempt} is above the automatic rerun cap {max_reruns_per_job}",
-            job=job,
-        )
-    cap_reached_reason = get_cap_reached_reason() if get_cap_reached_reason is not None else None
-    if cap_reached_reason is not None:
-        return Decision(action="skip cap reached", reason=cap_reached_reason, job=job)
-
-    try:
-        log = get_log()
-    except ExternalCommandError as exc:
-        return Decision(action="skip unknown", reason=f"could not fetch job log: {exc}", job=job)
-
-    log_deterministic = deterministic_log_reason(log)
-    if log_deterministic is not None:
-        return Decision(action="skip deterministic", reason=log_deterministic, job=job)
-
-    queries = extract_failure_queries(log)
-    if not queries:
-        return Decision(action="skip unknown", reason="no failed test or error signature found in logs", job=job)
-    try:
-        match = insights.find_flake(queries, workflow_name, log)
-    except InsightsUnavailable as exc:
-        return Decision(action="skip unknown", reason=f"CI insights unavailable: {exc}", job=job)
-    if match is None:
-        return Decision(
-            action="skip unknown",
-            reason=f"no high-confidence known flaky signature matched: {', '.join(queries[:3])}",
-            job=job,
-        )
-    return Decision(action="rerun", reason="matched high-confidence known flaky signature", job=job, match=match)
-
-
-def job_log_getter(repo: str, job: Job) -> Callable[[], str]:
-    return lambda: gh_text(repo, f"actions/jobs/{job.id}/logs")
-
-
-def inspect_failed_jobs(
-    repo: str,
-    workflow_run: WorkflowRun,
-    insights: InsightsSource,
-    max_reruns_per_job: int,
-) -> tuple[Decision, ...]:
-    decisions: list[Decision] = []
-    for job in fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt):
-        if job.conclusion not in {"failure", "timed_out"}:
-            continue
-        decisions.append(
-            classify_job(
-                job,
-                job_log_getter(repo, job),
-                insights,
-                workflow_run.name,
-                max_reruns_per_job,
-                lambda job=job: prior_rerun_cap_reason(repo, workflow_run, job, max_reruns_per_job),
-            )
-        )
-    return tuple(decisions)
-
-
-def rerun_eligible_decisions(
-    repo: str,
-    run_id: int,
-    run_attempt: int,
-    insights: InsightsSource,
-    workflow_name: str,
-    max_reruns_per_job: int,
-) -> dict[str, Decision]:
-    # Historical view used for outcome attribution: which jobs of a given attempt the overseer would
-    # have reran (failed and matched a known flake). No cap closure — we want the merit-only verdict.
-    eligible: dict[str, Decision] = {}
-    for job in fetch_jobs(repo, run_id, run_attempt):
-        if job.conclusion not in {"failure", "timed_out"}:
-            continue
-        decision = classify_job(
-            job,
-            job_log_getter(repo, job),
-            insights,
-            workflow_name,
-            max_reruns_per_job,
-        )
-        if decision.action == "rerun":
-            eligible[job.name] = decision
-    return eligible
-
-
-def rerun_eligible_jobs(repo: str, decisions: tuple[Decision, ...], dry_run: bool) -> set[int]:
-    reran_job_ids: set[int] = set()
-    for decision in decisions:
-        print(format_annotation(decision))
-        if decision.action != "rerun":
-            continue
-        if dry_run:
-            print(f"dry-run: would rerun job {decision.job.id} ({decision.job.name})")
-            continue
-        try:
-            gh_post(repo, f"actions/jobs/{decision.job.id}/rerun")
-            reran_job_ids.add(decision.job.id)
-            print(f"reran job {decision.job.id} ({decision.job.name})")
-        except ExternalCommandError as exc:
-            print(f"::warning title=CI flake overseer rerun failed::{escape_annotation(f'{decision.job.name}: {exc}')}")
-    return reran_job_ids
-
-
-def base_event_properties(repo: str, workflow_run: WorkflowRun, dry_run: bool, enabled: bool) -> JsonObject:
+def base_event_properties(repo: str, workflow_run: WorkflowRun) -> JsonObject:
     return {
         "repo": repo,
         "workflow_name": workflow_run.name,
         "run_id": workflow_run.id,
         "run_url": workflow_run.html_url,
         "head_sha": workflow_run.head_sha,
-        "dry_run": dry_run,
-        "enabled": enabled,
+        "head_branch": workflow_run.head_branch,
+        "pr_number": workflow_run.pr_number,
+        # Master failures block the deploy gate; PR failures only annoy the author — keep them separable.
+        "is_master": workflow_run.head_branch in {"master", "main"},
+        "trigger_event": workflow_run.event,
         # Reuse the project's existing workflow_run group so events roll up per CI run.
         "$groups": {"workflow_run": str(workflow_run.id)},
     }
 
 
-def match_properties(match: FlakeMatch | None) -> JsonObject:
-    if match is None:
-        return {}
-    return {
-        "insight_id": match.insight_id,
-        "insight_title": match.title,
-        "insight_confidence": match.confidence,
-        "matched_query": match.matched_query,
-    }
-
-
-def build_decision_events(
-    repo: str,
-    workflow_run: WorkflowRun,
-    decisions: tuple[Decision, ...],
-    dry_run: bool,
-    enabled: bool,
-    reran_job_ids: set[int],
-) -> list[JsonObject]:
+def build_decision_events(repo: str, workflow_run: WorkflowRun, decisions: tuple[Decision, ...]) -> list[JsonObject]:
     events: list[JsonObject] = []
     for decision in decisions:
         job = decision.job
-        properties = base_event_properties(repo, workflow_run, dry_run, enabled)
+        properties = base_event_properties(repo, workflow_run)
         properties.update(
             {
                 "action": decision.action,
                 "reason": decision.reason,
+                "classified_via": decision.classified_via,
+                "failure_class": decision.failure_class,
                 "job_name": job.name,
                 "job_id": job.id,
                 "job_url": job.html_url,
+                "job_conclusion": job.conclusion,
+                "failed_steps": list(job.failed_step_names()),
                 "run_attempt": job.run_attempt,
-                "reran": job.id in reran_job_ids,
+                # Dedupe duplicate workflow_run deliveries so the count panels stay accurate.
+                "$insert_id": f"decision:{workflow_run.id}:{workflow_run.run_attempt}:{job.id}",
             }
         )
-        properties.update(match_properties(decision.match))
         events.append({"event": DECISION_EVENT, "distinct_id": repo, "properties": properties})
     return events
 
@@ -630,41 +336,87 @@ def rerun_outcome_label(conclusion: str | None) -> str:
     return "unknown"
 
 
-def report_rerun_outcomes(
-    repo: str,
-    workflow_run: WorkflowRun,
-    insights: InsightsSource,
-    max_reruns_per_job: int,
-    dry_run: bool,
-    enabled: bool,
-) -> list[JsonObject]:
-    # Outcomes only exist once a re-run attempt has completed. Re-derive which jobs the prior attempt
-    # would have reran, then read how they concluded this attempt — the overseer's value/safety signal.
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        # Normalize a trailing `Z` for parsers that don't accept the military-zulu suffix.
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def job_was_reexecuted(prior_job: Job, current_job: Job) -> bool:
+    # A real re-run advances started_at; a carried-over job keeps the prior attempt's value. Compare parsed
+    # instants, not raw strings, so a `+00:00` vs `Z` form can't misorder. Missing/unparseable timestamps
+    # can't prove re-execution, so treat them as not re-run rather than guess.
+    prior = parse_timestamp(prior_job.started_at)
+    current = parse_timestamp(current_job.started_at)
+    if prior is None or current is None:
+        return False
+    return current > prior
+
+
+def rerun_outcome(prior_job: Job, current_job: Job | None) -> str:
+    # `current_job is None` covers a job missing from the current attempt or an ambiguous (duplicated) name.
+    if current_job is None:
+        return "unknown"
+    if not job_was_reexecuted(prior_job, current_job):
+        return "not_rerun"
+    return rerun_outcome_label(current_job.conclusion)
+
+
+def index_unique_jobs_by_name(jobs: tuple[Job, ...]) -> dict[str, Job]:
+    # Job names are unique within an attempt; if one ever repeats, drop it so an ambiguous match becomes
+    # `unknown` instead of silently picking the wrong row.
+    by_name: dict[str, Job] = {}
+    ambiguous: set[str] = set()
+    for job in jobs:
+        if job.name in by_name:
+            ambiguous.add(job.name)
+        by_name[job.name] = job
+    for name in ambiguous:
+        by_name.pop(name, None)
+    return by_name
+
+
+def report_rerun_outcomes(repo: str, workflow_run: WorkflowRun) -> list[JsonObject]:
+    # Outcomes only exist once a re-run attempt has completed. Find the test-job failures from the prior
+    # attempt, then read how they concluded this attempt — the base-rate signal: do reruns clear flakes?
     if workflow_run.run_attempt <= 1:
         return []
     prior_attempt = workflow_run.run_attempt - 1
-    eligible = rerun_eligible_decisions(
-        repo, workflow_run.id, prior_attempt, insights, workflow_run.name, max_reruns_per_job
-    )
-    if not eligible:
-        return []
-    current_conclusions = {
-        job.name: job.conclusion for job in fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt)
+    # Fetch the prior attempt strict: the non-attempt fallback returns the LATEST attempt, which would alias
+    # as "prior" and collapse the started_at re-execution check. The current attempt IS the latest, so it
+    # keeps the fallback (the non-attempt endpoint returns it correctly). Both sides dedupe ambiguous names.
+    prior_observed = {
+        name: job
+        for name, job in index_unique_jobs_by_name(
+            fetch_jobs(repo, workflow_run.id, prior_attempt, strict=True)
+        ).items()
+        if job.conclusion in {"failure", "timed_out"} and classify_job(job).action == "observe"
     }
+    if not prior_observed:
+        return []
+    current_by_name = index_unique_jobs_by_name(fetch_jobs(repo, workflow_run.id, workflow_run.run_attempt))
     events: list[JsonObject] = []
-    for job_name, decision in eligible.items():
-        conclusion = current_conclusions.get(job_name)
-        properties = base_event_properties(repo, workflow_run, dry_run, enabled)
+    for job_name in sorted(prior_observed):
+        prior_job = prior_observed[job_name]
+        current_job = current_by_name.get(job_name)
+        properties = base_event_properties(repo, workflow_run)
         properties.update(
             {
-                "outcome": rerun_outcome_label(conclusion),
-                "current_conclusion": conclusion,
+                "outcome": rerun_outcome(prior_job, current_job),
+                "current_conclusion": current_job.conclusion if current_job else None,
+                "prior_conclusion": prior_job.conclusion,
                 "job_name": job_name,
+                "failed_steps": list(prior_job.failed_step_names()),
                 "prior_attempt": prior_attempt,
                 "attempt": workflow_run.run_attempt,
+                # Dedupe duplicate workflow_run deliveries so the base-rate counts stay accurate.
+                "$insert_id": f"outcome:{workflow_run.id}:{workflow_run.run_attempt}:{job_name}",
             }
         )
-        properties.update(match_properties(decision.match))
         events.append({"event": OUTCOME_EVENT, "distinct_id": repo, "properties": properties})
     return events
 
@@ -687,17 +439,6 @@ def capture_events(api_key: str, host: str, events: list[JsonObject], timeout_se
         print(f"::warning title=CI flake overseer telemetry failed::{escape_annotation(str(exc))}")
 
 
-def format_annotation(decision: Decision) -> str:
-    title = f"CI flake overseer: {decision.action}"
-    detail = f"{decision.job.name}: {decision.reason}"
-    if decision.match is not None:
-        detail = (
-            f"{detail}; {decision.match.title} "
-            f"({decision.match.insight_id}, confidence {decision.match.confidence}, matched `{decision.match.matched_query}`)"
-        )
-    return f"::notice title={title}::{escape_annotation(detail)}"
-
-
 def escape_annotation(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
@@ -711,52 +452,34 @@ def markdown_link(label: str, url: str) -> str:
     return f"[{safe_label}]({url})" if url else safe_label
 
 
-def write_summary(
-    path: Path | None,
-    workflow_run: WorkflowRun,
-    decisions: tuple[Decision, ...],
-    dry_run: bool,
-    max_reruns_per_job: int,
-) -> None:
+def format_annotation(decision: Decision) -> str:
+    detail = f"{decision.job.name}: {decision.reason}"
+    return f"::notice title=CI flake overseer: {decision.action}::{escape_annotation(detail)}"
+
+
+def write_summary(path: Path | None, workflow_run: WorkflowRun, decisions: tuple[Decision, ...]) -> None:
     if path is None:
         return
     lines = [
-        "### CI flake overseer",
+        "### CI flake overseer (observe-only)",
         "",
         f"- Run: {markdown_link(workflow_run.name or str(workflow_run.id), workflow_run.html_url)}",
         f"- Head SHA: `{workflow_run.head_sha}`",
         f"- Attempt: `{workflow_run.run_attempt}`",
-        f"- Mode: `{'dry-run' if dry_run else 'active'}`",
-        f"- Max automatic reruns per job/head SHA: `{max_reruns_per_job}`",
         "",
-        "| Job | Decision | Reason | Matched flake |",
-        "| --- | --- | --- | --- |",
+        "| Job | Decision | Reason |",
+        "| --- | --- | --- |",
     ]
     for decision in decisions:
-        match = ""
-        if decision.match is not None:
-            match = (
-                f"`{decision.match.insight_id}`: {decision.match.title} "
-                f"(confidence {decision.match.confidence}, matched `{decision.match.matched_query}`)"
-            )
         lines.append(
-            "| "
-            f"{markdown_link(decision.job.name, decision.job.html_url)} | "
-            f"`{decision.action}` | "
-            f"{escape_table(decision.reason)} | "
-            f"{escape_table(match)} |"
+            f"| {markdown_link(decision.job.name, decision.job.html_url)} | "
+            f"`{decision.action}` | {escape_table(decision.reason)} |"
         )
     if not decisions:
-        lines.append("| No failed jobs | `skip unknown` | workflow has no failed jobs to inspect | |")
+        lines.append("| No failed jobs | `skip non-test` | workflow has no failed jobs to inspect |")
     with path.open("a") as summary:
         summary.write("\n".join(lines))
         summary.write("\n")
-
-
-def default_insights_command() -> tuple[str, ...]:
-    local_hogli = Path("./bin/hogli")
-    executable = str(local_hogli) if local_hogli.exists() else "hogli"
-    return (executable, "ci:insights")
 
 
 def parse_workflows(value: str | None) -> tuple[str, ...]:
@@ -777,32 +500,16 @@ def resolve_workflow_run(args: argparse.Namespace) -> WorkflowRun:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Conservatively rerun CI jobs that match known flaky signatures.")
+    parser = argparse.ArgumentParser(description="Observe failed CI test jobs and record what reruns do.")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "PostHog/posthog"))
     parser.add_argument("--run-id", type=int)
     parser.add_argument("--event-path", default=os.environ.get("GITHUB_EVENT_PATH"))
     parser.add_argument(
-        "--dry-run", action="store_true", default=as_bool_string(os.environ.get("CI_FLAKE_OVERSEER_DRY_RUN", ""))
-    )
-    parser.add_argument(
         "--enabled", action="store_true", default=as_bool_string(os.environ.get("CI_FLAKE_OVERSEER_ENABLED", ""))
     )
-    parser.add_argument(
-        "--max-reruns-per-job",
-        type=int,
-        default=env_int("CI_FLAKE_OVERSEER_MAX_RERUNS", 1),
-    )
-    parser.add_argument(
-        "--confidence-threshold",
-        type=int,
-        default=env_int("CI_FLAKE_OVERSEER_CONFIDENCE_THRESHOLD", 80),
-    )
-    parser.add_argument("--insights-command", default=os.environ.get("CI_FLAKE_OVERSEER_HOGLI_COMMAND", ""))
-    parser.add_argument("--insights-timeout-seconds", type=int, default=20)
     parser.add_argument("--allowed-workflows", default=os.environ.get("CI_FLAKE_OVERSEER_WORKFLOWS"))
     parser.add_argument("--summary-path", default=os.environ.get("GITHUB_STEP_SUMMARY"))
-    # Reuses the DevEx project token already wired into other CI workflows (report_test_timings.py,
-    # monitor-github-rate-limit.js); telemetry is a no-op when the secret is absent.
+    # Reuses the DevEx project token already wired into other CI workflows; telemetry no-ops when absent.
     parser.add_argument("--posthog-api-key", default=os.environ.get("POSTHOG_DEVEX_PROJECT_API_TOKEN", ""))
     parser.add_argument("--posthog-host", default=os.environ.get("POSTHOG_DEVEX_PROJECT_HOST") or DEFAULT_POSTHOG_HOST)
     parser.add_argument("--posthog-timeout-seconds", type=int, default=10)
@@ -821,27 +528,19 @@ def main(argv: list[str]) -> int:
     if workflow_run.name not in parse_workflows(args.allowed_workflows):
         print(f"::notice title=CI flake overseer skipped::Workflow `{workflow_run.name}` is not allowlisted")
         return 0
-    if not args.enabled and not args.dry_run:
-        print(
-            "::notice title=CI flake overseer disabled::Set CI_FLAKE_OVERSEER_ENABLED=true to enable automatic reruns"
-        )
+    if not args.enabled:
+        print("::notice title=CI flake overseer disabled::Set CI_FLAKE_OVERSEER_ENABLED=true to record observations")
         return 0
 
-    command = tuple(shlex.split(args.insights_command)) if args.insights_command else default_insights_command()
-    insights = CiInsightsSource(command, args.confidence_threshold, args.insights_timeout_seconds)
-    dry_run = args.dry_run or not args.enabled
+    # On a re-run attempt, record whether the prior attempt's test failures cleared on rerun.
+    events = report_rerun_outcomes(args.repo, workflow_run)
 
-    # On a re-run attempt, record whether our prior reruns cleared — the value/safety signal — even when
-    # this attempt succeeded (so we capture the wins), regardless of dry-run mode.
-    events = report_rerun_outcomes(args.repo, workflow_run, insights, args.max_reruns_per_job, dry_run, args.enabled)
-
-    # `cancelled` runs are usually superseded by a newer commit (cancel-in-progress); reranking their
-    # leftover failures would resurrect an abandoned SHA, so only classify genuine failures and timeouts.
     if workflow_run.conclusion in {"failure", "timed_out"}:
-        decisions = inspect_failed_jobs(args.repo, workflow_run, insights, args.max_reruns_per_job)
-        reran_job_ids = rerun_eligible_jobs(args.repo, decisions, dry_run)
-        write_summary(summary_path, workflow_run, decisions, dry_run, args.max_reruns_per_job)
-        events.extend(build_decision_events(args.repo, workflow_run, decisions, dry_run, args.enabled, reran_job_ids))
+        decisions = classify_failed_jobs(args.repo, workflow_run.id, workflow_run.run_attempt)
+        for decision in decisions:
+            print(format_annotation(decision))
+        write_summary(summary_path, workflow_run, decisions)
+        events.extend(build_decision_events(args.repo, workflow_run, decisions))
     else:
         print(f"::notice title=CI flake overseer skipped::Workflow conclusion is `{workflow_run.conclusion}`")
 

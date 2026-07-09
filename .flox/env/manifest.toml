@@ -59,6 +59,14 @@ watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery auto
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 FLAGS_REDIS_URL = "redis://localhost:6379/1"
+# CH client default DB. Matches docker-compose convention — without it,
+# Django queries unqualified `events` / `log_entries` etc. resolve against
+# the literal `default` DB (where PostHog has no tables) and 500.
+CLICKHOUSE_DATABASE = "posthog"
+# HMAC secret the agent_stack preview-proxy shares with agent-ingress so
+# the JWT minted by Django on every non-live invoke can be verified by
+# ingress. Same value on both sides → live JWT round-trip. Dev only.
+AGENT_PREVIEW_SECRET = "dev-agent-preview-secret-not-for-prod"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
 RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
@@ -67,8 +75,9 @@ DOTENV_FILE = ".env"
 OPENSSL_INCLUDE_DIR = "$FLOX_ENV/include"
 LDFLAGS="-L$FLOX_ENV/lib"
 CPPFLAGS="-I$FLOX_ENV/include"
-UV_PROJECT_ENVIRONMENT = "$FLOX_ENV_CACHE/venv"
 RUSTC_WRAPPER = "sccache"
+# UV_PROJECT_ENVIRONMENT is set in the [hook]/[profile] scripts, not here: [vars]
+# are added without expanding $FLOX_ENV_CACHE, so flox drops it on fresh activation.
 
 # The `hook.on-activate` script is run by the *bash* shell immediately upon
 # activating an environment, and will not be invoked if Flox detects that the
@@ -99,6 +108,8 @@ bash = '''
   export GOMODCACHE="$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
+  export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
   if [ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]; then
     uv sync
@@ -111,6 +122,8 @@ bash = '''
   [ -f "$FLOX_ENV_CACHE/completions/hogli.bash" ] && source "$FLOX_ENV_CACHE/completions/hogli.bash"
   # Load phw worktree helper
   [ -f "$FLOX_ENV_PROJECT/bin/phw" ] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
+  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS
+  [ -f "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims" ] && source "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims"
 '''
 zsh = '''
   if [[ -f "$HOME/.zshrc" ]]; then
@@ -125,6 +138,8 @@ zsh = '''
   export GOMODCACHE="$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   export PATH="$FLOX_ENV/bin:$PATH"
+  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
+  export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
   if [[ ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate" ]]; then
     uv sync
@@ -138,6 +153,8 @@ zsh = '''
   autoload -Uz compinit && compinit -i
   # Load phw worktree helper
   [[ -f "$FLOX_ENV_PROJECT/bin/phw" ]] && source "$FLOX_ENV_PROJECT/bin/phw" >/dev/null
+  # Route manually-run dependency installs (uv sync, pnpm install, ...) through the dev sandbox on macOS
+  [[ -f "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims" ]] && source "$FLOX_ENV_PROJECT/bin/dev-sandbox-shims"
 '''
 fish = '''
   set -e GOROOT
@@ -147,6 +164,8 @@ fish = '''
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   fish_add_path -g "$FLOX_ENV/bin"
+  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
+  set -gx UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
   if not test -f "$UV_PROJECT_ENVIRONMENT/bin/activate.fish"
     uv sync
@@ -164,6 +183,8 @@ tcsh = '''
   setenv GOMODCACHE "$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
   setenv PATH "$FLOX_ENV/bin:$PATH"
+  # uv venv path — set here, not in [vars] (which can't expand $FLOX_ENV_CACHE)
+  setenv UV_PROJECT_ENVIRONMENT "$FLOX_ENV_CACHE/venv"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
   if ( ! -f "$UV_PROJECT_ENVIRONMENT/bin/activate.csh" ) then
     uv sync

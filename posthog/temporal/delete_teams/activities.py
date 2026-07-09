@@ -1,4 +1,5 @@
 import temporalio.activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -90,7 +91,22 @@ async def delete_team_records_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import delete_team_records
 
-        await database_sync_to_async_pool(delete_team_records)(inputs.team_ids)
+        try:
+            await database_sync_to_async_pool(delete_team_records)(inputs.team_ids)
+        except RecursionError:
+            # The cascade delete materializes full rows for models with delete signals, which
+            # decodes their JSON columns via json.loads. A pathologically deeply-nested JSON
+            # value (deep enough that Postgres stores it but json.loads cannot decode it under
+            # Python's fixed C-recursion limit) overflows here. Retrying is futile — the data is
+            # unchanged — and the multi-thousand-frame traceback exceeds Temporal's failure-size
+            # limit, so re-raise a small, non-retryable error that surfaces cleanly instead.
+            raise ApplicationError(
+                f"Recursion limit exceeded deleting team records for {inputs.team_ids}; a cascaded "
+                "row most likely holds a deeply-nested JSON value that json.loads cannot decode. "
+                "Repair that row before retrying.",
+                type="RecursionError",
+                non_retryable=True,
+            ) from None
 
 
 def _enqueue_clickhouse_deletion(team_ids: list[int], user_id: int) -> None:

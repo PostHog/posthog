@@ -9,6 +9,15 @@ feature: skills
 url_prefix: /skills
 ui_apps: {}
 tools:
+    llm-skills-import-create:
+        operation: llm_skills_import_create
+        enabled: false
+    llm-skills-marketplace-install-command-retrieve:
+        operation: llm_skills_marketplace_install_command_retrieve
+        enabled: false
+    llm-skills-name-export-retrieve:
+        operation: llm_skills_name_export_retrieve
+        enabled: false
     skill-archive:
         operation: llm_skills_name_archive_create
         enabled: true
@@ -153,6 +162,34 @@ tools:
     skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
+    skill-store-install-command:
+        operation: llm_skills_marketplace_install_command_create
+        enabled: true
+        scopes:
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Get skill store install command
+        description: >
+            Get ready-to-paste commands that install this team's skill store into a coding agent as an auto-updating
+            plugin marketplace. Returns both a Claude Code command (the `command` field) and an OpenAI Codex command
+            (the `codex_command` field) for the same marketplace. On first use it mints a dedicated, read-only
+            credential (scoped to skills only, scope llm_skill:read) for the calling user and returns the full commands
+            with the token embedded. If the user is already connected it returns the existing connection masked, with no
+            token — pass rotate=true to issue a fresh token. The credential is per-user, so rotating only ever replaces
+            the caller's own token and never breaks a teammate's setup. Only call this when the user asks to connect or
+            install their skills into a coding agent. Give the user the command matching their agent (Claude Code or
+            Codex).
+        include_params:
+            - rotate
+        param_overrides:
+            rotate:
+                description: >
+                    Set true only when the user explicitly wants a fresh token (e.g. setting up a new machine): it rolls
+                    the caller's existing credential, invalidating their previous token. Leave false (default) to reuse
+                    the existing credential — the first call always mints one regardless.
     skill-update:
         operation: llm_skills_name_partial_update
         enabled: true

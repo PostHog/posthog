@@ -4,16 +4,29 @@
  * Quill-styled port of the legacy `ActionPopoverInfo` so we don't pull
  * in the kea-coupled `DefinitionPopover` primitives.
  */
+import { useValues } from 'kea'
+
 import { Separator } from '@posthog/quill'
 
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopover/utils'
 
+import { actionsModel } from '~/models/actionsModel'
 import { ActionStepType, ActionType } from '~/types'
 
 import { TaxonomicDefinitionTypes } from '../../types'
 
 export function ActionMatchGroups({ item }: { item: TaxonomicDefinitionTypes }): JSX.Element | null {
-    const action = item as ActionType
+    const { actionsById } = useValues(actionsModel)
+    // The highlighted entry can be a lightweight `{ id, name }` shim — e.g. the
+    // committed selection on the "All" surface, when the full action isn't among
+    // the rows currently shown — which carries no `steps`. Hydrate it from
+    // actionsModel so the match groups render instead of silently nothing.
+    const partial = item as Partial<ActionType>
+    const action: ActionType | undefined = Array.isArray(partial.steps)
+        ? (partial as ActionType)
+        : partial.id != null
+          ? actionsById[partial.id]
+          : undefined
     if (!action || !Array.isArray(action.steps) || action.steps.length === 0) {
         return null
     }

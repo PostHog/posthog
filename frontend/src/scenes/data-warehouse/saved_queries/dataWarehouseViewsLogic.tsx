@@ -136,6 +136,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 posthog.capture(`materialized view ${payload.lifecycle === 'update' ? 'updated' : 'created'}`, {
                     sync_frequency: payload.sync_frequency,
                 })
+                if (payload.lifecycle === 'update') {
+                    lemonToast.success('Sync frequency updated')
+                }
             }
 
             if (payload?.shouldRematerialize) {

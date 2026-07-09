@@ -115,6 +115,30 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["source_type"] == "text"
 
+    def test_create_text_source_with_always_include(self, _ff) -> None:
+        response = self.client.post(
+            self.url,
+            {"name": "Tone guide", "text": "Be friendly.", "always_include": True},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["always_include"] is True
+
+    def test_patch_always_include_without_text(self, _ff) -> None:
+        create_resp = self.client.post(
+            self.url,
+            {"name": "Policy", "text": "Be nice."},
+            format="json",
+        )
+        source_id = create_resp.json()["id"]
+        patch_resp = self.client.patch(
+            f"{self.url}{source_id}/",
+            {"always_include": True},
+            format="json",
+        )
+        assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.content
+        assert patch_resp.json()["always_include"] is True
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestEmbeddingStatusAPI(APIBaseTest):

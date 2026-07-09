@@ -141,9 +141,17 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
 
     response = _exceptions_hog_handler(exc, context)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
-        # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
-        # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
-        # attacker-controlled origin.
-        metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
-        response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+        # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
+        # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
+        view_challenge = getattr(context.get("view"), "www_authenticate_challenge", None)
+        if view_challenge:
+            # Strip CR/LF defensively — this is a view-supplied value, so never let it inject
+            # additional response headers even if a future view derives it from request data.
+            response["WWW-Authenticate"] = view_challenge.replace("\r", "").replace("\n", "")
+        else:
+            # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
+            # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
+            # attacker-controlled origin.
+            metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
+            response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
     return response

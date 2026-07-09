@@ -5,6 +5,7 @@ allowed to import. Internal modules (query runners) stay behind this seam
 so import-linter's strict-mode contract holds.
 """
 
+import math
 import datetime as dt
 from typing import Any
 
@@ -12,7 +13,10 @@ from posthog.models import Team
 
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
+    CompanionMetric,
+    InvestigationResult,
     MetricAnomalyReport,
+    MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
@@ -22,6 +26,8 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
+from products.metrics.backend.investigation import investigate as _investigate
+from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
@@ -52,7 +58,7 @@ def _assemble_series(
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps."""
-    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
+    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
@@ -61,7 +67,9 @@ def _assemble_series(
     # high-cardinality group-by never materializes label_sets x grid points
     # only to throw most of them away. Zero-filled points contribute nothing
     # to the magnitude, so the ranking is identical either way.
-    ranked = sorted(by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values()), item[0]))
+    ranked = sorted(
+        by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values() if v is not None), item[0])
+    )
     return [
         MetricSeries(
             labels=dict(key),
@@ -81,6 +89,22 @@ def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
     if clause.aggregation in _RUNNER_AGGREGATIONS:
         return _RUNNER_AGGREGATIONS[clause.aggregation]
     raise ValueError(f"aggregation {clause.aggregation.value!r} is not supported yet")
+
+
+def _evaluate_formula_point(
+    node: Any, per_clause_points: dict[str, tuple[MetricPoint, ...]], index: int
+) -> float | None:
+    """One formula grid point. A null (gap) in any input propagates as a
+    gap, and a result the formula overflowed to inf/NaN becomes a gap too —
+    same policy as the per-clause aggregates."""
+    values: dict[str, float] = {}
+    for name, pts in per_clause_points.items():
+        value = pts[index].value
+        if value is None:
+            return None
+        values[name] = value
+    result = evaluate(node, values)
+    return result if math.isfinite(result) else None
 
 
 def _evaluate_formula(
@@ -117,10 +141,7 @@ def _evaluate_formula(
             for name in series_by_clause
         }
         points = tuple(
-            MetricPoint(
-                time=time,
-                value=evaluate(node, {name: pts[index].value for name, pts in per_clause_points.items()}),
-            )
+            MetricPoint(time=time, value=_evaluate_formula_point(node, per_clause_points, index))
             for index, time in enumerate(grid)
         )
         result.append(MetricSeries(labels=dict(label_set), points=points, metric_name=None, clause="formula"))
@@ -197,6 +218,35 @@ def list_metric_names(
     return runner.run()
 
 
+def list_metric_event_samples(
+    *,
+    team: Team,
+    metric_name: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    trace_id: str | None = None,
+    limit: int = 100,
+) -> list[MetricEventSample]:
+    """List individual metric emissions (the events model) for a metric,
+    newest first.
+
+    Each sample carries its value, attributes, and trace linkage, so the
+    Samples view can render raw rows and pivot to the trace behind any one.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace.
+    Raises `ValueError` for an empty metric name, an inverted window, or an
+    out-of-range limit; the presentation layer surfaces these as 400s.
+    """
+    runner = MetricEventSamplesQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        date_from=date_from,
+        date_to=date_to,
+        trace_id=trace_id,
+        limit=limit,
+    )
+    return [MetricEventSample(**row) for row in runner.run()]
+
+
 def characterize_metric_anomaly(
     *,
     team: Team,
@@ -232,4 +282,45 @@ def characterize_metric_anomaly(
         quantile=quantile,
         filters=filters,
         candidate_keys=candidate_keys,
+    )
+
+
+def investigate(
+    *,
+    team: Team,
+    metric_name: str,
+    anomaly_from: dt.datetime,
+    anomaly_to: dt.datetime,
+    baseline_from: dt.datetime | None = None,
+    baseline_to: dt.datetime | None = None,
+    aggregation: str | None = None,
+    quantile: float | None = None,
+    filters: tuple[MetricFilter, ...] = (),
+    candidate_keys: tuple[str, ...] | None = None,
+    companions: tuple[CompanionMetric, ...] = (),
+) -> InvestigationResult:
+    """Investigate a metric symptom end to end and return one structured result.
+
+    Builds on `characterize_metric_anomaly`: it characterizes the metric over
+    the anomaly window, then characterizes each `companion` over the SAME window
+    to confirm or rule it out (e.g. throughput flat -> not a traffic surge),
+    classifies blast radius from the movers, implicates a service for the
+    logs/traces pivot, and emits re-runnable chart specs.
+
+    The result is the single shape the agent narrates, the in-app explorer
+    renders, and the incident report serializes. Raises `ValueError` for invalid
+    windows/aggregations — the presentation layer surfaces these as 400s.
+    """
+    return _investigate(
+        team=team,
+        metric_name=metric_name,
+        anomaly_from=anomaly_from,
+        anomaly_to=anomaly_to,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=filters,
+        candidate_keys=candidate_keys,
+        companions=companions,
     )

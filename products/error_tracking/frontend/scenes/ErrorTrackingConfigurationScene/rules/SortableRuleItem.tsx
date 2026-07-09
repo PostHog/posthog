@@ -1,6 +1,6 @@
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { PropsWithChildren } from 'react'
+import { PropsWithChildren, ReactNode } from 'react'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -10,8 +10,9 @@ import { ErrorTrackingRule } from './types'
 export function SortableRuleItem({
     ruleId,
     reorderable,
+    leading,
     children,
-}: PropsWithChildren<{ ruleId: ErrorTrackingRule['id']; reorderable: boolean }>): JSX.Element {
+}: PropsWithChildren<{ ruleId: ErrorTrackingRule['id']; reorderable: boolean; leading?: ReactNode }>): JSX.Element {
     const { setNodeRef, attributes, transform, transition, listeners, active, isDragging } = useSortable({ id: ruleId })
 
     return (
@@ -30,6 +31,7 @@ export function SortableRuleItem({
                     {...listeners}
                 />
             )}
+            {leading && <div className="flex shrink-0 items-start pt-2">{leading}</div>}
             <div className="flex-1">{children}</div>
         </div>
     )

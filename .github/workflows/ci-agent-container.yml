@@ -1,0 +1,339 @@
+name: Build and deploy agent platform container images
+
+# Builds and pushes container images for the agent platform:
+#
+#   - posthog-agents (ingress / runner / janitor — one image,
+#     three bundled entrypoints; the deploy manifest picks the CMD)
+#   - posthog-agent-sandbox-host (Alpine sidecar — no build step)
+
+on:
+    workflow_dispatch:
+    # paths mirror the changes job's dorny filter, which still gates push and
+    # merge_group events (merge_group triggers don't support paths).
+    pull_request:
+        paths:
+            - 'products/agent_platform/services/**'
+            - 'products/agent_platform/packages/**'
+            # Transitional: in-flight branches still have these at the
+            # old paths. Drop once they've rebased onto the move.
+            - 'services/agent-ingress/**'
+            - 'services/agent-runner/**'
+            - 'services/agent-janitor/**'
+            - 'services/agent-shared/**'
+            - 'services/agent-tools/**'
+            - 'services/agent-sandbox-host/**'
+            - 'services/agents/**'
+            - 'packages/quill/**'
+            - '.github/workflows/ci-agent-container.yml'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
+    merge_group:
+    push:
+        branches:
+            - 'master'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            pull-requests: read
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        name: Determine need to run agent Docker build
+        outputs:
+            agent_files: ${{ steps.filter.outputs.agent_files }}
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
+                  filters: |
+                      agent_files:
+                        - 'products/agent_platform/services/**'
+                        - 'products/agent_platform/packages/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
+                        - 'services/agent-ingress/**'
+                        - 'services/agent-runner/**'
+                        - 'services/agent-janitor/**'
+                        - 'services/agent-shared/**'
+                        - 'services/agent-tools/**'
+                        - 'services/agent-sandbox-host/**'
+                        - 'services/agents/**'
+                        - 'packages/quill/**'
+                        - '.github/workflows/ci-agent-container.yml'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+
+    build:
+        needs: changes
+        name: Build ${{ matrix.image }}
+        if: |
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
+            github.event_name == 'merge_group' ||
+            github.event_name == 'workflow_dispatch' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.agent_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - image: posthog-agents
+                      dockerfile: products/agent_platform/services/agents/Dockerfile
+                      context: .
+                      depot_project: 6gmww256q5
+                      push_to_ecr: 'true'
+                    # Canonical sandbox-host image used by BOTH the Modal pool
+                    # (production) and the Docker pool (local dev). Bakes
+                    # /sandbox/dispatch.js + /sandbox/host.js into a thin
+                    # node:24.13.0-alpine. The chart wires the resulting reference
+                    # into both pools via SANDBOX_HOST_IMAGE. GHCR-only —
+                    # ECR push is skipped because Modal pulls from GHCR and
+                    # the chart doesn't deploy this image as a service (no
+                    # ECR repo to provision). Reuses the posthog-agents
+                    # depot project for cache locality.
+                    - image: posthog-agent-sandbox-host
+                      dockerfile: products/agent_platform/services/agent-sandbox-host/Dockerfile
+                      context: products/agent_platform/services/agent-sandbox-host
+                      depot_project: 6gmww256q5
+                      push_to_ecr: 'false'
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
+              with:
+                  image-name: ${{ matrix.image }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  push-to-ecr: ${{ matrix.push_to_ecr }}
+
+            - name: Build and push container image
+              id: build
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: ${{ matrix.context }}
+                  buildx-fallback: false
+                  project: ${{ matrix.depot_project }}
+                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
+                  file: ${{ matrix.dockerfile }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+
+            - name: Container image digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  IMAGE_NAME: ${{ matrix.image }}
+                  PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
+              run: |
+                  # For images that skipped ECR (e.g. sandbox-host, GHCR-only),
+                  # report the GHCR reference instead so the step summary stays
+                  # useful and the smoke-test step downstream has a pullable ref.
+                  if [ "$PUSH_TO_ECR" = "true" ]; then
+                      IMAGE_BASE="$ECR_REGISTRY/$IMAGE_NAME"
+                  else
+                      IMAGE_BASE="ghcr.io/posthog/$IMAGE_NAME"
+                  fi
+                  echo "Image digest: $IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_BASE:${{ github.sha }}@$IMAGE_DIGEST"
+                  {
+                    echo "## ${IMAGE_NAME} built :rocket:"
+                    echo ""
+                    echo "**Image reference:** \`$IMAGE_BASE:${{ github.sha }}@$IMAGE_DIGEST\`"
+                    echo ""
+                    echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            # Upload the digest so the deploy job can dispatch the right
+            # SHA per release. Same idiom as _rust-build-images.yml.
+            - name: Save digest to file
+              env:
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: echo "$DIGEST" > /tmp/digest-${{ matrix.image }}.txt
+
+            - name: Upload digest
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp/digest-${{ matrix.image }}.txt
+                  retention-days: 1
+
+            # The production bundle (esbuild .mjs in a slim node image) runs a
+            # different code path than local `tsx src/index.ts` — different
+            # module resolution, no node_modules, no source-map magic. Smoke
+            # the image once per build so import / path / native-dep issues
+            # fail here instead of in dev.
+            - name: Smoke test image
+              env:
+                  ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  IMAGE_NAME: ${{ matrix.image }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
+              run: |
+                  set -euo pipefail
+                  # Mirror the digest-step logic: GHCR-only images smoke-test
+                  # against their GHCR ref since there's no ECR copy.
+                  if [ "$PUSH_TO_ECR" = "true" ]; then
+                      IMAGE_REF="${ECR_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  else
+                      IMAGE_REF="ghcr.io/posthog/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  fi
+                  echo "::group::Pull image"
+                  docker pull "$IMAGE_REF"
+                  echo "::endgroup::"
+
+                  case "$IMAGE_NAME" in
+                      posthog-agents)
+                          # Three entrypoints baked into the same image; each
+                          # has its own .mjs and config schema, so each gets
+                          # its own smoke pass. (Schema is Django-owned now —
+                          # no migrate entrypoint; see products/agent_platform/services/agents/scripts/build.ts.)
+                          for entrypoint in ingress runner janitor; do
+                              echo "::group::Smoke test ${entrypoint}"
+                              .github/scripts/smoke-test-agent-bundle.sh "$IMAGE_REF" "$entrypoint"
+                              echo "::endgroup::"
+                          done
+                          ;;
+                      posthog-agent-sandbox-host)
+                          # End-to-end smoke against the built image: lay out
+                          # a fake tool + nonces, exec the dispatcher, assert
+                          # the response shape for happy / bad-action /
+                          # missing-tool. Catches "image works in isolation"
+                          # regressions before either sandbox pool sees them.
+                          echo "::group::Smoke test agent-sandbox-host"
+                          products/agent_platform/services/agent-sandbox-host/scripts/smoke-test-image.sh "$IMAGE_REF"
+                          echo "::endgroup::"
+                          ;;
+                      *)
+                          echo "No smoke test configured for ${IMAGE_NAME}; skipping."
+                          ;;
+                  esac
+
+            - name: Report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
+                  event: 'agent-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
+            - name: Report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'agent-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}", "image": "${{ matrix.image }}"}'
+
+    deploy:
+        name: Deploy ${{ matrix.image }}
+        needs: build
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' && github.event_name == 'push'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        # One dispatch per image, not per Helm release. The charts side keys
+        # state.yaml by image name and the runtime apps (agent-ingress /
+        # agent-runner / agent-janitor) all read from the same `posthog-agents`
+        # row — same shape as ai-gateway / ai-gateway-billing on the chart side.
+        # agent-sandbox-host gets its own row that the agent-runner chart
+        # consumes as the SANDBOX_HOST_IMAGE env var.
+        strategy:
+            fail-fast: false
+            matrix:
+                image:
+                    - posthog-agents
+                    - posthog-agent-sandbox-host
+
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Download digest
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: digest-${{ matrix.image }}
+                  path: /tmp
+
+            - name: Read digest
+              id: digest
+              run: |
+                  DIGEST=$(cat /tmp/digest-${{ matrix.image }}.txt)
+                  if [ -z "$DIGEST" ]; then
+                      echo "::error::empty digest for ${{ matrix.image }}"
+                      exit 1
+                  fi
+                  echo "value=$DIGEST" >> "$GITHUB_OUTPUT"
+
+            - name: Get deployer token
+              id: deployer
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Get PR labels
+              id: labels
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Trigger ${{ matrix.image }} state update
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.digest.outputs.value }}"
+                          }
+                        },
+                        "release": "${{ matrix.image }}",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }

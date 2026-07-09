@@ -49,7 +49,17 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderTrendsPieChart(insightFixture: any): JSX.Element {
+// Mirrors the production layout (`.TrendsInsight`): a flex column whose height comes from
+// `min-height` only, with no explicit `height`. A wrapper relying on `h-full` collapses to 0
+// here and the pie renders no slices — this stage guards that regression.
+function MinHeightStage({ children }: { children: React.ReactNode }): JSX.Element {
+    return (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ minHeight: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+    )
+}
+
+function renderTrendsPieChart(insightFixture: any, StageComponent: typeof Stage = Stage): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsPieChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -64,9 +74,9 @@ function renderTrendsPieChart(insightFixture: any): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
+                <StageComponent>
                     <TrendsPieChart />
-                </Stage>
+                </StageComponent>
             </BindLogic>
         </BindLogic>
     )
@@ -78,6 +88,12 @@ export const Default: Story = {
 
 export const Breakdown: Story = {
     render: () => renderTrendsPieChart(trendsPieBreakdownFixture),
+}
+
+// Parent supplies height via `min-height` only (as `.TrendsInsight` does) — verifies the chart
+// still sizes itself and renders slices rather than collapsing to the bare aggregation total.
+export const MinHeightParent: Story = {
+    render: () => renderTrendsPieChart(trendsPieBreakdownFixture, MinHeightStage),
 }
 
 export const BreakdownWithLabels: Story = {

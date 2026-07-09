@@ -6,6 +6,7 @@ import structlog
 from posthog.schema import (
     CachedWebNotableChangesQueryResponse,
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebNotableChangeItem,
     WebNotableChangesQuery,
     WebNotableChangesQueryResponse,
@@ -63,7 +64,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
         pre_agg_response = self._get_pre_aggregated_response()
         if pre_agg_response is not None:
             response = pre_agg_response
-            used_preagg = True
+            strategy = WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
         else:
             response = execute_hogql_query(
                 query_type="web_notable_changes_query",
@@ -74,14 +75,14 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
-            used_preagg = False
+            strategy = WebAnalyticsPreComputeStrategy.LIVE
 
         if not response.results:
             return WebNotableChangesQueryResponse(
                 results=[],
                 samplingRate=self._sample_rate,
                 modifiers=self.modifiers,
-                usedPreAggregatedTables=used_preagg,
+                preComputeStrategy=strategy,
             )
 
         scored_items = self._score_results(response.results)
@@ -92,7 +93,7 @@ class WebNotableChangesQueryRunner(WebAnalyticsQueryRunner[WebNotableChangesQuer
             results=top_items,
             samplingRate=self._sample_rate,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=used_preagg,
+            preComputeStrategy=strategy,
         )
 
     def _get_pre_aggregated_response(self):

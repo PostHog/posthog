@@ -12,8 +12,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-
 from products.data_warehouse.backend.sql_warehouse_migration import (
     _source_has_optional_schema_field,
     apply_on_refresh,
@@ -22,9 +20,9 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SQLSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _sql_source_stub(*, schema_required: bool | None, has_schema_field: bool = True) -> Any:
@@ -56,12 +54,12 @@ class TestMultiSchemaCapability:
 
     @parameterized.expand(
         [
-            # Postgres, Snowflake, and MSSQL have an optional `schema` (qualify today); MySQL/unknown never do.
+            # SQL sources with an optional `schema` field qualify legacy rows; unknown sources never do.
             ("postgres", ExternalDataSourceType.POSTGRES, True),
             ("snowflake", ExternalDataSourceType.SNOWFLAKE, True),
             ("redshift", ExternalDataSourceType.REDSHIFT, True),
             ("mssql", ExternalDataSourceType.MSSQL, True),
-            ("mysql", ExternalDataSourceType.MYSQL, False),
+            ("mysql", ExternalDataSourceType.MYSQL, True),
             ("unknown type", "NotARealSource", False),
         ]
     )
@@ -110,7 +108,7 @@ class TestDetectSchemaClearTransition:
 
     def test_incapable_source_never_transitions(self) -> None:
         result = detect_schema_clear_transition(
-            source_type=ExternalDataSourceType.MYSQL,
+            source_type="NotARealSource",
             existing_job_inputs={"schema": "public"},
             incoming_job_inputs={"schema": ""},
         )

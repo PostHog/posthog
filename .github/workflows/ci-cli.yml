@@ -91,17 +91,10 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-
-            - name: Install API CLI dependencies
-              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+                  install-command: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
 
             - name: Build API CLI release bundle
               run: pnpm --dir services/mcp run build:cli:release

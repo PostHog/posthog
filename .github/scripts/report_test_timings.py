@@ -69,6 +69,7 @@ class TestCase:
     end: datetime
     outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
+    selector: str  # runnable 'path/test.py::Class::test' from JUnit's `file`; '' when file is absent
 
 
 @dataclass(frozen=True)
@@ -148,14 +149,24 @@ def collect_artifact_infos(artifacts_root: Path) -> list[ArtifactInfo]:
 def classify_testcase(testcase: Any) -> tuple[str, int]:
     """Return (outcome, attempts) from a single `<testcase>` element.
 
-    pytest-rerunfailures emits prior attempts as `<rerunFailure>` /
-    `<rerunError>` siblings before the final outcome child. Walk children once.
+    pytest's junitxml records nothing for pytest-rerunfailures attempts (a
+    rerun report is neither passed, failed, nor skipped), so the root
+    conftest's `posthog-junit-timings` plugin surfaces the retry count as a
+    `posthog.reruns` testcase property. `<rerunFailure>`/`<rerunError>`
+    children from other junit producers are honored too. Walk children once.
     """
     rerun_count = 0
     final_outcome: str | None = None
     for child in testcase:
         tag = child.tag
-        if tag.startswith("rerun"):
+        if tag == "properties":
+            for prop in child.findall("property"):
+                if prop.get("name") == "posthog.reruns":
+                    try:
+                        rerun_count += max(0, int(prop.get("value", "0")))
+                    except ValueError:
+                        pass
+        elif tag.startswith("rerun"):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
             if tag == "skipped" and child.get("type") == "pytest.xfail":
@@ -176,6 +187,24 @@ def to_nodeid(classname: str, name: str) -> str:
     reconstruction that's stable for grouping in queries.
     """
     return f"{classname.replace('.', '/')}::{name}" if classname else name
+
+
+def to_selector(file: str, classname: str, name: str) -> str:
+    """Runnable pytest selector 'path/to/test_x.py::TestClass::test_y' from JUnit's `file` + `classname`.
+
+    Unlike `to_nodeid`, JUnit's `file` gives the exact module boundary, so nothing is guessed: the
+    class portion is `classname` with the file's module prefix stripped. Returns '' when JUnit omits
+    `file` (external shards) or the shape is unexpected — consumers fall back to the nodeid.
+    """
+    if not file or not name:
+        return ""
+    module = file[:-3].replace("/", ".") if file.endswith(".py") else ""
+    if not classname:
+        return f"{file}::{name}"
+    if module and classname.startswith(module):
+        class_part = classname[len(module) :].lstrip(".")
+        return f"{file}::{class_part}::{name}" if class_part else f"{file}::{name}"
+    return ""
 
 
 def parse_iso_utc(value: str) -> datetime | None:
@@ -241,6 +270,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
     for tc in suite_elem.iter("testcase"):
         classname = tc.get("classname", "")
         name = tc.get("name", "")
+        file = tc.get("file", "")
         outcome, attempts = classify_testcase(tc)
         try:
             duration = float(tc.get("time", "0"))
@@ -254,6 +284,7 @@ def parse_shard(xml_path: Path, info: ArtifactInfo) -> Shard | None:
                 nodeid=to_nodeid(classname, name),
                 classname=classname,
                 name=name,
+                selector=to_selector(file, classname, name),
                 duration_seconds=duration,
                 start=test_start,
                 end=test_end,
@@ -350,6 +381,9 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     attrs["ci.event_name"] = os.environ.get("GITHUB_EVENT_NAME", "")
     attrs["ci.head_ref"] = os.environ.get("GITHUB_HEAD_REF", "")
     attrs["ci.base_ref"] = os.environ.get("GITHUB_BASE_REF", "")
+    attrs["ci.ref_name"] = os.environ.get("GITHUB_REF_NAME", "")
+    # Branch name regardless of event: PR source branch, else the pushed branch.
+    attrs["ci.branch"] = os.environ.get("GITHUB_HEAD_REF") or os.environ.get("GITHUB_REF_NAME", "")
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
@@ -461,6 +495,8 @@ def _emit_shard_span(tracer: trace.Tracer, shard: Shard, root_name: str) -> bool
             test_span.set_attribute("test.attempts", test.attempts)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
+            if test.selector:
+                test_span.set_attribute("test.selector", test.selector)
             if test.outcome in ("failed", "error"):
                 test_span.set_status(Status(StatusCode.ERROR))
                 has_error = True

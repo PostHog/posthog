@@ -115,6 +115,79 @@ export const ConversationTypeApi = {
     Slack: 'slack',
 } as const
 
+/**
+ * @nullable
+ */
+export type TaskUserBasicInfoApiHedgehogConfig = { [key: string]: unknown } | null
+
+/**
+ * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+ */
+export interface TaskUserBasicInfoApi {
+    id: number
+    uuid: string
+    distinct_id: string
+    first_name: string
+    last_name: string
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    hedgehog_config?: TaskUserBasicInfoApiHedgehogConfig
+    /** @nullable */
+    role_at_organization?: string | null
+}
+
+/**
+ * @nullable
+ */
+export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
+
+/**
+ * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
+ * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
+ * avoids presigning a log URL per conversation.
+ *
+ * Read access here follows the conversation (the share-by-link unit), not per-creator task
+ * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+ */
+export interface TaskDetailDTOApi {
+    id: string
+    /** @nullable */
+    task_number: number | null
+    slug: string
+    title: string
+    title_manually_set: boolean
+    description: string
+    origin_product: string
+    /** @nullable */
+    repository: string | null
+    /** @nullable */
+    github_integration: number | null
+    /** @nullable */
+    github_user_integration: string | null
+    /** @nullable */
+    signal_report: string | null
+    /** @nullable */
+    json_schema: TaskDetailDTOApiJsonSchema
+    internal: boolean
+    archived: boolean
+    /** @nullable */
+    archived_at: string | null
+    /**
+     * Id of the latest TaskRun; null when the task has no runs.
+     * @nullable
+     */
+    readonly latest_run: string | null
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    created_by?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    ci_prompt: string | null
+}
+
 export interface ConversationMinimalApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -156,6 +229,7 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly slack_workspace_domain: string | null
+    readonly task: TaskDetailDTOApi | null
 }
 
 export interface PaginatedConversationMinimalListApi {
@@ -226,6 +300,17 @@ export type ConversationApiMessagesItem = { [key: string]: unknown }
 
 export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
 
+/**
+ * * `langgraph` - LangGraph
+ * * `sandbox` - Sandbox
+ */
+export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+
+export const AgentRuntimeEnumApi = {
+    Langgraph: 'langgraph',
+    Sandbox: 'sandbox',
+} as const
+
 export interface ConversationApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -271,12 +356,18 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+     *
+     * * `langgraph` - LangGraph
+     * * `sandbox` - Sandbox */
+    readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
      *
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals: readonly ConversationApiPendingApprovalsItem[]
+    readonly task: TaskDetailDTOApi | null
 }
 
 /**
@@ -336,12 +427,129 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+     *
+     * * `langgraph` - LangGraph
+     * * `sandbox` - Sandbox */
+    readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
      *
      * Combines metadata from conversation.approval_decisions with payload from checkpoint
      * interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
+    readonly task?: TaskDetailDTOApi | null
+}
+
+/**
+ * * `action` - action
+ * * `dashboard` - dashboard
+ * * `error_tracking_issue` - error_tracking_issue
+ * * `evaluation` - evaluation
+ * * `event` - event
+ * * `insight` - insight
+ * * `notebook` - notebook
+ * * `text` - text
+ */
+export type SandboxAttachedContextItemTypeEnumApi =
+    (typeof SandboxAttachedContextItemTypeEnumApi)[keyof typeof SandboxAttachedContextItemTypeEnumApi]
+
+export const SandboxAttachedContextItemTypeEnumApi = {
+    Action: 'action',
+    Dashboard: 'dashboard',
+    ErrorTrackingIssue: 'error_tracking_issue',
+    Evaluation: 'evaluation',
+    Event: 'event',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Text: 'text',
+} as const
+
+/**
+ * One typed attachment carried by a sandbox message.
+ */
+export interface SandboxAttachedContextItemApi {
+    /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+     *
+     * * `action` - action
+     * * `dashboard` - dashboard
+     * * `error_tracking_issue` - error_tracking_issue
+     * * `evaluation` - evaluation
+     * * `event` - event
+     * * `insight` - insight
+     * * `notebook` - notebook
+     * * `text` - text */
+    type: SandboxAttachedContextItemTypeEnumApi
+    /** Entity identifier — integer for `dashboard`/`action`, string short_id/UUID otherwise. Absent for `text`. */
+    id?: unknown
+    /** Optional human-readable label rendered in the context block. */
+    name?: string
+    /** Free-text content. Only for `text` attachments. */
+    value?: string
+}
+
+/**
+ * * `default` - default
+ * * `acceptEdits` - acceptEdits
+ * * `plan` - plan
+ * * `bypassPermissions` - bypassPermissions
+ * * `auto` - auto
+ */
+export type InitialPermissionModeEnumApi =
+    (typeof InitialPermissionModeEnumApi)[keyof typeof InitialPermissionModeEnumApi]
+
+export const InitialPermissionModeEnumApi = {
+    Default: 'default',
+    AcceptEdits: 'acceptEdits',
+    Plan: 'plan',
+    BypassPermissions: 'bypassPermissions',
+    Auto: 'auto',
+} as const
+
+/**
+ * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+ * null/absent `content` warms a sandbox that idles awaiting the first message.
+ */
+export interface SandboxOpenApi {
+    /**
+     * The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.
+     * @maxLength 40000
+     * @nullable
+     */
+    content?: string | null
+    /** Client-generated trace id correlated with the resulting Run's SSE stream. */
+    trace_id?: string
+    /** Typed PostHog entities (and free text) attached to this message. */
+    attached_context?: SandboxAttachedContextItemApi[]
+    /** Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto */
+    initial_permission_mode?: InitialPermissionModeEnumApi
+    /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
+    task_id?: string
+}
+
+/**
+ * Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against.
+ */
+export interface SandboxMessageResponseApi {
+    /** The products/tasks Task backing the conversation. */
+    task_id: string
+    /** The Run the frontend opens SSE against. */
+    run_id: string
+    /**
+     * Echo of the request trace id, if provided.
+     * @nullable
+     */
+    trace_id: string | null
+    /** Current status of the targeted Run (e.g. `queued`, `in_progress`). */
+    run_status: string
+    /** True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run. */
+    just_created_run: boolean
 }
 
 /**
@@ -406,9 +614,9 @@ export const TicketStatusEnumApi = {
  * * `medium` - Medium
  * * `high` - High
  */
-export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
-export const PriorityEnumApi = {
+export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -473,13 +681,20 @@ export interface TicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified: boolean | null
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -516,6 +731,13 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -551,13 +773,20 @@ export interface PatchedTicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified?: boolean | null
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage?: unknown
     readonly created_at?: string
     readonly updated_at?: string
     readonly message_count?: number
@@ -594,8 +823,47 @@ export interface PatchedTicketApi {
     readonly github_repo?: string | null
     /** @nullable */
     readonly github_issue_number?: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id?: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
+}
+
+/**
+ * * `good` - good
+ * * `bad` - bad
+ */
+export type RatingEnumApi = (typeof RatingEnumApi)[keyof typeof RatingEnumApi]
+
+export const RatingEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+} as const
+
+/**
+ * Payload for recording reviewer feedback on an AI reply.
+ */
+export interface AiFeedbackRequestApi {
+    /**
+     * ID of the AI message being rated.
+     * @maxLength 200
+     */
+    message_id: string
+    /** Reviewer rating: good or bad.
+     *
+     * * `good` - good
+     * * `bad` - bad */
+    rating: RatingEnumApi
+    /**
+     * Optional text explaining a bad rating.
+     * @maxLength 2000
+     */
+    feedback_text?: string
 }
 
 /**
@@ -641,15 +909,6 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
-export interface SuggestReplyResponseApi {
-    suggestion: string
-}
-
-export interface SuggestReplyErrorApi {
-    detail: string
-    error_type?: string
-}
-
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.
@@ -678,9 +937,9 @@ export interface BulkUpdateStatusResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -697,7 +956,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -748,6 +1007,11 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
+export interface TicketErrorApi {
+    detail: string
+    error_type?: string
+}
+
 /**
  * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
  */
@@ -771,6 +1035,95 @@ export interface PaginatedTicketViewListApi {
     /** @nullable */
     previous?: string | null
     results: TicketViewApi[]
+}
+
+export interface ZendeskImportStartApi {
+    /**
+     * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+     * @maxLength 255
+     */
+    subdomain: string
+    /** Zendesk agent email tied to the API token. */
+    email_address: string
+    /**
+     * Zendesk API token with ticket read access.
+     * @maxLength 500
+     */
+    api_token: string
+    /**
+     * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ZendeskImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /**
+     * Zendesk subdomain used for this import job.
+     * @nullable
+     */
+    readonly subdomain: string | null
+    /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+    readonly has_credentials: boolean
+    /** Total number of tickets discovered for import. */
+    readonly total_tickets: number
+    /** Number of tickets processed so far. */
+    readonly processed_tickets: number
+    /** Number of tickets successfully imported. */
+    readonly imported_tickets: number
+    /** Number of tickets skipped because they were already imported. */
+    readonly skipped_tickets: number
+    /** Number of tickets that failed to import. */
+    readonly failed_tickets: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface ZendeskImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
 }
 
 export type ConversationsListParams = {

@@ -206,7 +206,9 @@ export class InsightPage {
     }
 
     async openPersonsModal(): Promise<void> {
-        await this.page.locator('.TrendsInsight canvas').click()
+        // Click the static `role="img"` canvas — the quill chart also renders an
+        // `aria-hidden` overlay canvas, so an unscoped `canvas` would match two.
+        await this.page.locator('.TrendsInsight canvas[role="img"]').click()
         await this.page.waitForSelector('[data-attr="persons-modal"]', { state: 'visible' })
     }
 

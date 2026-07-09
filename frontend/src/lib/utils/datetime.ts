@@ -194,12 +194,11 @@ export function getConstrainedWeekRange(
     }
 }
 
-// When an insight is grouped by month, the query's WHERE clause uses
-// toStartOfInterval(date_from, month), so the first and last chart buckets cover the
-// whole month. Expand the resolved range we show in the tooltip to match — otherwise
+// When an insight is grouped by month/quarter/year, the query's WHERE clause uses
+// toStartOfInterval(date_from, <interval>), so the first and last chart buckets cover the
+// whole period. Expand the resolved range we show in the tooltip to match — otherwise
 // "Last 12 months" from April 7 looks like it excludes April 1–6, which it doesn't.
-// Scoped to month for now; weekly grouping has the same drift but is less visually
-// jarring and isn't handled here.
+// Weekly grouping has the same drift but is less visually jarring and isn't handled here.
 const TZ_SUFFIX_RE = /([+-]\d{2}:\d{2}|Z)$/
 
 function splitTimezoneSuffix(iso: string): [string, string] {
@@ -218,14 +217,14 @@ export function alignResolvedDateRangeToInterval(
     if (!resolvedDateRange?.date_from || !resolvedDateRange?.date_to) {
         return undefined
     }
-    if (interval !== 'month') {
+    if (interval !== 'month' && interval !== 'quarter' && interval !== 'year') {
         return resolvedDateRange
     }
     // Parse the wall-clock portion only, so manipulation stays in the original tz.
     const [fromWall, fromTz] = splitTimezoneSuffix(resolvedDateRange.date_from)
     const [toWall, toTz] = splitTimezoneSuffix(resolvedDateRange.date_to)
-    const from = dayjs.utc(fromWall).startOf('month')
-    const to = dayjs.utc(toWall).endOf('month')
+    const from = dayjs.utc(fromWall).startOf(interval)
+    const to = dayjs.utc(toWall).endOf(interval)
     return {
         date_from: from.format('YYYY-MM-DDTHH:mm:ss') + fromTz,
         date_to: to.format('YYYY-MM-DDTHH:mm:ss') + toTz,
@@ -285,4 +284,15 @@ export function parseDateInTimezone(dateStr: string, timezone: string): dayjs.Da
     } catch {
         return dayjs(null)
     }
+}
+
+/** Whole seconds elapsed from an ISO start timestamp to a reference `now` (ms epoch).
+ * Returns 0 for an unparseable start or a `now` that precedes it, so callers never
+ * surface a negative or NaN duration. */
+export function elapsedSecondsFrom(startedAt: string, now: number): number {
+    const started = new Date(startedAt).getTime()
+    if (Number.isNaN(started)) {
+        return 0
+    }
+    return Math.max(0, Math.floor((now - started) / 1000))
 }

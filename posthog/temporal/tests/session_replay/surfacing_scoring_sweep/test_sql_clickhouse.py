@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from posthog.clickhouse.client import sync_execute
@@ -50,6 +52,10 @@ class TestFetchFeaturesSqlShape:
         sql = fetch_features_sql()
         assert "AND min_first_timestamp >= now() - toIntervalDay(%(lookback_days)s + 1)" in sql
         assert "AND started_at >= now() - toIntervalDay(%(lookback_days)s)" in sql
+
+    @pytest.mark.parametrize("sql_fn", [fetch_features_sql, count_unscored_sql])
+    def test_excludes_eventless_sessions(self, sql_fn: Callable[[], str]) -> None:
+        assert "AND sum(event_count) > 0" in sql_fn()
 
     def test_count_unscored_has_raw_row_prefilter(self) -> None:
         sql = count_unscored_sql()

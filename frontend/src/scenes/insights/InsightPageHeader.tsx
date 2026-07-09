@@ -2,12 +2,16 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { IconPlusSmall } from '@posthog/icons'
+
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightModalsLogic } from 'scenes/insights/insightModalsLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -51,6 +55,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
+    const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
+
+    // A saved insight with its own short_id — the precondition for every view-mode action in this header.
+    const isPersistedInsight = !!isSavedInsight && !!insight.short_id
+
+    // New insights need a target folder; existing ones save in place. Shared by every save trigger in this header.
+    const saveInsightToFolder = (redirectToViewMode?: boolean): void => {
+        if (insight.short_id) {
+            saveInsight(redirectToViewMode)
+        } else {
+            saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
+        }
+    }
 
     const { query, queryChanged, insightQuery, generatedInsightMetadataLoading } = useValues(
         insightDataLogic(insightProps)
@@ -63,7 +80,9 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const defaultInsightName =
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
+    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
 
@@ -148,8 +167,20 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             </LemonButton>
                         )}
 
-                        {insightMode !== ItemMode.Edit && isSavedInsight && insight.short_id && (
-                            <InsightSubscribeProminentButton insightShortId={insight.short_id} />
+                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                data-attr="insight-add-to-dashboard-prominent-button"
+                                onClick={() => openAddToDashboardModal()}
+                            >
+                                Add to dashboard
+                            </LemonButton>
+                        )}
+
+                        {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                            <InsightSubscribeProminentButton insightShortId={insight.short_id!} />
                         )}
 
                         {insightMode !== ItemMode.Edit ? (
@@ -192,15 +223,16 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={() => saveAs(undefined, undefined, 'Unfiled/Insights')}
-                                saveInsight={(redirectToViewMode) =>
-                                    insight.short_id
-                                        ? saveInsight(redirectToViewMode)
-                                        : saveInsight(redirectToViewMode, getLastNewFolder() ?? 'Unfiled/Insights')
-                                }
+                                saveInsight={saveInsightToFolder}
                                 isSaved={isSavedInsight}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
                                 insightChanged={insightChanged || queryChanged}
+                                // Only offered for already-saved insights: the add-to-dashboard modal is keyed by the
+                                // insight id, so saving a brand-new insight navigates to its real id and re-keys the
+                                // modal logic, dropping the open state. New insights use the view-mode button instead.
+                                // `saveAndAddToDashboard` owns the save-then-open ordering (see insightModalsLogic).
+                                onSaveAndAddToDashboard={isPersistedInsight ? () => saveAndAddToDashboard() : undefined}
                             />
                         )}
                     </>

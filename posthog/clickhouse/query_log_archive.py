@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Buffer, Distributed, MergeTreeEngine, ReplicationScheme
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
@@ -505,6 +505,7 @@ def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
 # ============================================================================
 
 WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
+QUERY_LOG_ARCHIVE_BUFFER_TABLE = "query_log_archive_buffer"  # Buffer in front of sharded_query_log_archive, on OPS
 QUERY_LOG_ARCHIVE_OPS_MV = "ops_query_log_archive_mv"  # slim MV -> writable_query_log_archive, on every cluster
 
 # Curated JSON subset of log_comment. Keys not hinted here are still kept as
@@ -737,12 +738,39 @@ def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
     )
 
 
+def QUERY_LOG_ARCHIVE_BUFFER_OPS_TABLE_SQL():
+    """Buffer table on OPS, sitting in front of sharded_query_log_archive.
+
+    Every cluster's writable Distributed routes inserts here; the Buffer batches the
+    many small per-cluster MV inserts in memory and flushes them to the underlying
+    ReplicatedMergeTree, cutting part churn. Physical (insertable) columns only — the
+    structure must match the destination's real columns, and the lc_* / ProfileEvents_*
+    aliases are read-time only. Rows still buffered are not yet visible through the
+    read path (query_log_archive -> sharded_query_log_archive).
+    """
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
+        engine=Buffer(
+            destination_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            num_layers=16,
+            min_time=10,
+            max_time=60,
+            min_rows=10_000,
+            max_rows=1_000_000,
+            min_bytes=10_000_000,
+            max_bytes=100_000_000,
+        ),
+        include_aliases=False,
+        include_table_clauses=False,
+    )
+
+
 def WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
-    """Distributed write table carrying physical columns only, pointing at OPS."""
+    """Distributed write table carrying physical columns only, pointing at the OPS Buffer."""
     return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
         table_name=WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
         engine=Distributed(
-            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            data_table=QUERY_LOG_ARCHIVE_BUFFER_TABLE,
             cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER,
         ),
         include_aliases=False,
@@ -789,7 +817,7 @@ SELECT
     stack_trace,
 
     JSONExtractInt(log_comment, 'team_id') as team_id,
-    log_comment,
+    if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
     ProfileEvents
 FROM system.query_log
 WHERE
@@ -810,7 +838,7 @@ def QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name, dest_table):
 # ----------------------------------------------------------------------------
 # A non-materialized view that rolls query_log_archive up to one row per day per
 # (team, user, query-attribution) tuple. The data warehouse ClickHouse source
-# (posthog/temporal/data_imports/sources/clickhouse) syncs it into an internal
+# (products/warehouse_sources/backend/temporal/data_imports/sources/clickhouse) syncs it into an internal
 # project incrementally on `day`, so query-cost analysis can live in PostHog
 # instead of Metabase.
 #

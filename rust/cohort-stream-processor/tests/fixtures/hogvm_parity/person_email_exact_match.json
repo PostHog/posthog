@@ -1,0 +1,30 @@
+{
+  "bytecode": [
+    "_H",
+    1,
+    32,
+    "test@example.com",
+    32,
+    "email",
+    32,
+    "properties",
+    32,
+    "person",
+    1,
+    3,
+    11
+  ],
+  "expected_result": true,
+  "globals": {
+    "person": {
+      "id": "p-123",
+      "properties": {
+        "email": "test@example.com"
+      }
+    },
+    "project": {
+      "id": 42
+    }
+  },
+  "name": "person_email_exact_match"
+}

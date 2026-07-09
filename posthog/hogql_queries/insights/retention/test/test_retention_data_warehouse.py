@@ -20,7 +20,9 @@ from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.cohorts.backend.models.cohort import Cohort
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse"
 
@@ -208,6 +210,214 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def _activity_breakdown_table(self) -> tuple[str, dict[str, str]]:
+        person_ids = self._create_people()
+        table = self._create_data_warehouse_table(
+            filename="warehouse_activity_breakdown.csv",
+            table_name="warehouse_activity_breakdown",
+            header=["id", "person_id", "activity_type", "plan", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "pro", "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "signed_up", "free", "2025-01-01 10:00:00"],
+                [3, person_ids["user-1"], "renewed", "pro", "2025-01-02 12:00:00"],
+                [4, person_ids["user-2"], "renewed", "free", "2025-01-03 12:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "plan": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        return table, person_ids
+
+    def _activity_retention_filter(self, table: str) -> dict[str, Any]:
+        def entity(activity: str) -> dict[str, Any]:
+            return {
+                "id": table,
+                "name": table,
+                "type": "data_warehouse",
+                "table_name": table,
+                "aggregation_target_field": "person_id",
+                "timestamp_field": "occurred_at",
+                "properties": [
+                    {"key": "activity_type", "value": activity, "operator": "exact", "type": "data_warehouse"}
+                ],
+            }
+
+        return {
+            "period": "Day",
+            "totalIntervals": 4,
+            "targetEntity": entity("signed_up"),
+            "returningEntity": entity("renewed"),
+        }
+
+    @snapshot_clickhouse_queries
+    def test_retention_data_warehouse_breakdown_by_warehouse_column(self):
+        table, _person_ids = self._activity_breakdown_table()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": self._activity_retention_filter(table),
+                "breakdownFilter": {"breakdown": "plan", "breakdown_type": "hogql"},
+            }
+        )
+
+        self.assertEqual({c.get("breakdown_value") for c in result}, {"pro", "free"})
+        pro = pluck([c for c in result if c.get("breakdown_value") == "pro"], "values", "count")
+        free = pluck([c for c in result if c.get("breakdown_value") == "free"], "values", "count")
+        self.assertEqual(pro[0][:2], [1, 1])  # user-1 day 0, renewed day 1
+        self.assertEqual(free[0][:3], [1, 0, 1])  # user-2 day 0, renewed day 2
+
+    def test_retention_data_warehouse_breakdown_by_cohort(self):
+        table, person_ids = self._activity_breakdown_table()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="pro_users",
+            groups=[{"properties": [{"key": "id", "value": [person_ids["user-1"]], "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": self._activity_retention_filter(table),
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.pk]},
+            }
+        )
+
+        self.assertEqual({c.get("breakdown_value") for c in result}, {str(cohort.pk)})
+
+    def test_retention_data_warehouse_breakdown_by_person_property(self):
+        # Person-property breakdown on a DWH series resolves through a configured
+        # DWH-table -> persons join; the variant passes the person.* extract through
+        # unchanged, so it composes once that join exists.
+        person_ids = {
+            "user-1": "00000000-0000-0000-0000-000000000001",
+            "user-2": "00000000-0000-0000-0000-000000000002",
+        }
+        _create_person(team=self.team, distinct_ids=["user-1"], uuid=person_ids["user-1"], properties={"plan": "pro"})
+        _create_person(team=self.team, distinct_ids=["user-2"], uuid=person_ids["user-2"], properties={"plan": "free"})
+        flush_persons_and_events()
+
+        table = self._create_data_warehouse_table(
+            filename="warehouse_activity_person_bd.csv",
+            table_name="warehouse_activity_person_bd",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "signed_up", "2025-01-01 10:00:00"],
+                [3, person_ids["user-1"], "renewed", "2025-01-02 12:00:00"],
+                [4, person_ids["user-2"], "renewed", "2025-01-03 12:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=table,
+            source_table_key="person_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": self._activity_retention_filter(table),
+                "breakdownFilter": {"breakdowns": [{"property": "plan", "type": "person"}]},
+            }
+        )
+
+        self.assertEqual({c.get("breakdown_value") for c in result}, {"pro", "free"})
+
+    def test_retention_data_warehouse_event_property_breakdown_degrades_to_empty_bucket(self):
+        table, _person_ids = self._activity_breakdown_table()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": self._activity_retention_filter(table),
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Event-property extracts can't resolve against a data-warehouse-table arm, so the
+        # whole series degrades to the empty bucket rather than raising.
+        self.assertEqual({c.get("breakdown_value") for c in result}, {""})
+
+    def test_retention_first_ever_dwh_start_events_return_event_breakdown_degrades_to_empty_bucket(self):
+        # Cross-table first-ever retention: data warehouse start entity, events return entity,
+        # breakdown on an events-table property. The first-ever breakdown value must come from
+        # the actor's first START event, but the start event lives in the DWH table and carries
+        # no $browser. The return arm therefore must NOT fall back to the return event's $browser
+        # (which would happen because start_entity_expr_no_props collapses to a truthy constant
+        # for a DWH start); every actor degrades to the empty bucket instead.
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_ever_breakdown_signups.csv",
+            table_name="warehouse_first_ever_breakdown_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        for distinct_id, browser in [("user-1", "Chrome"), ("user-2", "Firefox")]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp="2025-01-02T12:00:00Z",
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": "retention_first_ever_occurrence",
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "$browser", "type": "event"}]},
+            }
+        )
+
+        # The breakdown value isn't available on the DWH start side, so both actors land in the
+        # empty bucket — never bucketed by the return event's $browser (Chrome / Firefox).
+        self.assertEqual({c.get("breakdown_value") for c in result}, {""})
+
+        # Sanity: both users cohort day 0 and return day 1 — they still retain in the empty bucket.
+        empty_bucket = [c for c in result if c.get("breakdown_value") == ""]
+        self.assertEqual(
+            pluck(empty_bucket, "values", "count"),
+            pad([[2, 2, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+
     @parameterized.expand([("person",), ("group",)])
     def test_retention_data_warehouse_actor_query_maps_back_to_actors(self, actor_type: str) -> None:
         actor_ids = self._create_people() if actor_type == "person" else self._create_groups()
@@ -377,6 +587,89 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             pad(
                 [
                     [2, 1, 1, 0],
+                    [2, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_data_warehouse_return_event_with_minimum_occurrences(self):
+        # Same cohorts as test_retention_data_warehouse_different_tables, but the data warehouse return entity now
+        # only counts an interval when the user renewed at least twice that day. user-1 (two renewals on 01-02) and
+        # user-3 (two renewals on 01-03) qualify; user-2's single renewal on 01-03 falls below the threshold and is
+        # dropped — the one cell that differs from the minimumOccurrences = 1 result.
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_min_occ_signups.csv",
+            table_name="warehouse_min_occ_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], "2025-01-01 10:00:00"],
+                [3, person_ids["user-3"], "2025-01-02 09:00:00"],
+                [4, person_ids["user-4"], "2025-01-02 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        renewals_table_name = self._create_data_warehouse_table(
+            filename="warehouse_min_occ_renewals.csv",
+            table_name="warehouse_min_occ_renewals",
+            header=["id", "person_id", "renewed_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-02 09:00:00"],
+                [2, person_ids["user-1"], "2025-01-02 15:00:00"],  # second renewal same day → qualifies interval 1
+                [3, person_ids["user-2"], "2025-01-03 12:00:00"],  # only one renewal → below threshold, dropped
+                [4, person_ids["user-3"], "2025-01-03 08:00:00"],
+                [5, person_ids["user-3"], "2025-01-03 20:00:00"],  # second renewal same day → qualifies interval 1
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "renewed_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {
+                    "date_from": "2025-01-01T00:00:00Z",
+                    "date_to": "2025-01-05T00:00:00Z",
+                },
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "minimumOccurrences": 2,
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {
+                        "id": renewals_table_name,
+                        "name": renewals_table_name,
+                        "type": "data_warehouse",
+                        "table_name": renewals_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "renewed_at",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 0, 0],
                     [2, 1, 0],
                     [0, 0],
                     [0],

@@ -2,6 +2,7 @@ import datetime as dt
 
 import temporalio.common
 import temporalio.workflow
+import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
@@ -34,13 +35,13 @@ from posthog.temporal.delete_teams.types import (
 # The bulky deletes are idempotent ("delete next N rows for this team until empty"), so they
 # can retry indefinitely on transient DB errors — the data only ever shrinks, and a restarted
 # activity just resumes. Deterministic failures (e.g. a ProtectedError from a PROTECT FK the
-# phase ordering doesn't account for) are non-retryable so the workflow fails fast and surfaces
-# instead of retrying forever unnoticed.
+# phase ordering doesn't account for, or a RecursionError decoding a deeply-nested JSON column on
+# a cascaded row) are non-retryable so the workflow fails fast and surfaces instead of looping forever.
 DELETE_RETRY_POLICY = temporalio.common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=10),
     maximum_interval=dt.timedelta(seconds=360),
     maximum_attempts=0,
-    non_retryable_error_types=["ProtectedError"],
+    non_retryable_error_types=["ProtectedError", "RecursionError"],
 )
 # Bounded retries for the lighter orchestration / side-effect activities.
 SIDE_EFFECT_RETRY_POLICY = temporalio.common.RetryPolicy(
@@ -71,9 +72,8 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
     """Delete all child data and the team rows for a set of teams.
 
     The reusable core: composed as a child workflow by both ``DeleteProjectDataWorkflow``
-    and ``DeleteOrganizationWorkflow``. Mirrors the phase order of the legacy
-    ``_delete_teams_and_data`` Celery path, with each phase as an independently retryable,
-    heartbeating activity.
+    and ``DeleteOrganizationWorkflow``. Each deletion phase runs as an independently
+    retryable, heartbeating activity.
     """
 
     inputs_cls = DeleteTeamsDataWorkflowInputs
@@ -85,14 +85,23 @@ class DeleteTeamsDataWorkflow(PostHogWorkflow):
 
         team_inputs = TeamDataActivityInputs(team_ids=inputs.team_ids, user_id=inputs.user_id)
 
-        # Start the autonomous session-replay recording deletion (fire-and-forget).
-        await temporalio.workflow.execute_activity(
-            queue_recording_deletions_activity,
-            team_inputs,
-            start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
-            heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
-            retry_policy=SIDE_EFFECT_RETRY_POLICY,
-        )
+        # Start the autonomous session-replay recording deletion (fire-and-forget). Best-effort:
+        # queuing recording deletion is not a prerequisite for removing the team's data, so if it
+        # exhausts its retries we log and carry on rather than wedging the whole deletion. Recordings
+        # left behind are reaped by their own retention/TTL.
+        try:
+            await temporalio.workflow.execute_activity(
+                queue_recording_deletions_activity,
+                team_inputs,
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=SIDE_EFFECT_RETRY_POLICY,
+            )
+        except temporalio.exceptions.ActivityError:
+            temporalio.workflow.logger.warning(
+                "queue_recording_deletions_activity failed; continuing team deletion without it",
+                exc_info=True,
+            )
 
         for activity in BULKY_POSTGRES_ACTIVITIES:
             await temporalio.workflow.execute_activity(
@@ -146,7 +155,7 @@ async def _delete_teams_data_child(inputs: DeleteTeamsDataWorkflowInputs, workfl
 
 @temporalio.workflow.defn(name="delete-project-data")
 class DeleteProjectDataWorkflow(PostHogWorkflow):
-    """Replaces ``delete_project_data_and_notify_task`` — project or environment-only deletion."""
+    """Durable project or environment-only deletion."""
 
     inputs_cls = DeleteProjectDataWorkflowInputs
 
@@ -179,7 +188,7 @@ class DeleteProjectDataWorkflow(PostHogWorkflow):
 
 @temporalio.workflow.defn(name="delete-organization")
 class DeleteOrganizationWorkflow(PostHogWorkflow):
-    """Replaces ``delete_organization_data_and_notify_task``."""
+    """Durable organization deletion."""
 
     inputs_cls = DeleteOrganizationWorkflowInputs
 

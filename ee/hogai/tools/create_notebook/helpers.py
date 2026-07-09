@@ -2,16 +2,19 @@ from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 
-from django.db.models import F
-from django.utils import timezone
-
-from asgiref.sync import sync_to_async
-
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.sync import database_sync_to_async
 
-from products.notebooks.backend import markdown_collab
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import (
+    api as notebooks,
+    collab,
+)
+from products.notebooks.backend.facade.content import (
+    build_markdown_notebook_content,
+    convert_notebook_content_to_markdown,
+)
+from products.notebooks.backend.facade.contracts import NotebookData
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.handlers.visualization import VisualizationHandler
@@ -19,6 +22,7 @@ from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
+from ee.hogai.utils.feature_flags import has_markdown_notebooks_feature_flag
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
@@ -112,7 +116,7 @@ async def save_notebook_to_db(
     title: str,
     state_messages: Sequence[AssistantMessageUnion],
     markdown_content: str | None = None,
-) -> Notebook:
+) -> NotebookData:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
 
@@ -123,33 +127,36 @@ async def save_notebook_to_db(
     have editor access to it — Max acts on the user's behalf and must not overwrite
     notebooks the user couldn't edit themselves.
     """
-    existing_notebook = await Notebook.objects.filter(team=team, short_id=artifact.short_id).afirst()
-    if existing_notebook and not await _acan_user_edit_notebook(team, user, existing_notebook):
-        raise NotebookEditNotAllowedError(
-            f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
-        )
+    existing_notebook = await notebooks.aget_notebook(team.id, artifact.short_id, include_deleted=True)
+    if existing_notebook is not None:
+        access_control = UserAccessControl(user=user, team=team)
+        if not await notebooks.acan_user_edit_notebook(team.id, artifact.short_id, user_access_control=access_control):
+            raise NotebookEditNotAllowedError(
+                f"User {user.id} does not have editor access to notebook {existing_notebook.short_id}"
+            )
 
     if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
         previous_content = existing_notebook.content
         next_content = _build_markdown_notebook_doc(markdown_content, previous_content)
-        await Notebook.objects.filter(pk=existing_notebook.pk).aupdate(
+        updated_notebook = await notebooks.aupdate_notebook_content(
+            team.id,
+            artifact.short_id,
             content=next_content,
             title=title,
             text_content=markdown_content,
-            version=F("version") + 1,
-            last_modified_by=user,
-            last_modified_at=timezone.now(),
+            last_modified_by_id=user.id,
         )
-        await existing_notebook.arefresh_from_db()
+        if updated_notebook is None:
+            raise RuntimeError(f"Notebook {artifact.short_id} disappeared during content update")
         # The base_crc inside the diff lets receivers detect a racing concurrent edit
         # (this path has no version CAS) and fall back to a reload instead of misapplying.
-        await markdown_collab.apublish_notebook_update(
+        await collab.apublish_notebook_update(
             team.id,
-            str(existing_notebook.short_id),
-            existing_notebook.version,
-            diff=markdown_collab.build_markdown_update_diff(previous_content, next_content),
+            str(updated_notebook.short_id),
+            updated_notebook.version,
+            diff=collab.build_markdown_update_diff(previous_content, next_content),
         )
-        return existing_notebook
+        return updated_notebook
 
     # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
     # matching the chat preview. A direct AgentArtifact query misses state-only charts.
@@ -177,34 +184,29 @@ async def save_notebook_to_db(
 
     tiptap_doc = blocks_to_tiptap_doc(blocks, title=title, resolve_visualization=resolve_visualization)
 
-    notebook, created = await Notebook.objects.aget_or_create(
-        team=team,
-        short_id=artifact.short_id,
-        defaults={
-            "created_by": user,
-            "last_modified_by": user,
-            "title": title,
-            "content": tiptap_doc,
-        },
+    # New notebooks follow the markdown notebooks rollout. Existing TipTap notebooks keep
+    # their stored format so open editors don't flip formats mid-session.
+    content: dict[str, Any] = tiptap_doc
+    text_content: str | None = None
+    if existing_notebook is None and await database_sync_to_async(has_markdown_notebooks_feature_flag)(team, user):
+        markdown = convert_notebook_content_to_markdown(tiptap_doc)
+        content = build_markdown_notebook_content(markdown)
+        text_content = markdown
+
+    notebook, created = await notebooks.aupsert_notebook(
+        team.id,
+        artifact.short_id,
+        created_by_id=user.id,
+        last_modified_by_id=user.id,
+        title=title,
+        content=content,
+        text_content=text_content,
     )
     if not created:
-        notebook.content = tiptap_doc
-        notebook.title = title
-        notebook.version += 1
-        notebook.last_modified_by = user
-        await notebook.asave(update_fields=["content", "title", "version", "last_modified_by", "last_modified_at"])
-        await markdown_collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
+        await collab.apublish_notebook_update(team.id, str(notebook.short_id), notebook.version)
 
     return notebook
 
 
 async def notebook_exists_for_artifact(team: Team, short_id: str) -> bool:
-    return await Notebook.objects.filter(team=team, short_id=short_id).aexists()
-
-
-async def _acan_user_edit_notebook(team: Team, user: User, notebook: Notebook) -> bool:
-    def check() -> bool:
-        access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        return bool(access_control.check_access_level_for_object(notebook, "editor"))
-
-    return await sync_to_async(check)()
+    return await notebooks.anotebook_exists(team.id, short_id)

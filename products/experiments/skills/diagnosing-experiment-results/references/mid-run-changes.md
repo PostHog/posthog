@@ -243,6 +243,12 @@ case is that the metric line is rendered but the per-variant result block is emp
 is non-zero, but the entry under `results[]` has no `chance_to_win`, no `credible_interval`, no
 `significant`, no `step_counts`. Exposures are fully populated; only the metric output is missing.
 
+Don't confuse this with a `data: null` row on a **non-legacy** experiment — that's usually transient
+(precompute not yet landed, or load at snapshot time) and resolves on re-pull / force-refresh. See
+"Reading metric result rows (`data: null`)" in `diagnostic-snapshot.md` to disambiguate before
+concluding anything. The legacy fingerprint here is specifically an experiment with `is_legacy: true`
+whose result block stays empty even after a force-refresh.
+
 **Verify directly** (no interview needed). In `experiment-get`'s response:
 
 - `metrics[].kind == "ExperimentFunnelsQuery"` or `"ExperimentTrendsQuery"` (not `"ExperimentMetric"`)

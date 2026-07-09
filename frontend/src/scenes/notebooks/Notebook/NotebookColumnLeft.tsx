@@ -20,10 +20,14 @@ import { NotebookTableOfContents } from './NotebookTableOfContents'
 export const NotebookColumnLeft = (): JSX.Element | null => {
     const { content, editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
         useValues(notebookLogic)
-    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebookContent(content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+
+    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebook
+    const shouldShowNodeSettings = editingNodeLogicsForLeft.length > 0 && !isMarkdownNotebook
+    const shouldShowKernelInfo = showKernelInfo && !isMarkdownNotebook
     const isShowingEffectiveLeftColumn =
         isShowingLeftColumn &&
-        (editingNodeLogicsForLeft.length > 0 || showHistory || shouldShowTableOfContents || showKernelInfo)
+        (shouldShowNodeSettings || showHistory || shouldShowTableOfContents || shouldShowKernelInfo)
 
     return (
         <div
@@ -34,15 +38,17 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
             <div className="NotebookColumn__content">
                 {isShowingEffectiveLeftColumn ? (
                     <>
-                        {editingNodeLogicsForLeft.map((logic) => (
-                            <div key={logic.values.nodeId}>
-                                <NotebookNodeSettingsOffset logic={logic} />
-                                <NotebookNodeSettingsWidget logic={logic} />
-                            </div>
-                        ))}
+                        {shouldShowNodeSettings
+                            ? editingNodeLogicsForLeft.map((logic) => (
+                                  <div key={logic.values.nodeId}>
+                                      <NotebookNodeSettingsOffset logic={logic} />
+                                      <NotebookNodeSettingsWidget logic={logic} />
+                                  </div>
+                              ))
+                            : null}
                         {showHistory ? <NotebookHistory /> : null}
                         {shouldShowTableOfContents ? <NotebookTableOfContents /> : null}
-                        {showKernelInfo ? <NotebookKernelInfo /> : null}
+                        {shouldShowKernelInfo ? <NotebookKernelInfo /> : null}
                     </>
                 ) : null}
             </div>

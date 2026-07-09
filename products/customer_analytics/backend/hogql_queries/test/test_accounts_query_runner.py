@@ -16,7 +16,9 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.logic import relationships as relationships_logic
+from products.customer_analytics.backend.models import AccountRelationshipDefinition, CustomPropertyValue
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
@@ -28,7 +30,9 @@ except ImportError:
 @override_settings(IN_UNIT_TESTING=True)
 class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
     def _run_query(self, user: User | None = None, **query_kwargs) -> tuple[AccountsQueryRunner, AccountsQueryResponse]:
-        runner = AccountsQueryRunner(query=AccountsQuery(**query_kwargs), team=self.team, user=user)
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(**query_kwargs), team=self.team, user=user if user is not None else self.user
+        )
         return runner, runner.calculate()
 
     def _ids(self, user: User | None = None, **query_kwargs) -> list[str]:
@@ -140,112 +144,140 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(self._ids(tagNames=["billing"]), [str(local_account.id)])
 
-    @parameterized.expand(
-        [
-            ("absent_keys", {"_properties": {}}),
-            ("null_valued_keys", {"properties": {}}),
-        ]
-    )
-    def test_all_roles_unassigned(self, _name, unassigned_kwargs):
-        create_account(team_id=self.team.id, name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
-        unassigned = create_account(team_id=self.team.id, name="Unassigned", **unassigned_kwargs)
-        self.assertEqual(self._ids(allRolesUnassigned=True), [str(unassigned.id)])
+    def _assign(self, account, user, definition_name="CSM"):
+        definition, _ = AccountRelationshipDefinition.objects.for_team(self.team.id).get_or_create(
+            team_id=self.team.id, name=definition_name
+        )
+        return relationships_logic.assign(
+            team_id=self.team.id, account=account, definition=definition, user=user, created_by=user
+        )
+
+    def test_all_roles_unassigned(self):
+        holder = self._create_user("holder@x.com")
+        assigned = create_account(team_id=self.team.id, name="Assigned")
+        self._assign(assigned, holder)
+        previously_assigned = create_account(team_id=self.team.id, name="Previously assigned")
+        rel = self._assign(previously_assigned, holder)
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(previously_assigned.id), relationship_id=str(rel.id)
+        )
+        never_assigned = create_account(team_id=self.team.id, name="Never assigned")
+
+        self.assertEqual(set(self._ids(allRolesUnassigned=True)), {str(previously_assigned.id), str(never_assigned.id)})
 
     def test_combined_assigned_to_and_tags(self):
         enterprise_tag = Tag.objects.create(name="enterprise", team=self.team)
         startup_tag = Tag.objects.create(name="startup", team=self.team)
+        holder = self._create_user("holder@x.com")
+        other_holder = self._create_user("other-holder@x.com")
 
-        match = create_account(team_id=self.team.id, name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        match = create_account(team_id=self.team.id, name="A")
+        self._assign(match, holder)
         match.tagged_items.create(tag=enterprise_tag)
 
-        wrong_tag = create_account(team_id=self.team.id, name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        wrong_tag = create_account(team_id=self.team.id, name="B")
+        self._assign(wrong_tag, holder)
         wrong_tag.tagged_items.create(tag=startup_tag)
 
-        wrong_user = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        wrong_user = create_account(team_id=self.team.id, name="C")
+        self._assign(wrong_user, other_holder)
         wrong_user.tagged_items.create(tag=enterprise_tag)
 
-        self.assertEqual(self._ids(assignedToUserIds=[7], tagNames=["enterprise"]), [str(match.id)])
+        self.assertEqual(self._ids(assignedToUserIds=[holder.id], tagNames=["enterprise"]), [str(match.id)])
 
     @parameterized.expand(
         [
-            ("csm", "csm"),
-            ("account_executive", "account_executive"),
+            ("seeded_csm", "CSM"),
+            ("seeded_account_owner", "Account owner"),
+            ("custom_definition", "Onboarding manager"),
         ]
     )
-    def test_assigned_to_user_matches_when_user_holds_role(self, _name, role_key):
-        mine = create_account(
-            team_id=self.team.id,
-            name="Mine",
-            _properties={role_key: {"id": 7, "email": "a@x.com"}},
-        )
-        create_account(
-            team_id=self.team.id,
-            name="Someone else's",
-            _properties={role_key: {"id": 8, "email": "other@x.com"}},
-        )
-        self.assertEqual(self._ids(assignedToUserIds=[7]), [str(mine.id)])
+    def test_assigned_to_user_matches_any_actively_held_relationship(self, _name, definition_name):
+        holder = self._create_user("holder@x.com")
+        other_holder = self._create_user("other-holder@x.com")
+        mine = create_account(team_id=self.team.id, name="Mine")
+        self._assign(mine, holder, definition_name)
+        someone_elses = create_account(team_id=self.team.id, name="Someone else's")
+        self._assign(someone_elses, other_holder, definition_name)
+        self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [str(mine.id)])
 
-    def test_assigned_to_user_unions_csm_and_account_executive_but_not_owner(self):
-        as_csm = create_account(team_id=self.team.id, name="As CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        as_ae = create_account(
-            team_id=self.team.id,
-            name="As AE",
-            _properties={"account_executive": {"id": 7, "email": "a@x.com"}},
+    def test_assigned_to_user_excludes_ended_assignments(self):
+        holder = self._create_user("holder@x.com")
+        account = create_account(team_id=self.team.id, name="Handed off")
+        rel = self._assign(account, holder)
+        relationships_logic.end_relationship(
+            team_id=self.team.id, account_id=str(account.id), relationship_id=str(rel.id)
         )
-        create_account(
-            team_id=self.team.id,
-            name="As owner only",
-            _properties={"account_owner": {"id": 7, "email": "a@x.com"}},
-        )
-        create_account(team_id=self.team.id, name="Unassigned")
-
-        self.assertEqual(
-            set(self._ids(assignedToUserIds=[7])),
-            {str(as_csm.id), str(as_ae.id)},
-        )
+        self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [])
 
     def test_assigned_to_user_matches_any_of_multiple_ids(self):
-        as_csm = create_account(team_id=self.team.id, name="CSM 7", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        as_ae = create_account(
-            team_id=self.team.id, name="AE 9", _properties={"account_executive": {"id": 9, "email": "b@x.com"}}
-        )
-        create_account(team_id=self.team.id, name="CSM 11", _properties={"csm": {"id": 11, "email": "c@x.com"}})
-        self.assertEqual(set(self._ids(assignedToUserIds=[7, 9])), {str(as_csm.id), str(as_ae.id)})
+        holder_a = self._create_user("a@x.com")
+        holder_b = self._create_user("b@x.com")
+        holder_c = self._create_user("c@x.com")
+        as_csm = create_account(team_id=self.team.id, name="CSM A")
+        self._assign(as_csm, holder_a)
+        as_ae = create_account(team_id=self.team.id, name="AE B")
+        self._assign(as_ae, holder_b, "Account executive")
+        other = create_account(team_id=self.team.id, name="CSM C")
+        self._assign(other, holder_c)
+        self.assertEqual(set(self._ids(assignedToUserIds=[holder_a.id, holder_b.id])), {str(as_csm.id), str(as_ae.id)})
 
     def test_assigned_to_user_is_independent_of_requesting_user(self):
         # The ids are explicit, not the requester — a shared "my accounts" link
         # resolves to the same accounts no matter which user opens it.
-        target = create_account(team_id=self.team.id, name="Target", _properties={"csm": {"id": 7, "email": "t@x.com"}})
-        create_account(team_id=self.team.id, name="Other", _properties={"csm": {"id": 8, "email": "o@x.com"}})
-        as_user = self._ids(user=self.user, assignedToUserIds=[7])
-        anonymous = self._ids(user=None, assignedToUserIds=[7])
+        holder = self._create_user("holder@x.com")
+        other_holder = self._create_user("other-holder@x.com")
+        target = create_account(team_id=self.team.id, name="Target")
+        self._assign(target, holder)
+        other = create_account(team_id=self.team.id, name="Other")
+        self._assign(other, other_holder)
+        other_user = self._create_user("other@example.com")
+        as_user = self._ids(user=self.user, assignedToUserIds=[holder.id])
+        as_other_user = self._ids(user=other_user, assignedToUserIds=[holder.id])
         self.assertEqual(as_user, [str(target.id)])
-        self.assertEqual(as_user, anonymous)
+        self.assertEqual(as_user, as_other_user)
 
     def test_assigned_to_user_unknown_id_matches_nothing(self):
-        create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account = create_account(team_id=self.team.id, name="Has CSM")
+        self._assign(account, self._create_user("holder@x.com"))
         self.assertEqual(self._ids(assignedToUserIds=[999999]), [])
 
     def test_assigned_to_user_empty_ids_is_a_noop(self):
-        a = create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        a = create_account(team_id=self.team.id, name="Has CSM")
+        self._assign(a, self._create_user("holder@x.com"))
         self.assertEqual(self._ids(assignedToUserIds=[]), [str(a.id)])
 
     def test_assigned_to_user_combines_with_search(self):
-        match = create_account(team_id=self.team.id, name="Acme", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        create_account(team_id=self.team.id, name="Globex", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(assignedToUserIds=[7], search="acme"), [str(match.id)])
+        holder = self._create_user("holder@x.com")
+        match = create_account(team_id=self.team.id, name="Acme")
+        self._assign(match, holder)
+        globex = create_account(team_id=self.team.id, name="Globex")
+        self._assign(globex, holder)
+        self.assertEqual(self._ids(assignedToUserIds=[holder.id], search="acme"), [str(match.id)])
 
     def test_assigned_to_user_respects_team_isolation(self):
+        holder = self._create_user("holder@x.com")
         other_team = Team.objects.create(organization=self.organization)
-        create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(assignedToUserIds=[7]), [str(mine.id)])
+        theirs = create_account(team_id=other_team.id, name="Theirs")
+        their_definition = AccountRelationshipDefinition.objects.for_team(other_team.id).create(
+            team_id=other_team.id, name="CSM"
+        )
+        relationships_logic.assign(
+            team_id=other_team.id, account=theirs, definition=their_definition, user=holder, created_by=holder
+        )
+        mine = create_account(team_id=self.team.id, name="Mine")
+        self._assign(mine, holder)
+        self.assertEqual(self._ids(assignedToUserIds=[holder.id]), [str(mine.id)])
 
     def test_assigned_to_user_metrics_mode_counts_only_matching_accounts(self):
-        create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        create_account(team_id=self.team.id, name="Theirs", _properties={"csm": {"id": 8, "email": "x@x.com"}})
+        holder = self._create_user("holder@x.com")
+        other_holder = self._create_user("other-holder@x.com")
+        mine = create_account(team_id=self.team.id, name="Mine")
+        self._assign(mine, holder)
+        theirs = create_account(team_id=self.team.id, name="Theirs")
+        self._assign(theirs, other_holder)
         runner = AccountsQueryRunner(
-            query=AccountsQuery(metrics=["count()"], select=[], assignedToUserIds=[7]),
+            query=AccountsQuery(metrics=["count()"], select=[], assignedToUserIds=[holder.id]),
             team=self.team,
             user=self.user,
         )
@@ -297,6 +329,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -320,6 +353,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
                 orderBy=["notebook_count DESC", "name"],
             ),
             team=self.team,
+            user=self.user,
         )
         response = runner.calculate()
         id_idx = runner.columns.index("id")
@@ -329,65 +363,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         # `zero` has no notebook rows, so the aggregate is NULL and lands at the end.
         self.assertEqual(str(response.results[-1][id_idx]), str(zero.id))
-
-    @parameterized.expand(
-        [
-            ("csm", "csm"),
-            ("account_executive", "account_executive"),
-        ]
-    )
-    def test_ordering_by_role_email_asc(self, _name, role_key):
-        zed = create_account(
-            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
-        )
-        adam = create_account(
-            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
-        )
-        molly = create_account(
-            team_id=self.team.id, name="Molly", _properties={role_key: {"id": 3, "email": "molly@example.com"}}
-        )
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", role_key],
-                orderBy=[f"tupleElement({role_key}, 2)"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results],
-            [str(adam.id), str(molly.id), str(zed.id)],
-        )
-
-    @parameterized.expand(
-        [
-            ("csm", "csm"),
-            ("account_executive", "account_executive"),
-        ]
-    )
-    def test_ordering_by_role_email_desc(self, _name, role_key):
-        zed = create_account(
-            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
-        )
-        adam = create_account(
-            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
-        )
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", role_key],
-                orderBy=[f"tupleElement({role_key}, 2) DESC"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results],
-            [str(zed.id), str(adam.id)],
-        )
 
     def test_pagination_limit_and_offset(self):
         ids = [str(create_account(team_id=self.team.id, name=f"Account {i:02d}").id) for i in range(5)]
@@ -431,7 +406,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_custom_select_uses_only_requested_columns(self):
         create_account(team_id=self.team.id, name="A")
-        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team)
+        runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name"]), team=self.team, user=self.user)
         response = runner.calculate()
         self.assertEqual(runner.columns, ["id", "name"])
         self.assertEqual(len(response.results[0]), 2)
@@ -440,105 +415,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="A")
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
-
-    FRONTEND_DEFAULT_SELECT = [
-        "name",
-        "accounts.tags.names AS tag_names",
-        "accounts.notebooks.count AS notebook_count",
-        "csm",
-        "account_executive",
-        "account_owner",
-    ]
-
-    def test_default_render_defers_tags_and_notebooks(self):
-        runner = AccountsQueryRunner(query=AccountsQuery(select=self.FRONTEND_DEFAULT_SELECT), team=self.team)
-        self.assertEqual({d.column_name for d in runner._deferred_columns}, {"tag_names", "notebook_count"})
-        # Deferred columns are pulled out of the paginated main query…
-        self.assertNotIn("tag_names", runner._main_column_names)
-        self.assertNotIn("notebook_count", runner._main_column_names)
-        # …but the full column set/order is still advertised to the frontend.
-        self.assertEqual(
-            runner.columns,
-            ["name", "tag_names", "notebook_count", "csm", "account_executive", "account_owner"],
-        )
-
-    def test_deferred_tags_and_notebooks_values_are_enriched(self):
-        billing_tag = Tag.objects.create(name="billing", team=self.team)
-        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
-        tagged = create_account(team_id=self.team.id, name="Tagged")
-        tagged.tagged_items.create(tag=billing_tag)
-        tagged.tagged_items.create(tag=urgent_tag)
-        self._link_notebooks(tagged, 2)
-        bare = create_account(team_id=self.team.id, name="Bare")
-
-        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
-        runner, response = self._run_query(select=select)
-        name_idx = runner.columns.index("name")
-        tags_idx = runner.columns.index("tag_names")
-        nb_idx = runner.columns.index("notebook_count")
-        by_id = {row[name_idx]["id"]: row for row in response.results}
-
-        self.assertEqual(by_id[str(tagged.id)][tags_idx], ["billing", "urgent"])
-        self.assertEqual(by_id[str(tagged.id)][nb_idx], 2)
-        # No junction rows → defaults matching the prior inline LEFT JOIN render.
-        self.assertEqual(by_id[str(bare.id)][tags_idx], [])
-        self.assertEqual(by_id[str(bare.id)][nb_idx], 0)
-
-    def test_deferred_columns_keep_full_column_order(self):
-        acct = create_account(team_id=self.team.id, name="A", external_id="ext")
-        select = [
-            "accounts.tags.names AS tag_names",
-            "name",
-            "external_id",
-            "accounts.notebooks.count AS notebook_count",
-        ]
-        runner, response = self._run_query(select=select)
-        self.assertEqual(runner.columns, ["tag_names", "name", "external_id", "notebook_count"])
-        row = response.results[0]
-        self.assertEqual(row[0], [])
-        self.assertEqual(row[1]["id"], str(acct.id))
-        self.assertEqual(row[2], "ext")
-        self.assertEqual(row[3], 0)
-
-    def test_deferred_columns_types_align_with_columns(self):
-        create_account(team_id=self.team.id, name="A")
-        runner, response = self._run_query(select=self.FRONTEND_DEFAULT_SELECT)
-        self.assertEqual(len(response.types), len(runner.columns))
-
-    def test_deferred_columns_with_empty_result_set(self):
-        create_account(team_id=self.team.id, name="Acme")
-        select = ["name", "accounts.tags.names AS tag_names", "accounts.notebooks.count AS notebook_count"]
-        _, response = self._run_query(select=select, search="nonexistent_substring_xyz")
-        self.assertEqual(response.results, [])
-
-    def test_deferred_tags_respect_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization)
-        other_tag = Tag.objects.create(name="secret", team=other_team)
-        other_account = create_account(team_id=other_team.id, name="Other")
-        other_account.tagged_items.create(tag=other_tag)
-
-        local_tag = Tag.objects.create(name="billing", team=self.team)
-        local_account = create_account(team_id=self.team.id, name="Mine")
-        local_account.tagged_items.create(tag=local_tag)
-
-        select = ["name", "accounts.tags.names AS tag_names"]
-        runner, response = self._run_query(select=select)
-        name_idx = runner.columns.index("name")
-        tags_idx = runner.columns.index("tag_names")
-        by_id = {row[name_idx]["id"]: row for row in response.results}
-        self.assertEqual(set(by_id), {str(local_account.id)})
-        self.assertEqual(by_id[str(local_account.id)][tags_idx], ["billing"])
-
-    def test_sorted_lazy_join_column_is_not_deferred(self):
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["name", "accounts.notebooks.count AS notebook_count"],
-                orderBy=["notebook_count DESC"],
-            ),
-            team=self.team,
-        )
-        self.assertEqual(runner._deferred_columns, [])
-        self.assertIn("notebook_count", runner._main_column_names)
 
     def test_metrics_mode_returns_aggregations_and_no_rows(self):
         create_account(team_id=self.team.id, name="A")
@@ -597,6 +473,47 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
         )
         self.assertEqual(names, ["Match"])
+
+    def test_custom_property_value_round_trips_through_a_selected_alias(self):
+        account = create_account(team_id=self.team.id, name="A")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=definition, value_str="enterprise"
+        )
+        other = create_account(team_id=self.team.id, name="No value")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(select=["id", f"accounts.custom_properties.values.`{definition.id}` AS cp_x"]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        id_idx, value_idx = runner.columns.index("id"), runner.columns.index("cp_x")
+        values_by_id = {str(row[id_idx]): row[value_idx] for row in response.results}
+
+        self.assertEqual(values_by_id[str(account.id)], "enterprise")
+        # An account with no value for the definition aggregates to NULL/empty.
+        self.assertFalse(values_by_id[str(other.id)])
+
+    def test_numeric_custom_property_aggregates_in_metrics_mode(self):
+        # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        for account_name, seats in [("A", 10.0), ("B", 30.0)]:
+            account = create_account(team_id=self.team.id, name=account_name)
+            CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=account, definition=definition, value_num=seats
+            )
+        create_account(team_id=self.team.id, name="No value")
+
+        expr = f"toFloatOrNull(accounts.custom_properties.values.`{definition.id}`)"
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(metrics=[f"sum({expr})", f"avg({expr})"], select=[]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        # Sum ignores the null (no-value) account; avg averages only the two present values.
+        self.assertEqual(response.metricsResults, [40.0, 20.0])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

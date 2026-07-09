@@ -7,6 +7,134 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `redis` - redis
+ * * `miss` - miss
+ */
+export type StaffCacheSourceEnumApi = (typeof StaffCacheSourceEnumApi)[keyof typeof StaffCacheSourceEnumApi]
+
+export const StaffCacheSourceEnumApi = {
+    Redis: 'redis',
+    Miss: 'miss',
+} as const
+
+export interface StaffCacheEntryStatusApi {
+    /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+     *
+     * * `redis` - redis
+     * * `miss` - miss */
+    source: StaffCacheSourceEnumApi
+    /**
+     * Number of flags in the cached payload, or null on a miss.
+     * @nullable
+     */
+    flag_count: number | null
+}
+
+export interface StaffCacheTeamStatusApi {
+    /** Team id. */
+    team_id: number
+    /** Status of the /flags evaluation cache. */
+    evaluation: StaffCacheEntryStatusApi
+    /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+    definitions: StaffCacheEntryStatusApi
+    /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
+    definitions_no_cohorts: StaffCacheEntryStatusApi
+}
+
+export interface StaffCacheStatusResponseApi {
+    /** Per-team cache status. */
+    results: StaffCacheTeamStatusApi[]
+}
+
+/**
+ * * `evaluation` - evaluation
+ * * `definitions` - definitions
+ */
+export type CachesEnumApi = (typeof CachesEnumApi)[keyof typeof CachesEnumApi]
+
+export const CachesEnumApi = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+} as const
+
+export interface StaffCacheMutationApi {
+    /**
+     * Team ids to act on (max 50 per request).
+     * @maxItems 50
+     */
+    team_ids: number[]
+    /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
+    caches?: CachesEnumApi[]
+}
+
+export interface StaffCacheMutationResponseApi {
+    /** Team ids for which the requested action's tasks were enqueued. */
+    queued_team_ids: number[]
+    /** Requested team ids that do not exist. */
+    not_found_team_ids: number[]
+}
+
+/**
+ * Raw cached payload as stored in Redis, or null on a miss.
+ * @nullable
+ */
+export type StaffCacheEntryResponseApiData = { [key: string]: unknown } | null
+
+/**
+ * * `evaluation` - evaluation
+ * * `definitions` - definitions
+ * * `definitions_no_cohorts` - definitions_no_cohorts
+ */
+export type CacheEnumApi = (typeof CacheEnumApi)[keyof typeof CacheEnumApi]
+
+export const CacheEnumApi = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+    DefinitionsNoCohorts: 'definitions_no_cohorts',
+} as const
+
+export interface StaffCacheEntryResponseApi {
+    /** Team id. */
+    team_id: number
+    /** Which cache this entry is for.
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts */
+    cache: CacheEnumApi
+    /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+     *
+     * * `redis` - redis
+     * * `miss` - miss */
+    source: StaffCacheSourceEnumApi
+    /**
+     * Raw cached payload as stored in Redis, or null on a miss.
+     * @nullable
+     */
+    data: StaffCacheEntryResponseApiData
+}
+
+export interface StaffTeamResultApi {
+    /** Team id. */
+    id: number
+    /** Team name. */
+    name: string
+    /** Team api_token (used as the flags evaluation cache key). */
+    api_token: string
+    /** Organization uuid that owns the team. */
+    organization_id: string
+    /** Organization name that owns the team. */
+    organization_name: string
+    /** Project id the team belongs to. */
+    project_id: number
+}
+
+export interface StaffTeamSearchResponseApi {
+    /** Matching teams. */
+    results: StaffTeamResultApi[]
+}
+
 export interface CopyFlagsRequestApi {
     /** Key of the feature flag to copy */
     feature_flag_key: string
@@ -34,6 +162,10 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
+    flag_dependency_warnings?: string[]
+    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    schedule_copy_warning?: string
 }
 
 export interface CopyFlagsResultApi {
@@ -48,6 +180,38 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface OrganizationFeatureFlagRowApi {
+    /** ID of the representative feature flag for this key */
+    id: number
+    /** Team ID the representative feature flag belongs to */
+    team_id: number
+    /** Feature flag key, unique within the compared projects */
+    key: string
+    /** Human-readable name of the representative feature flag */
+    name: string
+    /** Whether the representative feature flag is enabled */
+    active: boolean
+    /** Release condition filters of the representative feature flag */
+    filters: unknown
+}
+
+export interface OrganizationFeatureFlagKeysResponseApi {
+    /** Total number of distinct flag keys across the compared projects */
+    count: number
+    /**
+     * URL for the next page of results, or null if none
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, or null if none
+     * @nullable
+     */
+    previous: string | null
+    /** One representative flag per distinct key across the compared projects */
+    results: OrganizationFeatureFlagRowApi[]
 }
 
 export interface EvaluationContextSuggestionRequestApi {
@@ -193,6 +357,8 @@ export interface FeatureFlagApi {
     filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
@@ -692,6 +858,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -728,6 +896,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -822,11 +992,27 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagRolloutSummaryApi {
+    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    effectively_full_rollout: boolean
+    /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
+    has_targeting_conditions: boolean
+    /**
+     * Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. Interpret together with `has_targeting_conditions`.
+     * @nullable
+     */
+    max_rollout_percentage: number | null
+    /** True if the flag serves multiple variants (has a multivariate variant set). */
+    is_multivariate: boolean
+}
+
 export interface FeatureFlagStatusResponseApi {
-    /** Flag status: active, stale, deleted, or unknown */
+    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
+    /** Summary of the flag's rollout configuration, for determining whether it is fully rolled out. */
+    rollout: FeatureFlagRolloutSummaryApi
 }
 
 export interface FeatureFlagTestEvaluationRequestApi {
@@ -1037,8 +1223,12 @@ export interface BulkDeleteFiltersApi {
     excluded_properties?: string
     /** Tag names to filter by. Flags carrying at least one of these tags match. */
     tags?: string[]
+    /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+    excluded_tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
+    /** Filter by archived state. When omitted, archived flags are excluded. */
+    archived?: boolean
 }
 
 export interface BulkDeleteRequestApi {
@@ -1128,9 +1318,9 @@ export interface BulkKeysResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -1147,7 +1337,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -1251,9 +1441,10 @@ export const ModelNameEnumApi = {
  * * `monthly` - monthly
  * * `yearly` - yearly
  */
-export type RecurrenceIntervalEnumApi = (typeof RecurrenceIntervalEnumApi)[keyof typeof RecurrenceIntervalEnumApi]
+export type ScheduledChangeRecurrenceIntervalEnumApi =
+    (typeof ScheduledChangeRecurrenceIntervalEnumApi)[keyof typeof ScheduledChangeRecurrenceIntervalEnumApi]
 
-export const RecurrenceIntervalEnumApi = {
+export const ScheduledChangeRecurrenceIntervalEnumApi = {
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -1294,7 +1485,7 @@ export interface ScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1354,7 +1545,7 @@ export interface PatchedScheduledChangeApi {
      * * `weekly` - weekly
      * * `monthly` - monthly
      * * `yearly` - yearly */
-    recurrence_interval?: RecurrenceIntervalEnumApi | null
+    recurrence_interval?: ScheduledChangeRecurrenceIntervalEnumApi | null
     /**
      * @maxLength 100
      * @nullable
@@ -1369,6 +1560,72 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+}
+
+export type FeatureFlagsStaffCacheListParams = {
+    /**
+     * Team ids to report cache status for (max 50 per request). Repeat the param, e.g. ?team_ids=1&team_ids=2.
+     * @maxItems 50
+     */
+    team_ids: number[]
+}
+
+export type FeatureFlagsStaffCacheEntryRetrieveParams = {
+    /**
+     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     * @minLength 1
+     */
+    cache: FeatureFlagsStaffCacheEntryRetrieveCache
+    /**
+     * Team id to fetch the cache entry for.
+     */
+    team_id: number
+}
+
+export type FeatureFlagsStaffCacheEntryRetrieveCache =
+    (typeof FeatureFlagsStaffCacheEntryRetrieveCache)[keyof typeof FeatureFlagsStaffCacheEntryRetrieveCache]
+
+export const FeatureFlagsStaffCacheEntryRetrieveCache = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+    DefinitionsNoCohorts: 'definitions_no_cohorts',
+} as const
+
+export type FeatureFlagsStaffTeamsListParams = {
+    /**
+     * Maximum number of teams to return (default 25, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * @minLength 1
+     */
+    search: string
+}
+
+export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * Filter by key or name
+     */
+    search?: string
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[]
 }
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
@@ -1388,6 +1645,10 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived
+    /**
      * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
@@ -1399,6 +1660,10 @@ export type FeatureFlagsListParams = {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -1426,6 +1691,13 @@ export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeo
 
 export const FeatureFlagsListActive = {
     Stale: 'STALE',
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
+
+export const FeatureFlagsListArchived = {
     False: 'false',
     True: 'true',
 } as const

@@ -30,7 +30,7 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("destination", ["S3", "BigQuery", "Snowflake", "Databricks"])
+@pytest.mark.parametrize("destination", ["AwsS3", "BigQuery", "Snowflake", "Databricks"])
 def test_can_get_test_for_destination(client: HttpClient, destination: str, organization, team, user):
     client.force_login(user)
 
@@ -99,7 +99,7 @@ def test_can_run_s3_test_step_for_new_destination(
     client: HttpClient, bucket_name, minio_client, organization, team, user
 ):
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -136,7 +136,7 @@ def test_can_run_s3_test_step_for_destination(
     client: HttpClient, bucket_name, minio_client, temporal, organization, team, user
 ):
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -348,7 +348,7 @@ def test_can_run_s3_test_step_with_additional_fields(
     """
 
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",

@@ -96,6 +96,9 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeWarehouseSuspendedError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "SnowflakeIncompatibleSchemaError",
+    # Raised when Snowflake denies an operation due to missing privileges. This is a customer-side
+    # configuration issue that retrying cannot fix.
+    "SnowflakeInsufficientPrivilegesError",
     # Raised when we hit our self-imposed query timeout.
     # We don't want to continually retry as it could consume a lot of compute resources in the user's account and can
     # lead to a lot of queries queuing up for a given warehouse.
@@ -179,6 +182,13 @@ class SnowflakeIncompatibleSchemaError(Exception):
         super().__init__(
             f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
         )
+
+
+class SnowflakeInsufficientPrivilegesError(Exception):
+    """Raised when the configured Snowflake role lacks required privileges to perform an operation."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
 
 
 class SnowflakeQueryClientTimeoutError(TimeoutError):
@@ -807,7 +817,7 @@ class SnowflakeClient:
             SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
             SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
                 mutable table and one or more fields from the primary key are missing
-                from the table.
+                from the table, or the fields we require have types we do not support.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -854,14 +864,22 @@ class SnowflakeClient:
             if field_metadata.name.lower() in record_batch_field_names
         )
 
-        return SnowflakeTable.from_snowflake_table(
-            table.name,
-            fields=fields,
-            parents=table.parents,
-            primary_key=table.primary_key,
-            version_key=table.version_key,
-            stage_prefix=table.stage_prefix,
-        )
+        try:
+            table = SnowflakeTable.from_snowflake_table(
+                table.name,
+                fields=fields,
+                parents=table.parents,
+                primary_key=table.primary_key,
+                version_key=table.version_key,
+                stage_prefix=table.stage_prefix,
+            )
+        except ValueError as exc:
+            raise SnowflakeIncompatibleSchemaError(
+                f"A Snowflake table '{table.name}' was found, but one or more "
+                f"fields are defined with incompatible types: '{exc}'. Have "
+                "you created the table following the PostHog documentation? "
+            ) from exc
+        return table
 
     async def create_table(self, table: SnowflakeTable, exists_ok: bool = True) -> None:
         """Asynchronously create the table if it doesn't exist.
@@ -1001,6 +1019,8 @@ class SnowflakeClient:
         Raises:
             SnowflakeQueryClientTimeoutError: If the COPY INTO query exceeds the specified timeout set by us.
             SnowflakeQueryServerTimeoutError: If the COPY INTO query exceeds the timeout set in the user's account.
+            SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
+                perform this operation.
         """
         select_fields = ", ".join(
             f"PARSE_JSON($1:\"{field.name}\", 'd')"
@@ -1052,6 +1072,10 @@ class SnowflakeClient:
                 raise SnowflakeQueryServerTimeoutError(e.msg)
             elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
                 raise SnowflakeIncompatibleSchemaError(e.msg)
+            elif e.errno == 3001:
+                raise SnowflakeInsufficientPrivilegesError(
+                    f"Failed to execute COPY INTO due to insufficient privileges: {e.msg or 'no message provided'}"
+                )
 
             raise SnowflakeFileNotLoadedError(
                 table.name,
@@ -1441,6 +1465,7 @@ async def insert_into_snowflake_activity_from_stage(
                     transformer=transformer,
                     # TODO: Deprecate this argument once all other destinations are also migrated.
                     json_columns=(),
+                    records_total=inputs.records_total,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

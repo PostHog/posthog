@@ -34,22 +34,29 @@ jobs:
             # including backend files. Instead we use two positive filters and
             # compare counts to exclude generated-only PRs.
             #
-            # Additionally skip when a bot commits only frontend/snapshots.yml on
-            # a PR — that file is updated automatically after human review and CI
-            # approval, so re-running the full storybook suite is pure waste.
+            # Additionally skip when a bot's push adds only snapshot baselines —
+            # Visual Review auto-commits frontend/snapshots.yml after human review
+            # and CI approval, so re-running the suite is pure waste. The detect
+            # step keys off the push delta (this push's commits), not the whole-PR
+            # diff dorny reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
                     github.event_name == 'push'
                     || (steps.filter.outputs.frontend == 'true'
+                        && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
-                        && !(github.event_name == 'pull_request'
-                             && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
-                             && fromJSON(steps.filter.outputs.snapshots_count || '0')
-                                == fromJSON(steps.filter.outputs.frontend_count || '0')))
+                        && steps.baseline_push.outputs.result != 'true')
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter exclude step, which must exist on disk. The
+            # remote dorny filter step needs no checkout (it diffs via the API), so this
+            # job didn't check out before those two were added.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -67,6 +74,9 @@ jobs:
                         - 'products/**/*.{ts,tsx}'
                         - 'products/**/frontend/**'
                         - 'common/{esbuilder,mosaic,storybook,tailwind}/**'
+                        # quill is consumed app-wide via `workspace:*`, so a change here
+                        # alters rendering across the main-app stories — run the suite.
+                        - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
                         - '.storybook/**'
@@ -76,8 +86,57 @@ jobs:
                       frontend_generated:
                         - 'frontend/src/generated/**'
                         - 'products/**/frontend/generated/**'
-                      snapshots:
-                        - 'frontend/snapshots.yml'
+
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
+            # The broad `products/**/*.{ts,tsx}` rule above matches all product code,
+            # including product dirs that are their own Node services
+            # (products/agent_platform/services/**) — no stories, nothing in the bundle.
+            # Exclude those so a PR touching only them skips the visual-regression suite.
+            # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
+            # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
+            #
+            # A separate step is required because the main filter above still runs on
+            # dorny/paths-filter, whose default `some` quantifier neutralizes a plain
+            # `!...` (same gotcha as the output comment above). The vendored action's
+            # exclude semantics make this generated exclude-only filter true only when
+            # some changed file lives OUTSIDE every excluded dir.
+            - name: Derive Node-only product workspace exclusions
+              if: github.event_name != 'push'
+              run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
+            - uses: ./.github/actions/paths-filter
+              id: exclude
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
             # On PRs, only run chromium shards — no story currently opts into webkit snapshots
@@ -108,7 +167,11 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
+        # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
+        # runner yields a slow-but-green build instead of a cancelled one that hard-fails
+        # the visual-regression gate.
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -120,25 +183,39 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+            # This job checks out the PR head (not the merge ref), so it can't use
+            # the ./.github/actions/pnpm-install local action — an un-rebased head
+            # may not contain it. Cache the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-storybook.yml
                   token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            - name: Restore webpack build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-webpack-storybook-
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Build Storybook
               env:
@@ -146,13 +223,6 @@ jobs:
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
-
-            - name: Save webpack build cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -164,8 +234,9 @@ jobs:
             # Consumed by the select-stories job below. Uploaded separately so
             # the visual-regression matrix doesn't pay to download it on every
             # shard.
+            # module-graph.json only exists once the Vite build completes, so no
+            # `if: always()`: on a failed/cancelled build it would just warn.
             - name: Upload module-graph artifact
-              if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
@@ -288,6 +359,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -302,18 +376,20 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
             - name: Save pnpm cache
-              if: github.ref == 'refs/heads/master'
+              # The cache key is identical across all visual-regression shards, so only one
+              # shard needs to write it — gating to a single shard avoids redundant concurrent saves.
+              if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Download Storybook build artifact
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -425,6 +501,7 @@ jobs:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
+                  retention-days: 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
@@ -448,6 +525,9 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
@@ -462,8 +542,8 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
-                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
@@ -504,7 +584,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, vr-setup, vr-complete]
+        needs: [changes, build-storybook, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -512,13 +592,32 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  # Change detection is the root of the graph: if it fails, build-storybook
+                  # (and everything after) is skipped, which the checks below would read as
+                  # a pass. Fail here so a broken paths-filter/checkout can't launder into a
+                  # green required check. A legitimate skip (e.g. merge_group) still passes.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }}) — cannot certify visual regression."
+                    exit 1
+                  fi
+
+                  # A failed, timed-out or cancelled Storybook build skips the VR jobs
+                  # below rather than failing them, and this gate would read those skips
+                  # as a pass — a green required check with zero visual coverage. Naming
+                  # the build here makes its failure hit the gate directly. A legitimate
+                  # "no frontend changes" run leaves the build skipped, which still passes.
+                  if [[ "${{ needs.build-storybook.result }}" != "success" && "${{ needs.build-storybook.result }}" != "skipped" ]]; then
+                    echo "Storybook build did not succeed (result: ${{ needs.build-storybook.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
-                    echo "Visual Review setup failed — VR CLI or API error."
+                  if [[ "${{ needs.vr-setup.result }}" != "success" && "${{ needs.vr-setup.result }}" != "skipped" ]]; then
+                    echo "Visual Review setup failed or was cancelled (result: ${{ needs.vr-setup.result }})."
                     exit 1
                   fi
 
@@ -797,3 +896,46 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
+        # only (master push), so the secret token never runs in a PR-controlled context; the
+        # uploader is a pinned external action, not a local one.
+        needs: [visual-regression]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        # Storybook CI is skipped on merge_group, so visual-regression won't run there;
+        # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
+        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+                  persist-credentials: false
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-storybook-*
+            # chromium and webkit run the same stories, so a single upload would give one test id
+            # both browsers' outcomes and a browser-specific failure would look like a flake.
+            # Upload each browser under its own Trunk variant to keep their histories distinct.
+            - name: Upload chromium results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
+                  org-slug: posthog-inc
+                  variant: chromium
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Upload webkit results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
+                  org-slug: posthog-inc
+                  variant: webkit
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

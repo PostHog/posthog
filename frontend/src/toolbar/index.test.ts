@@ -1,5 +1,12 @@
 import { ToolbarParams } from '~/types'
 
+// Keep the real toolbar posthog-js instance (rendering depends on it) but spy on
+// the exception capture helper so we can assert what does and doesn't get reported.
+jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+    ...jest.requireActual('~/toolbar/toolbarPosthogJS'),
+    captureToolbarException: jest.fn(),
+}))
+
 // Mock window and fetch
 const mockFetch = jest.fn()
 
@@ -64,6 +71,7 @@ describe('Toolbar flag loading', () => {
 
     it('should handle fetch errors gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -88,10 +96,12 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should handle non-ok responses gracefully', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
 
         await import('./index')
 
@@ -119,6 +129,55 @@ describe('Toolbar flag loading', () => {
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
         consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
+    })
+
+    it.each([
+        {
+            name: 'transient network failure (fetch rejects)',
+            // `fetch` rejects only on network-level failures — these should be logged, not captured.
+            setupMock: () => mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch')),
+            expectCapture: false,
+        },
+        {
+            name: 'unexpected error while applying flags (TypeError thrown in processing)',
+            // A null body makes `data.featureFlags` throw a TypeError during processing —
+            // a genuine bug that must still reach error tracking.
+            setupMock: () => mockFetch.mockResolvedValueOnce({ json: async () => null }),
+            expectCapture: true,
+        },
+    ])('reports only genuine errors as exceptions: $name', async ({ setupMock, expectCapture }) => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        await import('./index')
+        const { captureToolbarException } = await import('~/toolbar/toolbarPosthogJS')
+
+        const mockPostHog = {
+            featureFlags: {
+                overrideFeatureFlags: jest.fn(),
+            },
+        }
+
+        const toolbarParams: ToolbarParams = {
+            apiURL: 'http://localhost:8010',
+            toolbarFlagsKey: 'test-key-123',
+            token: 'test-token',
+        }
+
+        setupMock()
+
+        await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
+
+        if (expectCapture) {
+            expect(captureToolbarException).toHaveBeenCalledWith(expect.anything(), 'preloaded_flags_fetch')
+        } else {
+            expect(captureToolbarException).not.toHaveBeenCalled()
+            expect(consoleWarnSpy).toHaveBeenCalled()
+        }
+
+        consoleErrorSpy.mockRestore()
+        consoleWarnSpy.mockRestore()
     })
 
     it('should not fetch flags when toolbarFlagsKey is not present', async () => {
@@ -144,6 +203,9 @@ describe('Toolbar flag loading', () => {
     })
 
     it('should still load toolbar even if flag fetching fails', async () => {
+        // The failed flags fetch is reported through toolbarLogger's console.warn by design
+        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
         await import('./index')
 
         const mockPostHog = {
@@ -166,5 +228,7 @@ describe('Toolbar flag loading', () => {
         // Verify toolbar container was created
         const container = document.querySelector('div')
         expect(container).toBeTruthy()
+
+        consoleWarnSpy.mockRestore()
     })
 })

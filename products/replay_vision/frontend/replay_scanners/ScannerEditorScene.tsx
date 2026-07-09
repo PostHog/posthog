@@ -2,6 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import {
     LemonButton,
     LemonCollapse,
@@ -13,9 +16,12 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { BuilderHog2, DetectiveHog, XRayHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,6 +39,10 @@ import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep, scannerEditorSceneLogic }
 import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
 
+const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogXRay = pngHoggie(xRayPng)
+
 export const scene: SceneExport = {
     component: ScannerEditorSceneComponent,
     logic: scannerEditorSceneLogic,
@@ -48,6 +58,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { scanner, scannerLoading, isScannerSubmitting, scannerValidationErrors, showScannerErrors } =
         useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (
@@ -110,7 +125,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         <>
                             <div className="text-center space-y-3">
                                 <div className="flex justify-center mb-2">
-                                    <XRayHog className="w-32 h-32" />
+                                    <HedgehogXRay className="w-32 h-32" />
                                 </div>
                                 <h1 className="text-2xl font-bold m-0">Choose a scanner template</h1>
                                 <p className="text-base text-secondary max-w-2xl mx-auto m-0">
@@ -131,18 +146,18 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {step === 'configure' ? (
-                                        <DetectiveHog className="h-24 w-auto shrink-0" />
+                                        <HedgehogMagnifyingGlass className="h-24 w-auto shrink-0" />
                                     ) : (
-                                        <BuilderHog2 className="h-24 w-auto shrink-0" />
+                                        <HedgehogConstruction2 className="h-24 w-auto shrink-0" />
                                     )}
                                     <div>
                                         <div className="text-base font-semibold">
-                                            {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
+                                            {step === 'configure' ? 'Configure your scanner' : 'Set up scan conditions'}
                                         </div>
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
                                                 ? 'What it looks for and how it analyzes recordings.'
-                                                : 'Which recordings it runs against and how often.'}
+                                                : 'Pick which recordings to scan, and how often.'}
                                         </div>
                                     </div>
                                 </div>
@@ -264,9 +279,10 @@ function ConfigureStep(): JSX.Element {
                                         <div className="flex items-center gap-3">
                                             <LemonSwitch checked={!!value} onChange={onChange} />
                                             <div>
-                                                <div className="text-sm font-medium">Emit PostHog Signals</div>
+                                                <div className="text-sm font-medium">Hand off to Responder agents</div>
                                                 <div className="text-xs text-muted">
-                                                    Also flags actionable issues as Signals.
+                                                    Adds a side mission to each scan: clear, actionable product issues
+                                                    are handled by PostHog Responder agents.
                                                 </div>
                                             </div>
                                         </div>
@@ -313,7 +329,7 @@ function EditorFooter({
                         className="ml-auto"
                         data-attr="vision-editor-next"
                     >
-                        Next: triggers
+                        Next: scan conditions
                     </LemonButton>
                 </>
             ) : (

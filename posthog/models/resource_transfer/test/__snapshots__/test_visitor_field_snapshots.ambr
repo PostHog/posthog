@@ -151,6 +151,7 @@
     'filters',
     'is_static',
     'kind',
+    'last_backfill_events_at',
     'last_backfill_person_properties_at',
     'last_calculation_duration_ms',
     'last_realtime_cohort_calculation_at',
@@ -205,7 +206,9 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
     'description',
+    'excluded_variants',
     'exposure_criteria',
+    'feature_flag_auto_archived',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -245,6 +248,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_FeatureFlag
   list([
     'active',
+    'archived',
     'bucketing_identifier',
     'created_at',
     'ensure_experience_continuity',
@@ -486,6 +490,7 @@
     '__str__',
     '_get_existing_ch_member_uuids',
     '_get_uuids_for_emails_batch_ch',
+    '_has_filter_type',
     '_insert_batch_via_personhog',
     '_insert_users_list_with_batching',
     '_meta',
@@ -701,6 +706,7 @@
     'save',
     'start_date',
     'status',
+    'status_label',
     'team_id',
     'updated_at',
   ])
@@ -784,6 +790,7 @@
     '__static_attributes__',
     '__str__',
     '_evaluation_tag_names',
+    '_has_experiment',
     '_meta',
     '_payloads',
     '_tombstone_suffix',
@@ -852,10 +859,11 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    '_unwrapped_query_kind',
     'alert_set',
+    'alertable_query_kind',
     'alertconfiguration_set',
     'annotation_set',
-    'are_alerts_supported',
     'caching_state',
     'caching_states',
     'created_by_id',

@@ -1,10 +1,10 @@
 name: Turbo CI
-on:
-    pull_request:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
+# Push-cancels-previous-push comes from the caller's concurrency group.
+
+on:
+    workflow_call:
 
 jobs:
     turbo-affected-4:
@@ -49,17 +49,10 @@ jobs:
                     echo "TURBO_SCM_BASE=master" >> $GITHUB_ENV
                   fi
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-
-            - name: Install Node dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
 
             - name: Turbo Affected
               run: |

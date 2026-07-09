@@ -284,15 +284,15 @@ test.describe('Trends insights', () => {
 
         await test.step('move away and verify tooltip hides', async () => {
             await insight.trends.hoverAway()
-            const wrapper = page.getByTestId('insight-tooltip-wrapper')
-            await expect(wrapper).toHaveCSS('opacity', '0')
+            // The quill chart unmounts the tooltip on mouse-leave rather than fading a
+            // persistent wrapper, so assert it detaches from the DOM.
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
 
         await test.step('hover again and scroll to dismiss', async () => {
             await insight.trends.hoverChartAt(0.5, 0.5)
             await page.mouse.wheel(0, 200)
-            const wrapper = page.getByTestId('insight-tooltip-wrapper')
-            await expect(wrapper).toHaveCSS('opacity', '0')
+            await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
 
         await test.step('add breakdown and verify tooltip shows Chrome and Firefox', async () => {

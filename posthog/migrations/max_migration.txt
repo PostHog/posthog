@@ -1,1 +1,1 @@
-1224_columnconfiguration_properties
+1247_oauthaccesstoken_token_idx

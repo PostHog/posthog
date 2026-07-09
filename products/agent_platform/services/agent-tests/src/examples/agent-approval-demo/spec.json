@@ -1,0 +1,50 @@
+{
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
+    "reasoning": "low",
+    "triggers": [
+        {
+            "type": "chat",
+            "config": {},
+            "auth": {
+                "modes": [
+                    {
+                        "type": "public",
+                        "acknowledge_public_exposure": true
+                    }
+                ]
+            }
+        }
+    ],
+    "tools": [
+        {
+            "kind": "native",
+            "id": "@posthog/memory-write",
+            "requires_approval": true,
+            "approval_policy": {
+                "allow_edit": true,
+                "ttl_ms": 86400000,
+                "type": "agent"
+            }
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-read"
+        },
+        {
+            "kind": "native",
+            "id": "@posthog/memory-search"
+        }
+    ],
+    "skills": [
+        {
+            "id": "proposing-changes",
+            "path": "skills/proposing-changes/SKILL.md",
+            "description": "How to react when a tool call returns a synthetic queued-approval envelope. Load on the first turn \u2014 this agent is built around the gate and the model needs to know how to communicate it."
+        }
+    ],
+    "limits": {
+        "max_turns": 10,
+        "max_tool_calls": 20,
+        "max_wall_seconds": 120
+    }
+}

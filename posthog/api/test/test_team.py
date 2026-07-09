@@ -1,31 +1,28 @@
-import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status, test
-from temporalio.service import RPCError
 
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog
 from posthog.models.group_type_mapping import (
     GROUP_TYPES_CACHE_KEY_PREFIX,
     GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
@@ -40,15 +37,10 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
-from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -399,114 +391,12 @@ def team_api_test_factory():
                 [{"key": "$current_url", "value": "test"}],
             )
 
-        @freeze_time("2022-02-08")
-        @mock.patch(
-            "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-            return_value="test",
-        )
-        def test_delete_team_activity_log(self, _mock_variant):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
-
-            # activity log is queried in the context of the team
-            # and the team was deleted, so we can't (for now) view a deleted team activity via the API
-            # even though the activity log is recorded
-
-            deleted_team_activity_response = self.client.get(f"/api/environments/{team.id}/activity")
-            assert deleted_team_activity_response.status_code == status.HTTP_404_NOT_FOUND
-
-            # we can't query by API but can prove the log was recorded
-            activity = [a.__dict__ for a in ActivityLog.objects.filter(team_id=team.pk).order_by("scope").all()]
-            expected_activity = [
-                {
-                    "_state": ANY,
-                    "id": ANY,
-                    "team_id": team.pk,
-                    "organization_id": ANY,
-                    "user_id": None,
-                    "was_impersonated": False,
-                    "is_system": True,
-                    "activity": "created",
-                    "item_id": ANY,
-                    "scope": "Dashboard",
-                    "detail": {
-                        "name": "Your starter dashboard",
-                        "type": "dashboard",
-                        "changes": [],
-                        "context": None,
-                        "short_id": None,
-                        "trigger": None,
-                    },
-                    "client": None,
-                    "created_at": ANY,
-                    "ip_address": None,
-                },
-                {
-                    "_state": ANY,
-                    "activity": "deleted",
-                    "created_at": ANY,
-                    "detail": {
-                        "changes": None,
-                        "context": None,
-                        "name": "Default project",
-                        "short_id": None,
-                        "trigger": None,
-                        "type": None,
-                    },
-                    "id": ANY,
-                    "is_system": False,
-                    "organization_id": ANY,
-                    "team_id": team.pk,
-                    "item_id": str(team.pk),
-                    "scope": "Team",
-                    "user_id": self.user.pk,
-                    "was_impersonated": False,
-                    "client": None,
-                    "ip_address": "127.0.0.1",
-                },
-            ]
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                expected_activity.insert(
-                    1,
-                    {
-                        "_state": ANY,
-                        "activity": "deleted",
-                        "created_at": ANY,
-                        "detail": {
-                            "changes": None,
-                            "context": None,
-                            "name": "Default project",
-                            "short_id": None,
-                            "trigger": None,
-                            "type": None,
-                        },
-                        "id": ANY,
-                        "is_system": False,
-                        "organization_id": ANY,
-                        "team_id": team.pk,
-                        "item_id": str(team.project_id),
-                        "scope": "Project",
-                        "user_id": self.user.pk,
-                        "was_impersonated": False,
-                        "client": None,
-                        "ip_address": "127.0.0.1",
-                    },
-                )
-            assert activity == expected_activity
-
-        @patch("posthog.api.project.delete_project_data_and_notify_task")
-        @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
+        @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
-            mock_delete_task_team: MagicMock,
-            mock_delete_task_project: MagicMock,
+            mock_start_workflow: MagicMock,
         ):
             # NOTE: the factory-level setUp already bumps to ADMIN (without firing the
             # "membership level changed" event because it uses .update() to bypass signals),
@@ -515,7 +405,7 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
-            # create_with_data fires a starter-dashboard exposure capture; only assert delete-time events
+            # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
@@ -523,8 +413,8 @@ def team_api_test_factory():
             response = self.client.delete(f"/api/environments/{team.id}")
 
             self.assertEqual(response.status_code, 204)
-            # Team deletion happens async in the (mocked) Celery task, so team still exists
-            # We only verify the task was queued correctly
+            # Team deletion happens async in the (mocked) Temporal workflow, so team still exists
+            # We only verify the workflow was started correctly
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
@@ -544,225 +434,20 @@ def team_api_test_factory():
                         send_feature_flags=False,
                     )
                 )
-                mock_delete_task_project.delay.assert_called_once_with(
+                mock_start_workflow.assert_called_once_with(
                     team_ids=[team_pk],
                     project_id=team_pk,
                     user_id=self.user.id,
                     project_name="Default project",
                 )
             else:
-                mock_delete_task_team.delay.assert_called_once_with(
+                mock_start_workflow.assert_called_once_with(
                     team_ids=[team_pk],
                     project_id=None,
                     user_id=self.user.id,
                     project_name="Default project",
                 )
             assert mock_capture.call_args_list == expected_capture_calls
-
-        def test_delete_bulky_postgres_data(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
-
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
-
-            cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
-                team=team,
-                distinct_ids=["example_id"],
-                properties={"email": "tim@posthog.com", "team": "posthog"},
-            )
-            person.add_distinct_id("test")
-            flag = FeatureFlag.objects.create(
-                team=team,
-                name="test",
-                key="test",
-                created_by=self.user,
-            )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
-            )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
-            EarlyAccessFeature.objects.create(
-                team=team,
-                name="Test flag",
-                description="A fancy new flag.",
-                stage="beta",
-                feature_flag=flag,
-            )
-
-            # if something is missing then teardown fails
-            with snapshot_postgres_queries_context(
-                self, custom_query_matcher=lambda query: "DELETE" in query and "posthog_person" in query
-            ):
-                response = self.client.delete(f"/api/environments/{team.id}")
-            self.assertEqual(response.status_code, 204)
-
-        def test_delete_batch_exports(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.organization.save()
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            destination_data = {
-                "type": "S3",
-                "config": {
-                    "bucket_name": "my-production-s3-bucket",
-                    "region": "us-east-1",
-                    "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
-                },
-            }
-
-            batch_export_data = {
-                "name": "my-production-s3-bucket-destination",
-                "destination": destination_data,
-                "interval": "hour",
-            }
-
-            temporal = sync_connect()
-
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
-                response = self.client.post(
-                    f"/api/environments/{team.id}/batch_exports",
-                    json.dumps(batch_export_data),
-                    content_type="application/json",
-                )
-                assert response.status_code == 201, response.json()
-
-                batch_export = response.json()
-                batch_export_id = batch_export["id"]
-
-                response = self.client.delete(f"/api/environments/{team.id}")
-                assert response.status_code == 204, response.json()
-
-                response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                assert response.status_code == 404, response.json()
-
-                with self.assertRaises(RPCError):
-                    describe_schedule(temporal, batch_export_id)
-
-        def test_delete_team_with_already_deleted_batch_export(self):
-            """Team deletion should succeed even if batch exports were already soft-deleted."""
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.organization.save()
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            destination_data = {
-                "type": "S3",
-                "config": {
-                    "bucket_name": "my-production-s3-bucket",
-                    "region": "us-east-1",
-                    "prefix": "posthog-events/",
-                    "aws_access_key_id": "abc123",
-                    "aws_secret_access_key": "secret",
-                },
-            }
-
-            batch_export_data = {
-                "name": "my-production-s3-bucket-destination",
-                "destination": destination_data,
-                "interval": "hour",
-            }
-
-            temporal = sync_connect()
-
-            with start_test_worker(
-                temporal,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=WORKFLOWS,
-                activities=ACTIVITIES,
-            ):
-                response = self.client.post(
-                    f"/api/environments/{team.id}/batch_exports",
-                    json.dumps(batch_export_data),
-                    content_type="application/json",
-                )
-                assert response.status_code == 201, response.json()
-
-                batch_export = response.json()
-                batch_export_id = batch_export["id"]
-
-                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
-                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                assert response.status_code == 204
-
-                # Verify the schedule is gone
-                with self.assertRaises(RPCError):
-                    describe_schedule(temporal, batch_export_id)
-
-                # Now delete the team - this should succeed
-                response = self.client.delete(f"/api/environments/{team.id}")
-                assert response.status_code == 204
-
-        @patch("posthog.temporal.common.schedule.delete_schedule")
-        @patch("posthog.models.team.util.sync_connect")
-        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            saved_query = DataWarehouseSavedQuery.objects.create(
-                team=team,
-                name="test_scheduled_query",
-                query={"kind": "HogQLQuery", "query": "SELECT 1"},
-                sync_frequency_interval=timedelta(hours=1),
-            )
-
-            mock_temporal = MagicMock()
-            mock_sync_connect.return_value = mock_temporal
-
-            response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
-
-            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
-
-        @patch("posthog.temporal.common.schedule.delete_schedule")
-        @patch("posthog.models.team.util.sync_connect")
-        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
-            import temporalio.service
-
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-
-            DataWarehouseSavedQuery.objects.create(
-                team=team,
-                name="test_missing_schedule",
-                query={"kind": "HogQLQuery", "query": "SELECT 1"},
-                sync_frequency_interval=timedelta(hours=1),
-            )
-
-            mock_temporal = MagicMock()
-            mock_sync_connect.return_value = mock_temporal
-
-            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
-            mock_delete_schedule.side_effect = rpc_error
-
-            response = self.client.delete(f"/api/environments/{team.id}")
-            assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1000,6 +685,39 @@ def team_api_test_factory():
                 ]
             )
 
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            self.team.secret_api_token = None
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("project secret API key", response.json()["detail"])
+            self.assertIsNone(self.team.secret_api_token)
+
+        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
+        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+            self.team.secret_api_token = secret_api_token
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
+
+            self.team.refresh_from_db()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1205,150 +923,22 @@ def team_api_test_factory():
                 == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
 
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Welwyn Garden City",
-                    "invalid_input",
-                    "A valid number is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than one",
-                    "1.5",
-                    "max_value",
-                    "Ensure this value is less than or equal to 1.",
-                ],
-                [
-                    "too many digits",
-                    "0.534",
-                    "max_decimal_places",
-                    "Ensure that there are no more than 2 decimal places.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_sample_rates(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
+        def test_invalid_session_recording_config_returns_validation_error_envelope(self) -> None:
+            # Smoke test that bad config is rejected through the endpoint with the rendered
+            # `{attr, code, detail, type}` envelope (note `invalid` is rendered as `invalid_input`).
+            # The per-field/per-value matrix lives in TestTeamSerializerValidationNoDB, which
+            # exercises the same TeamSerializer validators without a database.
+            # Use a non-numeric value so DRF raises the raw `invalid` code — this is the case that
+            # exercises exceptions-hog rendering it as `invalid_input`. A numeric out-of-range value
+            # yields `max_value`, which is passed through unchanged and would not guard the rename.
             response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_sample_rate": provided_value}
+                "/api/environments/@current/", {"session_recording_sample_rate": "Welwyn Garden City"}
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json() == {
                 "attr": "session_recording_sample_rate",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Trentham monkey forest",
-                    "invalid_input",
-                    "A valid integer is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than 30000",
-                    "30001",
-                    "max_value",
-                    "Ensure this value is less than or equal to 30000.",
-                ],
-                ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
-            ]
-        )
-        def test_invalid_session_recording_minimum_duration(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/",
-                {"session_recording_minimum_duration_milliseconds": provided_value},
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_minimum_duration_milliseconds",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
-                ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
-                ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no id",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - no key",
-                    {"id": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - only variant",
-                    {"variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - variant must be string",
-                    {"variant": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing id",
-                    {"key": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing key",
-                    {"id": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - neither",
-                    {"wat": "wat"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_linked_flag(
-            self, _name: str, provided_value: Any, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
-
-            assert cast(Any, response).json() == {
-                "attr": "session_recording_linked_flag",
-                "code": expected_code,
-                "detail": expected_error,
+                "code": "invalid_input",
+                "detail": "A valid number is required.",
                 "type": "validation_error",
             }
 
@@ -1365,37 +955,6 @@ def team_api_test_factory():
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no recordX",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_network_payload_capture_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_network_payload_capture_config": provided_value}
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_network_payload_capture_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -1453,36 +1012,6 @@ def team_api_test_factory():
             # can unset
             self._patch_session_replay_config(None)
             self._assert_replay_config_is(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no record",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
-                ],
-            ]
-        )
-        def test_invalid_session_replay_config_ai_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_session_replay_config(
-                {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
-            )
-            assert cast(Any, response).json() == {
-                "attr": "session_replay_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_replay_config_ai_config(self) -> None:
             # can set just the opt-in
@@ -1629,29 +1158,6 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -2058,6 +1564,32 @@ def team_api_test_factory():
             settings = response.json()["conversations_settings"]
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
+
+        def test_conversations_settings_change_reports_event_per_setting(self):
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                props_by_setting = {
+                    c.args[2]["setting"]: c.args[2]
+                    for c in mock_report.call_args_list
+                    if c.args[1] == "support setting changed"
+                }
+                assert set(props_by_setting) == {"slack_nudge_enabled", "widget_greeting_text"}
+                assert props_by_setting["slack_nudge_enabled"]["value"] is False
+                # Free-text values are withheld — the dict holds arbitrary copy and the widget token.
+                assert "value" not in props_by_setting["widget_greeting_text"]
+
+            # A no-op save (same values) must not re-fire the event.
+            with patch("posthog.api.team.report_user_action") as mock_report:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"conversations_settings": {"slack_nudge_enabled": False}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(c.args[1] == "support setting changed" for c in mock_report.call_args_list)
 
         def test_conversations_widget_position_setting(self):
             response = self.client.patch(
@@ -3196,6 +2728,78 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
+    @parameterized.expand(
+        [
+            ("default_admin_access", False),
+            ("restricted_project_member_access", True),
+        ]
+    )
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self, _name, restrict_project_to_member):
+        # A web analytics editor (org member, not project admin) must be able to manage the toolbar /
+        # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
+        # and web analytics defaults to editor, so an editor passes the field-level check. This must hold
+        # even on a restricted project where the editor's effective project access is only `member` — the
+        # request gate must not demand project admin for `app_urls`, or the field-level check never runs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        if restrict_project_to_member:
+            # Lower the project's baseline from the implicit admin default to member, so the acting
+            # user is a project member but not an admin.
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=self.team.id,
+                access_level="member",
+            )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.app_urls, ["https://app.example.com"])
+
+    def test_web_analytics_viewer_cannot_write_app_urls_with_access_control(self):
+        # Restricting web analytics below editor must block managing authorized URLs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        # Default the whole team's web analytics access down to viewer.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="web_analytics",
+            resource_id=None,
+            access_level="viewer",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.team.refresh_from_db()
+        self.assertNotIn("https://app.example.com", self.team.app_urls)
+
     def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
         # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
         # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
@@ -3539,10 +3143,12 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
     f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
 ]
 
-# Fields the frontend treats as admin-only that previously lacked a
-# `@field_access_control` annotation on the model. Captured as a regression so
-# anyone removing the decorator (or adding a new admin-UI-gated field without one)
-# gets a failing test pointing at the right place.
+# Sensitive fields the frontend treats as admin-only that aren't part of the regular
+# TEAM_CONFIG flow. Captured as a regression so a MEMBER stays blocked from them when the
+# org has no paid access control. `app_urls` additionally carries a web-analytics-editor
+# `@field_access_control`; with access controls enabled that governs it instead (see
+# test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
+# blanket project-admin gate still applies here.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
@@ -3741,3 +3347,129 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         other = Team.objects.create(organization=self.organization, project=self.project, name="other")
         response = self.client.delete(f"/api/environments/{other.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
+    # before the object-level `validate()` that needs request context — so these never
+    # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
+    # `invalid_input` rename and `{attr, code, detail, type}` shape are rendered by
+    # exceptions-hog and covered by one endpoint smoke test in TestTeamAPI.
+    def _assert_field_error(self, field: str, value: Any, expected_code: str, expected_detail: str) -> None:
+        serializer = TeamSerializer(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        error = serializer.errors[field][0]
+        assert error.code == expected_code, f"expected code {expected_code!r}, got {error.code!r}"
+        assert str(error) == expected_detail, f"expected {expected_detail!r}, got {str(error)!r}"
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Welwyn Garden City", "invalid", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than one", "1.5", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.534", "max_decimal_places", "Ensure that there are no more than 2 decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_sample_rate(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_sample_rate", value, expected_code, expected_detail)
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Trentham monkey forest", "invalid", "A valid integer is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than 30000", "30001", "max_value", "Ensure this value is less than or equal to 30000."],
+            ["too many digits", "0.5", "invalid", "A valid integer is required."],
+        ]
+    )
+    def test_invalid_session_recording_minimum_duration(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error(
+            "session_recording_minimum_duration_milliseconds", value, expected_code, expected_detail
+        )
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "Must provide a dictionary or None."],
+            ["numeric", 1, "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no id",
+                {"key": "something"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - no key",
+                {"id": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - neither",
+                {"wat": "wat"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no recordX",
+                {"key": "something"},
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_network_payload_capture_config(
+        self, _name: str, value: Any, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_network_payload_capture_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no record",
+                {"key": "something"},
+                "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
+            ],
+        ]
+    )
+    def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
+        # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
+        # lives in the object-level `validate()` (via `validate_team_attrs`), which needs
+        # request context, so it stays an endpoint test in TestTeamAPI.
+        self._assert_field_error(
+            "autocapture_exceptions_opt_in", "Welwyn Garden City", "invalid", "Must be a valid boolean."
+        )

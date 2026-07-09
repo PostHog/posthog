@@ -9,6 +9,17 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __funnelHistoricalTrends from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import __funnelHistoricalTrendsCompare from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'
+import __funnelLeftToRight from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'
+import __funnelLeftToRightBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'
+import __funnelLeftToRightCompare from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightCompare.json'
+import __funnelLeftToRightWithInlineEvents from '../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'
+import __funnelTimeToConvert from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import __funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
+import __funnelTopToBottomBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'
+import __funnelTopToBottomBreakdownCompare from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdownCompare.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Funnels',
@@ -47,7 +58,7 @@ const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElem
     let lastHeight = 0
     await waitFor(
         () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-bar-vertical]')
+            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
             const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
             if (currentHeight === 0 || currentHeight !== lastHeight) {
                 lastHeight = currentHeight
@@ -60,78 +71,71 @@ const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElem
 
 // FLAP!
 // export const FunnelLeftToRight: Story = createInsightStory(
-//     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
+//     __funnelLeftToRight
 // )
 // FunnelLeftToRight.parameters = {
-//     testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+//     testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 // }
-export const FunnelLeftToRightEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
+export const FunnelLeftToRightEdit: Story = createInsightStory(__funnelLeftToRight as any, 'edit')
 FunnelLeftToRightEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 
-export const FunnelLeftToRightBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json')
-)
+// Steps viz with "Compare to previous" on: each step renders a current and a (desaturated) previous
+// bar. The funnels-compare flag gates the toggle — without it the compare data degrades to a single
+// bar per step and the snapshot is wrong.
+export const FunnelLeftToRightCompare: Story = createInsightStory(__funnelLeftToRightCompare as any)
+FunnelLeftToRightCompare.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
+}
+FunnelLeftToRightCompare.play = waitForFunnelToStabilize
+
+export const FunnelLeftToRightBreakdown: Story = createInsightStory(__funnelLeftToRightBreakdown as any)
 FunnelLeftToRightBreakdown.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
+        waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'],
         snapshotBrowsers: [],
     },
 }
-export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
-    'edit'
-)
+export const FunnelLeftToRightBreakdownEdit: Story = createInsightStory(__funnelLeftToRightBreakdown as any, 'edit')
 FunnelLeftToRightBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 FunnelLeftToRightBreakdownEdit.play = waitForFunnelToStabilize
-export const FunnelTopToBottom: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
-)
+export const FunnelTopToBottom: Story = createInsightStory(__funnelTopToBottom as any)
 FunnelTopToBottom.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
-export const FunnelTopToBottomEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
-    'edit'
-)
+export const FunnelTopToBottomEdit: Story = createInsightStory(__funnelTopToBottom as any, 'edit')
 FunnelTopToBottomEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
-export const FunnelTopToBottomBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
-)
+export const FunnelTopToBottomBreakdown: Story = createInsightStory(__funnelTopToBottomBreakdown as any)
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
-export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
-    'edit'
-)
+export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(__funnelTopToBottomBreakdown as any, 'edit')
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
 }
-export const FunnelHistoricalTrends: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
-)
+// Breakdown × compare: each value renders a current and a (desaturated) previous bar, and the
+// detailed results table doubles into per-period rows tagged Current/Previous. The funnels-compare
+// flag gates the toggle — without it the compare data degrades and the snapshot is wrong.
+export const FunnelTopToBottomBreakdownCompare: Story = createInsightStory(__funnelTopToBottomBreakdownCompare as any)
+FunnelTopToBottomBreakdownCompare.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] canvas[role="img"]'] },
+}
+export const FunnelHistoricalTrends: Story = createInsightStory(__funnelHistoricalTrends as any)
 FunnelHistoricalTrends.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
-export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
-    'edit'
-)
+export const FunnelHistoricalTrendsEdit: Story = createInsightStory(__funnelHistoricalTrends as any, 'edit')
 FunnelHistoricalTrendsEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
-export const FunnelHistoricalTrendsCompare: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json')
-)
+export const FunnelHistoricalTrendsCompare: Story = createInsightStory(__funnelHistoricalTrendsCompare as any)
 FunnelHistoricalTrendsCompare.parameters = {
     // funnels-compare gates the Compare-to-previous toggle on funnel trends — without this the
     // dual-period chart degrades back to the single-period rendering and the snapshot is wrong.
@@ -139,22 +143,16 @@ FunnelHistoricalTrendsCompare.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 
-export const FunnelTimeToConvert: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
-)
-FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
-export const FunnelTimeToConvertEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
-    'edit'
-)
-FunnelTimeToConvertEdit.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] svg' } }
+export const FunnelTimeToConvert: Story = createInsightStory(__funnelTimeToConvert as any)
+FunnelTimeToConvert.parameters = { testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' } }
+export const FunnelTimeToConvertEdit: Story = createInsightStory(__funnelTimeToConvert as any, 'edit')
+FunnelTimeToConvertEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=funnel-histogram] canvas[role="img"]' },
+}
 
-export const FunnelWithInlineEventsEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightWithInlineEvents.json'),
-    'edit'
-)
+export const FunnelWithInlineEventsEdit: Story = createInsightStory(__funnelLeftToRightWithInlineEvents as any, 'edit')
 FunnelWithInlineEventsEdit.parameters = {
-    testOptions: { waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'] },
+    testOptions: { waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'] },
 }
 FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
     const expandFiltersButton = await waitFor(
@@ -170,13 +168,10 @@ FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
     await userEvent.click(expandFiltersButton)
 }
 
-export const FunnelLeftToRightEditViewports: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
+export const FunnelLeftToRightEditViewports: Story = createInsightStory(__funnelLeftToRight as any, 'edit')
 FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
+        waitForSelector: ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini'],
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }

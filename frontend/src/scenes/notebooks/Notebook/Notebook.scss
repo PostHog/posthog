@@ -447,45 +447,45 @@
                 cursor: text;
             }
         }
+    }
 
-        .NotebookLatex {
-            font-size: 1.1em;
-            line-height: 1.5;
-            text-align: center;
+    // Kept at .Notebook level so LaTeX renders the same in the classic editor and markdown v2
+    .NotebookLatex {
+        font-size: 1.1em;
+        line-height: 1.5;
+        text-align: center;
 
-            &[data-display='true'] {
-                display: block;
-                margin: 1.5em 0;
-                font-size: 1.2em;
-                text-align: center;
-            }
-
-            &[data-display='false'] {
-                display: inline;
-                vertical-align: middle;
-            }
-
-            // Style for the MathJax rendered content
-            .MathJax {
-                font-size: 1.1em;
-            }
-        }
-
-        .NotebookLatex mjx-container {
-            padding: 1em 0;
-        }
-
-        .NotebookLatex mjx-container,
-        .NotebookLatex svg {
+        &[data-display='true'] {
             display: block;
-            margin-right: auto;
-            margin-left: auto;
+            margin: 1.5em 0;
+            font-size: 1.2em;
+            text-align: center;
+        }
+
+        &[data-display='false'] {
+            display: inline;
+            vertical-align: middle;
+        }
+
+        // Style for the MathJax rendered content
+        .MathJax {
+            font-size: 1.1em;
         }
     }
 
+    .NotebookLatex mjx-container {
+        padding: 1em 0;
+    }
+
+    .NotebookLatex mjx-container,
+    .NotebookLatex svg {
+        display: block;
+        margin-right: auto;
+        margin-left: auto;
+    }
+
     &--compact:not(.Notebook--canvas) {
-        .NotebookEditor,
-        .Notebook__markdown-v2 {
+        .NotebookEditor {
             max-width: 50rem;
         }
 
@@ -693,10 +693,50 @@ body:has(.Notebook--markdown-v2),
     }
 }
 
+.Notebook--markdown-v2.Notebook--expanded {
+    .main-content-container > main > & {
+        width: 100%;
+        width: var(--scene-layout-rect-width);
+        max-width: none;
+        margin-left: -1rem;
+    }
+
+    .Notebook_content {
+        padding-right: 0;
+        padding-left: 0;
+
+        .Notebook__markdown-v2,
+        .MarkdownNotebook__debug-layout,
+        .MarkdownNotebook__main,
+        .MarkdownNotebook__canvas {
+            width: 100%;
+            max-width: none;
+        }
+
+        .SidePanel3000 & {
+            padding: 0 0.75rem;
+        }
+    }
+}
+
 .NotebookProfileCanvas {
     .Notebook_content {
         padding: 0;
     }
+}
+
+.NotebookPresence__ai-bubble {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    color: var(--white);
+    background: var(--notebook-ai-presence-color, var(--color-accent));
+    border: 0;
+    border-radius: 50%;
 }
 
 // Google-Docs-style remote presence carets + name flag.

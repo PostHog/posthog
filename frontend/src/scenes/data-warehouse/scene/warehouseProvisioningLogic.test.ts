@@ -62,6 +62,90 @@ describe('warehouseProvisioningLogic', () => {
         }).toMatchValues({ isValidDatabaseName: true, canProvision: true })
     })
 
+    it('removes the org record once teardown reports the warehouse deleted, then stops polling', async () => {
+        // Teardown reports `deleted` once; after delete-org the record is gone so status 404s.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete', 'stopPolling'])
+        expect(deleteOrg).toHaveBeenCalledTimes(1)
+        expect(logic.values.pollingActive).toBe(false)
+    })
+
+    it('retries removing the org record when the first delete-org attempt fails', async () => {
+        // First status read is `deleted`; the successful retry then 404s, stopping the poll loop.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest
+            .spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy')
+            .mockRejectedValueOnce({ message: 'boom' })
+            .mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        // First attempt fails and settles, clearing the in-flight guard.
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete'])
+        expect(logic.values.isDeletingOrg).toBe(false)
+
+        // The next poll re-observing `deleted` re-fires delete-org rather than staying stuck.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleted' } as any)
+        }).toDispatchActions(['deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not re-delete the org when a stale `deleted` status arrives after a successful delete', async () => {
+        // A single `deleted` read triggers the delete; the retry mock returns null thereafter.
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve')
+            .mockResolvedValueOnce({ state: 'deleted' } as any)
+            .mockResolvedValue(null as any)
+        const deleteOrg = jest.spyOn(dwApi, 'dataWarehouseDeleteOrgDestroy').mockResolvedValue({} as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        // First `deleted` read deletes the org; success latches the guard.
+        await expectLogic(logic).toDispatchActions(['deleteOrg', 'deleteOrgComplete'])
+        expect(logic.values.orgDeletionSucceeded).toBe(true)
+
+        // Provisioner propagation lag can still report `deleted` after the record is gone; the latch
+        // must stop that from firing a second delete against an already-deleted org.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleted' } as any)
+        }).toNotHaveDispatchedActions(['deleteOrg'])
+        expect(deleteOrg).toHaveBeenCalledTimes(1)
+    })
+
+    it('flags a stuck teardown once it sits in `deleting` past the warn threshold', async () => {
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess'])
+
+        // One `deleting` read is still "in progress", not yet "taking long".
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+
+        // 18 consecutive `deleting` reads (~3 min of polling) trips the affordance.
+        await expectLogic(logic, () => {
+            for (let i = 0; i < 17; i++) {
+                logic.actions.loadWarehouseStatusSuccess({ state: 'deleting' } as any)
+            }
+        }).toMatchValues({ deprovisionTakingLong: true })
+
+        // A non-`deleting` read resets the counter.
+        await expectLogic(logic, () => {
+            logic.actions.loadWarehouseStatusSuccess({ state: 'ready' } as any)
+        }).toMatchValues({ deprovisionTakingLong: false })
+    })
+
     it('surfaces an info message instead of an error when a sibling project already provisioned (409)', async () => {
         jest.spyOn(dwApi, 'dataWarehouseProvisionCreate').mockRejectedValueOnce({ status: 409 })
         const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue(undefined as any)
@@ -71,7 +155,7 @@ describe('warehouseProvisioningLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse' })
+            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse', tableName: 'shared' })
         }).toDispatchActions(['provisionWarehouse', 'loadWarehouseStatus', 'provisionWarehouseComplete'])
 
         expect(infoToast).toHaveBeenCalledTimes(1)

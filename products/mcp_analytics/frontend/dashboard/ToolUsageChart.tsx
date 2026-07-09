@@ -1,7 +1,15 @@
 import { useMemo } from 'react'
 
-import { type ChartTheme, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import {
+    type ChartTheme,
+    type Series,
+    type TimeInterval,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
+} from '@posthog/quill-charts'
 import { Skeleton } from '@posthog/quill-primitives'
+
+import { useChartConfig } from 'lib/charts/hooks'
 
 import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -11,11 +19,13 @@ export function ToolUsageChart({
     loading,
     theme,
     timezone,
+    interval,
 }: {
     data: ToolDailySeries
     loading: boolean
     theme: ChartTheme
     timezone: string
+    interval: TimeInterval
 }): JSX.Element {
     const series = useMemo<Series[]>(
         () =>
@@ -27,23 +37,25 @@ export function ToolUsageChart({
             })),
         [data, theme]
     )
-    const config = useMemo<TimeSeriesBarChartConfig>(
+    const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            barCornerRadius: 2,
-            yAxis: { showGrid: false },
+            barCornerRadius: 4,
             showAxisLines: true,
-            xAxis: { interval: 'day', timezone },
+            showTickMarks: true,
+            showCrosshair: true,
+            showGrid: true,
+            xAxis: { interval, timezone },
             tooltip: { placement: 'cursor' },
         }),
-        [timezone]
+        [timezone, interval]
     )
 
     return (
-        <Card title="Daily breakdown of tool calls">
+        <Card title="Tool call breakdown">
             <CardState
                 loading={loading}
-                isEmpty={data.labels.length === 0}
+                isEmpty={data.tools.length === 0}
                 skeleton={<Skeleton className="h-[260px] w-full" />}
                 empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
             >

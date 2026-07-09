@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "The new artefact payload as a JSON object or array, matching the artefact type's schema."
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report artefact.",
+            "type": "string"
+        },
+        "report_id": {
+            "description": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "report_id"],
+    "type": "object"
+}

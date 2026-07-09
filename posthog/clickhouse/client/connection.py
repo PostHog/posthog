@@ -39,8 +39,10 @@ class NodeRole(StrEnum):
 
 
 # Roles that host replicated MergeTree data; valid ALTER TABLE targets.
+# LOGS hosts replicated tables too (metric_series1/metric_samples1 via migration
+# 0283); non-sharded ALTERs on it run via any_host_by_roles like the satellites.
 DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
-    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.LOGS, NodeRole.OPS, NodeRole.SESSIONS}
 )
 # Single-shard data clusters: ALTER runs on one host, replication propagates.
 SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
@@ -80,6 +82,9 @@ class ClickHouseUser(StrEnum):
     OPS = "ops"
     # Only for migrations - do not normally use
     MIGRATIONS = "migrations"
+    # Low-privilege reader baked into dictionary SOURCE blocks, decoupling
+    # dictionary credentials from the default user.
+    DICT_READER = "dict_reader"
 
 
 __user_dict: Mapping[ClickHouseUser, tuple[str, str]] | None = None

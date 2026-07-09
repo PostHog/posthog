@@ -1,0 +1,26 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}{{ requester_name }} requested the {{ integration_name }} integration{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    <strong>{{ requester_name }}</strong> (<a href="mailto:{{ requester_email }}">{{ requester_email }}</a>) wants the
+    <strong>{{ integration_name }}</strong> integration connected for <strong>{{ team_name }}</strong>. Connecting
+    integrations requires admin access, so they're asking you to set it up.
+</p>
+{% if reason %}
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+    <p><strong>Why they need it</strong></p>
+    <p>{{ reason }}</p>
+</div>
+{% endif %}
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ connect_url }}">Connect {{ integration_name }}</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ connect_url }}">{{ connect_url }}</a>
+    </p>
+</div>
+{% endblock %}

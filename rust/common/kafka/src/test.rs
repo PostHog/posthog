@@ -32,6 +32,7 @@ pub async fn create_mock_kafka() -> (
         kafka_producer_topic_metadata_refresh_interval_ms: None,
         kafka_producer_message_max_bytes: None,
         kafka_producer_sticky_partitioning_linger_ms: None,
+        kafka_producer_partitioner: None,
     };
 
     (

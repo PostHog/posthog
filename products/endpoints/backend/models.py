@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import logging
+from collections.abc import Iterator
 from typing import Any
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
@@ -70,6 +71,89 @@ def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
         return "json"
     logger.warning("Unhandled ClickHouse type: %s", ch_type)
     return "unknown"
+
+
+def can_materialize_query(query: dict | None) -> tuple[bool, str]:
+    """Check whether an endpoint query can be materialized.
+
+    Returns: (can_materialize: bool, reason: str)
+    """
+    query_kind = query.get("kind") if query else None
+
+    MATERIALIZABLE_QUERY_TYPES = {
+        "HogQLQuery",
+        "TrendsQuery",
+        "LifecycleQuery",
+        "RetentionQuery",
+    }
+
+    if query_kind not in MATERIALIZABLE_QUERY_TYPES:
+        supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
+        return (
+            False,
+            f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+        )
+
+    assert query is not None
+
+    # Block compare mode — materialization can't reconstruct doubled series
+    compare_filter = query.get("compareFilter") or {}
+    if compare_filter.get("compare"):
+        return False, "Compare mode is not supported for materialized endpoints."
+
+    # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+    # inject_series_index tags as separate series, causing a mismatch at read time.
+    breakdown_filter = query.get("breakdownFilter") or {}
+    if breakdown_filter.get("breakdown_type") == "cohort":
+        return False, "Cohort breakdowns are not supported for materialized endpoints."
+    for breakdown in breakdown_filter.get("breakdowns") or []:
+        if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+
+    if query.get("variables"):
+        from products.endpoints.backend.materialization_transforms import analyze_variables_for_materialization
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        if not can_materialize:
+            return False, f"Variables not supported: {reason}"
+
+    if query_kind == "HogQLQuery":
+        hogql_query = query.get("query")
+        if not hogql_query or not isinstance(hogql_query, str):
+            return False, "Query is empty or invalid."
+
+    return True, ""
+
+
+def iter_breakdowns(breakdown_filter: object) -> Iterator[tuple[str, str]]:
+    """Yield (property_name, property_type) pairs from either breakdown filter format.
+
+    This is the single canonical extractor — validation, version pruning, and the
+    runtime strategies all read breakdown properties through it.
+
+    Legacy: {"breakdown": "$browser", "breakdown_type": "event"} — the value may also
+            be a list of names.
+    New:    {"breakdowns": [{"property": "$browser", "type": "event"}]}
+    """
+    if not isinstance(breakdown_filter, dict):
+        return
+    breakdown = breakdown_filter.get("breakdown")
+    if breakdown:
+        breakdown_type = breakdown_filter.get("breakdown_type") or "event"
+        names = breakdown if isinstance(breakdown, list) else [breakdown]
+        for name in names:
+            if name is not None:
+                yield (str(name), breakdown_type)
+        return
+    for b in breakdown_filter.get("breakdowns") or []:
+        if isinstance(b, dict) and b.get("property"):
+            yield (str(b["property"]), b.get("type", "event"))
+
+
+def _breakdown_property_names(breakdown_filter: object) -> list[str]:
+    """Extract breakdown property names from either breakdown filter format."""
+    return [name for name, _ in iter_breakdowns(breakdown_filter)]
 
 
 def validate_endpoint_name(value: str) -> None:
@@ -146,6 +230,15 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         blank=True,
         help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
     )
+    optional_breakdown_properties = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text=(
+            "Breakdown property names that may be omitted on /run. "
+            "Omitted ones return data aggregated across all values of that breakdown."
+        ),
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -184,6 +277,17 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 capture_exception(exc)
         return self.columns
 
+    @property
+    def materialized_view_name(self) -> str:
+        """Name of the saved query backing this version: {endpoint_name}_v{version}."""
+        return f"{self.endpoint.name}_v{self.version}"
+
+    def enable_materialization(self, saved_query, bucket_overrides: dict[str, str] | None = None) -> None:
+        """Counterpart of disable_materialization: link the backing saved query to this version."""
+        self.saved_query = saved_query
+        self.bucket_overrides = bucket_overrides
+        self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+
     def disable_materialization(self) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
@@ -208,50 +312,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
         Returns: (can_materialize: bool, reason: str)
         """
-        query_kind = self.query.get("kind") if self.query else None
-
-        MATERIALIZABLE_QUERY_TYPES = {
-            "HogQLQuery",
-            "TrendsQuery",
-            "LifecycleQuery",
-            "RetentionQuery",
-        }
-
-        if query_kind not in MATERIALIZABLE_QUERY_TYPES:
-            supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return (
-                False,
-                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
-            )
-
-        # Block compare mode — materialization can't reconstruct doubled series
-        compare_filter = self.query.get("compareFilter") or {}
-        if compare_filter.get("compare"):
-            return False, "Compare mode is not supported for materialized endpoints."
-
-        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
-        # inject_series_index tags as separate series, causing a mismatch at read time.
-        breakdown_filter = self.query.get("breakdownFilter") or {}
-        if breakdown_filter.get("breakdown_type") == "cohort":
-            return False, "Cohort breakdowns are not supported for materialized endpoints."
-        for breakdown in breakdown_filter.get("breakdowns") or []:
-            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
-                return False, "Cohort breakdowns are not supported for materialized endpoints."
-
-        if self.query.get("variables"):
-            from products.endpoints.backend.materialization import analyze_variables_for_materialization
-
-            can_materialize, reason, _ = analyze_variables_for_materialization(self.query)
-
-            if not can_materialize:
-                return False, f"Variables not supported: {reason}"
-
-        if query_kind == "HogQLQuery":
-            hogql_query = self.query.get("query")
-            if not hogql_query or not isinstance(hogql_query, str):
-                return False, "Query is empty or invalid."
-
-        return True, ""
+        return can_materialize_query(self.query)
 
     @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
@@ -367,6 +428,15 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         previous_version = self.get_version()
         previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
         previous_description = previous_version.description if previous_version else ""
+        previous_optional_breakdowns = (
+            list(previous_version.optional_breakdown_properties or []) if previous_version else []
+        )
+
+        # Prune inherited optional list to property names still present in the new query
+        # (mirrors how data_freshness_seconds rides along across versions).
+        new_breakdown_filter = query.get("breakdownFilter") or {} if isinstance(query, dict) else {}
+        new_breakdown_props = set(_breakdown_property_names(new_breakdown_filter))
+        pruned_optional_breakdowns = [p for p in previous_optional_breakdowns if p in new_breakdown_props]
 
         self.current_version += 1
         self.save(update_fields=["current_version", "updated_at"])
@@ -384,6 +454,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             created_by=user,
             data_freshness_seconds=previous_data_freshness,
             description=previous_description,
+            optional_breakdown_properties=pruned_optional_breakdowns,
             columns=columns,
         )
 

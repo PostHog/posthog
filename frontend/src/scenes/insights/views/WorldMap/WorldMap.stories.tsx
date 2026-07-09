@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsWorldMap from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/WorldMap',
@@ -36,7 +38,5 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: Story = createInsightStory(
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')
-)
+export const Default: Story = createInsightStory(__trendsWorldMap as any)
 Default.parameters = { testOptions: { waitForSelector: '.WorldMap' } }

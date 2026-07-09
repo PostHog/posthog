@@ -91,6 +91,18 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    search_match_type = serializers.ChoiceField(
+        choices=["exact", "similar"],
+        allow_null=True,
+        required=False,
+        read_only=True,
+        help_text=(
+            "How this row matched the `search` query parameter: `exact` (the term is a "
+            "case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR "
+            "number) or `similar` (a fuzzy trigram match, returned only when no exact match "
+            "exists). Null when the list is not filtered by `search`."
+        ),
+    )
 
     class Meta:
         dataclass = Run

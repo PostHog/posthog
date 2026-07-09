@@ -3,13 +3,14 @@ from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
+from django.http import HttpResponse
 
 import structlog
-import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -24,14 +25,25 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import AccessControlPermission, get_organization_from_view
+from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
+from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
+from ..marketplace.credentials import (
+    build_codex_install_command,
+    build_install_command,
+    get_marketplace_credential,
+    issue_marketplace_credential,
+    marketplace_credential_label,
+    marketplace_repo_url,
+)
+from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
+    MAX_SKILL_FILE_BYTES,
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
     LLMSkillFetchQuerySerializer,
@@ -39,13 +51,20 @@ from .skill_serializers import (
     LLMSkillFileDeleteQuerySerializer,
     LLMSkillFileRenameSerializer,
     LLMSkillFileSerializer,
+    LLMSkillImportSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
+    LLMSkillMarketplaceCommandSerializer,
+    LLMSkillMarketplaceIssueSerializer,
     LLMSkillPublishSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
+    validate_allowed_tool,
+    validate_skill_body_size,
+    validate_skill_file_path,
+    validate_skill_name_value,
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
@@ -57,6 +76,7 @@ from .skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    create_skill,
     create_skill_file,
     delete_skill_file,
     duplicate_skill,
@@ -70,7 +90,9 @@ from .skill_services import (
 
 logger = structlog.get_logger(__name__)
 
-LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
+# Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
+# already bounded by create_skill, this just caps the upload before we read it into memory.
+MAX_IMPORT_ZIP_BYTES = 10_000_000
 
 
 def _file_extension(path: str) -> str:
@@ -111,25 +133,6 @@ def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
     }
 
 
-class LLMSkillFeatureFlagPermission(BasePermission):
-    def has_permission(self, request, view) -> bool:
-        user = cast(User, request.user)
-        organization = get_organization_from_view(view)
-        org_id = str(organization.id)
-        distinct_id = user.distinct_id or str(user.uuid)
-
-        return bool(
-            posthoganalytics.feature_enabled(
-                LLM_SKILL_FEATURE_FLAG,
-                distinct_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-
-
 ALLOWED_LIST_ORDERINGS = frozenset(
     {
         "name",
@@ -158,7 +161,7 @@ class LLMSkillViewSet(
     scope_object = "llm_skill"
     queryset = LLMSkill.objects.all()
     serializer_class = LLMSkillSerializer
-    permission_classes = [LLMSkillFeatureFlagPermission, AccessControlPermission]
+    permission_classes = [AccessControlPermission]
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return get_active_skill_queryset(self.team)
@@ -186,6 +189,10 @@ class LLMSkillViewSet(
                 return ["llm_skill:write"]
             if request.method in ("GET", "HEAD"):
                 return ["llm_skill:read"]
+        # marketplace_command (GET, read state) and issue_marketplace_command (POST, mint/rotate the
+        # credential) share a URL via @marketplace_command.mapping.post. Resolve per-method.
+        if view.action in ["marketplace_command", "issue_marketplace_command"]:
+            return ["llm_skill:write"] if request.method == "POST" else ["llm_skill:read"]
         return None
 
     def _ensure_web_authenticated(self, request: Request) -> Response | None:
@@ -270,6 +277,11 @@ class LLMSkillViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Presence of the param — even as an empty string — is a filter: `?category=` returns only
+        # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
+        if "category" in request.query_params:
+            queryset = queryset.filter(category=params.get("category") or "")
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
@@ -470,6 +482,237 @@ class LLMSkillViewSet(
                 "has_more": has_more,
             }
         )
+
+    @extend_schema(
+        parameters=[LLMSkillFetchQuerySerializer],
+        responses={(200, "application/zip"): OpenApiTypes.BINARY},
+    )
+    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
+    @llma_track_latency("llma_skills_export")
+    @monitor(feature=None, endpoint="llma_skills_export", method="GET")
+    def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
+        version_params = self._get_requested_version_params(request)
+        version = cast(int | None, version_params.get("version"))
+        skill = get_skill_by_name_from_db(self.team, skill_name, version)
+        if skill is None:
+            return self._skill_not_found_response(skill_name)
+
+        export = load_skill_export(skill)
+        problems = validate_for_export(export)
+        if problems:
+            return Response(
+                {"detail": "Skill is not export-ready under the Agent Skills spec.", "problems": problems},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        zip_bytes = build_skill_zip(export)
+        response = HttpResponse(zip_bytes, content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
+        return response
+
+    @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="import",
+        required_scopes=["llm_skill:write"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    @llma_track_latency("llma_skills_import")
+    @monitor(feature=None, endpoint="llma_skills_import", method="POST")
+    def import_skill(self, request: Request, **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"detail": "Attach the skill .zip as multipart form field 'file'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Bound the read by bytes (read one past the cap) — upload.size is not always reliable, so
+        # don't trust it as the only guard against buffering an oversized body into memory.
+        raw = upload.read(MAX_IMPORT_ZIP_BYTES + 1)
+        if len(raw) > MAX_IMPORT_ZIP_BYTES:
+            return Response(
+                {"detail": f"Zip must be {MAX_IMPORT_ZIP_BYTES} bytes or fewer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            skill_export = parse_skill_zip(raw)
+        except SkillImportError as err:
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+
+        problems = self._import_problems(skill_export)
+        if problems:
+            return Response(
+                {"detail": "Zip is not a valid, spec-compliant skill.", "problems": problems},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            skill = create_skill(
+                self.team,
+                user=cast(User, request.user),
+                name=skill_export.name,
+                description=skill_export.description,
+                body=skill_export.body,
+                license=skill_export.license,
+                compatibility=skill_export.compatibility,
+                allowed_tools=skill_export.allowed_tools,
+                metadata=skill_export.metadata,
+                files=[
+                    {"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill_export.files
+                ],
+            )
+        except LLMSkillDuplicateNameConflictError:
+            return Response(
+                {"attr": "name", "detail": f"A skill named '{skill_export.name}' already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillFilePathConflictError:
+            return Response({"detail": "Duplicate bundled file paths in the zip."}, status=status.HTTP_400_BAD_REQUEST)
+        except LLMSkillFileLimitError as err:
+            return Response(
+                {"detail": f"Skill exceeds the maximum of {err.max_count} bundled files."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        props = {**_skill_analytics_props(skill), "imported": True}
+        logger.info("llma_skill_imported", team_id=self.team.id, user_id=cast(User, request.user).id, **props)
+        report_user_action(cast(User, request.user), "llma skill imported", props, team=self.team, request=request)
+        return Response(self._serialize_skill(skill), status=status.HTTP_201_CREATED)
+
+    def _import_problems(self, skill_export) -> list[str]:
+        # The import path calls create_skill directly, so it must re-apply the same size/shape limits
+        # the create/edit serializers enforce — otherwise a spec-valid zip could persist content
+        # (oversized body/files, whitespace-bearing tools) the rest of the system assumes is bounded.
+        # validate_for_export already covers the description (non-empty, ≤ spec limit).
+        problems: list[str] = list(validate_for_export(skill_export))
+        try:
+            validate_skill_name_value(skill_export.name)
+        except serializers.ValidationError as err:
+            problems.append(f"name: {self._first_error(err)}")
+        try:
+            validate_skill_body_size(skill_export.body)
+        except serializers.ValidationError as err:
+            problems.append(f"body: {self._first_error(err)}")
+        for tool in skill_export.allowed_tools:
+            try:
+                validate_allowed_tool(tool)
+            except serializers.ValidationError as err:
+                problems.append(f"allowed-tools '{tool}': {self._first_error(err)}")
+        if len(skill_export.license) > 255:
+            problems.append("license must be 255 characters or fewer")
+        if len(skill_export.compatibility) > 500:
+            problems.append("compatibility must be 500 characters or fewer")
+
+        seen_lower: set[str] = set()
+        for skill_file in skill_export.files:
+            try:
+                validate_skill_file_path(skill_file.path)
+            except serializers.ValidationError as err:
+                problems.append(f"file '{skill_file.path}': {self._first_error(err)}")
+            if len(skill_file.content.encode("utf-8")) > MAX_SKILL_FILE_BYTES:
+                problems.append(f"file '{skill_file.path}': content must be {MAX_SKILL_FILE_BYTES} bytes or fewer")
+            lowered = skill_file.path.lower()
+            if lowered in seen_lower:
+                problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
+            seen_lower.add(lowered)
+        return problems
+
+    @staticmethod
+    def _first_error(err: serializers.ValidationError) -> str:
+        detail = err.detail
+        if isinstance(detail, list) and detail:
+            return str(detail[0])
+        return str(detail)
+
+    def _marketplace_command_payload(self, request: Request, key, token: str | None, status_str: str) -> dict[str, Any]:
+        """Shape the marketplace-command response from a credential (or absence of one)."""
+        team_id = self.team.id
+
+        def claude(tok: str | None) -> str:
+            return build_install_command(team_id, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME)
+
+        def codex(tok: str | None) -> str:
+            return build_codex_install_command(team_id, tok, plugin_name=PLUGIN_NAME, marketplace_name=MARKETPLACE_NAME)
+
+        return {
+            "status": status_str,
+            "connected": key is not None,
+            "plugin_name": PLUGIN_NAME,
+            "marketplace_name": MARKETPLACE_NAME,
+            "label": marketplace_credential_label(team_id),
+            "repo_url": marketplace_repo_url(team_id),
+            "command": claude(token) if token else None,
+            "command_template": claude(None),
+            "codex_command": codex(token) if token else None,
+            "codex_command_template": codex(None),
+            "token": token,
+            "mask_value": key.mask_value if key is not None else None,
+            "created_at": key.created_at if key is not None else None,
+            "last_rolled_at": key.last_rolled_at if key is not None else None,
+        }
+
+    @extend_schema(responses={200: LLMSkillMarketplaceCommandSerializer})
+    @action(methods=["GET"], detail=False, url_path="marketplace/install-command")
+    @llma_track_latency("llma_skills_marketplace_command")
+    @monitor(feature=None, endpoint="llma_skills_marketplace_command", method="GET")
+    def marketplace_command(self, request: Request, **kwargs) -> Response:
+        """Report whether the user already has a marketplace credential, without minting one.
+
+        The token is unrecoverable, so an existing credential returns its mask only — the UI shows
+        "already connected, existing setups keep working" and offers an explicit rotate.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        key = get_marketplace_credential(self.team, cast(User, request.user))
+        payload = self._marketplace_command_payload(request, key, None, "exists" if key is not None else "absent")
+        return Response(LLMSkillMarketplaceCommandSerializer(payload).data)
+
+    @extend_schema(request=LLMSkillMarketplaceIssueSerializer, responses={200: LLMSkillMarketplaceCommandSerializer})
+    @marketplace_command.mapping.post
+    @llma_track_latency("llma_skills_marketplace_issue")
+    @monitor(feature=None, endpoint="llma_skills_marketplace_issue", method="POST")
+    def issue_marketplace_command(self, request: Request, **kwargs) -> Response:
+        """Mint the user's read-only marketplace credential (or rotate it) and return the install command.
+
+        Per-user: rotating only ever invalidates this user's own credential, never a teammate's.
+        """
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        payload = LLMSkillMarketplaceIssueSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        issued = issue_marketplace_credential(
+            self.team, cast(User, request.user), rotate=payload.validated_data["rotate"]
+        )
+
+        if issued.status in ("created", "rotated"):
+            props = {"status": issued.status, "plugin_name": PLUGIN_NAME}
+            logger.info(
+                "llma_skill_marketplace_credential_issued",
+                team_id=self.team.id,
+                user_id=cast(User, request.user).id,
+                **props,
+            )
+            report_user_action(
+                cast(User, request.user),
+                "llma skill marketplace credential issued",
+                props,
+                team=self.team,
+                request=request,
+            )
+
+        result = self._marketplace_command_payload(request, issued.key, issued.token, issued.status)
+        return Response(LLMSkillMarketplaceCommandSerializer(result).data)
 
     @extend_schema(request=None, responses={204: None})
     @action(

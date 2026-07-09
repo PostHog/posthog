@@ -252,6 +252,29 @@ describe('URL Routing', () => {
             })
             expect(parseRequestProperties(request, {}).mcpVendorClient).toBeUndefined()
         })
+
+        it('defaults mcpClientName from x-anthropic-client when clientInfo omits a name', () => {
+            // Anthropic clients pool MCP transports and send no `clientInfo.name`, so
+            // without this fallback `$mcp_client_name` is empty and the analytics
+            // dashboard buckets the traffic as "Other".
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, {}).mcpClientName).toBe('claude-code')
+        })
+
+        it('keeps the self-reported clientName over the vendor header', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'x-anthropic-client': 'ClaudeCode',
+                },
+            })
+            expect(parseRequestProperties(request, { clientName: 'Cursor' }).mcpClientName).toBe('Cursor')
+        })
     })
 
     describe('MCP consumer parsing', () => {

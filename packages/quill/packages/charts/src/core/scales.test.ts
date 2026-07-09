@@ -79,6 +79,20 @@ describe('hog-charts scales', () => {
             expect(domainMin).toBeLessThan(0)
         })
 
+        it('floats the baseline to the data range when floatBaseline is set', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            const [domainMin] = createYScale(series, dimensions, { floatBaseline: true }).domain()
+            // Without floatBaseline this would clamp to 0; floated, the floor tracks the data minimum.
+            expect(domainMin).toBeGreaterThan(0)
+            expect(domainMin).toBeLessThanOrEqual(50)
+        })
+
+        it('ignores floatBaseline on a log scale (no zero baseline to drop)', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 60, 70] })]
+            const [domainMin] = createYScale(series, dimensions, { floatBaseline: true, scaleType: 'log' }).domain()
+            expect(domainMin).toBeGreaterThan(0)
+        })
+
         it('extends max to 0 when all values are negative (mirror of positive-data zero baseline)', () => {
             const series = [makeSeries({ key: 's1', data: [-30, -20, -10] })]
             const scale = createYScale(series, dimensions)
@@ -392,6 +406,76 @@ describe('hog-charts scales', () => {
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBeGreaterThanOrEqual(1000)
             // The right axis is unaffected — nice() can nudge 500 up a little, but nowhere near 1000.
             expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
+        })
+
+        it('floats an axis to its data range when its axes entry sets startAtZero false', () => {
+            const left = makeSeries({ key: 'left', data: [800, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [800, 1000], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
+                    { id: 'y1', position: 'right', startAtZero: false },
+                ],
+            })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
+            expect(result.yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
+        it('applies a per-axis scaleType from options.axes to that axis only', () => {
+            const left = makeSeries({ key: 'left', data: [1, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [1, 1000], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left', scaleType: 'linear' },
+                    { id: 'y1', position: 'right', scaleType: 'log' },
+                ],
+            })
+            // The log axis compresses the low end far more than the linear one for identical data.
+            const linearMid = result.yAxes![DEFAULT_Y_AXIS_ID].scale(100)
+            const logMid = result.yAxes!.y1.scale(100)
+            expect(linearMid).not.toBeCloseTo(logMid, 0)
+        })
+
+        it('honors a config-driven position over the alternating default', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y1' })
+            // Both axes forced to the right side — the alternating default would put 'left' on the left.
+            const result = createScales([a, b], ['x', 'y'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'right' },
+                    { id: 'y1', position: 'right' },
+                ],
+            })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('right')
+            expect(result.yAxes!.y1.position).toBe('right')
+        })
+
+        it('builds a right-positioned yAxes record for a sole axis pinned right', () => {
+            // A single series whose only axis is configured `position: 'right'` — the alternating
+            // default would place index 0 on the left, so without honoring the override the gutter
+            // renders left. The scalar fast path would also drop the yAxes record entirely.
+            const only = makeSeries({ key: 'only', data: [0, 1200], yAxisId: 'right' })
+            const result = createScales([only], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
+                    { id: 'right', position: 'right' },
+                ],
+            })
+            expect(result.yAxes).not.toBeUndefined()
+            expect(result.yAxes!.right.position).toBe('right')
+            // scales.y mirrors the sole axis so gridlines align with the right gutter's ticks.
+            expect(result.y(600)).toBe(result.yAxes!.right.scale(600))
+        })
+
+        it('uses a single-axis options.axes scaleType for the sole axis', () => {
+            const only = makeSeries({ key: 'only', data: [1, 10, 100, 1000] })
+            const result = createScales([only], ['a', 'b', 'c', 'd'], dimensions, {
+                axes: [{ id: DEFAULT_Y_AXIS_ID, position: 'left', scaleType: 'log' }],
+            })
+            // Single axis → no yAxes map, but the sole scale picks up the log scaleType.
+            expect(result.yAxes).toBeUndefined()
+            const [min] = result.y.domain() as [number, number]
+            expect(min).toBeGreaterThan(0)
         })
     })
 

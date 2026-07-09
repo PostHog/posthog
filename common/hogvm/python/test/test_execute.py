@@ -15,7 +15,7 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
 
 
 class TestBytecodeExecute:
@@ -82,12 +82,16 @@ class TestBytecodeExecute:
         assert self._run("match('test', 'e.*')") is True
         assert self._run("match('test', '^e.*')") is False
         assert self._run("match('test', 'x.*')") is False
+        assert self._run("match('test', '')") is True
+        assert self._run("match('', '')") is True
+        assert self._run("match('ab', '(?<=a)b')") is True
         assert self._run("'test' =~ 'e.*'") is True
         assert self._run("'test' !~ 'e.*'") is False
         assert self._run("'test' =~ '^e.*'") is False
         assert self._run("'test' !~ '^e.*'") is True
         assert self._run("'test' =~ 'x.*'") is False
         assert self._run("'test' !~ 'x.*'") is True
+        assert self._run("'' !~ 'x.*'") is False
         assert self._run("'test' ~* 'EST'") is True
         assert self._run("'test' =~* 'EST'") is True
         assert self._run("'test' !~* 'EST'") is False
@@ -103,6 +107,32 @@ class TestBytecodeExecute:
         assert self._run("toUUID('asd')") == "asd"
         assert self._run("1 == null") is False
         assert self._run("1 != null") is True
+
+    def test_ordering_comparison_type_error_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
+            self._run("properties.missing <= 1.0")
+
+    @parameterized.expand(
+        [
+            ("function_list_input", "match(['tool_call'], 'tool')", {}, "Function match requires input"),
+            ("function_invalid_pattern", "match('tool_call', '[')", {}, "Invalid regex pattern"),
+            ("operator_list_input", "['tool_call'] =~ 'tool'", {}, "Function match requires input"),
+            (
+                "operator_invalid_pattern",
+                "'tool_call' =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern: invalid escape sequence: \\u",
+            ),
+        ]
+    )
+    def test_regex_errors_raise_hogvm_exception(self, _name, expr, properties, expected_message):
+        globals_dict = {"properties": properties}
+        bytecode = create_bytecode(parse_expr(expr)).bytecode
+
+        with pytest.raises(HogVMException) as exc_info:
+            execute_bytecode(bytecode, globals_dict)
+
+        assert expected_message in str(exc_info.value)
 
     def test_nested_value(self):
         my_dict = {
@@ -670,6 +700,10 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
+    def test_bytecode_length_null_raises_hogvm_exception(self):
+        with pytest.raises(HogVMException, match="Can not call length on null"):
+            self._run_program("return length(null);")
+
     def test_random_float(self):
         for _ in range(50):
             value = self._run_program("return randomFloat();")
@@ -724,6 +758,9 @@ class TestBytecodeExecute:
             assert str(e) == "Array access starts from 1"
         else:
             raise AssertionError("Expected Exception not raised")
+
+        with pytest.raises(HogVMException, match="Index 1 out of range for array of length 0"):
+            self._run_program("let calls := []; calls[1] := 'tool_call'; return true")
 
     def test_bytecode_tuples(self):
         # assert self._run_program("return (,);"), ()

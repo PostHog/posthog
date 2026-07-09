@@ -2,8 +2,9 @@
 
 The serving SELECT mirrors the training query in four CTEs:
 
-    1. `eligible_sessions`: hash-partitioned slice of unscored sessions
-       (`HAVING max(surfacing_score) IS NULL`) from `session_replay_events`.
+    1. `eligible_sessions`: hash-partitioned slice of unscored, eventful sessions
+       (`HAVING max(surfacing_score) IS NULL AND sum(event_count) > 0`) from
+       `session_replay_events`.
        It carries `distinct_id` and `min_first_timestamp` to the producer
        because the partial-row Kafka writeback must reuse the real distinct_id
        (the `sipHash64(distinct_id)` shard key) and session-start timestamp
@@ -242,6 +243,9 @@ WITH eligible_sessions AS (
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
       AND started_at >= now() - toIntervalDay(%(lookback_days)s)
+      -- Eventless sessions have no features, so the inner join always drops them;
+      -- excluding them here stops them starving the LIMIT and being re-picked every tick.
+      AND sum(event_count) > 0
     -- ORDER BY makes LIMIT deterministic across the two CTE evaluations
     -- (CH inlines CTEs as subqueries — without a stable order, the GLOBAL IN
     -- subquery and the final FROM could pick different subsets and the
@@ -352,6 +356,8 @@ FROM (
     GROUP BY team_id, session_id
     HAVING max(surfacing_score) IS NULL
       AND min(min_first_timestamp) >= now() - toIntervalDay(%(lookback_days)s)
+      -- Match fetch_features_sql: eventless sessions aren't scorable backlog.
+      AND sum(event_count) > 0
 )
 """.strip()
 

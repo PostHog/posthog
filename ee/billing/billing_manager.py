@@ -44,6 +44,19 @@ class BillingServiceOpenInvoicesError(Exception):
         super().__init__(message)
 
 
+def _has_quota_limiting_markers(usage: dict | None) -> bool:
+    if not usage:
+        return False
+
+    for value in usage.values():
+        if isinstance(value, dict) and (
+            value.get("quota_limited_until") is not None or value.get("quota_limiting_suspended_until") is not None
+        ):
+            return True
+
+    return False
+
+
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
     """
     Get a user role display string in a given organization, if membership doesn't exist return None.
@@ -416,6 +429,8 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
+        should_update_org_billing_quotas = False
+
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
             usage_info = OrganizationUsageInfo(
@@ -430,6 +445,7 @@ class BillingManager:
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
+                signals_credits=usage_summary.get("signals_credits", {}),
                 workflow_emails=usage_summary.get("workflow_emails", {}),
                 workflow_destinations_dispatched=usage_summary.get("workflow_destinations_dispatched", {}),
                 logs_mb_ingested=usage_summary.get("logs_mb_ingested", {}),
@@ -439,9 +455,13 @@ class BillingManager:
                 ],
             )
 
-            if set_org_usage_summary(organization, new_usage=usage_info):
+            had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+
+            if usage_changed:
                 org_modified = True
-                update_org_billing_quotas(organization)
+
+            should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
@@ -455,26 +475,34 @@ class BillingManager:
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
-        product_key_to_usage_key = {
-            product["type"]: product["usage_key"]
-            for product in (
-                billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
-            )
-        }
-        org_customer_trust_scores = {}
-        for product_key in customer_trust_scores:
-            if product_key in product_key_to_usage_key:
-                org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
+        if customer_trust_scores:
+            product_key_to_usage_key = {
+                product["type"]: product["usage_key"]
+                for product in (
+                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                )
+            }
+            org_customer_trust_scores = {}
+            for product_key in customer_trust_scores:
+                if product_key in product_key_to_usage_key:
+                    org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[
+                        product_key
+                    ]
 
-        if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores = {
-                **(organization.customer_trust_scores or {}),
+            current_customer_trust_scores = organization.customer_trust_scores or {}
+            updated_customer_trust_scores = {
+                **current_customer_trust_scores,
                 **org_customer_trust_scores,
             }
-            org_modified = True
+            if updated_customer_trust_scores != current_customer_trust_scores:
+                organization.customer_trust_scores = updated_customer_trust_scores
+                org_modified = True
 
         if org_modified:
             organization.save()
+
+        if should_update_org_billing_quotas:
+            update_org_billing_quotas(organization)
 
         return organization
 

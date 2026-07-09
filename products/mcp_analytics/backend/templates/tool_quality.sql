@@ -3,7 +3,7 @@
 -- One row per $mcp_tool_name with call volume, error rate, latency percentiles,
 -- and reach (unique users / sessions / first / last seen).
 --
--- Source events: `mcp_tool_call`, emitted by the MCP analytics SDK on every
+-- Source events: `$mcp_tool_call`, emitted by the MCP analytics SDK on every
 -- tool invocation. Expected properties:
 --   $mcp_tool_name      string
 --   $mcp_is_error       boolean
@@ -24,7 +24,7 @@ SELECT
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}

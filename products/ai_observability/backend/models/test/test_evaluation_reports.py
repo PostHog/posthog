@@ -120,6 +120,77 @@ class TestEvaluationReportModel(BaseTest):
         assert report.next_delivery_date is not None
 
 
+class TestEvaluationReportDeletionCascade(BaseTest):
+    def _create_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _report_for(self, evaluation: Evaluation, **overrides) -> EvaluationReport:
+        defaults = {
+            "team": self.team,
+            "evaluation": evaluation,
+            "frequency": EvaluationReport.Frequency.SCHEDULED,
+            "rrule": "FREQ=HOURLY",
+            "starts_at": timezone.now() - dt.timedelta(hours=5),
+            "delivery_targets": [],
+        }
+        defaults.update(overrides)
+        return EvaluationReport.objects.create(**defaults)
+
+    def test_deliverable_excludes_reports_for_deleted_evaluations(self):
+        live = self._report_for(self._create_evaluation())
+        deleted_eval = self._create_evaluation()
+        orphaned = self._report_for(deleted_eval)
+        # Bypass the cascade signal so deliverable() is tested as an independent guard.
+        Evaluation.objects.filter(pk=deleted_eval.pk).update(deleted=True)
+
+        deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
+        self.assertIn(live.id, deliverable_ids)
+        self.assertNotIn(orphaned.id, deliverable_ids)
+
+    def test_deliverable_excludes_disabled_and_deleted_reports(self):
+        disabled = self._report_for(self._create_evaluation(), enabled=False)
+        deleted = self._report_for(self._create_evaluation(), deleted=True)
+        live = self._report_for(self._create_evaluation())
+
+        deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
+        self.assertEqual(deliverable_ids, {live.id})
+        self.assertNotIn(disabled.id, deliverable_ids)
+        self.assertNotIn(deleted.id, deliverable_ids)
+
+    def test_deleting_evaluation_retires_its_report(self):
+        evaluation = self._create_evaluation()
+        report = self._report_for(evaluation)
+
+        evaluation.deleted = True
+        evaluation.save()
+
+        report.refresh_from_db()
+        self.assertTrue(report.deleted)
+        self.assertFalse(report.enabled)
+
+    def test_deleting_evaluation_leaves_other_evaluations_reports_alone(self):
+        keep = self._report_for(self._create_evaluation())
+        doomed_eval = self._create_evaluation()
+        self._report_for(doomed_eval)
+
+        doomed_eval.deleted = True
+        doomed_eval.save()
+
+        keep.refresh_from_db()
+        self.assertFalse(keep.deleted)
+        self.assertTrue(keep.enabled)
+
+
 class TestEvaluationReportRunModel(BaseTest):
     def test_create_report_run(self):
         now = timezone.now()

@@ -7,7 +7,9 @@
 import { z as zod } from 'zod'
 
 export const WidgetDateRange = /* @__PURE__ */ zod.object({
-    date_from: zod.union([zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']), zod.null()]).optional(),
+    date_from: zod
+        .union([zod.enum(['-1M', '-30M', '-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']), zod.null()])
+        .optional(),
 })
 
 export type WidgetDateRange = zod.input<typeof WidgetDateRange>

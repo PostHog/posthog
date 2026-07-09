@@ -1,10 +1,44 @@
 import {
+    getNotebookMarkdownClientId,
     getNotebookPresenceParticipants,
     getNotebookRemoteParticipants,
     pruneNotebookRemotePresence,
 } from './notebookPresence'
 
 describe('notebookPresence', () => {
+    let originalGetEntriesByType: Performance['getEntriesByType'] | undefined
+
+    beforeEach(() => {
+        originalGetEntriesByType = window.performance.getEntriesByType
+        sessionStorage.clear()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        if (originalGetEntriesByType) {
+            Object.defineProperty(window.performance, 'getEntriesByType', {
+                configurable: true,
+                value: originalGetEntriesByType,
+            })
+        } else {
+            Reflect.deleteProperty(window.performance, 'getEntriesByType')
+        }
+        sessionStorage.clear()
+    })
+
+    function mockNavigationType(type: PerformanceNavigationTiming['type']): void {
+        const entries = [{ type } as PerformanceNavigationTiming]
+        const getEntriesByType = window.performance.getEntriesByType
+        if (jest.isMockFunction(getEntriesByType)) {
+            getEntriesByType.mockReturnValue(entries)
+            return
+        }
+        Object.defineProperty(window.performance, 'getEntriesByType', {
+            configurable: true,
+            value: jest.fn().mockReturnValue(entries),
+        })
+    }
+
     it('shows people instead of client tabs by keeping the latest presence for each user', () => {
         const participants = getNotebookRemoteParticipants({
             oldTab: {
@@ -114,5 +148,23 @@ describe('notebookPresence', () => {
                 lastSeenAt: 30,
             },
         ])
+    })
+
+    it('reuses the markdown client id after a browser reload', () => {
+        mockNavigationType('navigate')
+        const clientId = getNotebookMarkdownClientId()
+
+        mockNavigationType('reload')
+
+        expect(getNotebookMarkdownClientId()).toEqual(clientId)
+    })
+
+    it('creates a new markdown client id for a separate tab navigation', () => {
+        mockNavigationType('navigate')
+        const firstTabClientId = getNotebookMarkdownClientId()
+
+        mockNavigationType('navigate')
+
+        expect(getNotebookMarkdownClientId()).not.toEqual(firstTabClientId)
     })
 })

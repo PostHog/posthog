@@ -489,6 +489,172 @@ describe('Cyclotron V2', () => {
             expect(jobs[0].queueName).toBe(QUEUE)
         })
 
+        describe('bulkCreateAndCheckIn', () => {
+            it('atomically inserts new children and reschedules self', async () => {
+                const { id: parentId, job } = await seedAndDequeue()
+
+                const newState = Buffer.from(JSON.stringify({ cursor: 'next-page', totalEnqueued: 500 }))
+                const future = new Date(Date.now() + 60_000)
+
+                const result = await job.bulkCreateAndCheckIn({
+                    newJobs: [
+                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId },
+                        { teamId: 1, queueName: 'hogflow', parentRunId: parentId },
+                    ],
+                    selfDisposition: { kind: 'reschedule', scheduledAt: future, state: newState },
+                })
+
+                expect(result.newJobIds).toHaveLength(2)
+
+                // Self is back to available with new state + scheduled
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('available')
+                expect(parent.lock_id).toBeNull()
+                expect(parent.state?.toString()).toBe(newState.toString())
+                expect(new Date(parent.scheduled).getTime()).toBeCloseTo(future.getTime(), -2)
+
+                // Children exist on their own queue
+                const children = await assertPool.query(
+                    `SELECT id, queue_name, status, parent_run_id FROM cyclotron_jobs
+                     WHERE parent_run_id = $1 ORDER BY id`,
+                    [parentId]
+                )
+                expect(children.rows).toHaveLength(2)
+                expect(children.rows[0].queue_name).toBe('hogflow')
+                expect(children.rows[0].status).toBe('available')
+            })
+
+            it('acks self atomically with child inserts', async () => {
+                const { id: parentId, job } = await seedAndDequeue()
+
+                await job.bulkCreateAndCheckIn({
+                    newJobs: [{ teamId: 1, queueName: 'hogflow', parentRunId: parentId }],
+                    selfDisposition: { kind: 'ack' },
+                })
+
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('completed')
+                expect(parent.lock_id).toBeNull()
+
+                expect(await countByStatus('available')).toBe(1) // child
+            })
+
+            it('fails self atomically with child inserts', async () => {
+                const { id: parentId, job } = await seedAndDequeue()
+
+                await job.bulkCreateAndCheckIn({
+                    newJobs: [],
+                    selfDisposition: { kind: 'fail' },
+                })
+
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('failed')
+            })
+
+            it('handles empty newJobs (terminal page with no new children)', async () => {
+                const { id: parentId, job } = await seedAndDequeue()
+
+                const result = await job.bulkCreateAndCheckIn({
+                    newJobs: [],
+                    selfDisposition: { kind: 'ack' },
+                })
+
+                expect(result.newJobIds).toEqual([])
+                expect((await queryJob(parentId)).status).toBe('completed')
+            })
+
+            it('rolls back both writes if the insert fails (atomicity)', async () => {
+                const { id: parentId, job } = await seedAndDequeue()
+
+                // Force an insert failure by providing an invalid teamId
+                // (the schema parse will reject this before we even reach SQL,
+                // so the failure is pre-TX; verify self-state is untouched.)
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 'bad-type' as any, queueName: 'hogflow' }],
+                        selfDisposition: { kind: 'reschedule' },
+                    })
+                ).rejects.toThrow()
+
+                // Parent still locked / running — no partial state
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('running')
+                expect(parent.lock_id).not.toBeNull()
+            })
+
+            it('rolls back the self update when a child insert fails inside the TX', async () => {
+                // Real DB-level rollback path (vs the Zod pre-check above): two
+                // children with the same explicit id → second INSERT violates
+                // the PK constraint mid-TX → the self UPDATE must roll back too.
+                const { id: parentId, job } = await seedAndDequeue()
+                const duplicateId = '00000000-0000-0000-0000-000000000001'
+
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [
+                            { id: duplicateId, teamId: 1, queueName: 'hogflow' },
+                            { id: duplicateId, teamId: 1, queueName: 'hogflow' },
+                        ],
+                        selfDisposition: { kind: 'reschedule' },
+                    })
+                ).rejects.toThrow()
+
+                // Self row untouched — still locked and running
+                const parent = await queryJob(parentId)
+                expect(parent.status).toBe('running')
+                expect(parent.lock_id).not.toBeNull()
+
+                // No children persisted
+                const children = await assertPool.query(
+                    `SELECT id FROM cyclotron_jobs WHERE parent_run_id IS NOT NULL OR id = $1`,
+                    [duplicateId]
+                )
+                expect(children.rows).toHaveLength(0)
+            })
+
+            it('rolls back when the lock_id has been reassigned between dequeue and commit (janitor race)', async () => {
+                // Simulates the janitor's stall-recovery: the worker holds the
+                // dequeued job, but while it's mid-page the janitor decides the
+                // job stalled and reassigns the lock to another worker. The
+                // current TX's self UPDATE then matches zero rows because the
+                // WHERE lock_id = $2 filter fails. Without a rowCount guard,
+                // the child inserts would commit silently while the cursor
+                // doesn't advance — up to ~500 duplicate sends per page on
+                // replay by the other worker.
+                const { id: parentId, job } = await seedAndDequeue()
+
+                // Forcibly change the lock_id from underneath the worker.
+                await assertPool.query(`UPDATE cyclotron_jobs SET lock_id = gen_random_uuid() WHERE id = $1`, [
+                    parentId,
+                ])
+
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [{ teamId: 1, queueName: 'hogflow', parentRunId: parentId }],
+                        selfDisposition: { kind: 'reschedule' },
+                    })
+                ).rejects.toThrow()
+
+                // No child rows leaked through
+                const children = await assertPool.query(`SELECT id FROM cyclotron_jobs WHERE parent_run_id = $1`, [
+                    parentId,
+                ])
+                expect(children.rows).toHaveLength(0)
+            })
+
+            it('throws if the job was already released', async () => {
+                const { job } = await seedAndDequeue()
+                await job.ack()
+
+                await expect(
+                    job.bulkCreateAndCheckIn({
+                        newJobs: [],
+                        selfDisposition: { kind: 'ack' },
+                    })
+                ).rejects.toThrow('already released')
+            })
+        })
+
         describe('CyclotronV2RateLimitedWorker', () => {
             // The hook is consulted on every poll. It receives the number of
             // rows actually visible (capped at batchMaxSize). Returning a
@@ -830,6 +996,411 @@ describe('Cyclotron V2', () => {
             expect(job.transitionCount).toBe(1)
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
+        })
+    })
+
+    // ── Email fair dequeue ───────────────────────────────────────────
+    //
+    // dequeue_seq is precomputed at insert time for email-queue jobs.
+    // Sorting ascending by it interleaves tenants 1-for-1, so a single
+    // email from one team isn't blocked behind another team's 2M-row
+    // campaign. Counter state lives in cyclotron_email_team_seq.
+
+    describe('Email fair dequeue', () => {
+        const EMAIL_QUEUE = 'email'
+
+        const readDequeueSeq = async (id: string): Promise<bigint | null> => {
+            const res = await assertPool.query<{ dequeue_seq: string | null }>(
+                'SELECT dequeue_seq FROM cyclotron_jobs WHERE id = $1',
+                [id]
+            )
+            const raw = res.rows[0].dequeue_seq
+            return raw === null ? null : BigInt(raw)
+        }
+
+        const readTeamCounter = async (teamId: number): Promise<bigint | null> => {
+            const res = await assertPool.query<{ counter: string }>(
+                'SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1',
+                [teamId]
+            )
+            return res.rows.length === 0 ? null : BigInt(res.rows[0].counter)
+        }
+
+        beforeEach(async () => {
+            // Wipe the per-team counter table between tests so each starts cold.
+            await assertPool.query('DELETE FROM cyclotron_email_team_seq')
+        })
+
+        describe('Manager: dequeue_seq assignment', () => {
+            it('assigns dequeue_seq for email jobs, NULL for other queues', async () => {
+                const [emailId] = await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
+                const [hogId] = await manager.bulkCreateJobs([{ teamId: 7, queueName: 'hog' }])
+
+                expect(await readDequeueSeq(emailId)).not.toBeNull()
+                expect(await readDequeueSeq(hogId)).toBeNull()
+            })
+
+            it('uses counter * 16M + team_id as the formula', async () => {
+                const teamId = 42
+                const [id] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+
+                const seq = await readDequeueSeq(id)
+                // First job for this team: counter = 1.
+                // dequeue_seq = 1 * 16,777,216 + 42 = 16,777,258
+                expect(seq).toBe(BigInt(16_777_216) + BigInt(teamId))
+            })
+
+            it('increments the team counter monotonically across calls', async () => {
+                const teamId = 100
+                await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+
+                expect(await readTeamCounter(teamId)).toBe(3n)
+            })
+
+            it("starts a new team's counter at the existing max (Hatchet p_max_assigned)", async () => {
+                // Without this, a brand-new tenant's burst would slot in at
+                // counter=1 and cut ahead of every established team's
+                // in-flight emails. Hatchet's pattern: first-ever insert for
+                // a team starts at `MAX(counter) + 1` across the table, so
+                // they line up *next to* existing teams instead of jumping
+                // the queue. Subsequent emails for that team keep
+                // incrementing normally.
+                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
+                await manager.bulkCreateJobs([{ teamId: 1, queueName: EMAIL_QUEUE }])
+                // Team 2's first ever email → counter = max(2) + 1 = 3, not 1.
+                await manager.bulkCreateJobs([{ teamId: 2, queueName: EMAIL_QUEUE }])
+
+                expect(await readTeamCounter(1)).toBe(2n)
+                expect(await readTeamCounter(2)).toBe(3n)
+            })
+
+            it("doesn't let a new team's batch cut ahead of an established team's in-flight email", async () => {
+                // The inversion scenario the Hatchet pattern is designed to fix:
+                //   - Established tenant has been sending for a while → high counter.
+                //   - Newcomer tenant enqueues their first big batch.
+                // The established tenant's next email should still sort *before*
+                // the newcomer's batch — without Hatchet, the newcomer would
+                // land at counter=1 and bury every established email behind
+                // their burst.
+                const established = 100
+                const newcomer = 200
+
+                // Established tenant builds up a counter via prior activity.
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 10 }, () => ({ teamId: established, queueName: EMAIL_QUEUE }))
+                )
+                // Established tenant's 11th email.
+                const [establishedNewId] = await manager.bulkCreateJobs([
+                    { teamId: established, queueName: EMAIL_QUEUE },
+                ])
+                // Newcomer's first-ever batch.
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 50 }, () => ({ teamId: newcomer, queueName: EMAIL_QUEUE }))
+                )
+
+                const establishedSeq = await readDequeueSeq(establishedNewId)
+                const newcomerRows = await assertPool.query<{ dequeue_seq: string }>(
+                    'SELECT dequeue_seq FROM cyclotron_jobs WHERE team_id = $1 ORDER BY dequeue_seq ASC LIMIT 1',
+                    [newcomer]
+                )
+                const newcomerMinSeq = BigInt(newcomerRows.rows[0].dequeue_seq)
+
+                expect(establishedSeq).not.toBeNull()
+                expect(establishedSeq!).toBeLessThan(newcomerMinSeq)
+            })
+
+            it('assigns sequential dequeue_seq within a bulk batch for the same team', async () => {
+                const teamId = 50
+                const ids = await manager.bulkCreateJobs([
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: EMAIL_QUEUE },
+                ])
+
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                expect(seqs).toEqual([
+                    BigInt(16_777_216) + BigInt(teamId), // counter=1
+                    BigInt(16_777_216) * 2n + BigInt(teamId), // counter=2
+                    BigInt(16_777_216) * 3n + BigInt(teamId), // counter=3
+                ])
+                expect(await readTeamCounter(teamId)).toBe(3n)
+            })
+
+            it('handles mixed-team bulk batches without crossing counters', async () => {
+                const ids = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 2, queueName: EMAIL_QUEUE },
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 2, queueName: EMAIL_QUEUE },
+                ])
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                const BLOCK = BigInt(16_777_216)
+
+                // Team 1's two jobs use counter 1 and 2; same for team 2.
+                expect(seqs[0]).toBe(BLOCK + 1n) // team 1, counter 1
+                expect(seqs[1]).toBe(BLOCK + 2n) // team 2, counter 1
+                expect(seqs[2]).toBe(BLOCK * 2n + 1n) // team 1, counter 2
+                expect(seqs[3]).toBe(BLOCK * 2n + 2n) // team 2, counter 2
+            })
+
+            it('leaves non-email jobs in a bulk batch with NULL dequeue_seq', async () => {
+                const ids = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 1, queueName: 'hog' },
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                ])
+
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                expect(seqs[0]).not.toBeNull() // email
+                expect(seqs[1]).toBeNull() // hog
+                expect(seqs[2]).not.toBeNull() // email
+                // Only the email jobs bumped the team counter.
+                expect(await readTeamCounter(1)).toBe(2n)
+            })
+        })
+
+        describe('Worker: fairDequeue ordering', () => {
+            // The email queue is intrinsically fair-dequeued — the worker derives
+            // it from the queue name, so an EMAIL_QUEUE worker is already fair.
+            const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
+                createWorker(EMAIL_QUEUE, overrides)
+
+            it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
+                // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
+                // team B enqueues 1. With strict FIFO, B's 1 sits behind A's 5.
+                // With fair dequeue, B's 1 is in the very first batch of 2.
+                //
+                // Both teams in a single bulkCreateJobs call — this mirrors
+                // the prod path where cdp-events-consumer batches emails from
+                // many teams into one INSERT.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    { teamId: teamB, queueName: EMAIL_QUEUE },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(2)
+                expect(new Set(jobs.map((j) => j.teamId))).toEqual(new Set([teamA, teamB]))
+            })
+
+            it('interleaves three teams across multiple rounds', async () => {
+                // Mixed-volume scenario:
+                //   team A enqueues 20 emails, team B enqueues 10, team C enqueues 1.
+                //
+                // All three teams in a single bulkCreateJobs call — mirrors
+                // the prod path (cdp-events-consumer batches multi-team emails
+                // into one INSERT). Dequeue one row at a time so each call's
+                // pick is deterministic (lowest dequeue_seq remaining).
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 20 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 10 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                    { teamId: teamC, queueName: EMAIL_QUEUE },
+                ])
+
+                const drained: number[] = []
+                for (let i = 0; i < 31; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 1 })
+                    const batch = await dequeueOneBatch(worker)
+                    expect(batch).toHaveLength(1)
+                    drained.push(batch[0].teamId)
+                    await batch[0].ack()
+                }
+
+                // Expected: A,B,C (round 1) / A,B (rounds 2-10) / A...A (rounds 11-20).
+                // Within a round, team_id ASC breaks ties (A=100 < B=200 < C=300).
+                const expected: number[] = []
+                for (let round = 1; round <= 10; round++) {
+                    expected.push(teamA, teamB)
+                    if (round === 1) {
+                        expected.push(teamC)
+                    }
+                }
+                for (let round = 11; round <= 20; round++) {
+                    expected.push(teamA)
+                }
+                expect(drained).toEqual(expected)
+            })
+
+            it('keeps interleaving across waves once both teams are established', async () => {
+                // Per-team counters don't reset across enqueue calls — once
+                // a team has any history, later waves continue from where
+                // they left off and interleave with other established teams.
+                //
+                // We pre-establish both teams with a single multi-team batch
+                // (matches the prod cdp-events-consumer pattern), then run
+                // subsequent waves for each team separately to prove the
+                // round-robin survives wave boundaries:
+                //
+                //   Pre-establish: A, A, A, B, B, B (one batch) → A,B counter 1..3 each
+                //   Wave 2:        B, B             (separate)  → B counter 4, 5
+                //   Wave 3:        A, A             (separate)  → A counter 4, 5
+                //
+                // Dequeue order: A1,B1, A2,B2, A3,B3, A4,B4, A5,B5.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 3 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 3 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                ])
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE }))
+                )
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+
+                const drained: number[] = []
+                for (let i = 0; i < 10; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 1 })
+                    const batch = await dequeueOneBatch(worker)
+                    expect(batch).toHaveLength(1)
+                    drained.push(batch[0].teamId)
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB])
+            })
+
+            it('drains every team in the first multi-team batch even with skewed volumes', async () => {
+                // 10/5/2 distribution drained in batches of 3. We don't assert
+                // the within-batch order (UPDATE...RETURNING doesn't preserve
+                // the CTE's ORDER BY), only that the *composition* of each
+                // batch is what the algorithm guarantees: the lowest-counter
+                // rows across all teams, regardless of who has more backlog.
+                //
+                // All three teams in one bulkCreateJobs call — matches the
+                // prod path (cdp-events-consumer batches multi-team emails).
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 10 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamC, queueName: EMAIL_QUEUE })),
+                ])
+
+                const batches: number[][] = []
+                for (let i = 0; i < 6; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 3 })
+                    const batch = await dequeueOneBatch(worker)
+                    if (batch.length === 0) {
+                        break
+                    }
+                    batches.push(batch.map((j) => j.teamId))
+                    for (const job of batch) {
+                        await job.ack()
+                    }
+                }
+
+                const countsByTeam = (batch: number[]): Record<number, number> => {
+                    const out: Record<number, number> = {}
+                    for (const teamId of batch) {
+                        out[teamId] = (out[teamId] ?? 0) + 1
+                    }
+                    return out
+                }
+
+                // Global dequeue_seq order is:
+                //   A1,B1,C1 | A2,B2,C2 | A3,B3,A4 | B4,A5,B5 | A6,A7,A8 | A9,A10
+                expect(batches.map(countsByTeam)).toEqual([
+                    { [teamA]: 1, [teamB]: 1, [teamC]: 1 },
+                    { [teamA]: 1, [teamB]: 1, [teamC]: 1 },
+                    { [teamA]: 2, [teamB]: 1 },
+                    { [teamA]: 1, [teamB]: 2 },
+                    { [teamA]: 3 },
+                    { [teamA]: 2 },
+                ])
+            })
+
+            it('keeps non-email queues on FIFO (priority, scheduled) ordering', async () => {
+                // Fair dequeue is intrinsic to the email queue; a non-email
+                // queue worker stays strict FIFO. Team A enqueues 5 then team B
+                // enqueues 1 on the default (hog) queue — A's 5 come first.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs(Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: QUEUE })))
+                await manager.bulkCreateJobs([{ teamId: teamB, queueName: QUEUE }])
+
+                const worker = createWorker(QUEUE, { batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(2)
+                expect(jobs.every((j) => j.teamId === teamA)).toBe(true)
+            })
+
+            it('drains legacy rows (NULL dequeue_seq) before new ones when fair is on', async () => {
+                // Simulate a row inserted before the migration ran: NULL dequeue_seq.
+                // NULLS FIRST in the ORDER BY means it should be picked up before
+                // the new fair-ordered row.
+                const teamId = 1
+                const [newerId, legacyId] = await manager.bulkCreateJobs([
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: EMAIL_QUEUE },
+                ])
+                // Backdate one row by manually clearing its dequeue_seq to mimic
+                // a pre-migration row.
+                await assertPool.query('UPDATE cyclotron_jobs SET dequeue_seq = NULL WHERE id = $1', [legacyId])
+
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(1)
+                expect(jobs[0].id).toBe(legacyId)
+                expect(newerId).toBeDefined() // (silences unused-var warning)
+            })
+
+            it('assigns dequeue_seq when a hog job is rescheduled into the email queue', async () => {
+                // Hogflow → email re-routing is the most common path into the
+                // email queue in production: a workflow step calls
+                // `job.reschedule({ queueName: 'email' })`. Without dequeue_seq
+                // assignment on that path, the row lands with NULL and the
+                // NULLS FIRST sort would drain it ahead of fair-ordered rows
+                // — bypassing the per-team interleave entirely.
+                const teamId = 42
+                const hogJobId = await manager.createJob({ teamId, queueName: 'hog' })
+
+                // Dequeue the hog job (mimics what the hog worker does), then
+                // reschedule it into the email queue (mimics the hog → email
+                // routing in hog-executor.service.ts).
+                const hogWorker = createWorker('hog')
+                const [hogJob] = await dequeueOneBatch(hogWorker)
+                expect(hogJob.id).toBe(hogJobId)
+                await hogJob.reschedule({ queueName: EMAIL_QUEUE })
+
+                // The row should now have a dequeue_seq matching the formula
+                // and the per-team counter should have been bumped to 1.
+                expect(await readDequeueSeq(hogJobId)).toBe(BigInt(16_777_216) + BigInt(teamId))
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
+
+            it('does not bump dequeue_seq when an email job is rescheduled within the email queue', async () => {
+                // Retry / failure recovery path: an email job that's already
+                // on the email queue gets rescheduled back to 'available' with
+                // queueName='email' should *keep* its existing dequeue_seq so
+                // it doesn't lose its place in the round-robin. Bumping the
+                // counter on every retry would silently demote retried jobs.
+                const teamId = 99
+                const [id] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
+                const seqBefore = await readDequeueSeq(id)
+                expect(seqBefore).not.toBeNull()
+
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                const [job] = await dequeueOneBatch(worker)
+                await job.reschedule({ queueName: EMAIL_QUEUE })
+
+                expect(await readDequeueSeq(id)).toBe(seqBefore)
+                // Counter stays at 1 — no new claim happened.
+                expect(await readTeamCounter(teamId)).toBe(1n)
+            })
         })
     })
 

@@ -35,7 +35,7 @@ type RuntimeTypeFamily = Literal[
     "enum",
     "aggregate_state",
 ]
-type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb"]
+type RuntimeTypeDialect = Literal["common", "clickhouse", "postgres", "duckdb", "mysql"]
 
 
 class ComparisonCompatibility(StrEnum):
@@ -499,18 +499,28 @@ def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse")
     nullable = False
     if normalized in {"boolean", "bool"}:
         return RuntimeType(family="boolean", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if normalized in {"integer", "int", "bigint", "smallint"}:
+    if normalized in {"integer", "int", "bigint", "smallint", "tinyint", "mediumint", "signed", "unsigned"}:
         return RuntimeType(family="integer", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized in {"real", "double precision", "double", "float"}:
         return RuntimeType(family="float", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized.startswith("decimal") or normalized.startswith("numeric"):
         return RuntimeType(family="decimal", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if normalized in {"text", "varchar", "character varying", "char", "character", "uuid"}:
+    if normalized in {
+        "text",
+        "varchar",
+        "character varying",
+        "char",
+        "character",
+        "uuid",
+        "tinytext",
+        "mediumtext",
+        "longtext",
+    }:
         family: RuntimeTypeFamily = "uuid" if normalized == "uuid" else "string"
         return RuntimeType(family=family, nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized == "date":
         return RuntimeType(family="date", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
-    if "timestamp" in normalized or normalized in {"time", "timetz"}:
+    if "timestamp" in normalized or normalized in {"time", "timetz", "datetime"}:
         return RuntimeType(family="datetime", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized in {"json", "jsonb"}:
         return RuntimeType(family="json", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
@@ -1252,6 +1262,59 @@ def _infer_generic_function_type(
     if normalized_name == "arrayreduce":
         return _infer_array_reduce_type(arg_types=arg_types, args=args)
 
+    if (
+        normalized_name
+        in {
+            "arrayresize",
+            "arrayrotateleft",
+            "arrayrotateright",
+            "arraycumsum",
+            "arraycumsumnonnegative",
+            "arraydifference",
+        }
+        and arg_types
+    ):
+        # Return an array whose element type matches the input. Width/sign details (e.g. a cumulative
+        # sum widening, or a difference turning unsigned into signed) aren't tracked by the
+        # compatibility layer, so the family-preserving input type is the precise-enough answer.
+        return infer_array_slice_constant_type(arg_types[0])
+
+    # Array-returning helpers: array-level nullability propagates from the arguments (a nullable input
+    # can make the whole result NULL), while the element type comes from _array_element_type so array
+    # nullability isn't folded into the element. Matches _infer_array_concat_type.
+    if normalized_name in {"arraypushback", "arraypushfront"} and len(arg_types) >= 2:
+        item_type = least_common_supertype([_array_element_type(arg_types[0]), arg_types[1]], dialect=dialect)
+        return ast.ArrayType(nullable=any(arg_type.nullable for arg_type in arg_types), item_type=item_type)
+
+    if normalized_name == "arraywithconstant" and len(arg_types) >= 2:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types), item_type=dataclasses.replace(arg_types[1])
+        )
+
+    if normalized_name == "arrayintersect" and arg_types:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=least_common_supertype(
+                [_array_element_type(arg_type) for arg_type in arg_types], dialect=dialect
+            ),
+        )
+
+    # Fixed result families. Propagate input nullability (matching arraySum/arrayAvg) rather than
+    # asserting non-null: over a nullable array these can be NULL, and claiming non-null would let the
+    # printer drop a load-bearing null wrapper. Keeping the wrapper when unsure is the safe direction.
+    if normalized_name == "arrayuniq":
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "arraystringconcat":
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"arrayproduct", "arrayauc"}:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "reverse" and arg_types:
+        # reverse is polymorphic identity: String -> String, Array[T] -> Array[T].
+        return dataclasses.replace(arg_types[0])
+
     if normalized_name == "tuple":
         return ast.TupleType(nullable=False, item_types=[dataclasses.replace(arg_type) for arg_type in arg_types])
 
@@ -1415,27 +1478,23 @@ def _normalize_array_reduce_aggregate_name(aggregate_name: str) -> str:
 
 
 def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.ConstantType]) -> ast.ConstantType | None:
+    # A ClickHouse aggregate is a base aggregate plus zero or more stackable combinator suffixes
+    # (-If, -Array, -ForEach, -OrNull, -OrDefault, -Distinct, -State, -Merge). Peel known combinators
+    # first so the base return type is computed once and each suffix transforms it, instead of
+    # enumerating every base×combinator permutation. This must run before the base checks below so a
+    # greedy `startswith` match (e.g. "quantiles") can't swallow a combinator such as -ForEach.
+    combinator_type = _infer_aggregate_combinator_type(normalized_name, arg_types)
+    if combinator_type is not None:
+        return combinator_type
+
     state_or_merge_type = _infer_aggregate_state_or_merge_type(normalized_name, arg_types)
     if state_or_merge_type is not None:
         return state_or_merge_type
 
-    if normalized_name in {
-        "count",
-        "countif",
-        "countdistinct",
-        "countdistinctif",
-        "uniq",
-        "uniqif",
-        "uniqexact",
-        "uniqexactif",
-        "uniqhll12",
-        "uniqhll12if",
-        "uniqtheta",
-        "uniqthetaif",
-    }:
+    if normalized_name in {"count", "uniq", "uniqexact", "uniqhll12", "uniqtheta"}:
         return ast.IntegerType(nullable=False)
 
-    if normalized_name in {"sum", "sumif"} and arg_types:
+    if normalized_name == "sum" and arg_types:
         input_type = arg_types[0]
         if isinstance(input_type, ast.FloatType):
             return ast.FloatType(nullable=input_type.nullable)
@@ -1450,39 +1509,66 @@ def _infer_aggregate_function_type(normalized_name: str, arg_types: list[ast.Con
         )
 
     if (
-        normalized_name in {"avg", "avgif", "stddevpop", "stddevsamp", "varpop", "varsamp"}
+        normalized_name in {"avg", "stddevpop", "stddevsamp", "varpop", "varsamp"}
         or normalized_name.startswith("median")
         or normalized_name.startswith("quantile")
     ) and not _is_aggregate_state_or_merge(normalized_name):
         return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if (
-        normalized_name
-        in {
-            "min",
-            "minif",
-            "max",
-            "maxif",
-            "any",
-            "anyif",
-            "anylast",
-            "anylastif",
-            "argmin",
-            "argminif",
-            "argmax",
-            "argmaxif",
-        }
-        and arg_types
-    ):
+    if normalized_name in {"min", "max", "any", "anylast", "argmin", "argmax"} and arg_types:
         return dataclasses.replace(arg_types[0])
 
-    if (
-        normalized_name in {"grouparray", "array_agg", "groupuniqarray", "grouparrayif", "groupuniqarrayif"}
-        and arg_types
-    ):
+    if normalized_name in {"grouparray", "array_agg", "groupuniqarray"} and arg_types:
         return ast.ArrayType(nullable=False, item_type=dataclasses.replace(arg_types[0]))
 
     return None
+
+
+# ClickHouse aggregate combinator suffixes this rule understands. Each one transforms the base
+# aggregate's return type. Combinators not listed here (-Map, -Resample, -SimpleState, -MergeState,
+# argument-shape variants, …) are deliberately left to fall through to UnknownType rather than risk a
+# confidently-wrong type. -State/-Merge keep their dedicated handling in
+# _infer_aggregate_state_or_merge_type because they carry/consume AggregateState payloads.
+_AGGREGATE_COMBINATOR_SUFFIXES: tuple[str, ...] = ("ordefault", "ornull", "distinct", "foreach", "array", "if")
+
+
+def _infer_aggregate_combinator_type(
+    normalized_name: str, arg_types: list[ast.ConstantType]
+) -> ast.ConstantType | None:
+    for suffix in _AGGREGATE_COMBINATOR_SUFFIXES:
+        if not normalized_name.endswith(suffix) or len(normalized_name) <= len(suffix):
+            continue
+        base_name = normalized_name[: -len(suffix)]
+        base_arg_types = _aggregate_combinator_base_arg_types(suffix, arg_types)
+        # Only accept the peel if what remains is itself a known aggregate (possibly with further
+        # combinators). Otherwise the suffix was a coincidence — try the next, then fall through to
+        # Unknown. This keeps the rule conservative: a wrong type is worse than no type.
+        base_type = _infer_aggregate_function_type(base_name, base_arg_types)
+        if base_type is None:
+            continue
+        return _apply_aggregate_combinator(suffix, base_type)
+    return None
+
+
+def _aggregate_combinator_base_arg_types(suffix: str, arg_types: list[ast.ConstantType]) -> list[ast.ConstantType]:
+    if suffix == "if":
+        # -If appends a UInt8 condition the base aggregate never sees.
+        return arg_types[:-1]
+    if suffix in {"array", "foreach"}:
+        # -Array/-ForEach aggregate over array arguments, so the base sees each element type.
+        return [infer_array_access_constant_type(arg_type) for arg_type in arg_types]
+    return arg_types
+
+
+def _apply_aggregate_combinator(suffix: str, base_type: ast.ConstantType) -> ast.ConstantType:
+    if suffix == "ornull":
+        return dataclasses.replace(base_type, nullable=True)
+    if suffix == "ordefault":
+        return dataclasses.replace(base_type, nullable=False)
+    if suffix == "foreach":
+        return ast.ArrayType(nullable=False, item_type=base_type)
+    # -If, -Array and -Distinct change which rows/values are aggregated, not the result type.
+    return base_type
 
 
 def _is_aggregate_state_or_merge(normalized_name: str) -> bool:

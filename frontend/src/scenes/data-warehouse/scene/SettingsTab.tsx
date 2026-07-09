@@ -90,6 +90,7 @@ export function SettingsTab(): JSX.Element {
         isProvisioning,
         isDeprovisioning,
         isInProgress,
+        deprovisionTakingLong,
         databaseName,
         databaseNameAvailable,
         databaseNameChecking,
@@ -99,9 +100,22 @@ export function SettingsTab(): JSX.Element {
         retryDatabaseName,
         initialPassword,
         isResettingPassword,
+        warehouseDomain,
+        tableName,
+        isValidTableName,
+        isEnablingBackfill,
+        backfillTableSuffix,
+        hasBackfill,
     } = useValues(warehouseProvisioningLogic)
-    const { provisionWarehouse, deprovisionWarehouse, setDatabaseName, clearInitialPassword, resetPassword } =
-        useActions(warehouseProvisioningLogic)
+    const {
+        provisionWarehouse,
+        deprovisionWarehouse,
+        setDatabaseName,
+        clearInitialPassword,
+        resetPassword,
+        setTableName,
+        enableBackfill,
+    } = useActions(warehouseProvisioningLogic)
     const deprovisionRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -117,10 +131,7 @@ export function SettingsTab(): JSX.Element {
             <div>
                 <h2 className="mb-2">Managed warehouse</h2>
                 {!isReady && (
-                    <p className="text-muted mb-4">
-                        Provision a dedicated data warehouse with Aurora, S3, and isolated compute for your
-                        organization. It's shared by every project in the organization.
-                    </p>
+                    <p className="text-muted mb-4">This warehouse is shared by every project in the organization.</p>
                 )}
             </div>
 
@@ -184,12 +195,39 @@ export function SettingsTab(): JSX.Element {
                                 and ending with a letter or number.
                             </p>
                         )}
-                        {(!databaseName ||
-                            (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true))) && (
+                        {databaseName &&
+                        isValidDatabaseName &&
+                        !databaseNameChecking &&
+                        databaseNameAvailable === true &&
+                        warehouseDomain ? (
+                            <p className="text-muted text-xs mt-1">
+                                Your warehouse will be available at{' '}
+                                <code>
+                                    {databaseName}.dw.{warehouseDomain}
+                                </code>
+                                . You always connect with <code>dbname=ducklake</code>.
+                            </p>
+                        ) : !databaseName ||
+                          (isValidDatabaseName && (databaseNameChecking || databaseNameAvailable === true)) ? (
                             <p className="text-muted text-xs mt-1">
                                 Unique name for your warehouse. It becomes the subdomain of your connection host (e.g.{' '}
-                                <code>my-warehouse.dw.us.postwh.com</code>). You always connect with{' '}
-                                <code>dbname=ducklake</code>.
+                                <code>my-warehouse.dw.{warehouseDomain ?? 'us.postwh.com'}</code>). You always connect
+                                with <code>dbname=ducklake</code>.
+                            </p>
+                        ) : null}
+                    </div>
+                    <div>
+                        <LemonLabel>Table name</LemonLabel>
+                        <LemonInput value={tableName} onChange={setTableName} placeholder="my_project" fullWidth />
+                        {tableName && !isValidTableName ? (
+                            <p className="text-danger text-xs mt-1">
+                                Use lowercase letters, numbers, and underscores only (max 63 characters).
+                            </p>
+                        ) : (
+                            <p className="text-muted text-xs mt-1">
+                                This project's data lands in its own warehouse tables, suffixed with this name (e.g.{' '}
+                                <code>events_&lt;name&gt;</code>, <code>persons_&lt;name&gt;</code>). Other projects
+                                pick their own when they join.
                             </p>
                         )}
                     </div>
@@ -199,10 +237,10 @@ export function SettingsTab(): JSX.Element {
                         disabledReason={
                             isFailed
                                 ? !canRetryProvision
-                                    ? 'Enter a valid database name'
+                                    ? 'Enter a valid database name and table name'
                                     : undefined
                                 : !canProvision
-                                  ? 'Enter an available database name'
+                                  ? 'Enter an available database name and table name'
                                   : undefined
                         }
                         onClick={() => {
@@ -211,10 +249,10 @@ export function SettingsTab(): JSX.Element {
                                     ? 'Retry managed warehouse provisioning?'
                                     : 'Provision managed warehouse?',
                                 description:
-                                    'This will create dedicated AWS resources (Aurora database, S3 bucket, IAM roles) for your organization, shared by every project in it. This typically takes 5-15 minutes.',
+                                    'This will create a managed warehouse for your organization, shared by every project in it. Should take less than 5 minutes.',
                                 primaryButton: {
                                     children: isFailed ? 'Retry provisioning' : 'Provision',
-                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName }),
+                                    onClick: () => provisionWarehouse({ databaseName: retryDatabaseName, tableName }),
                                 },
                                 secondaryButton: {
                                     children: 'Cancel',
@@ -229,15 +267,22 @@ export function SettingsTab(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     {isInProgress && (
-                        <LemonBanner type="info">
+                        <LemonBanner type={deprovisionTakingLong ? 'warning' : 'info'}>
                             <div className="flex items-center gap-2">
                                 <Spinner />
                                 <span>
-                                    {warehouseStatus?.state === 'deleting'
-                                        ? 'Deprovisioning in progress...'
-                                        : 'Provisioning in progress...'}
+                                    {warehouseStatus?.status_message ||
+                                        (warehouseStatus?.state === 'deleting'
+                                            ? 'Deprovisioning in progress...'
+                                            : 'Provisioning in progress...')}
                                 </span>
                             </div>
+                            {deprovisionTakingLong && (
+                                <p className="text-muted text-xs mt-2 mb-0">
+                                    Teardown is taking longer than usual. It keeps retrying until the warehouse is fully
+                                    removed, so this will finish on its own. You can safely leave this page.
+                                </p>
+                            )}
                         </LemonBanner>
                     )}
 
@@ -258,6 +303,67 @@ export function SettingsTab(): JSX.Element {
 
                     {isReady && warehouseStatus?.connection && (
                         <ConnectionDetails connection={warehouseStatus.connection} />
+                    )}
+
+                    {isReady && (
+                        <div className="border rounded p-4 space-y-3">
+                            <h3 className="mb-0">Warehouse tables for this project</h3>
+                            {hasBackfill ? (
+                                // A backfill already exists — the table name is fixed (immutable), so show
+                                // read-only state rather than re-offering the form.
+                                backfillTableSuffix ? (
+                                    <p className="text-muted text-xs mb-0">
+                                        This project writes to its own tables <code>events_{backfillTableSuffix}</code>{' '}
+                                        / <code>persons_{backfillTableSuffix}</code>. The table name is fixed once a
+                                        backfill is running.
+                                    </p>
+                                ) : (
+                                    <p className="text-muted text-xs mb-0">
+                                        This project writes to the shared <code>events</code> / <code>persons</code>{' '}
+                                        tables. Changing it would split existing data, so it's fixed.
+                                    </p>
+                                )
+                            ) : (
+                                <>
+                                    <p className="text-muted text-xs mb-0">
+                                        Each project writes its data into its own tables in the shared warehouse so they
+                                        don't merge. Choose a name for this project's warehouse tables — lowercase
+                                        letters, numbers, and underscores only; it's used as the suffix (e.g.{' '}
+                                        <code>events_&lt;name&gt;</code>). This can't be changed once a backfill runs.
+                                    </p>
+                                    <div>
+                                        <div className="flex items-end gap-2">
+                                            <div className="flex-1">
+                                                <LemonLabel>Table name</LemonLabel>
+                                                <LemonInput
+                                                    value={tableName}
+                                                    onChange={setTableName}
+                                                    placeholder="my_project"
+                                                    fullWidth
+                                                />
+                                            </div>
+                                            <LemonButton
+                                                type="primary"
+                                                loading={isEnablingBackfill}
+                                                disabledReason={
+                                                    !isValidTableName ? 'Enter a valid table name' : undefined
+                                                }
+                                                onClick={() => enableBackfill({ tableName })}
+                                                data-attr="enable-warehouse-backfill"
+                                            >
+                                                Enable backfill
+                                            </LemonButton>
+                                        </div>
+                                        {tableName && !isValidTableName && (
+                                            <p className="text-danger text-xs mt-1">
+                                                Use lowercase letters, numbers, and underscores only (max 63
+                                                characters).
+                                            </p>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
                     )}
 
                     <div className="flex gap-2">
@@ -294,7 +400,7 @@ export function SettingsTab(): JSX.Element {
                                     LemonDialog.open({
                                         title: 'Deprovision managed warehouse?',
                                         description:
-                                            'This will delete all AWS resources (Aurora database, S3 bucket, IAM roles) for your organization and every project in it. This action cannot be undone.',
+                                            'This will delete the managed warehouse for your organization and every project in it. This action cannot be undone.',
                                         primaryButton: {
                                             children: 'Deprovision',
                                             status: 'danger',

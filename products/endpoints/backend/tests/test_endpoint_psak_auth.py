@@ -20,10 +20,6 @@ SAMPLE_QUERY = {"kind": "HogQLQuery", "query": "SELECT 1"}
 _UNSET = object()
 
 
-def _ff_returns_true_for_hogql_access_control(flag_key, *args, **kwargs):
-    return True if flag_key == "hogql-access-control" else False
-
-
 def _make_psak(team, label="psak", scopes=_UNSET):
     # Token must match _SECRET_API_KEY_RE = r"^phs_[a-zA-Z0-9]+$", so only alphanumerics after phs_.
     suffix = "".join(c for c in label if c.isalnum())
@@ -181,10 +177,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
 
-    def test_psak_can_run_endpoint_with_hogql_access_control_on(self):
-        # Without the FF mock, the test path skips the access-control branch
-        # in posthog/hogql/database/database.py and never exercises the
-        # synthetic-user code path.
+    def test_psak_run_uses_synthetic_user_access_control(self):
         token, _ = _make_psak(self.team, label="run-with-rbac")
 
         captured: dict = {}
@@ -194,10 +187,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             captured.setdefault("results", []).append(result)
             return result
 
-        with (
-            patch("posthoganalytics.feature_enabled", side_effect=_ff_returns_true_for_hogql_access_control),
-            patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy),
-        ):
+        with patch("posthog.hogql.database.database._compute_system_table_access_decision", side_effect=spy):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/endpoints/my_endpoint/run/",
                 data={},
@@ -299,10 +289,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("does not have access to the requested project", response.json().get("detail", ""))
 
-    def test_psak_does_not_authenticate_legacy_team_token_surfaces(self):
-        # remote_config is the remaining Django surface for the legacy per-team
-        # Team.secret_api_token (local_evaluation now lives in the Rust flags service).
-        # A PSAK is also phs_-prefixed but must not be accepted there.
+    def test_psak_without_feature_flag_read_scope_returns_403_on_remote_config(self):
+        # remote_config accepts PSAK but requires feature_flag:read — endpoint-scoped keys must not pass.
         token, _ = _make_psak(self.team, label="remote-config-key")
 
         response = self.client.get(
@@ -310,7 +298,8 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
             **self._auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertIn("feature_flag:read", response.json().get("detail", ""))
 
     def test_session_auth_still_works_on_endpoint_viewset(self):
         # Regression: wiring PSAK into authentication_classes must not break session auth.
@@ -323,7 +312,7 @@ class TestEndpointViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
 
 
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-@patch("products.endpoints.backend.rate_limit.EndpointBurstThrottle.rate", new="2/minute")
+@patch("products.endpoints.backend.presentation.throttles.EndpointBurstThrottle.rate", new="2/minute")
 class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -363,7 +352,10 @@ class TestEndpointPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self._run(token_a).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
 
-    @patch("products.endpoints.backend.rate_limit.EndpointProjectSecretApiKeyTeamBurstThrottle.rate", new="3/minute")
+    @patch(
+        "products.endpoints.backend.presentation.throttles.EndpointProjectSecretApiKeyTeamBurstThrottle.rate",
+        new="3/minute",
+    )
     def test_distinct_psak_keys_share_project_bucket(self, *_args):
         token_a, _a = _make_psak(self.team, label="team-key-a")
         token_b, _b = _make_psak(self.team, label="team-key-b")

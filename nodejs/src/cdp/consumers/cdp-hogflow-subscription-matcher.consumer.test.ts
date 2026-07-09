@@ -1,7 +1,8 @@
-import { HogFlow } from '../../schema/hogflow'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import * as posthogUtils from '../../utils/posthog'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import * as posthogUtils from '~/common/utils/posthog'
+
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
@@ -15,8 +16,14 @@ jest.mock('./cdp-base.consumer', () => {
     }
 })
 
-jest.mock('../../kafka/consumer', () => ({
-    createKafkaConsumer: jest.fn().mockReturnValue({}),
+jest.mock('~/common/kafka/consumer', () => ({
+    // Fresh stub per call: the matcher now constructs three consumers (events, person, internal
+    // events), and start()/stop()/isHealthy() touch all of them.
+    createKafkaConsumer: jest.fn(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        disconnect: jest.fn().mockResolvedValue(undefined),
+        isHealthy: jest.fn(),
+    })),
 }))
 
 jest.mock('pg', () => {
@@ -28,6 +35,7 @@ type MockRow = {
     id: string
     team_id: number
     function_id: string
+    parent_run_id?: string | null
     action_id: string | null
     distinct_id: string | null
     person_id: string | null
@@ -138,6 +146,27 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
             getHogFlowsForTeam: jest.fn().mockResolvedValue([]),
         }
+        // CdpConsumerBase is mocked out in these tests, so the monitoring service it normally
+        // provides is absent. Stub it so the matcher can queue/flush the `conversion` app metric.
+        ;(this as any).hogFunctionMonitoringService = {
+            queueAppMetric: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        }
+        // Likewise stub the captured-events service used to emit $workflows_conversion events.
+        ;(this as any).invocationResultsService = {
+            capturedEventsService: {
+                queueEvent: jest.fn().mockResolvedValue(undefined),
+                flush: jest.fn().mockResolvedValue(undefined),
+            },
+        }
+    }
+
+    public get queueAppMetricMock(): jest.Mock {
+        return (this as any).hogFunctionMonitoringService.queueAppMetric
+    }
+
+    public get queueConversionEventMock(): jest.Mock {
+        return (this as any).invocationResultsService.capturedEventsService.queueEvent
     }
 
     public setHogFlows(map: Record<string, HogFlow>): void {
@@ -428,13 +457,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             ]
             // State missing currentAction: we cannot tag eventMatched, but the same incoming
-            // event also satisfies the workflow's conversion goal, which is independent of
+            // event also satisfies the workflow's exit-on-conversion goal, which is independent of
             // currentAction - that wake must still happen.
             matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
             matcher.updateRowCount = 1
             matcher.setHogFlows({
                 'flow-1': makeHogFlow({
                     id: 'flow-1',
+                    exit_condition: 'exit_on_conversion',
                     conversion: {
                         window_minutes: null,
                         filters: {},
@@ -457,6 +487,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update).not.toBeUndefined()
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
+            expect(newState.state.conversionCounted).toBe(true)
             // currentAction is missing in input state, so eventMatched must not have been set
             expect(newState.state.currentAction).toBeUndefined()
         })
@@ -524,15 +555,41 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
 
-            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
-            const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
+            // exit_on_conversion wakes the job: a `SET scheduled = NOW()` UPDATE is issued.
+            const wake = matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+            )
+            expect(wake).not.toBeUndefined()
+            const newState = parseJSON(wake!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
+            expect(newState.state.conversionCounted).toBe(true)
+            // The conversion is also counted as a metric exactly once.
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
+            // ...and emitted once as a billable $workflows_conversion event for the converting person.
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team_id: 1,
+                    event: '$workflows_conversion',
+                    distinct_id: 'user-1',
+                    properties: expect.objectContaining({
+                        $workflow_id: 'flow-1',
+                        $workflow_conversion_type: 'event',
+                        $workflow_conversion_event: 'wuc_cancelled',
+                    }),
+                })
+            )
         })
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
             // A conversion goal on an `exit_only_at_end` workflow is measurement-only: the conversion
             // event must NOT wake/resume the job (which would run its next step early, e.g. cut a
-            // delay short). The conversion event matches but no UPDATE is produced.
+            // delay short). The conversion still counts once, persisted via a state-only UPDATE that
+            // leaves `scheduled` untouched.
             const flow = makeHogFlow({
                 id: 'flow-1',
                 exit_condition: 'exit_only_at_end',
@@ -565,8 +622,174 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
 
+            // No wake: no `SET scheduled = NOW()` UPDATE is issued.
+            const wake = matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+            )
+            expect(wake).toBeUndefined()
+            // But a state-only `SET state = u.state` UPDATE persists conversionCounted.
+            const stateOnly = matcher.calls.find(
+                (c) =>
+                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
+                    c.sql.includes('SET state = u.state') &&
+                    !c.sql.includes('scheduled')
+            )
+            expect(stateOnly).not.toBeUndefined()
+            const newState = parseJSON(stateOnly!.params[1][0].toString('utf-8')) as any
+            expect(newState.state.conversionCounted).toBe(true)
+            expect(newState.state.conversionMatched).toBeUndefined()
+            // ...and the conversion is counted once (measurement-only).
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
+        })
+
+        it('counts a conversion (without waking) for a conversion-only flow that has no wait step', async () => {
+            // Broadened gating: a flow whose only actionable feature is an event-based conversion goal
+            // (no wait_until_condition) is now evaluated regardless of exit condition, so the metric is
+            // tracked. exit_only_at_end means it must not be woken.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                waitUntil: false,
+                exit_condition: 'exit_only_at_end',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: null,
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            // No wake, but a state-only UPDATE persists conversionCounted.
+            const wake = matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW()')
+            )
+            expect(wake).toBeUndefined()
+            const stateOnly = matcher.calls.find(
+                (c) =>
+                    c.sql.startsWith('UPDATE cyclotron_jobs') &&
+                    c.sql.includes('SET state = u.state') &&
+                    !c.sql.includes('scheduled')
+            )
+            expect(stateOnly).not.toBeUndefined()
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
+        })
+
+        it('does not re-count or update a conversion already counted this run (per-run dedup)', async () => {
+            // The parked job's state already carries conversionCounted: true (the run converted via a
+            // property change, or an earlier matcher pass). A matching conversion event must be a
+            // no-op: no metric, no UPDATE. The FOR UPDATE read sees the persisted flag and skips.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                waitUntil: false,
+                exit_condition: 'exit_only_at_end',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: null,
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [
+                {
+                    ...matcher.findRows[0],
+                    state: stateBuffer({ currentAction: { id: 'wait_node' }, conversionCounted: true }),
+                },
+            ]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).toBeUndefined()
+            expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+        })
+
+        it('attributes a conversion to the batch parent_run_id when set', async () => {
+            // Batch-workflow jobs carry a parent_run_id (the batch job). The emitted conversion metric
+            // must key app_source_id by that run id, not the function id, so it lands under the batch.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                waitUntil: false,
+                exit_condition: 'exit_only_at_end',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    parent_run_id: 'batch-run-1',
+                    action_id: null,
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    app_source_id: 'batch-run-1',
+                    instance_id: 'flow-1',
+                    metric_name: 'conversion',
+                    count: 1,
+                }),
+                'hog_flow'
+            )
         })
 
         it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
@@ -968,6 +1191,140 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             // getTeam is only reached for the actionable team, never for team 2.
             expect(getTeam).toHaveBeenCalledTimes(1)
             expect(getTeam).toHaveBeenCalledWith(1)
+        })
+    })
+
+    describe('_parsePersonBatch', () => {
+        const rawPerson = (overrides: Record<string, any>): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    id: 'person-uuid-1',
+                    team_id: 1,
+                    properties: JSON.stringify({ plan: 'enterprise' }),
+                    is_deleted: 0,
+                    timestamp: '2024-01-01 00:00:00.000',
+                    ...overrides,
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps a person mutation to $person_updated globals keyed on person_id only', async () => {
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$person_updated')
+            // distinct_id is empty so indexBatch keys this only on person_id, never adding a spurious
+            // (team_id, distinct_id) lookup.
+            expect(globals.event.distinct_id).toBe('')
+            expect(globals.person?.id).toBe('person-uuid-1')
+            expect(globals.person?.properties).toEqual({ plan: 'enterprise' })
+        })
+
+        it('skips deleted persons, persons with no id, and persons whose team has no actionable flow', async () => {
+            const getTeam = (matcher as any).deps.teamManager.getTeam
+
+            const result = await (matcher as any)._parsePersonBatch([
+                rawPerson({ is_deleted: 1 }),
+                rawPerson({ id: '' }),
+                rawPerson({ team_id: 2 }), // team 2 has no wait_until_condition flow
+                rawPerson({}),
+            ])
+
+            // Only the valid person for the actionable team survives.
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.person?.id)).toEqual(['person-uuid-1'])
+            // The firehose early-out means getTeam is only paid for the surviving person.
+            expect(getTeam).toHaveBeenCalledTimes(1)
+            expect(getTeam).toHaveBeenCalledWith(1)
+        })
+
+        it('skips a person whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toEqual([])
+        })
+    })
+
+    describe('_parseInternalEventsBatch', () => {
+        const rawInternalEvent = (
+            overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}
+        ): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: overrides.team_id ?? 1,
+                    event: {
+                        uuid: 'evt-uuid-1',
+                        event: '$insight_alert_firing',
+                        distinct_id: 'distinct-1',
+                        properties: {},
+                        timestamp: '2024-01-01T00:00:00Z',
+                        ...overrides.event,
+                    },
+                    ...(overrides.person !== undefined ? { person: overrides.person } : {}),
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps an internal event to globals keyed on distinct_id', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$insight_alert_firing')
+            expect(globals.event.distinct_id).toBe('distinct-1')
+        })
+
+        it('skips events with no identifiers and no-flow teams, but keeps a person-only event', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                rawInternalEvent({ event: { distinct_id: '' } }), // no distinct_id and no person
+                rawInternalEvent({ team_id: 2 }), // team 2 has no actionable flow
+                rawInternalEvent({ event: { distinct_id: '' }, person: { id: 'person-1', properties: {} } }),
+            ])
+
+            // Only the person-only event for the actionable team survives — matched later by person_id.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).person?.id).toBe('person-1')
+        })
+
+        it('skips an event whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parseInternalEventsBatch([rawInternalEvent()])
+
+            expect(result).toEqual([])
+        })
+
+        it('drops a malformed message (schema parse failure) without throwing', async () => {
+            const result = await (matcher as any)._parseInternalEventsBatch([
+                { value: Buffer.from(JSON.stringify({ team_id: 1 })) }, // missing required `event`
+                rawInternalEvent(),
+            ])
+
+            // The bad message is dropped; the valid one still parses.
+            expect(result).toHaveLength(1)
+            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
         })
     })
 

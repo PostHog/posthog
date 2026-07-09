@@ -9,7 +9,7 @@ export type NotebookInlineMark =
     | { type: 'strike' }
     | { type: 'code' }
     | { type: 'link'; href: string }
-    /** Anchors an inline chat to this text: `<ref id="x">text</ref>` pairs with `<Chat ref="x" />`. */
+    /** Anchors a discussion or inline AI selection to this text. */
     | { type: 'ref'; id: string }
     /** A person mention: `<mention id="5">@Name</mention>` — the text is the display label. */
     | { type: 'mention'; id: string }
@@ -77,11 +77,21 @@ export type NotebookTableBlockNode = {
     alignments?: (NotebookTableAlignment | undefined)[]
 }
 
+/** Anchors a discussion comment to a character range inside a code block. Code carries no inline
+ * marks, so anchors live on the block and serialize as `ref=<id>:<start>-<end>` tokens in the
+ * fence info string. Offsets are UTF-16 code units into `text`. */
+export type NotebookCodeRefMark = {
+    id: string
+    start: number
+    end: number
+}
+
 export type NotebookCodeBlockNode = {
     id: string
     type: 'code'
     language?: string
     text: string
+    refs?: NotebookCodeRefMark[]
 }
 
 export type NotebookComponentBlockNode = {

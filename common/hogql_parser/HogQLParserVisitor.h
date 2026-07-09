@@ -213,11 +213,17 @@ public:
 
     virtual std::any visitColumnExprAliasImplicit(HogQLParser::ColumnExprAliasImplicitContext *context) = 0;
 
-    virtual std::any visitColumnExprColumnsAll(HogQLParser::ColumnExprColumnsAllContext *context) = 0;
-
     virtual std::any visitColumnExprTernaryOp(HogQLParser::ColumnExprTernaryOpContext *context) = 0;
 
     virtual std::any visitColumnExprAlias(HogQLParser::ColumnExprAliasContext *context) = 0;
+
+    virtual std::any visitColumnExprAnd(HogQLParser::ColumnExprAndContext *context) = 0;
+
+    virtual std::any visitColumnExprValuePassthrough(HogQLParser::ColumnExprValuePassthroughContext *context) = 0;
+
+    virtual std::any visitColumnExprOr(HogQLParser::ColumnExprOrContext *context) = 0;
+
+    virtual std::any visitColumnExprColumnsAll(HogQLParser::ColumnExprColumnsAllContext *context) = 0;
 
     virtual std::any visitColumnExprNegate(HogQLParser::ColumnExprNegateContext *context) = 0;
 
@@ -225,11 +231,11 @@ public:
 
     virtual std::any visitColumnExprArray(HogQLParser::ColumnExprArrayContext *context) = 0;
 
-    virtual std::any visitColumnExprOr(HogQLParser::ColumnExprOrContext *context) = 0;
-
     virtual std::any visitColumnExprPrecedence1(HogQLParser::ColumnExprPrecedence1Context *context) = 0;
 
     virtual std::any visitColumnExprPrecedence2(HogQLParser::ColumnExprPrecedence2Context *context) = 0;
+
+    virtual std::any visitColumnExprNullSafeEq(HogQLParser::ColumnExprNullSafeEqContext *context) = 0;
 
     virtual std::any visitColumnExprPrecedence3(HogQLParser::ColumnExprPrecedence3Context *context) = 0;
 
@@ -256,8 +262,6 @@ public:
     virtual std::any visitColumnExprParens(HogQLParser::ColumnExprParensContext *context) = 0;
 
     virtual std::any visitColumnExprTimestamp(HogQLParser::ColumnExprTimestampContext *context) = 0;
-
-    virtual std::any visitColumnExprAnd(HogQLParser::ColumnExprAndContext *context) = 0;
 
     virtual std::any visitColumnExprColumnsQualifiedExclude(HogQLParser::ColumnExprColumnsQualifiedExcludeContext *context) = 0;
 

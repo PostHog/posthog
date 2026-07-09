@@ -138,6 +138,14 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
+    # Start from a clean table. This table is shared and ClickHouse writes are not
+    # rolled back per test, so sibling tests on the same shard leave rows behind.
+    # The mutation below updates every row (WHERE 1 = 1), so leftover rows would
+    # inflate the post-mutation count and break the exact-count assertion. Normally
+    # masked because these tests scatter across shards; file-level sharding runs the
+    # whole file together.
+    cluster.map_all_hosts(Query(f"TRUNCATE TABLE {table}")).result()
+
     # make sure there is some data to play with first
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
 
@@ -757,3 +765,18 @@ def test_query_repr_redacts_password_in_list_parameters():
     rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
     assert "pw" not in rendered
     assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_truncates_long_query():
+    # Guards against multi-megabyte statements (e.g. large seed INSERTs) flooding logs and traces.
+    query = "INSERT INTO t VALUES " + ",".join("(1)" for _ in range(100_000))
+    rendered = repr(Query(query))
+    assert len(rendered) < 2000
+    assert rendered.startswith("Query(query='INSERT INTO t VALUES (1)")
+    assert "more chars truncated" in rendered
+
+
+def test_query_repr_keeps_short_query_intact():
+    rendered = repr(Query("SELECT 1"))
+    assert "truncated" not in rendered
+    assert "SELECT 1" in rendered

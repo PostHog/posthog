@@ -6,10 +6,12 @@
  * - Discussion `<Comment ref="…" replies={…} />` threads: the inline `<ref>` highlight survives as
  *   a v1 `comment` mark (so the anchor is preserved), but the thread node and its replies are
  *   dropped — v1 keeps discussion threads outside the document content.
- * - `<Chat />` (AI chat) and `<Prompt />` blocks are dropped — v1 has no equivalent node.
+ * - `<Prompt />` blocks are dropped — v1 has no equivalent node.
  * - Authorial `<!-- … -->` comments become plain paragraphs: the note text stays visible, but its
  *   comment framing is lost.
  * - Table column alignments are dropped — v1 tables do not store alignment.
+ * - Code block comment anchors (`ref=` tokens in the fence info string) are dropped — v1 code
+ *   blocks carry no inline marks to anchor to.
  */
 import {
     COMMENT_COMPONENT_TAG,
@@ -45,7 +47,7 @@ const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeTyp
 }, {})
 
 // No v1 equivalent — dropped on downgrade (see module docstring).
-const DROPPED_COMPONENT_TAGS = new Set(['Chat', 'Prompt'])
+const DROPPED_COMPONENT_TAGS = new Set(['Prompt'])
 
 export function convertMarkdownToNotebookContent(markdown: string): JSONContent {
     const document = parseMarkdownNotebook(markdown)
@@ -123,12 +125,19 @@ function convertComponentNode(node: NotebookComponentBlockNode): JSONContent | n
 
     const notebookNodeType = MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE[node.tagName]
     if (notebookNodeType) {
-        return { type: notebookNodeType, attrs: { ...node.props } }
+        return { type: notebookNodeType, attrs: getNotebookNodeAttrsForMarkdownComponent(node) }
     }
 
     // No v1 node type for this tag — keep the serialized tag source as paragraph text so the
     // content is never silently lost.
     return makeParagraph(makeTextWithHardBreaks(serializeNode(node)))
+}
+
+function getNotebookNodeAttrsForMarkdownComponent(node: NotebookComponentBlockNode): JSONContent['attrs'] {
+    if (typeof node.props.hideFilters === 'boolean' || typeof node.props.edit === 'boolean') {
+        return { ...node.props }
+    }
+    return { ...node.props, edit: true }
 }
 
 function convertListNode(node: NotebookListBlockNode): JSONContent[] {

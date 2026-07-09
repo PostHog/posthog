@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
+import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import { HeartHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { wizardLogic } from './wizardLogic'
+
+const HedgehogShocked = pngHoggie(shockedPng)
 
 export const scene: SceneExport = {
     component: Wizard,
@@ -74,7 +79,7 @@ export function Wizard(): JSX.Element {
                 {view === 'invalid' && (
                     <>
                         <h1 className="text-xl font-bold">Something went wrong!</h1>
-                        <SurprisedHog className="h-48 w-48" />
+                        <HedgehogShocked className="h-48 w-48" />
                         <p className="text-lg">
                             There was a problem authenticating the setup wizard. Please try again later.
                         </p>

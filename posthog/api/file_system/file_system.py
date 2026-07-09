@@ -1,7 +1,9 @@
 import re
+import time
 import shlex
 import builtins
 from typing import Any, cast
+from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
@@ -54,13 +56,17 @@ from posthog.models.file_system.file_system import (
     surface_q,
 )
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.file_system.file_system_view_log import FileSystemViewLog, annotate_file_system_with_view_logs
+from posthog.models.file_system.file_system_view_log import get_recent_file_system_items, recent_view_logs
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
+
+# Search-within-Recents scans this many of the user's most-recent views, then the text filter trims
+# them to a page. Bounds the hydration key set so the query stays cheap on heavy view-log histories.
+RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -217,6 +223,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "log_view",
         "undo_delete",
         "set_context_generation",
+        "publish_canvas",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -411,21 +418,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         elif order_by_param:
             if order_by_param in ["path", "-path", "created_at", "-created_at"]:
                 queryset = queryset.order_by(order_by_param)
-            elif order_by_param == "-last_viewed_at" and self.request.user.is_authenticated:
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").desc(nulls_last=True), "-created_at")
-            elif order_by_param == "last_viewed_at" and self.request.user.is_authenticated:
-                queryset = annotate_file_system_with_view_logs(
-                    team_id=self.team.id,
-                    user_id=self.request.user.id,
-                    queryset=queryset,
-                )
-                queryset = queryset.order_by(F("last_viewed_at").asc(nulls_first=True), "created_at")
             else:
+                # `last_viewed_at` ordering (Recents, with or without a search term) is served
+                # view-log-first in `_list_recents`, so it never reaches this queryset path.
                 queryset = queryset.order_by("-created_at")
         elif self.action == "list":
             if depth_param is not None:
@@ -443,23 +438,94 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return queryset
 
     def list(self, request, *args, **kwargs):
+        order_by_param = request.query_params.get("order_by")
+        # Recents (the high-volume, timeout-prone path) is served view-log-first, with or without a
+        # search term — one query function, no join, no COUNT(*).
+        if order_by_param in ("-last_viewed_at", "last_viewed_at") and request.user.is_authenticated:
+            return self._list_recents(request, descending=order_by_param == "-last_viewed_at")
+
         response = super().list(request, *args, **kwargs)
-        results = response.data.get("results", [])
-        user_ids = set()
-
-        # Collect user IDs from the "created_by" meta field
-        for item in results:
-            created_by = item.get("meta", {}).get("created_by")
-            if created_by and isinstance(created_by, int):
-                user_ids.add(created_by)
-
-        if user_ids:
-            users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
-            response.data["users"] = UserBasicSerializer(users_qs, many=True).data
-        else:
-            response.data["users"] = []
-
+        response.data["users"] = self._created_by_users(response.data.get("results", []))
         return response
+
+    def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
+        # Collect user IDs from the "created_by" meta field so the client can render avatars
+        # without a second round-trip.
+        user_ids = {
+            created_by
+            for item in results
+            if isinstance((created_by := item.get("meta", {}).get("created_by")), int) and created_by
+        }
+        if not user_ids:
+            return []
+        users_qs = User.objects.filter(organization=self.organization, id__in=user_ids).distinct()
+        return cast(builtins.list[dict[str, Any]], UserBasicSerializer(users_qs, many=True).data)
+
+    def _list_recents(self, request: Request, *, descending: bool) -> Response:
+        """Serve the Recents widget view-log-first (see `get_recent_file_system_items`).
+
+        Avoids both the un-indexable sort on a joined column and the pagination `COUNT(*)` — the
+        widget only ever needs the first page, so we return the rows directly. A `search` term just
+        filters the hydration: we scan a wider window of recent views and let the text filter trim
+        it, so search-within-Recents shares the exact same query path.
+
+        Only the params the Recents callers actually send are honoured here: `limit`, `not_type`,
+        `search` (+ `search_name_only`). The other list filters (`parent`, `type`, `depth`, `ref`,
+        `type__startswith`, `created_at__*`) are intentionally not applied on this path — nothing
+        pairs them with `last_viewed_at` ordering. Add handling here if a caller ever needs to.
+        """
+        try:
+            limit = int(request.query_params.get("limit", FileSystemsLimitOffsetPagination.default_limit))
+        except (TypeError, ValueError):
+            limit = FileSystemsLimitOffsetPagination.default_limit
+        limit = max(1, min(limit, 1000))
+
+        not_type_param = request.query_params.get("not_type")
+        exclude_types = [not_type_param] if not_type_param else None
+        search_param = request.query_params.get("search")
+
+        base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
+        if self.user_access_control:
+            base_queryset = self.user_access_control.filter_and_annotate_file_system_queryset(base_queryset)
+        if search_param:
+            base_queryset = self._apply_search_to_queryset(
+                base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
+            )
+
+        items = get_recent_file_system_items(
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            surface=self.file_system_surface,
+            # When searching, the text filter does the narrowing, so scan a wider recency window.
+            limit=RECENTS_SEARCH_SCAN_LIMIT if search_param else limit,
+            exclude_types=exclude_types,
+            file_system_queryset=base_queryset,
+            descending=descending,
+        )
+        # Ordering is handled at the view-log query level, so a search scan that widened the window
+        # is the only reason to re-slice here — `descending` already picked the right end.
+        items = items[:limit]
+
+        results = self.get_serializer(items, many=True).data
+        return Response(
+            {
+                "count": len(results),
+                "next": None,
+                "previous": None,
+                "results": results,
+                "users": self._created_by_users(results),
+            }
+        )
+
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        """Whether a registered-type row with no ref may be deleted as a bare row.
+
+        On the web surface every registered row references a real object, so a
+        ref-less row is a data-integrity error we refuse to delete. Surfaces where
+        registered types can legitimately be ref-less (desktop canvases store their
+        source in `meta`, not a backing Dashboard) override this to allow it.
+        """
+        return False
 
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
@@ -501,7 +567,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref:
+            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -539,6 +605,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
+            if self._allow_delete_without_ref(entry):
+                entry.delete()
+                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path
@@ -805,18 +874,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         validated = serializer.validated_data
 
-        queryset = FileSystemViewLog.objects.filter(
-            surface_q(self.file_system_surface), team=self.team, user=request.user
+        queryset = recent_view_logs(
+            team_id=self.team.id,
+            user_id=request.user.id,
+            surface=self.file_system_surface,
+            type=validated.get("type") or None,
+            limit=validated.get("limit"),
         )
-        log_type = validated.get("type")
-        if log_type:
-            queryset = queryset.filter(type=log_type)
-
-        queryset = queryset.order_by("-viewed_at")
-
-        limit = validated.get("limit")
-        if limit is not None:
-            queryset = queryset[:limit]
 
         return Response(FileSystemViewLogSerializer(queryset, many=True).data)
 
@@ -957,6 +1021,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 item.save()
 
 
+class CanvasPublishSerializer(serializers.Serializer):
+    """Payload for publishing a freeform canvas's React source via the agent."""
+
+    code = serializers.CharField(allow_blank=True, trim_whitespace=False)
+    prompt = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
+
+
 @extend_schema(extensions={"x-product": "core"})
 class DesktopFileSystemViewSet(FileSystemViewSet):
     """
@@ -967,6 +1039,14 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     """
 
     file_system_surface = "desktop"
+
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
+        # not a backing Dashboard, so they legitimately have no ref. Delete the bare
+        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
+        # only — any other registered type with no ref is still a data-integrity
+        # error we refuse to delete, even on the desktop surface.
+        return entry.type == "dashboard"
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         super().perform_create(serializer)
@@ -999,6 +1079,81 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return instance
+
+    def _get_dashboard_or_400(self) -> FileSystem | Response:
+        instance = self.get_object()
+        if instance.type != "dashboard":
+            return Response(
+                {"detail": "Canvas code can only be published to dashboards."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return instance
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_partial_update",
+        request=CanvasPublishSerializer,
+        responses={200: FileSystemSerializer},
+    )
+    @action(methods=["PATCH"], detail=True, url_path="canvas")
+    def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a new version of a freeform canvas's React source.
+
+        Merges into the dashboard row's `meta` (never replaces it), so existing
+        keys like `channelId`/`templateId` survive. Appends a full-file version
+        snapshot and points `currentVersionId` at it — the server-side mirror of
+        the app's dashboardsService.saveFreeform.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasPublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        code = payload.validated_data["code"]
+        prompt = payload.validated_data.get("prompt")
+        name = payload.validated_data.get("name")
+
+        now_ms = int(time.time() * 1000)
+        version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
+        if prompt:
+            version["prompt"] = prompt
+
+        # Lock the row for the read-modify-write so concurrent publishes can't clobber
+        # each other's appended version (each would otherwise build `versions` from the
+        # same stale snapshot and the second write would drop the first).
+        with transaction.atomic():
+            dashboard = FileSystem.objects.select_for_update().get(pk=dashboard.pk)
+            meta = dict(dashboard.meta or {})
+            # Snapshot the live author context onto the version (reverting restores it).
+            existing_context = meta.get("context")
+            if isinstance(existing_context, str):
+                version["context"] = existing_context
+            versions = list(meta.get("versions") or [])
+            versions.append(version)
+
+            meta.update(
+                {
+                    "kind": "freeform",
+                    "code": code,
+                    "versions": versions,
+                    "currentVersionId": version["id"],
+                    "updatedAt": now_ms,
+                }
+            )
+            dashboard.meta = meta
+
+            update_fields = ["meta"]
+            if name:
+                # The canvas's display name is the leaf segment of its path; rename in place.
+                segments = split_path(dashboard.path)
+                segments[-1] = name
+                dashboard.path = join_path(segments)
+                dashboard.depth = len(segments)
+                update_fields += ["path", "depth"]
+
+            dashboard.save(update_fields=update_fields)
+
+        return Response(self.get_serializer(dashboard).data)
 
     @extend_schema(responses={200: FolderInstructionsSerializer})
     @action(methods=["GET"], detail=True)

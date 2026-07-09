@@ -272,6 +272,8 @@ class Run:
     approved_by: UserBasicInfo | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # How this row matched the `search` query param: "exact", "similar", or None when not searching.
+    search_match_type: str | None = None
 
 
 @dataclass(frozen=True)

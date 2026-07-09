@@ -179,6 +179,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             x.id !== 'template-source-vercel-log-drain' ||
                             !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
                     )
+                    .filter((x) => x.id !== 'template-microsoft-ads' || !!featureFlags[FEATURE_FLAGS.CDP_MICROSOFT_ADS])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],

@@ -73,6 +73,12 @@ Our signup funnel shows the following conversion rates:
 - If you want to update an existing notebook, use the `artifact_id` parameter to specify the ID of the existing artifact
 - *IMPORTANT*: Updating a notebook will replace the existing content with the new content
 
+# Editing a Markdown notebook v2 from inline AI:
+- When the UI context includes a Markdown notebook with an inline response placeholder, use this tool with `content` when the user asks to clean up, rewrite, reorganize, or replace the whole notebook
+- In that case, `content` must be the complete final markdown for the notebook, not just the text that replaces the inline prompt
+- Do not include the inline placeholder text, empty `<Prompt question="" />` blocks, or the user's instruction prompt in the final markdown unless the user explicitly asks to keep them
+- Use a direct assistant markdown response instead of this tool only for local answers or small insertions that should replace the inline response placeholder
+
 # Transient vs saved notebooks:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
 - Set save_to_notebook=True ONLY when the user explicitly asks to save, persist, or create a permanent notebook.

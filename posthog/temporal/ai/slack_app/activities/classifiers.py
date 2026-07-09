@@ -16,6 +16,141 @@ logger = structlog.get_logger(__name__)
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
 
 
+def classify_task_needs_repo(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    """Classify whether a Slack conversation requires code repository access.
+
+    Returns True if the task likely needs a repo (writing code, fixing bugs, PRs),
+    False if it does not (analytics, data queries, PostHog config).
+
+    Biased toward False: a false negative answers an analytics ask with no repo
+    (recoverable — the user re-asks with code intent), while a false positive
+    walls the user behind the Connect-GitHub gate even for "what's my DAU".
+    Defaults to False on error for the same reason.
+    """
+    conversation = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+    normalized = f"{conversation}\nLatest message: {event_text}".lower()
+
+    # Substring match: keep the shortest form that uniquely identifies the
+    # concept without colliding with code-review vocabulary. Plurals are used
+    # only when the singular substring-matches a common non-analytics word
+    # (e.g. `event` → `eventually`, `person` → `personal`).
+    product_debug_terms = (
+        # Product/config debugging
+        "automation",
+        "destination",
+        "posthog ai feedback",
+        "feature flag",
+        "experiment",
+        "survey",
+        "dashboard",
+        "insight",
+        "recording",
+        "mcp",
+        "webhook",
+        # Analytics primitives and data asks
+        "events",
+        "persons",
+        "cohort",
+        "trend",
+        "funnel",
+        "retention",
+        "hogql",
+        "replay",
+        "breakdown",
+        "dau",
+        "mau",
+        "error tracking",
+        "llm analytics",
+        "revenue",
+        "marketing analytics",
+    )
+    explicit_code_patterns = (
+        r"\brepository\b",
+        r"\brepo\b",
+        r"\bpull request\b",
+        r"\bopen a pr\b",
+        r"\bcreate a pr\b",
+        r"\bcommit\b",
+        r"\bbranch\b",
+        r"\bmodify code\b",
+        r"\bchange code\b",
+        r"\bwrite code\b",
+        r"\bimplement\b",
+        r"\.py\b",
+        r"\.ts\b",
+        r"\.tsx\b",
+        r"\.js\b",
+        r"\bserializer\b",
+        r"\bviewset\b",
+        r"\bmigration\b",
+    )
+
+    if any(term in normalized for term in product_debug_terms) and not any(
+        re.search(pattern, normalized) for pattern in explicit_code_patterns
+    ):
+        logger.info("slack_app_classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
+        return False
+
+    prompt = (
+        "You are a task classifier. Given a Slack conversation, determine whether the task "
+        "requires access to a code repository (e.g. writing code, fixing bugs, creating PRs, "
+        "reviewing code, modifying files) or NOT (e.g. answering questions about analytics, "
+        "querying data, PostHog configuration, general knowledge questions, planning, or "
+        "investigating product behavior in a PostHog workspace using MCP/tools).\n\n"
+        "Return needs_repo=false for tasks that are primarily about debugging or investigating "
+        "automations, destinations, feature flags, experiments, surveys, dashboards, insights, "
+        "recordings, traces, or Slack integrations inside PostHog, unless the user explicitly "
+        "asks to change code, open a PR, edit files, or work in a specific repository.\n\n"
+        "A complaint about something the team's own app, site, or SDK does (crashes, broken pages, "
+        "wrong rendering, slow loads of a site they ship) is a code change in a repo they own → "
+        "needs_repo. But complaints about PostHog itself as a product (its dashboards hanging, "
+        "product pages loading slowly, UI bugs in PostHog screens) are SaaS product issues, not "
+        "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
+        "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
+        "event names, identification logic, SDK setup) — that's a code fix in their repo → "
+        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
+        "names). Analytics, data, and configuration asks are the common case and should not be "
+        "walled behind a Connect-GitHub prompt on a guess.\n\n"
+        f"Conversation:\n{conversation}\n\n"
+        f"Latest message: {event_text}\n\n"
+        'Respond with ONLY a JSON object: {{"needs_repo": true}} or {{"needs_repo": false}}'
+    )
+    try:
+        client = get_llm_client("slack_app_routing")
+        response = client.chat.completions.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if content.startswith("```"):
+            content = content.strip("`").removeprefix("json").strip()
+        parsed = json.loads(content)
+        # Haiku occasionally stringifies the bool ({"needs_repo": "false"}).
+        # bool("false") is True, which would flip the defensive bias — handle
+        # strings explicitly and treat any other unexpected shape as False.
+        value = parsed.get("needs_repo", False)
+        if isinstance(value, str):
+            return value.strip().lower() == "true"
+        return value is True
+    except Exception:
+        logger.exception("slack_app_classify_task_needs_repo_failed")
+        return False
+
+
+@activity.defn
+def classify_posthog_code_task_needs_repo_activity(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> bool:
+    return classify_task_needs_repo(event_text, thread_messages)
+
+
 def classify_message_is_agent_directed(
     event_text: str,
     task_title: str,
@@ -33,7 +168,7 @@ def classify_message_is_agent_directed(
     LLM outage can't fan out spurious forwards.
 
     ``thread_history`` is the conversation so far (oldest first), as returned
-    by ``_collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
+    by ``collect_thread_messages`` — each entry is ``{"user", "text", "ts"}``.
     """
     stripped = event_text.strip()
     # Emoji-only / reaction-only replies are never agent-directed; drop before
@@ -112,7 +247,7 @@ def classify_untagged_followup_activity(
     ``False`` to drop. Conservative defaults: missing mapping → drop, history
     fetch failure → classify on text alone, classifier failure → drop.
     """
-    from products.slack_app.backend.api import _collect_thread_messages
+    from products.slack_app.backend.services.slack_messages import cached_collect_thread_messages
 
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task", "integration").get(
@@ -133,7 +268,9 @@ def classify_untagged_followup_activity(
     slack = SlackIntegration(integration)
 
     try:
-        thread_history = _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
+        # Cached: the next activity in this workflow run (the forwarder) re-fetches the
+        # same thread to compute its diff; a cache hit there avoids a second Slack call.
+        thread_history = cached_collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id=None)
     except Exception:
         logger.exception(
             "posthog_code_thread_message_history_fetch_failed",

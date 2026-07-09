@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
 import stripeWebhook from './__tests__/stripe-webhook.json'

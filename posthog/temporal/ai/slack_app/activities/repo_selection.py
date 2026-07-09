@@ -48,6 +48,7 @@ def cascade_posthog_code_repository_activity(
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="legacy_no_user_id")
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.feature_flags import is_slack_app_bot_prs_enabled
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -57,12 +58,12 @@ def cascade_posthog_code_repository_activity(
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
     if not all_repos:
-        # A connected team install with no personal install is recoverable via the gate prompt;
-        # a team with no install at all is genuinely no-op.
+        # With bot PRs off, a team install means a missing personal install is recoverable via the
+        # gate prompt; with bot PRs on, team repos are already folded into all_repos, so empty is no-op.
         team_has_github = Integration.objects.filter(
             team=integration.team, kind=Integration.IntegrationKind.GITHUB
         ).exists()
-        if team_has_github:
+        if team_has_github and not is_slack_app_bot_prs_enabled(integration.team):
             return PostHogCodeRepoCascadeOutcome(mode="needs_user_github", repository=None, reason="no_user_repos")
         return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
 
@@ -95,8 +96,8 @@ async def discover_posthog_code_repository_via_agent_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.tasks.backend.models import Task
-    from products.tasks.backend.repo_selection import (
+    from products.tasks.backend.facade import api as tasks_facade
+    from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
         RepoSelectionUnavailableError,
         select_repository,
@@ -137,7 +138,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 team_id=integration.team_id,
                 user_id=user_id,
                 context=context_block,
-                origin_product=Task.OriginProduct.SLACK,
+                origin_product=tasks_facade.TaskOriginProduct.SLACK,
                 on_research_session=_capture_research_session,
             )
     except RepoSelectionRejectedError as exc:
@@ -197,13 +198,3 @@ async def discover_posthog_code_repository_via_agent_activity(
         repo_research_task_id=research_ids.get("task_id"),
         repo_research_run_id=research_ids.get("run_id"),
     )
-
-
-@activity.defn
-def classify_posthog_code_task_needs_repo_activity(
-    event_text: str,
-    thread_messages: list[dict[str, str]],
-) -> bool:
-    from products.slack_app.backend.api import classify_task_needs_repo
-
-    return classify_task_needs_repo(event_text, thread_messages)

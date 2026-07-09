@@ -1,10 +1,11 @@
+import './combobox.css'
+
 import { Combobox as ComboboxPrimitive } from '@base-ui/react'
 import { ChevronDownIcon, XIcon, CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
 import { Chip, ChipClose } from './chip'
-import './combobox.css'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from './input-group'
 import { cn } from './lib/utils'
 import { MenuEmpty } from './menu-empty'
@@ -122,10 +123,7 @@ function ComboboxContent({
                 <ComboboxPrimitive.Popup
                     data-slot="combobox-content"
                     data-chips={!!anchor}
-                    className={cn(
-                        'quill-combobox__content group/combobox-content',
-                        className
-                    )}
+                    className={cn('quill-combobox__content group/combobox-content', className)}
                     {...props}
                 />
             </ComboboxPrimitive.Positioner>
@@ -146,7 +144,7 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props): Re
             className={cn(
                 'quill-combobox__list scroll-mask-t-4 scroll-py-4',
                 'not-has-[[data-slot=combobox-list-footer]]:scroll-mask-b-4',
-                className,
+                className
             )}
             {...props}
         />
@@ -162,8 +160,11 @@ function ComboboxItem({
     return (
         <ComboboxPrimitive.Item
             data-slot="combobox-item"
-            className={cn('quill-combobox__item quill-menu-item--inset', className)}
+            className={cn('quill-combobox__item', className)}
             title={title ?? (typeof children === 'string' ? children : undefined)}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button left className="min-w-0 aria-selected:bg-fill-selected" />}
             {...props}
         >
@@ -182,7 +183,14 @@ function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props): 
 }
 
 function ComboboxLabel({ className, ...props }: ComboboxPrimitive.GroupLabel.Props): React.ReactElement {
-    return <ComboboxPrimitive.GroupLabel data-slot="combobox-label" className={className} render={<MenuLabel />} {...props} />
+    return (
+        <ComboboxPrimitive.GroupLabel
+            data-slot="combobox-label"
+            className={className}
+            render={<MenuLabel />}
+            {...props}
+        />
+    )
 }
 
 function ComboboxCollection({ ...props }: ComboboxPrimitive.Collection.Props): React.ReactElement {
@@ -201,7 +209,13 @@ function ComboboxEmpty({ className, children, ...props }: ComboboxPrimitive.Empt
 }
 
 function ComboboxSeparator({ className, ...props }: ComboboxPrimitive.Separator.Props): React.ReactElement {
-    return <ComboboxPrimitive.Separator data-slot="combobox-separator" className={cn('quill-combobox__separator', className)} {...props} />
+    return (
+        <ComboboxPrimitive.Separator
+            data-slot="combobox-separator"
+            className={cn('quill-combobox__separator', className)}
+            {...props}
+        />
+    )
 }
 
 function ComboboxChips({

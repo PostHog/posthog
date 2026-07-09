@@ -144,6 +144,22 @@ export function ChartFilter(): JSX.Element {
                     ),
                     disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
                 },
+                ...(featureFlags[FEATURE_FLAGS.METRIC_INSIGHT]
+                    ? [
+                          {
+                              value: ChartDisplayType.Metric,
+                              icon: <IconTrends />,
+                              label: 'Metric',
+                              labelInMenu: (
+                                  <ChartFilterOptionLabel
+                                      label="Metric"
+                                      description="A headline value with a sparkline and period-over-period change."
+                                  />
+                              ),
+                              disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,

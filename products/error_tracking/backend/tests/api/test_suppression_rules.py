@@ -5,14 +5,12 @@ from django.test import TestCase
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import PropertyGroupFilterValue
-
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
-from products.error_tracking.backend.presentation.views.suppression_rules import (
-    _get_client_safe_filters,
+from products.error_tracking.backend.logic import (
+    compile_filter_bytecode,
+    get_client_safe_filters,
     get_client_safe_suppression_rules,
 )
-from products.error_tracking.backend.presentation.views.utils import generate_byte_code
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -150,7 +148,7 @@ class TestGetClientSafeFilters(TestCase):
         ]
     )
     def test_get_client_safe_filters(self, _name: str, filters: dict, expected: dict | None) -> None:
-        assert _get_client_safe_filters(filters) == expected
+        assert get_client_safe_filters(filters) == expected
 
 
 class TestGetClientSafeSuppressionRules(APIBaseTest):
@@ -158,7 +156,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         filters = {"values": [{"operator": "is", "key": "$exception_types", "value": "TypeError"}]}
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert len(result) == 1
         assert result[0] == filters
@@ -173,7 +171,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert result == []
 
@@ -187,7 +185,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert result == []
 
@@ -201,12 +199,12 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         }
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=filters, bytecode=[], order_key=0)
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert result == []
 
     def test_returns_empty_list_when_no_rules_exist(self) -> None:
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert result == []
 
@@ -231,7 +229,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=has_server_only, bytecode=[], order_key=1)
         ErrorTrackingSuppressionRule.objects.create(team=self.team, filters=also_safe, bytecode=[], order_key=2)
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert len(result) == 2
         assert safe_filters in result
@@ -243,7 +241,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
             team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=0.5
         )
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert len(result) == 1
         assert result[0] == {**filters, "samplingRate": 0.5}
@@ -254,7 +252,7 @@ class TestGetClientSafeSuppressionRules(APIBaseTest):
             team=self.team, filters=filters, bytecode=[], order_key=0, sampling_rate=1.0
         )
 
-        result = get_client_safe_suppression_rules(self.team)
+        result = get_client_safe_suppression_rules(self.team.id)
 
         assert len(result) == 1
         assert "samplingRate" not in result[0]
@@ -344,9 +342,9 @@ class TestClientServerFilterConsistency(APIBaseTest):
     def test_client_safe_bytecode_matches_server(
         self, _name: str, filters: dict, cases: list[tuple[dict, bool]]
     ) -> None:
-        assert _get_client_safe_filters(filters) is not None
+        assert get_client_safe_filters(filters) is not None
 
-        bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**filters))
+        bytecode = compile_filter_bytecode(self.team.id, filters)
 
         for event_props, expected in cases:
             assert self._eval(bytecode, event_props) == expected, f"Expected {expected} for props {event_props}"

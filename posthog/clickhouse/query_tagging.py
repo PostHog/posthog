@@ -51,6 +51,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -68,8 +69,10 @@ class Product(StrEnum):
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
+    NOTEBOOKS = "notebooks"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_CODE = "posthog_code"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     REPLAY_VISION = "replay_vision"
@@ -88,6 +91,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
@@ -101,6 +105,7 @@ class Feature(StrEnum):
     DATA_MODELING = "data_modeling"
     HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    INGESTION_WARNINGS = "ingestion_warnings"
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
@@ -144,6 +149,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "Cohort": {"product": Product.COHORTS, "feature": Feature.COHORT},
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
+    "EngineeringAnalytics": {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
     "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -228,6 +234,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.TRACE_QUERY
             | NodeKind.TRACES_QUERY
+            | NodeKind.SESSION_QUERY
             | NodeKind.TRACE_NEIGHBORS_QUERY
             | NodeKind.TRACE_SPANS_QUERY
             | NodeKind.TRACE_SPANS_AGGREGATION_QUERY
@@ -261,6 +268,17 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
+        case (
+            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_TOP_USERS_QUERY
+            | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_STATS_QUERY
+            | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+        ):
+            return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own
             NodeKind.HOG_QL_QUERY
@@ -391,12 +409,21 @@ class QueryTags(BaseModel):
     scene: Optional[str] = None
 
     alert_config_id: Optional[uuid.UUID] = None
+    # Cadence and query shape of the alert that triggered this run, tagged at evaluation
+    # so query_log cost can be grouped by frequency (real_time / every_15_minutes / ...)
+    # and by config type (TrendsAlertConfig vs HogQLAlertConfig) without joining to Postgres.
+    alert_calculation_interval: Optional[str] = None
+    alert_config_type: Optional[str] = None
     batch_export_id: Optional[uuid.UUID] = None
     cache_key: Optional[str] = None
     celery_task_id: Optional[uuid.UUID] = None
     clickhouse_exception_type: Optional[str] = None
     client_query_id: Optional[str] = None
     cohort_id: Optional[int] = None
+    # lazy-computation / preaggregation builds: the time window a single build INSERT covers (ISO).
+    # Generic across products (experiments, marketing, web analytics) since they share the executor.
+    precompute_window_start: Optional[str] = None
+    precompute_window_end: Optional[str] = None
     entity_math: Optional[list[str]] = None
 
     # replays
@@ -415,7 +442,25 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_funnel_order_type: Optional[str] = None  # funnel metrics only: "ordered", "unordered", "strict"
+    # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
+    experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
+    # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
+    # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
+    experiment_precompute_skip_reason: Optional[str] = None
+    # Analysis window of the read (ISO), for the query-performance UI. The build sub-queries carry their
+    # own per-chunk window in the generic precompute_window_start/end fields above.
+    experiment_scan_date_from: Optional[str] = None
+    experiment_scan_date_to: Optional[str] = None
+    # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
+    # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
+    # UI group the (synchronous) build INSERTs under the read that triggered them.
+    experiment_query_group_id: Optional[uuid.UUID] = None
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
@@ -531,9 +576,16 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
+# Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
+# assignment on a fresh shallow copy (see update/with_temporal/with_dagster), and nested tag
+# objects are only ever replaced, never mutated in place. That makes shallow model_copy()
+# sufficient for isolation — deep copies here were the dominant cost of tag_queries, which runs
+# on every request and every ClickHouse query. Keep that invariant when adding new tag helpers.
+
+
 def update_tags(new_query_tags: QueryTags):
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
     query_tags.set(updated_tags)
 
@@ -546,7 +598,7 @@ def tag_queries(**kwargs) -> None:
     :param kwargs: Key->value pairs of tags to be set.
     """
     current_tags = get_query_tags()
-    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags = current_tags.model_copy()
     updated_tags.update(**kwargs)
     query_tags.set(updated_tags)
 
@@ -597,7 +649,7 @@ def get_team_query_tags(team: "Team") -> dict[str, Any]:
 def clear_tag(key):
     with suppress(LookupError):
         current_tags = query_tags.get()
-        updated_tags = current_tags.model_copy(deep=True)
+        updated_tags = current_tags.model_copy()
         setattr(updated_tags, key, None)
         query_tags.set(updated_tags)
 
@@ -638,8 +690,39 @@ _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
 )
 
 
+def _query_structure_fallback_tags(query: object, max_depth: int = 16) -> FallbackTags | None:
+    """Walk a query's `source` chain to the first node whose kind maps to a product.
+
+    Wrapper / drill-down nodes (DataTableNode, ActorsQuery, InsightActorsQuery, …) map to None in
+    `kind_fallback_tags` — "caller's product is what matters". When one of them runs as the
+    top-level request (e.g. "open as new insight" from an actors modal) there is no caller, so we
+    descend into `source` to find the wrapped insight (e.g. RetentionQuery → product_analytics).
+
+    Reads the canonical `kind` from `tags.query`, so it also resolves runners that pass a non-NodeKind
+    `query_type` label (e.g. marketing analytics' "marketing_analytics_table_query"). Accepts the raw
+    query dict stored on `tags.query` or a pydantic node.
+    """
+    current = query
+    for _ in range(max_depth):
+        if isinstance(current, dict):
+            kind_value, source = current.get("kind"), current.get("source")
+        else:
+            kind_value, source = getattr(current, "kind", None), getattr(current, "source", None)
+        if isinstance(kind_value, str):
+            try:
+                kind = NodeKind(kind_value)
+            except ValueError:
+                kind = None
+            if kind is not None and (mapped := kind_fallback_tags(kind)) is not None:
+                return mapped
+        if source is None:
+            return None
+        current = source
+    return None
+
+
 def add_fallback_query_tags(tags: QueryTags) -> None:
-    """Order: scene → kind → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
+    """Order: scene → kind → query structure → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
         _apply_fallback_tags(tags, scene_mapped)
 
@@ -650,6 +733,10 @@ def add_fallback_query_tags(tags: QueryTags) -> None:
             kind = None
         if kind is not None and (kind_mapped := kind_fallback_tags(kind)) is not None:
             _apply_fallback_tags(tags, kind_mapped)
+
+    if tags.product is None and tags.query is not None:
+        if (query_mapped := _query_structure_fallback_tags(tags.query)) is not None:
+            _apply_fallback_tags(tags, query_mapped)
 
     if (
         tags.product is None
@@ -723,7 +810,7 @@ def tags_context(**tags_to_set: Any) -> Generator[None]:
     """
     tags_copy: Optional[QueryTags] = None
     try:
-        tags_copy = get_query_tags().model_copy(deep=True)
+        tags_copy = get_query_tags().model_copy()
         if tags_to_set:
             tag_queries(**tags_to_set)
         yield

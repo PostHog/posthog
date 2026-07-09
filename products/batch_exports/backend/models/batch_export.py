@@ -28,6 +28,10 @@ TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 # Includes the legacy "S3" alias for backwards compatibility.
 S3_FAMILY_TYPES: frozenset[str] = frozenset({"S3", "AwsS3", "S3Compatible"})
 
+# S3-family types that can be created via the API. The legacy "S3" type is excluded:
+# existing rows keep working, but new destinations must use "AwsS3" or "S3Compatible".
+S3_CREATABLE_TYPES: frozenset[str] = frozenset({"AwsS3", "S3Compatible"})
+
 
 class DayOfWeek(IntEnum):
     """Day of the week enum for batch export schedules.

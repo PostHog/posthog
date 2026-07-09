@@ -2,7 +2,7 @@ import type { Decorator } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-declare module '@storybook/types' {
+declare module 'storybook/internal/types' {
     interface Parameters {
         pageUrl?: string
     }

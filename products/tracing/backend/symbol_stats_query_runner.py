@@ -382,7 +382,10 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
         symbol = symbols_by_start.get(line)
         symbol_name, symbol_end_line = (symbol.name, symbol.endLine) if symbol else (None, None)
         current_count = count or 0
+        current_error_count = error_count or 0
+        current_p50 = _num(p50_duration_nano)
         current_p95 = _num(p95_duration_nano)
+        current_p99 = _num(p99_duration_nano)
         previous = SymbolStatsPeriod(
             count=prev_count or 0,
             error_count=prev_error_count or 0,
@@ -395,23 +398,30 @@ class TraceSpansSymbolStatsQueryRunner(AnalyticsQueryRunner[TraceSpansSymbolStat
             p95_busy_nano=_num(prev_p95_busy_nano),
             p99_busy_nano=_num(prev_p99_busy_nano),
         )
+        # Error rate per window (0 when the window had no traffic); the delta is null when the previous
+        # window's rate is 0 — no errors or no traffic — so a 0→N spike reads as "no baseline", not +inf.
+        current_error_rate = current_error_count / current_count if current_count else 0.0
+        previous_error_rate = previous.error_count / previous.count if previous.count else 0.0
         return SymbolStatsRow(
             line=line,
             name=symbol_name,
             end_line=symbol_end_line,
             count=current_count,
-            error_count=error_count or 0,
+            error_count=current_error_count,
             sum_duration_nano=_num(sum_duration_nano),
-            p50_duration_nano=_num(p50_duration_nano),
+            p50_duration_nano=current_p50,
             p95_duration_nano=current_p95,
-            p99_duration_nano=_num(p99_duration_nano),
+            p99_duration_nano=current_p99,
             busy_count=busy_count or 0,
             p50_busy_nano=_num(p50_busy_nano),
             p95_busy_nano=_num(p95_busy_nano),
             p99_busy_nano=_num(p99_busy_nano),
             previous=previous,
             count_pct_change=_pct_change(current_count, previous.count),
+            p50_duration_pct_change=_pct_change(current_p50, previous.p50_duration_nano),
             p95_duration_pct_change=_pct_change(current_p95, previous.p95_duration_nano),
+            p99_duration_pct_change=_pct_change(current_p99, previous.p99_duration_nano),
+            error_rate_pct_change=_pct_change(current_error_rate, previous_error_rate),
         )
 
     def run(self, *args, **kwargs) -> TraceSpansSymbolStatsQueryResponse | CachedTraceSpansSymbolStatsQueryResponse:

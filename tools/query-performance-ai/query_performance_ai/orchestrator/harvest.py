@@ -6,7 +6,7 @@ import json
 import shlex
 from dataclasses import dataclass, field
 
-from products.tasks.backend.services.sandbox import SandboxBase
+from products.tasks.backend.facade.sandbox import SandboxBase
 
 WORKSPACE_PATH = "/tmp/autoresearch-campaign"  # must match run_campaign.py
 LLM_GATEWAY_PRODUCT_SLUG = "background_agents"  # posthog/llm/gateway_client.py Product literal

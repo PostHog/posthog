@@ -11,10 +11,6 @@ pub(super) const KAFKA_ACK_DURATION_SECONDS: &str = "capture_v1_kafka_ack_durati
 /// Per-batch enqueue wall-time histogram.
 pub(super) const KAFKA_ENQUEUE_DURATION_SECONDS: &str = "capture_v1_kafka_enqueue_duration_seconds";
 
-/// Per-batch serialization time histogram (labeled by batch_size bucket).
-pub(super) const KAFKA_SERIALIZE_DURATION_SECONDS: &str =
-    "capture_v1_kafka_serialize_duration_seconds";
-
 /// Produce-level error counter (distinct from ack errors).
 pub(super) const KAFKA_PRODUCE_ERRORS_TOTAL: &str = "capture_v1_kafka_produce_errors_total";
 

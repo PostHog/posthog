@@ -1,4 +1,4 @@
-import { IngestionOutputs } from '../../src/ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 export function createMockIngestionOutputs<O extends string>(): jest.Mocked<IngestionOutputs<O>> {
     return {

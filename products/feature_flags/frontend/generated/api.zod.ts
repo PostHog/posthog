@@ -9,6 +9,68 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheClearCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheClearCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheClearCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
+/**
+ * Staff-only, unscoped status/entry/rebuild/clear for the HyperCache-backed flag caches.
+ *
+ * Rebuild/clear act on two logical targets ('evaluation' and 'definitions'; the latter rebuilds
+ * or clears both definitions-cache variants together). Status/entry can read a third, narrower
+ * target ('definitions_no_cohorts') independently, since the two definitions-cache variants are
+ * individually readable even though they're only mutated as a pair.
+ *
+ * Reuses the existing cache functions and Celery tasks (the same mechanism signal handlers use
+ * when a flag changes) rather than re-implementing cache-write logic. Registered on the root
+ * router so it is not team-nested; staff act on teams they do not belong to.
+ */
+export const featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax = 50
+
+export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.object({
+    team_ids: zod
+        .array(zod.number())
+        .max(featureFlagsStaffCacheRebuildCreateBodyTeamIdsMax)
+        .describe('Team ids to act on (max 50 per request).'),
+    caches: zod
+        .array(
+            zod
+                .enum(['evaluation', 'definitions'])
+                .describe('\* `evaluation` - evaluation\n\* `definitions` - definitions')
+        )
+        .default([`evaluation`, `definitions`])
+        .describe(
+            "Which logical caches to act on: 'evaluation' (the \/flags cache) and\/or 'definitions' (the \/flags\/definitions local-eval cache). Defaults to both."
+        ),
+})
+
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50
 
 export const featureFlagsCopyFlagsCreateBodyCopyScheduleDefault = false
@@ -361,6 +423,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -422,6 +490,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -776,6 +850,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -837,6 +917,12 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -919,6 +1005,12 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -1001,6 +1093,12 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         deleted: zod.boolean().optional(),
         active: zod.boolean().optional(),
+        archived: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+            ),
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
@@ -1135,10 +1233,18 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()
                 .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
         })
         .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
         .optional()

@@ -1589,7 +1589,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                               help={
                                                                                   <>
-                                                                                      <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                                      <Link
+                                                                                          to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
+                                                                                          target="_blank"
+                                                                                      >
                                                                                           See accepted values
                                                                                       </Link>
                                                                                       . Needs posthog-js 1.214+.

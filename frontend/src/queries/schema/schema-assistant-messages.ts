@@ -460,6 +460,7 @@ export type ApprovalCardUIStatus = ApprovalDecisionStatus | 'approving' | 'rejec
 
 export type AssistantTool =
     | 'search_session_recordings'
+    | 'create_ai_trace_parser'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
     | 'create_user_interview_topic'
@@ -517,6 +518,7 @@ export type AssistantTool =
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
     | 'assess_heatmap'
+    | 'summarize_website_interactions'
     | 'marketing_diagnose_setup'
     | 'marketing_explain_conversion_goal'
     | 'marketing_list_conversion_goals'

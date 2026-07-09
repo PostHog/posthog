@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
@@ -18,15 +19,16 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentWriteApi,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
+    PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
-    PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
-    PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
+    PatchedExperimentWriteApi,
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
@@ -293,8 +295,8 @@ export const experimentsList = async (
     projectId: string,
     params?: ExperimentsListParams,
     options?: RequestInit
-): Promise<PaginatedExperimentListApi> => {
-    return apiMutator<PaginatedExperimentListApi>(getExperimentsListUrl(projectId, params), {
+): Promise<PaginatedExperimentBasicListApi> => {
+    return apiMutator<PaginatedExperimentBasicListApi>(getExperimentsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -309,14 +311,14 @@ export const getExperimentsCreateUrl = (projectId: string) => {
  */
 export const experimentsCreate = async (
     projectId: string,
-    experimentApi: NonReadonly<ExperimentApi>,
+    experimentWriteApi: NonReadonly<ExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
+        body: JSON.stringify(experimentWriteApi),
     })
 }
 
@@ -352,14 +354,14 @@ export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
 export const experimentsUpdate = async (
     projectId: string,
     id: number,
-    experimentApi: NonReadonly<ExperimentApi>,
+    experimentWriteApi: NonReadonly<ExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
+        body: JSON.stringify(experimentWriteApi),
     })
 }
 
@@ -368,19 +370,19 @@ export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) =>
 }
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const experimentsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentApi?: NonReadonly<PatchedExperimentApi>,
+    patchedExperimentWriteApi?: NonReadonly<PatchedExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExperimentApi),
+        body: JSON.stringify(patchedExperimentWriteApi),
     })
 }
 
@@ -406,17 +408,22 @@ export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) =>
  * Archive an ended experiment.
  *
  * Hides the experiment from the default list view. The experiment can be
- * restored at any time by updating archived=false. Returns 400 if the
- * experiment is already archived or has not ended yet.
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const experimentsArchiveCreate = async (
     projectId: string,
     id: number,
+    archiveExperimentApi?: ArchiveExperimentApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(archiveExperimentApi),
     })
 }
 

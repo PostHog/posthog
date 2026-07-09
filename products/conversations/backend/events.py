@@ -10,7 +10,7 @@ from typing import Literal
 
 import structlog
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups as build_groups
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -212,6 +212,11 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     return False, None
 
 
+def _groups_from_org_id(team: Team, organization_id: str) -> dict:
+    """Rebuild minimal $groups from a stored org id, skipping the expensive resolver."""
+    return {"instance": SITE_URL, "project": str(team.uuid), "organization": organization_id}
+
+
 def _get_ticket_base_properties(ticket: Ticket) -> dict:
     return {
         "ticket_id": str(ticket.id),
@@ -223,11 +228,21 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
+def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
+    """Customer identity on the ticket, for workflow filters and analytics."""
+    traits = ticket.anonymous_traits or {}
+    properties = {
+        "customer_name": traits.get("name", ""),
+        "customer_email": traits.get("email") or ticket.email_from or "",
+    }
+    if include_distinct_id:
+        properties["customer_distinct_id"] = ticket.distinct_id or ""
+    return properties
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     team_id = team.id
@@ -236,10 +251,14 @@ def capture_ticket_created(ticket: Ticket) -> None:
         process_person, groups = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
+            org_id = groups.get("organization")
+            if org_id and not ticket.organization_id:
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id)
+                ticket.organization_id = org_id
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
-    capture_internal_routed(
+    capture_internal(
         token=team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
@@ -261,8 +280,9 @@ def capture_ticket_status_changed(
     properties["old_status"] = old_status
     properties["new_status"] = new_status
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_status_changed",
         event_source=EVENT_SOURCE,
@@ -283,8 +303,9 @@ def capture_ticket_priority_changed(
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_priority_changed",
         event_source=EVENT_SOURCE,
@@ -305,8 +326,9 @@ def capture_ticket_assigned(
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
     properties.update(_get_actor_properties(actor, actor_type))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_ticket_assigned",
         event_source=EVENT_SOURCE,
@@ -328,8 +350,9 @@ def capture_message_sent(
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
-    capture_internal_routed(
+    capture_internal(
         token=ticket.team.api_token,
         event_name="$conversation_message_sent",
         event_source=EVENT_SOURCE,
@@ -345,20 +368,22 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
-        if groups is not None:
-            properties["$groups"] = groups
+        if ticket.organization_id:
+            properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
+            process_person = True
+        else:
+            process_person, groups = _resolve_org_groups(ticket, team)
+            if groups is not None:
+                properties["$groups"] = groups
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 
-    capture_internal_routed(
+    capture_internal(
         token=team.api_token,
         event_name="$conversation_message_received",
         event_source=EVENT_SOURCE,

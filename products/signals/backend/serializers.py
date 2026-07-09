@@ -4,16 +4,22 @@ from collections.abc import Mapping
 from typing import cast
 
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
+from products.signals.backend import contracts
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportTask,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -21,6 +27,7 @@ from .models import (
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -61,6 +68,9 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
 
+    # Per-row Temporal RPC: serializing N source configs issues N of these on inbox load.
+    # The span surfaces that cost so the N+1 is visible per request in APM.
+    @tracer.start_as_current_span("signals.source_config.session_analysis_status")
     def _get_session_analysis_status(self, team_id: int) -> str | None:
         """ "running" iff any `summarize-session` workflow for this team is currently executing."""
         query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
@@ -76,11 +86,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             if async_to_sync(has_running)():
                 return "running"
         except Exception as e:
+            # The except swallows the error, so OTel won't auto-record it on the span — mark it
+            # failed explicitly, else an unreachable Temporal looks like a successful no-op in APM.
+            span = trace.get_current_span()
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR))
             logger.warning("Failed to list session summarization workflows: %s", e)
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(
@@ -233,13 +248,6 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
         }
 
 
-class SignalReportTaskSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportTask
-        fields = ["id", "relationship", "task_id", "created_at"]
-        read_only_fields = fields
-
-
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
     slack_notification_integration_id = serializers.IntegerField(
@@ -286,6 +294,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
+    scout_name = serializers.SerializerMethodField(
+        help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+    )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
@@ -310,6 +321,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "dismissal_note",
             "is_suggested_reviewer",
             "source_products",
+            "scout_name",
             "implementation_pr_url",
         ]
         read_only_fields = fields
@@ -402,6 +414,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return source_products_map.get(str(obj.id), [])
         return []
 
+    def get_scout_name(self, obj: SignalReport) -> str | None:
+        scout_names_map: dict[str, str] | None = self.context.get("scout_names_map")
+        if scout_names_map is not None:
+            return scout_names_map.get(str(obj.id))
+        return None
+
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
         if implementation_pr_url_map is not None:
@@ -410,12 +428,117 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return value if isinstance(value, str) else None
 
 
+# ── Report `signals` action ─────────────────────────────────────────────────────
+#
+# A signal's `extra` blob is one of the Pydantic `*SignalExtra` shapes from `contracts.py`. Those
+# models are passed straight to `PolymorphicProxySerializer` — drf-spectacular's built-in
+# `PydanticExtension` turns each into a named OpenAPI component (nested models included), so the
+# frontend types flow through the standard OpenAPI/Orval pipeline without re-declaring the shapes.
+
+# All `extra` payload shapes. They're discriminated at runtime by the (source_product, source_type)
+# pair on the signal row, not by a field inside `extra`, so the OpenAPI union carries no discriminator.
+SIGNAL_EXTRA_MODELS = list(contracts.SignalExtraBase.__subclasses__())
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalExtra",
+        # drf-spectacular's built-in PydanticExtension resolves the Pydantic models at schema-build
+        # time; the stubs only know about DRF serializers, hence the cast.
+        serializers=cast(list, SIGNAL_EXTRA_MODELS),
+        resource_type_field_name=None,
+    )
+)
+class SignalExtraField(serializers.JSONField):
+    """Product-specific `extra` payload — one of the *SignalExtra shapes."""
+
+
+# Mirrors of the clustering dataclasses in `temporal/types.py` (SpecificityMetadata,
+# MatchedMetadata, NoMatchMetadata). Those are plain dataclasses, which spectacular's
+# PydanticExtension can't consume directly, so the shape is declared here as DRF serializers.
+
+
+class SpecificityMetadataSerializer(serializers.Serializer):
+    pr_title = serializers.CharField(help_text="Title of the PR the specificity gate evaluated.")
+    specific_enough = serializers.BooleanField(help_text="Whether the report passed the PR-specificity gate.")
+    reason = serializers.CharField(help_text="The gate's reasoning.")
+
+
+class MatchedMetadataSerializer(serializers.Serializer):
+    parent_signal_id = serializers.CharField(help_text="Signal already in the report that this one matched.")
+    match_query = serializers.CharField(help_text="Query used to find the parent signal.")
+    reason = serializers.CharField(help_text="Why the signals were judged to describe the same issue.")
+    specificity = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result, when the gate ran."
+    )
+
+
+class NoMatchMetadataSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="Why no existing report matched.")
+    rejected_signal_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Candidate signals that were considered and rejected."
+    )
+    specificity_rejection = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result that caused a rejection, when present."
+    )
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalMatchMetadata",
+        serializers=[MatchedMetadataSerializer, NoMatchMetadataSerializer],
+        resource_type_field_name=None,
+    )
+)
+class SignalMatchMetadataField(serializers.JSONField):
+    """Why the signal matched (or didn't) into its report cluster."""
+
+
+class SignalNodeSerializer(serializers.Serializer):
+    signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
+    content = serializers.CharField(help_text="The signal's human-readable description.")
+    source_product = serializers.ChoiceField(
+        choices=[(p.value, p.value) for p in SignalSourceProduct],
+        help_text="Product that emitted the signal.",
+    )
+    source_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SignalSourceType],
+        help_text="Signal type within the source product.",
+    )
+    source_id = serializers.CharField(help_text="Emitter-scoped id of the underlying object (issue, ticket, ...).")
+    weight = serializers.FloatField(help_text="Signal weight in [0, 1]; drives report ranking.")
+    timestamp = serializers.DateTimeField(help_text="Emission timestamp.")
+    extra = SignalExtraField(help_text="Product-specific payload; shape depends on (source_product, source_type).")
+    match_metadata = SignalMatchMetadataField(
+        required=False,
+        allow_null=True,
+        help_text="Clustering match/no-match metadata, when present.",
+    )
+
+
+class ReportSignalsResponseSerializer(serializers.Serializer):
+    """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
+
+    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
+
+
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     content = serializers.SerializerMethodField()
+    created_by = _UserSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User the artefact is attributed to, when a user produced it. Null for task/system writes.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user/system writes.",
+    )
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at"]
+        fields = ["id", "type", "content", "created_at", "updated_at", "created_by", "task_id"]
         read_only_fields = fields
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
@@ -494,3 +617,97 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if len(value) > self.MAX_ENTRIES:
             raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
         return value
+
+
+# Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
+# by the write API, so it must not be advertised as an option here.
+_WRITABLE_ARTEFACT_TYPES = sorted(set(SignalReportArtefact.ArtefactType.values) - NON_WRITABLE_ARTEFACT_TYPES)
+
+_ARTEFACT_TYPES_HELP = (
+    "The artefact type. One of: "
+    + ", ".join(_WRITABLE_ARTEFACT_TYPES)
+    + ". Log types accumulate; status types (safety_judgment, actionability_judgment, "
+    "priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new "
+    "version supersedes the previous one as the report's canonical status."
+)
+
+
+def _validate_artefact_content_is_container(value: object) -> dict | list:
+    if not isinstance(value, dict | list):
+        raise serializers.ValidationError("content must be a JSON object or array.")
+    return value
+
+
+class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
+    """Body for appending an artefact to a report.
+
+    Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+    version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+    against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+    """
+
+    # Plain CharField (not ChoiceField) on purpose: the value is validated against
+    # `ArtefactType.values` in the view, and avoiding a `choices=` enum keeps this off the
+    # collision-prone enum-name path in the generated OpenAPI types.
+    artefact_type = serializers.CharField(help_text=_ARTEFACT_TYPES_HELP)
+    content = serializers.JSONField(
+        help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
+        "and is validated against its schema.",
+    )
+
+    def validate_content(self, value: object) -> dict | list:
+        # Shape-only here: the view is the schema boundary — it parses the payload into the
+        # type's content model (after normalizing task_run defaults) and 400s on a mismatch.
+        return _validate_artefact_content_is_container(value)
+
+
+class SignalReportArtefactLogUpdateSerializer(serializers.Serializer):
+    """Body for replacing the content of an existing artefact (addressed by id).
+
+    Per-type schema validation happens in the view, which knows the artefact's type.
+    """
+
+    content = serializers.JSONField(
+        help_text="The new artefact payload as a JSON object or array, matching the artefact type's schema."
+    )
+
+    def validate_content(self, value: object) -> dict | list:
+        return _validate_artefact_content_is_container(value)
+
+
+class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
+    """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
+
+    id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    report_id = serializers.UUIDField(read_only=True, help_text="The id of the report this artefact belongs to.")
+    # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
+    # generated OpenAPI schema; the value is simply echoed back.
+    type = serializers.CharField(read_only=True, help_text="The artefact type.")
+    content = serializers.JSONField(read_only=True, help_text="The artefact payload, parsed from storage.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the artefact was created.")
+    updated_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the artefact was last written — set on creation and refreshed on each edit. "
+        "Null only for rows created before this field existed.",
+    )
+    task_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+    )
+
+
+class CommitDiffResponseSerializer(serializers.Serializer):
+    """Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+    repository default branch."""
+
+    diff = serializers.CharField(
+        read_only=True,
+        help_text="Unified diff (patch) text of the branch against the repository default branch, "
+        "from the GitHub compare API.",
+    )
+    truncated = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the diff was too large to return in full and has been truncated.",
+    )

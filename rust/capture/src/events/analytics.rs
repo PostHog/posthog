@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::uuid_v7,
+    utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -93,7 +93,8 @@ fn create_heatmap_redirect(
     let heatmap_event = RawEvent {
         token: event.token.clone(),
         distinct_id: Some(serde_json::Value::String(distinct_id)),
-        uuid: Some(uuid_v7()),
+        // Leave unset so process_single_event seeds the UUID from the event timestamp.
+        uuid: None,
         event: "$$heatmap".to_string(),
         properties,
         timestamp: event.timestamp.clone(),
@@ -180,7 +181,10 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        uuid: event.uuid.unwrap_or_else(uuid_v7),
+        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
+        uuid: event
+            .uuid
+            .unwrap_or_else(|| uuid_v7_from_datetime(parsed_timestamp.timestamp)),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
@@ -401,6 +405,7 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;
@@ -414,7 +419,6 @@ mod tests {
         sent_at: Option<OffsetDateTime>,
     ) -> ProcessingContext {
         ProcessingContext {
-            lib_version: None,
             user_agent: None,
             sent_at,
             token: "test_token".to_string(),
@@ -449,7 +453,7 @@ mod tests {
         properties.insert("distinct_id".to_string(), json!("test_user"));
 
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: None,
             distinct_id: None,
             event: event_name.to_string(),
             properties,
@@ -459,6 +463,79 @@ mod tests {
             set_once: Some(HashMap::new()),
             token: Some("test_token".to_string()),
         }
+    }
+
+    #[test]
+    fn test_server_assigned_uuid_encodes_event_timestamp() {
+        // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("2020-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        let expected_millis = processed
+            .metadata
+            .computed_timestamp
+            .unwrap()
+            .timestamp_millis() as u128;
+        // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+        let uuid_millis = processed.event.uuid.as_u128() >> 80;
+        assert_eq!(uuid_millis, expected_millis);
+        assert!(now.timestamp_millis() as u128 - uuid_millis > 60_000_000_000);
+    }
+
+    #[test]
+    fn test_server_assigned_uuid_floors_pre_epoch_event() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        // A pre-1970 timestamp has negative Unix millis, which can't fit the unsigned UUIDv7 time field.
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("1969-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
+        assert!(
+            processed
+                .metadata
+                .computed_timestamp
+                .unwrap()
+                .timestamp_millis()
+                < 0
+        );
+        assert_eq!(processed.event.uuid.as_u128() >> 80, 0);
     }
 
     #[test]
@@ -1936,12 +2013,15 @@ mod tests {
             }
         }
 
+        let timestamp = "2023-01-01T11:00:00Z";
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: Some(uuid_v7_from_datetime(
+                DateTime::parse_from_rfc3339(timestamp).unwrap(),
+            )),
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
-            timestamp: Some("2023-01-01T11:00:00Z".to_string()),
+            timestamp: Some(timestamp.to_string()),
             offset: None,
             set: None,
             set_once: None,
@@ -1967,7 +2047,7 @@ mod tests {
         }
 
         let event = RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: None,
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,

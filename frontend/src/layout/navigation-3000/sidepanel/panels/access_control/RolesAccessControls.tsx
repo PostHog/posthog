@@ -36,6 +36,7 @@ import { roleAccessControlLogic } from './roleAccessControlLogic'
 export function RolesAccessControls(): JSX.Element {
     const { sortedRoles, rolesLoading, selectedRoleId, canEditRoles } = useValues(roleAccessControlLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
@@ -132,7 +133,7 @@ export function RolesAccessControls(): JSX.Element {
             <LemonButton
                 className="mt-2"
                 type="primary"
-                onClick={() => setEditingRoleId('new')}
+                onClick={() => guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS, () => setEditingRoleId('new'))}
                 icon={<IconPlus />}
                 disabledReason={defaultRoleRestrictionReason}
             >

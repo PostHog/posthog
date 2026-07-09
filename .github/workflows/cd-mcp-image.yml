@@ -13,8 +13,13 @@ on:
         paths:
             - 'services/mcp/**'
             - '.github/workflows/cd-mcp-image.yml'
+    # paths mirror the push trigger; the build-mcp-image label only forces a
+    # build on PRs touching these paths, use workflow_dispatch otherwise.
     pull_request:
         types: [opened, synchronize, reopened, labeled]
+        paths:
+            - 'services/mcp/**'
+            - '.github/workflows/cd-mcp-image.yml'
     workflow_dispatch:
 
 jobs:
@@ -52,6 +57,8 @@ jobs:
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   push-to-dockerhub: 'false'
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1

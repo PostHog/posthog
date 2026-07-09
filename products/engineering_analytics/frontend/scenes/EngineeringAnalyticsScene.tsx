@@ -3,7 +3,6 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,49 +12,64 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
-    EngineeringAnalyticsTab,
-    TAB_DESCRIPTIONS,
+    EngineeringAnalyticsView,
+    VIEW_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
+import { RepoOverviewScene } from './RepoOverviewScene'
 
 export const scene: SceneExport = {
     component: EngineeringAnalyticsScene,
     logic: engineeringAnalyticsSceneLogic,
 }
 
-export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
-    const { searchParams } = useValues(router)
-    const { activeTab } = useValues(engineeringAnalyticsSceneLogic)
-    const logic = engineeringAnalyticsLogic({ tabId })
-    // Keep this tab's filters and data alive across tab switches (React unmounts inactive tabs).
-    useAttachedLogic(logic, tabId ? engineeringAnalyticsSceneLogic({ tabId }) : undefined)
+export function EngineeringAnalyticsScene(): JSX.Element {
+    const { searchParams: linkParams } = useValues(router)
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+    const logic = engineeringAnalyticsLogic()
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
 
-    const tabs: LemonTab<EngineeringAnalyticsTab>[] = [
+    // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
+    const tabs: LemonTab<EngineeringAnalyticsView>[] = [
+        {
+            key: 'hub',
+            label: 'Overview',
+            content: <RepoOverviewScene />,
+            link: combineUrl(urls.engineeringAnalytics(), linkParams).url,
+            'data-attr': 'engineering-analytics-overview-tab',
+        },
         {
             key: 'pull-requests',
             label: 'Pull requests',
             content: <EngineeringAnalyticsPullRequests />,
-            link: combineUrl(urls.engineeringAnalytics(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
         },
         {
             key: 'workflows',
             label: 'Workflows',
             content: <EngineeringAnalyticsWorkflows />,
-            link: combineUrl(urls.engineeringAnalyticsWorkflows(), searchParams).url,
+            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
+        },
+        {
+            key: 'test-health',
+            label: 'Test health',
+            content: <EngineeringAnalyticsTestHealth />,
+            link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
+            'data-attr': 'engineering-analytics-test-health-tab',
         },
     ]
 
     return (
-        <BindLogic logic={engineeringAnalyticsLogic} props={{ tabId }}>
+        <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
             <SceneContent>
                 <SceneTitleSection
-                    name="CI analytics"
-                    description={TAB_DESCRIPTIONS[activeTab]}
+                    name="Engineering analytics"
+                    description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
                     actions={
                         <LemonButton
@@ -70,9 +84,9 @@ export function EngineeringAnalyticsScene({ tabId }: { tabId?: string }): JSX.El
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
-                    CI analytics is in alpha — metrics are limited to CI events, and details may change.
+                    Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
-                <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
+                <LemonTabs activeKey={activeView} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
         </BindLogic>
     )

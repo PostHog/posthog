@@ -445,7 +445,13 @@ class ClickHouseClient:
 
     @contextlib.asynccontextmanager
     async def apost_query(
-        self, query, *data, query_parameters, query_id, timeout: float | None = None
+        self,
+        query,
+        *data,
+        query_parameters,
+        query_id,
+        timeout: float | None = None,
+        settings: dict[str, str] | None = None,
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -459,6 +465,7 @@ class ClickHouseClient:
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
+            settings: Extra ClickHouse HTTP-interface settings to include as query-string parameters.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
@@ -467,6 +474,8 @@ class ClickHouseClient:
             raise ClickHouseClientNotConnected()
 
         params = {**self.params}
+        if settings is not None:
+            params.update(settings)
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -572,6 +581,41 @@ class ClickHouseClient:
         ):
             return None
 
+    async def execute_query_with_summary(
+        self, query, *data, query_parameters=None, query_id: str | None = None, timeout: float | None = None
+    ) -> dict[str, typing.Any] | None:
+        """Execute the given query and return ClickHouse's query summary, if available.
+
+        ClickHouse reports an `X-ClickHouse-Summary` response header (a JSON object with
+        counters like `written_rows`, `read_rows`, `written_bytes`). We set
+        `wait_end_of_query=1` so the summary reflects the completed query and is sent as a
+        regular response header (rather than a trailer). Returns the parsed summary, or
+        `None` if the header is absent or cannot be parsed.
+
+        `wait_end_of_query` is an HTTP-interface URL parameter (not a SQL setting); it makes
+        ClickHouse buffer the whole response server-side until the query finishes. Only use
+        this for queries whose client-bound response is small — e.g. `INSERT INTO FUNCTION
+        s3(...)`, whose response body is empty (rows go to S3, counts come back in the
+        header) — so the buffering is negligible regardless of `http_response_buffer_size`.
+        """
+        async with self.apost_query(
+            query,
+            *data,
+            query_parameters=query_parameters,
+            query_id=query_id,
+            timeout=timeout,
+            settings={"wait_end_of_query": "1"},
+        ) as response:
+            summary = response.headers.get("X-ClickHouse-Summary")
+            if not summary:
+                self.logger.warning("No 'X-ClickHouse-Summary' header found in response")
+                return None
+            try:
+                return json.loads(summary)
+            except json.JSONDecodeError:
+                self.logger.warning("Could not JSON decode 'X-ClickHouse-Summary' header", exc_info=True)
+                return None
+
     async def read_query(self, query, query_parameters=None, query_id: str | None = None) -> bytes:
         """Execute the given readonly query in ClickHouse and read the response in full.
 
@@ -650,7 +694,7 @@ class ClickHouseClient:
             results = await self.read_query_as_jsonl(
                 query,
                 query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-                query_id=f"{query_id}-CHECK-QUERY-LOG",
+                query_id=f"{query_id}-CHECK-QUERY-LOG-{uuid.uuid4()}",
             )
         except ClickHouseError as e:
             error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"
@@ -692,6 +736,45 @@ class ClickHouseClient:
             return ClickHouseQueryStatus.RUNNING
         else:
             raise ClickHouseQueryNotFound(query_id)
+
+    async def aget_written_rows_from_query_log(self, query_id: str) -> int | None:
+        """Fetch the number of rows a completed query wrote, from the query log.
+
+        Reads `written_rows` from the initiating query's `QueryFinish` entry in
+        `system.query_log`. Best-effort: returns None if the query isn't found (e.g. not yet
+        flushed) or the value can't be parsed.
+        """
+        query = """
+                SELECT written_rows
+                FROM clusterAllReplicas({{cluster_name:String}}, system.query_log)
+                WHERE query_id = {{query_id:String}}
+                    AND type = 'QueryFinish'
+                    AND is_initial_query = 1
+                    AND event_date >= yesterday() AND event_time >= now() - interval 24 hour
+                ORDER BY event_time DESC
+                LIMIT 1
+                FORMAT JSONEachRow
+                """
+
+        try:
+            results = await self.read_query_as_jsonl(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-GET-WRITTEN-ROWS",
+            )
+        except ClickHouseError:
+            self.logger.warning("Failed to fetch written rows from query log", query_id=query_id, exc_info=True)
+            return None
+
+        if not results:
+            self.logger.warning("Failed to fetch written rows from query log: no results found", query_id=query_id)
+            return None
+
+        try:
+            return int(results[0]["written_rows"])
+        except (KeyError, TypeError, ValueError):
+            self.logger.warning("Failed to read written rows from query log", query_id=query_id, exc_info=True)
+            return None
 
     async def acheck_query_in_process_list(self, query_id: str) -> bool:
         """Check if a query is running in the ClickHouse process list.

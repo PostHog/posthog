@@ -3,6 +3,9 @@ from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
+from posthog.models.utils import UUIDTModel
+from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
+
 from products.ai_observability.backend.models.taggers import LLMTaggerConfig, TagDefinition, Tagger
 
 
@@ -78,6 +81,38 @@ class TestLLMTaggerConfig(BaseTest):
             tags=[TagDefinition(name="a")],
         )
         assert config.max_tags is None
+
+
+class TestHogTaggerCompilation:
+    def test_hog_tagger_compiles_null_safe_comparisons(self):
+        tagger = Tagger(
+            team_id=1,
+            name="Hog Tagger",
+            tagger_type="hog",
+            tagger_config={
+                "source": "if (properties.missing <= 1.0) { return ['billing'] } return []",
+                "tags": [{"name": "billing"}],
+            },
+            enabled=True,
+            conditions=[],
+        )
+
+        with patch.object(UUIDTModel, "save", return_value=None):
+            tagger.save()
+
+        result = run_hog_tagger(
+            tagger.tagger_config["bytecode"],
+            {
+                "uuid": "event-id",
+                "event": "$ai_generation",
+                "properties": {},
+                "distinct_id": "user-1",
+            },
+            valid_tag_names={"billing"},
+        )
+
+        assert result["tags"] == []
+        assert result["error"] is None
 
 
 class TestTaggerModel(BaseTest):

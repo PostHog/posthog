@@ -1,6 +1,9 @@
+import { ComponentType } from 'react'
+
 import {
     IconBug,
     IconCheckCircle,
+    IconClock,
     IconComment,
     IconFlask,
     IconFolder,
@@ -17,22 +20,27 @@ import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notific
 
 import { InAppNotification } from '~/types'
 
-const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
-    comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
-    alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
-    approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
-    approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
-    pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
-    issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
-    experiment_concluded: <IconFlask className="size-5 text-primary shrink-0" />,
-    project_created: <IconFolder className="size-5 text-primary shrink-0" />,
-    usage_spike: <IconTrending className="size-5 text-warning shrink-0" />,
-    web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
-    achievement_unlocked: <IconStar className="size-5 text-warning shrink-0" />,
+const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?: string }>; color: string }> = {
+    comment_mention: { Icon: IconComment, color: 'text-primary' },
+    alert_firing: { Icon: IconWarning, color: 'text-warning' },
+    approval_requested: { Icon: IconCheckCircle, color: 'text-success' },
+    approval_resolved: { Icon: IconCheckCircle, color: 'text-success' },
+    pipeline_failure: { Icon: IconPlug, color: 'text-danger' },
+    issue_assigned: { Icon: IconBug, color: 'text-primary' },
+    experiment_concluded: { Icon: IconFlask, color: 'text-primary' },
+    project_created: { Icon: IconFolder, color: 'text-primary' },
+    usage_spike: { Icon: IconTrending, color: 'text-warning' },
+    reminder: { Icon: IconClock, color: 'text-primary' },
+    web_analytics_digest: { Icon: IconPieChart, color: 'text-primary' },
+    achievement_unlocked: { Icon: IconStar, color: 'text-warning' },
 }
 
-export function getNotificationIcon(notificationType: string): JSX.Element {
-    return NOTIFICATION_TYPE_ICONS[notificationType] ?? <IconNotification className="size-5 text-secondary shrink-0" />
+export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {
+    const { Icon, color } = NOTIFICATION_TYPE_ICONS[notificationType] ?? {
+        Icon: IconNotification,
+        color: 'text-secondary',
+    }
+    return <Icon className={`${className} ${color} shrink-0`} />
 }
 
 export function showCriticalNotificationToast(notification: InAppNotification): void {

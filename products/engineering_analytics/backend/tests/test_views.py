@@ -10,8 +10,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -22,9 +20,9 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
@@ -137,16 +135,24 @@ def _run_row(
     updated_at: str,
     *,
     full_name: str = "PostHog/posthog",
+    run_attempt: int = 1,
+    pr_number: int | None = None,
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
         "head_sha": head_sha,
+        "head_branch": head_branch,
         "status": status,
         "conclusion": conclusion,
         "created_at": run_started_at,
         "run_started_at": run_started_at,
         "updated_at": updated_at,
+        "run_attempt": run_attempt,
+        # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
+        # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
+        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
         "repository": f'{{"full_name": "{full_name}"}}',
     }
 
@@ -247,3 +253,65 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[0] == ("CI", "completed", "success", 1800, "PostHog", "posthog")
         assert rows[1][3] == 2700
         assert rows[2] == ("Deploy", "in_progress", None, None, "PostHog", "posthog")
+
+    def test_pull_requests_view_handles_null_user(self) -> None:
+        # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
+        # JSONExtractString over a NULL Nullable returns NULL, so the builder must ifNull-guard it to
+        # '' — else author_handle/avatar_url come back NULL and the non-null Author contract 500s.
+        # Driven through an inline constant source (nullIf('', '') is a typed NULL) so it runs whether
+        # or not object storage is available.
+        head_json = '{"sha": "sha5"}'
+        base_json = '{"repo": {"full_name": "PostHog/posthog"}}'
+        raw = (
+            "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
+            f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
+            "'2026-01-10 10:00:00' AS created_at, nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+        )
+        rows = self._select(
+            f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"
+        )
+        assert rows[0] == ("", "", 0)
+
+    def test_workflow_runs_view_handles_null_pull_requests(self) -> None:
+        # The real source lands pull_requests as Nullable(String), so it can be NULL (a run with no
+        # PR association). The builder's ifNull(pull_requests, '[]') guard must carry that NULL to
+        # pr_number = 0 (unattributed), never letting JSONExtractArrayRaw see a Nullable. Driven
+        # through an inline constant source (nullIf('', '') is a typed NULL) so it exercises the
+        # guard whether or not object storage is available — unlike the table-backed tests, which
+        # skip without it.
+        repo_json = '{"full_name": "PostHog/posthog"}'
+        raw = (
+            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
+            "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
+            f"'{repo_json}' AS repository, "
+            "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "
+            "'2026-01-20 10:00:00' AS created_at)"
+        )
+        rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
+        assert rows[0] == (0, "PostHog", "posthog")
+
+    def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
+        # Prod lands every column Nullable, so a single run can carry NULL across timestamps,
+        # repository, pull_requests and run_attempt at once (e.g. a barely-started run). Driven
+        # through a real warehouse table built from the shared (now fully-Nullable) schema — the
+        # exact prod shape — to prove the builder maps it instead of 500ing: NULL timestamps ->
+        # NULL duration, NULL repository -> empty owner/name, NULL pull_requests -> pr_number 0.
+        sparse_run: dict[str, Any] = {
+            "id": 4001,
+            "name": "CI",
+            "head_sha": "shaQ",
+            "status": "completed",
+            "conclusion": None,
+            "created_at": None,
+            "run_started_at": None,
+            "updated_at": None,
+            "run_attempt": None,
+            "pull_requests": None,
+            "repository": None,
+        }
+        table_name = self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [sparse_run])
+        rows = self._select(
+            "SELECT status, conclusion, duration_seconds, repo_owner, repo_name, pr_number, run_attempt "
+            f"FROM ({workflow_runs.build_query(table_name)}) AS r"
+        )
+        assert rows[0] == ("completed", None, None, "", "", 0, None)

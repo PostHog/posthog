@@ -9,12 +9,14 @@ from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
+from posthog.ph_client import enable_dedicated_ai_endpoint_for_default_client
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
+    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +27,12 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Route all JSONField (jsonb) decode through orjson before any query runs.
+        if settings.JSONFIELD_ORJSON_DECODE:
+            from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
+
+            apply_orjson_jsonfield()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
@@ -42,6 +50,11 @@ class PostHogConfig(AppConfig):
         import posthog.storage.checks  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
+
+        if settings.COMMAND_EXEC_AUDIT_ENABLED:
+            from posthog.security.command_exec_audit import install as install_command_exec_audit  # noqa: PLC0415
+
+            install_command_exec_audit()
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
@@ -61,7 +74,10 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+            posthoganalytics.capture_exception_code_variables = False
+        else:
+            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]
@@ -110,6 +126,10 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
+
+        # The feature_flag_definitions() call above constructs the default client, so
+        # the dedicated-AI-endpoint flag can only be applied from this point on.
+        enable_dedicated_ai_endpoint_for_default_client()
 
         from posthog.async_migrations.setup import setup_async_migrations
 

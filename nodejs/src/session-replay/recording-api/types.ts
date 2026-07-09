@@ -4,16 +4,16 @@
  * Re-exports shared encryption types from session-replay/types.ts and adds
  * Recording API-specific types.
  */
-import { CommonConfig } from '../../common/config'
+import { CommonConfig } from '~/common/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '../../config/kafka-topics'
-import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+} from '~/common/config/kafka-topics'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,
-} from '../shared/outputs/producer-config'
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 /**
  * Recording API's outputs are ClickHouse-bound deletion tombstones on the warpstream-replay
@@ -33,7 +33,7 @@ export {
     type SerializedSessionKey,
     type SessionKey,
     type SessionState,
-} from '../shared/types'
+} from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 /**
  * Configuration for the Recording API.

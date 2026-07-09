@@ -303,6 +303,17 @@ pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
+// Remote config rate limiting
+pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
+pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_remote_config_rate_limit_bypassed_total";
+pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
+
+// Remote config auth method
+// Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
+// split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
+pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
+
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
@@ -312,6 +323,11 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // Flag definitions ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag, redis_error = etag read failed)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
+
+// Flag definitions self-heal: a cache miss enqueued a rebuild request for a Celery
+// worker to drain. Labels: result (ok = enqueued, error = redis zadd failed).
+pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
+    "flags_flag_definitions_rebuild_requested_total";
 
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other

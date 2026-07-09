@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
-from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
@@ -25,8 +26,9 @@ class ScannerSnapshot(BaseModel, frozen=True):
     name: str
     scanner_type: ScannerType
     scanner_version: int = Field(ge=1)
-    model: ScannerModel
-    provider: ScannerProvider
+    # Plain strings, not live enums: retiring a ScannerModel/ScannerProvider member must not break old-row loads.
+    model: str
+    provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
 
@@ -153,7 +155,6 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
-    events_truncated: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
@@ -171,6 +172,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
     metadata: SessionMetadata
+    # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
+    distinct_id: str | None = None
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
@@ -203,6 +206,8 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
+    # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
+    signals: list[SignalFinding] = Field(default_factory=list)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
@@ -219,16 +224,6 @@ class EmbedObservationInputs(BaseModel, frozen=True):
     model_output: AnyScannerOutput
 
 
-class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
-    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
-
-    team_id: int
-    session_id: str
-    observation_id: UUID
-    summarizer_output: SummarizerOutput
-
-
 class EmitClassifierTagsInputs(BaseModel, frozen=True):
     """Input to the classifier-side-effect activity that writes ai_tags_fixed/freeform via Kafka."""
 
@@ -236,6 +231,15 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
     session_id: str
     observation_id: UUID
     classifier_output: ClassifierOutput
+
+
+class EmitObservationSignalInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits the side-mission findings as PostHog Signals."""
+
+    team_id: int
+    observation_id: UUID
+    exported_asset_id: int
+    signals: list[SignalFinding]
 
 
 class MarkObservationSucceededInputs(BaseModel, frozen=True):

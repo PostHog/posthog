@@ -6,6 +6,7 @@ import structlog
 from posthog.schema import (
     CachedWebOverviewQueryResponse,
     HogQLQueryModifiers,
+    WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
     WebOverviewQueryResponse,
 )
@@ -88,12 +89,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             return None
         return execute_lazy_precomputed_read(self)
 
-    def _build_response_from_row(
-        self,
-        row: list,
-        used_pre_aggregated: bool,
-        used_lazy_precompute: bool = False,
-    ) -> WebOverviewQueryResponse:
+    def _build_response_from_row(self, row: list) -> WebOverviewQueryResponse:
         # Only called from the lazy precompute short-circuit; that path's gate
         # already rejects conversionGoal, so we don't need a separate branch
         # here. The v2/raw path builds its response inline in `_calculate`.
@@ -120,14 +116,13 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            usedPreAggregatedTables=used_pre_aggregated,
-            usedLazyPrecompute=used_lazy_precompute,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:
         lazy_row = self.get_lazy_precomputed_row()
         if lazy_row is not None:
-            return self._build_response_from_row(lazy_row, used_pre_aggregated=True, used_lazy_precompute=True)
+            return self._build_response_from_row(lazy_row)
 
         pre_aggregated_response = self.get_pre_aggregated_response()
 
@@ -177,7 +172,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             modifiers=self.modifiers,
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
-            usedPreAggregatedTables=response == pre_aggregated_response,
+            preComputeStrategy=(
+                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+                if response == pre_aggregated_response
+                else WebAnalyticsPreComputeStrategy.LIVE
+            ),
         )
 
     def all_properties(self) -> ast.Expr:
