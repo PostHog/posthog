@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.cloud_utils import is_cloud
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
@@ -91,6 +93,13 @@ def _validated_hostname(base_url: str) -> Optional[str]:
         return None
     parsed = urlparse(base_url)
     if parsed.scheme not in ("http", "https") or "@" in parsed.netloc:
+        return None
+    # The API token rides in the Authorization header on every request, so plaintext http would
+    # leak it to any network observer. On PostHog Cloud the request egresses over the public
+    # internet, so require https. Self-hosted operators control their own network path (e.g. an
+    # internal Unleash reachable only over http), so http stays allowed there — mirroring how host
+    # IP safety is only enforced on cloud.
+    if parsed.scheme == "http" and is_cloud():
         return None
     hostname = parsed.hostname
     if not hostname or not re.match(r"^[A-Za-z0-9.\-]+$", hostname):

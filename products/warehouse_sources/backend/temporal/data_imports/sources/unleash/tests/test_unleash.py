@@ -342,6 +342,21 @@ class TestUnleash:
         assert valid is False
         assert message == "Invalid Unleash instance URL"
 
+    @parameterized.expand(
+        [
+            # The token rides in the Authorization header, so plaintext http is rejected on cloud
+            # (public egress) but allowed off cloud (self-hosted controls its own network path).
+            ("http_on_cloud", True, "http://unleash.example.com", None),
+            ("http_off_cloud", False, "http://unleash.example.com", "unleash.example.com"),
+            ("https_on_cloud", True, "https://unleash.example.com", "unleash.example.com"),
+        ]
+    )
+    def test_validated_hostname_requires_https_only_on_cloud(
+        self, _name: str, cloud: bool, url: str, expected: Optional[str]
+    ) -> None:
+        with patch.object(unleash, "is_cloud", return_value=cloud):
+            assert unleash._validated_hostname(url) == expected
+
     def test_check_endpoint_permissions_rejects_ambiguous_url_for_all_endpoints(self) -> None:
         result = check_endpoint_permissions(
             "https://169.254.169.254\\@unleash.example.com", TOKEN, ["projects", "users"], team_id=1
