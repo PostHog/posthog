@@ -104,6 +104,13 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "marketing_analytics": "web_analytics",
 }
 
+WAREHOUSE_ACCESS_SCOPES: frozenset[str] = frozenset(
+    {
+        "warehouse_objects",
+        *(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == "warehouse_objects"),
+    }
+)
+
 tracer = trace.get_tracer(__name__)
 
 

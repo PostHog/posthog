@@ -123,7 +123,7 @@ from posthog.hogql_queries.validation.validation import (
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
@@ -2395,12 +2395,16 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         if user is None:
             return ["*"] if queried_resources is None else sorted(queried_resources) or None
 
-        # Non-real principals (service tokens, shared-link viewers) are scope-gated; partition on the
-        # readable scopes so a narrower token can't be served a broader principal's cached result.
+        # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
+        # partition on the readable scopes so a narrower token can't be served a broader principal's
+        # cached result. Warehouse scopes are excluded: these principals bypass warehouse access
+        # control (see Database.create_for), so warehouse tables are readable for them and listing
+        # them as restricted would collide with users who are genuinely denied those resources.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            return sorted(queried_resources - user.readable_system_table_access_scopes()) or None
+            restricted = queried_resources - user.readable_system_table_access_scopes() - WAREHOUSE_ACCESS_SCOPES
+            return sorted(restricted) or None
 
         user_access_control = self.user_access_control
         if user_access_control is None:
