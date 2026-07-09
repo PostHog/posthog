@@ -58,6 +58,13 @@ export interface CheckDatabaseNameResponseApi {
     available: boolean
 }
 
+export interface DeleteWarehouseOrgResponseApi {
+    /** Deletion lifecycle message from the provisioner */
+    status?: string
+    /** duckgres org identifier (the PostHog organization id) */
+    org?: string
+}
+
 export interface DeprovisionWarehouseResponseApi {
     /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
     status: string
@@ -1701,6 +1708,9 @@ export interface CredentialApi {
  * * `Mercury` - Mercury
  * * `Gojiberry` - Gojiberry
  * * `Teachable` - Teachable
+ * * `PeecAI` - PeecAI
+ * * `Healthchecks` - Healthchecks
+ * * `Impact` - Impact
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2365,6 +2375,9 @@ export const ExternalDataSourceTypeEnumApi = {
     Mercury: 'Mercury',
     Gojiberry: 'Gojiberry',
     Teachable: 'Teachable',
+    PeecAI: 'PeecAI',
+    Healthchecks: 'Healthchecks',
+    Impact: 'Impact',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

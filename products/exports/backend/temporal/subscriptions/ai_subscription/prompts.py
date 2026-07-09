@@ -107,10 +107,22 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
-- Use the suggested analysis window from context as the default timeframe. Override only if the prompt
-  explicitly requests a different window.
+- The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
+  window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
+  predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
+  system substitutes the concrete half-open range at run time, so the plan stays reusable as the window
+  advances. Do NOT write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for
+  the window yourself. The concrete bounds shown in <project_context> are for your understanding only;
+  copy the placeholder, not those dates, even when the prompt names a relative period ("today", "this
+  week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket with
+  `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`. The one exception
+  is period-over-period growth ("vs last week/yesterday"), which uses `{{compare_date_range}}` and
+  `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
+  `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
+- Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
+  its own line, one selected column per line. Queries are shown to users verbatim.
 
 HogQL syntax constraints — write queries that PARSE first. Each step's `hogql` is a SELECT statement,
 ideally flat. A single level of subquery in the FROM clause is allowed (and is the right tool for
@@ -119,7 +131,7 @@ are common LLM mistakes that HogQL rejects:
 - Do NOT nest `WITH … AS (…)` CTEs inside subqueries, FROM clauses, or scalar/IN comparisons.
   The pattern `WHERE event = (SELECT … FROM (WITH cte AS (…) SELECT …))` fails to parse. If you
   reach for a CTE, rewrite the whole query as one flat SELECT with conditional aggregation
-  (see week-over-week example below).
+  (`countIf`/`sumIf`/`uniqIf`) — see the reference patterns below.
 - Do NOT use window functions (`ROW_NUMBER() OVER`, `LAG`, `LEAD`, `RANK`). Use `argMax`/`argMin`
   or `ORDER BY … LIMIT N` instead.
 - Do NOT use LATERAL joins, recursive CTEs, `UNNEST`, or `ARRAY JOIN` on a subquery.
@@ -129,51 +141,60 @@ are common LLM mistakes that HogQL rejects:
   null-safe join keys with "Cannot determine join keys", so a JOIN will fail at execution time.
   (Person, session, and group/account data IS still available without a JOIN — see "Joined data
   available" below.)
-- Date math: `now() - INTERVAL 7 DAY` (unquoted, singular `DAY`/`HOUR`/`WEEK`/`MONTH`).
-- Time bucketing: `toStartOfHour(timestamp)`, `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
+- Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
+  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
+- Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
+  `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,
   `avgIf(field, cond)`. Combine these for comparisons across windows in one query.
 - Top-N within a group: `argMax(field, metric)` for one winner, or `groupArray(field)` +
   `arraySlice(arraySort(…), 1, N)` for many. Never `ROW_NUMBER() OVER (PARTITION BY …)`.
 - String literals use single quotes; identifiers are unquoted.
 
-Reference patterns (use as templates):
+Reference patterns (use as templates). Write the placeholder tokens verbatim; the system substitutes
+the concrete bounds at run time. Never write `toDateTime('…')` window bounds, `now()`, or
+`now() - INTERVAL …` yourself:
 
-Top events in the last 7 days:
+Top events across the window:
   SELECT event, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= now() - INTERVAL 7 DAY
+  WHERE {{date_range}}
   GROUP BY event
   ORDER BY count DESC
-  LIMIT 50
-
-Week-over-week growth in ONE flat query (USE THIS PATTERN INSTEAD OF NESTED CTES):
-  SELECT
-    event,
-    countIf(timestamp >= now() - INTERVAL 7 DAY) AS this_week,
-    countIf(timestamp >= now() - INTERVAL 14 DAY
-            AND timestamp <  now() - INTERVAL 7 DAY) AS last_week,
-    (this_week - last_week) / nullIf(last_week, 0) AS growth_rate
-  FROM events
-  WHERE timestamp >= now() - INTERVAL 14 DAY
-  GROUP BY event
-  HAVING last_week > 0 OR this_week > 0
-  ORDER BY growth_rate DESC
   LIMIT 50
 
 Daily time series for a single event:
   SELECT toStartOfDay(timestamp) AS day, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 14 DAY
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY day
   ORDER BY day
 
 Hourly distribution to spot spikes:
   SELECT toStartOfHour(timestamp) AS hour, count() AS count
   FROM events
-  WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY hour
   ORDER BY hour
+
+Period-over-period growth (the window vs the equal-length period immediately before it). For a
+regular send that's roughly the prior cadence period (about last week for a weekly report, yesterday
+for a daily one), but it tracks the window's ACTUAL length — a short re-fire window compares two
+short slices, so describe the result as "vs the previous period", not as an exact "week over week".
+This is the ONLY case that reads data before the window: filter the wider previous+current range with
+the `{{compare_date_range}}` placeholder and split at `{{window_start}}` with conditional aggregation.
+Still never `now()`:
+  SELECT
+    event,
+    countIf(timestamp >= {{window_start}}) AS current,
+    countIf(timestamp <  {{window_start}}) AS previous,
+    (current - previous) / nullIf(previous, 0) AS growth_rate
+  FROM events
+  WHERE {{compare_date_range}}
+  GROUP BY event
+  HAVING previous > 0 OR current > 0
+  ORDER BY growth_rate DESC
+  LIMIT 50
 
 Events with no data: do NOT write a query for this. The events table only contains events that
 fired, so it cannot enumerate zero-data events. The set of events defined in the project but with
@@ -184,14 +205,14 @@ Top AND bottom events — a single `ORDER BY … DESC LIMIT n` only returns the 
 with an ASC tail to read both the most- and least-active events regardless of how many events exist:
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= now() - INTERVAL 7 DAY
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count DESC
    LIMIT 25)
   UNION ALL
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= now() - INTERVAL 7 DAY
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count ASC
    LIMIT 25)
@@ -212,13 +233,13 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
     count() AS event_count,
     uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= now() - INTERVAL 7 DAY
+  WHERE {{date_range}}
   GROUP BY plan
   ORDER BY event_count DESC
   LIMIT 50
 
 First-EVER occurrence of an event per user, landing in the window (e.g. "users whose first ever
-'Dashboard created' is today", broken down by a property of that first event). "First ever" needs each
+'Dashboard created' falls in the window", broken down by a property of that first event). "First ever" needs each
 user's earliest event across ALL history, so compute it in a FROM-subquery, then filter to the
 window — never approximate it with a flat `countIf`, and never use a JOIN or window function:
   SELECT
@@ -233,7 +254,7 @@ window — never approximate it with a flat `countIf`, and never use a JOIN or w
     WHERE event = 'Dashboard created'
     GROUP BY distinct_id
   )
-  WHERE first_seen >= toStartOfDay(now()) AND first_seen < toStartOfDay(now() + INTERVAL 1 DAY)
+  WHERE first_seen >= {{window_start}} AND first_seen < {{window_end}}
   GROUP BY template
   ORDER BY first_time_users DESC
   LIMIT 50
@@ -312,9 +333,12 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   rewrite it with conditional aggregation (`countIf(cond)`, `uniqIf(field, cond)`, `sumIf(...)`).
 - No window functions (`ROW_NUMBER`, `LAG`, `LEAD`, `RANK`). No LATERAL joins, recursive CTEs,
   UNNEST, or ARRAY JOIN on subqueries.
-- No JOINs of any kind, including self-joins on `event`. Use conditional aggregation over a wider
-  time window instead (ClickHouse rejects HogQL's null-safe join keys).
-- Date math: `now() - INTERVAL 7 DAY` (unquoted, singular `DAY`/`HOUR`/`WEEK`/`MONTH`).
+- No JOINs of any kind, including self-joins on `event`. Use conditional aggregation instead
+  (ClickHouse rejects HogQL's null-safe join keys).
+- Time window: PRESERVE the original query's window tokens (`{{date_range}}`,
+  `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
+  verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
+  `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - Time bucketing: `toStartOfHour/Day/Week(timestamp)`.
 - String literals use single quotes; identifiers are unquoted.
 - Keep it cheap: LIMIT 50.

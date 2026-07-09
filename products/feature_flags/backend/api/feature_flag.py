@@ -1776,7 +1776,7 @@ class FeatureFlagSerializer(
 
         if "deleted" in validated_data and validated_data["deleted"] is True:
             # Check for linked early access features
-            if instance.features.count() > 0:
+            if instance.features.exists():
                 raise exceptions.ValidationError(
                     "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
                 )
@@ -1962,9 +1962,8 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # The linked feature flag is the source of truth for variants and aggregation group type.
-        # Experiment reads derive these from the flag (see ExperimentBaseSerializer), so there is no
-        # longer a `parameters` mirror to keep in sync here.
+        # The linked feature flag is the source of truth for variants and aggregation group type;
+        # experiment reads derive these from the flag (see ExperimentBaseSerializer).
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
@@ -2684,6 +2683,8 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Record a tags change per flag when bulk_update_tags mutates it, matching the single-object path.
+    bulk_tag_activity_scope = "FeatureFlag"
     psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still

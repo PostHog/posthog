@@ -107,6 +107,52 @@ describe('webAnalyticsAchievementsLogic', () => {
         expect(lastAck).toEqual({ track_key: 'streak', stage: 2 })
     })
 
+    it('collapses multiple pending celebrations into a single toast and still acknowledges each', async () => {
+        const acks: { track_key: string; stage: number }[] = []
+        useMocks({
+            get: {
+                [OVERVIEW_URL]: () => [
+                    200,
+                    {
+                        definitions: [],
+                        user_progress: [],
+                        team_progress: [],
+                        pending_celebrations: [
+                            { track_key: 'streak', stage: 2, stage_name: 'Warming up' },
+                            { track_key: 'explorer', stage: 1, stage_name: 'First look' },
+                        ],
+                    } as AchievementsListResponseApi,
+                ],
+            },
+            post: {
+                [ACKNOWLEDGE_URL]: async ({ request }) => {
+                    acks.push((await request.json()) as { track_key: string; stage: number })
+                    return [200, { acknowledged: true }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAchievements()
+        })
+            .toDispatchActions(['loadAchievementsSuccess', 'acknowledgeCelebration', 'triggerConfetti'])
+            .toFinishAllListeners()
+            .toMatchValues({ uncelebratedPending: [], confettiNonce: 1 })
+
+        expect(lemonToast.success).toHaveBeenCalledTimes(1)
+        expect(lemonToast.success).toHaveBeenCalledWith(
+            "You've unlocked 2 web analytics achievements",
+            expect.anything()
+        )
+        expect(acks).toHaveLength(2)
+        expect(acks).toEqual(
+            expect.arrayContaining([
+                { track_key: 'streak', stage: 2 },
+                { track_key: 'explorer', stage: 1 },
+            ])
+        )
+    })
+
     it('does not re-toast or re-celebrate an already-celebrated unlock on a second load', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadAchievements()

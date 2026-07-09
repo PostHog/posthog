@@ -15,6 +15,15 @@ from github import PRData  # noqa: E402
 from review_pr import GateResult, Pipeline  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _no_live_team_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Ownership resolves against the real repo tree, so fixture paths can match
+    # a real owning team and _summarize_ownership would then shell out to
+    # `gh api` mid-test - slow, network-dependent, and it trips tests that
+    # assert the pipeline never sleeps (subprocess waits sleep internally).
+    monkeypatch.setattr(review_pr, "check_team_membership", lambda *_a, **_k: False)
+
+
 def _fake_pr(head_sha: str) -> PRData:
     return PRData(
         number=1,
@@ -32,6 +41,23 @@ def _fake_pr(head_sha: str) -> PRData:
         review_comments=[],
         check_runs=[],
     )
+
+
+def test_summarize_assurance_counts_threads_not_flattened_replies() -> None:
+    # A single unresolved thread with three replies must read as one unresolved
+    # thread, not four: replies inherit the thread's resolution state, and the
+    # assurance line the reviewer trusts would otherwise overstate open feedback.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.review_comments = [
+        {"in_reply_to_id": None, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+        {"in_reply_to_id": 1, "is_resolved": False, "is_outdated": False},
+    ]
+    pipeline.pr = pr
+
+    assert pipeline._summarize_assurance()["unresolved_threads"] == 1
 
 
 def test_to_dict_includes_head_sha() -> None:

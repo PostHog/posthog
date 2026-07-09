@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -407,7 +408,8 @@ function TypeSwitcher({
                     },
                     {
                         value: '$screen',
-                        label: 'Screen',
+                        label: 'Mobile screen',
+                        tooltip: 'Screen views from mobile apps ($screen events sent by the mobile SDKs)',
                         'data-attr': 'action-type-screen',
                         disabledReason,
                     },
@@ -435,21 +437,35 @@ function ScreenNameField({
     disabledReason?: string
 }): JSX.Element {
     const existingFilter = step.properties?.find(isScreenNameFilter)
-    const screenName = (existingFilter && 'value' in existingFilter ? (existingFilter.value as string) : '') ?? ''
-    const operator: ScreenNameMatching =
-        existingFilter && 'operator' in existingFilter
-            ? (existingFilter.operator as ScreenNameMatching)
-            : PropertyOperator.IContains
+    const rawValue = existingFilter && 'value' in existingFilter ? existingFilter.value : undefined
+    const screenNames: string[] =
+        rawValue == null || rawValue === '' ? [] : Array.isArray(rawValue) ? rawValue.map(String) : [String(rawValue)]
+    const filterOperator: ScreenNameMatching | undefined =
+        existingFilter && 'operator' in existingFilter ? (existingFilter.operator as ScreenNameMatching) : undefined
 
-    const setFilter = (name: string, op: ScreenNameMatching): void => {
+    // Keep the selected operator even when the value is empty (an empty filter isn't persisted, so we can't
+    // read it back off the step) — otherwise picking "matches exactly" before typing would snap back to the default.
+    // Only seeded once: safe because this component remounts when the step's event type changes away from $screen.
+    const [operator, setOperator] = useState<ScreenNameMatching>(filterOperator ?? PropertyOperator.IContains)
+
+    // Only "matches exactly" supports multiple values (translated to an IN() query); the rest take a single string
+    const isMulti = operator === PropertyOperator.Exact
+    const singleValue = screenNames[0] ?? ''
+
+    const setFilter = (value: string | string[], op: ScreenNameMatching): void => {
         const otherProperties = (step.properties || []).filter((p) => !isScreenNameFilter(p))
+        const isEmpty = Array.isArray(value) ? value.length === 0 : !value
+        if (isEmpty) {
+            sendStep({ ...step, properties: otherProperties })
+            return
+        }
         sendStep({
             ...step,
             properties: [
                 ...otherProperties,
                 {
                     key: SCREEN_NAME_PROPERTY,
-                    value: name,
+                    value,
                     operator: op as PropertyOperator,
                     type: PropertyFilterType.Event,
                 },
@@ -457,17 +473,21 @@ function ScreenNameField({
         })
     }
 
-    const clearFilter = (): void => {
-        sendStep({ ...step, properties: (step.properties || []).filter((p) => !isScreenNameFilter(p)) })
+    const handleOperatorChange = (op: ScreenNameMatching): void => {
+        setOperator(op)
+        const nextValue = op === PropertyOperator.Exact ? screenNames : singleValue
+        setFilter(nextValue, op)
     }
 
     return (
         <div className="deprecated-space-y-1">
             <div className="flex flex-wrap gap-1">
-                <LemonLabel>Screen name</LemonLabel>
+                <LemonLabel info="Matches the $screen_name property on $screen events sent by the mobile SDKs (iOS, Android, React Native, Flutter). This is the mobile equivalent of a pageview URL.">
+                    Screen name
+                </LemonLabel>
                 <div className="flex flex-1 justify-end">
                     <LemonSegmentedButton
-                        onChange={(value) => setFilter(screenName, value as ScreenNameMatching)}
+                        onChange={(value) => handleOperatorChange(value as ScreenNameMatching)}
                         value={operator}
                         options={Object.entries(SCREEN_NAME_MATCHING_LABEL).map(([value, label]) => ({
                             value,
@@ -478,14 +498,26 @@ function ScreenNameField({
                     />
                 </div>
             </div>
-            <LemonInput
-                data-attr="edit-action-screen-name-input"
-                allowClear
-                onChange={(val) => (val ? setFilter(val, operator) : clearFilter())}
-                value={screenName}
-                placeholder="e.g. HomeScreen, Settings"
-                disabledReason={disabledReason}
-            />
+            {isMulti ? (
+                <LemonInputSelect
+                    data-attr="edit-action-screen-name-input"
+                    mode="multiple"
+                    allowCustomValues
+                    value={screenNames}
+                    onChange={(vals) => setFilter(vals, operator)}
+                    placeholder="e.g. HomeScreen, Settings"
+                    disabled={!!disabledReason}
+                />
+            ) : (
+                <LemonInput
+                    data-attr="edit-action-screen-name-input"
+                    allowClear
+                    onChange={(val) => setFilter(val, operator)}
+                    value={singleValue}
+                    placeholder="e.g. HomeScreen"
+                    disabledReason={disabledReason}
+                />
+            )}
         </div>
     )
 }

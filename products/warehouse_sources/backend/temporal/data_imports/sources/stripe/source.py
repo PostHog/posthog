@@ -102,6 +102,7 @@ class StripeSource(
     OAuthMixin,
 ):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -158,7 +159,7 @@ class StripeSource(
                                             name="stripe_secret_key",
                                             label="API key",
                                             type=SourceFieldInputConfigType.PASSWORD,
-                                            required=False,
+                                            required=True,
                                             placeholder="rk_live_...",
                                             caption=f"Create a [restricted API key]({STRIPE_API_KEYS_URL}) with the pre-defined permissions",
                                             secret=True,
@@ -175,7 +176,7 @@ class StripeSource(
                                         SourceFieldOauthConfig(
                                             name="stripe_integration_id",
                                             label="Stripe account",
-                                            required=False,
+                                            required=True,
                                             kind="stripe",
                                         ),
                                     ],

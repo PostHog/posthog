@@ -417,6 +417,7 @@ class AssistantTool(StrEnum):
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
     ASSESS_HEATMAP = "assess_heatmap"
+    SUMMARIZE_WEBSITE_INTERACTIONS = "summarize_website_interactions"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -1046,12 +1047,6 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-
-
-class SourceType(StrEnum):
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
 
 
 class EvaluationRuntime(StrEnum):
@@ -1832,6 +1827,9 @@ class ExternalDataSourceType(StrEnum):
     MERCURY = "Mercury"
     GOJIBERRY = "Gojiberry"
     TEACHABLE = "Teachable"
+    PEEC_AI = "PeecAI"
+    HEALTHCHECKS = "Healthchecks"
+    IMPACT = "Impact"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2015,12 +2013,6 @@ class GoogleAdsTableExclusions(StrEnum):
 
 class GoogleAdsTableKeywords(StrEnum):
     CAMPAIGN = "campaign"
-
-
-class HealthCheckSeverity(StrEnum):
-    CRITICAL = "critical"
-    WARNING = "warning"
-    INFO = "info"
 
 
 class GradientScaleMode(StrEnum):
@@ -2243,6 +2235,8 @@ class IntervalType(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
 
 
 class Method(StrEnum):
@@ -2289,16 +2283,6 @@ class LogSeverityLevel(StrEnum):
     WARN = "warn"
     ERROR = "error"
     FATAL = "fatal"
-
-
-class Action1(StrEnum):
-    FIRING = "firing"
-    BROKEN = "broken"
-
-
-class ThresholdOperator(StrEnum):
-    ABOVE = "above"
-    BELOW = "below"
 
 
 class LogsOrderBy(StrEnum):
@@ -2575,6 +2559,7 @@ class NodeKind(StrEnum):
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
     TRACE_QUERY = "TraceQuery"
+    SESSION_QUERY = "SessionQuery"
     TRACE_NEIGHBORS_QUERY = "TraceNeighborsQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
@@ -3013,14 +2998,6 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
-class ProblemType(StrEnum):
-    CONFUSION = "confusion"
-    ABANDONMENT = "abandonment"
-    BLOCKING_EXCEPTION = "blocking_exception"
-    NON_BLOCKING_EXCEPTION = "non_blocking_exception"
-    FAILURE = "failure"
-
-
 class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
@@ -3031,56 +3008,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class Priority(StrEnum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
-
-
-class SignalSourceProduct(StrEnum):
-    SESSION_REPLAY = "session_replay"
-    LLM_ANALYTICS = "llm_analytics"
-    GITHUB = "github"
-    LINEAR = "linear"
-    ZENDESK = "zendesk"
-    CONVERSATIONS = "conversations"
-    ERROR_TRACKING = "error_tracking"
-    ENDPOINTS = "endpoints"
-    PGANALYZE = "pganalyze"
-    SIGNALS_SCOUT = "signals_scout"
-    LOGS = "logs"
-    HEALTH_CHECKS = "health_checks"
-    REPLAY_VISION = "replay_vision"
-
-
-class SignalSourceType(StrEnum):
-    SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster"
-    SESSION_PROBLEM = "session_problem"
-    EVALUATION = "evaluation"
-    EVALUATION_REPORT = "evaluation_report"
-    ISSUE = "issue"
-    TICKET = "ticket"
-    ISSUE_CREATED = "issue_created"
-    ISSUE_REOPENED = "issue_reopened"
-    ISSUE_SPIKING = "issue_spiking"
-    ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
-    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = "endpoint_breakdown_limit_exceeded"
-    CROSS_SOURCE_ISSUE = "cross_source_issue"
-    ALERT_STATE_CHANGE = "alert_state_change"
-    HEALTH_ISSUE = "health_issue"
-    SCANNER_FINDING = "scanner_finding"
-
-
-class Severity(StrEnum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
 
 
 class SimpleIntervalType(StrEnum):

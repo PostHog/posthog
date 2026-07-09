@@ -45,7 +45,7 @@
 - `feat`: New feature or functionality (touches production code)
 - `fix`: Bug fix (touches production code)
 - `chore`: Non-production changes (docs, tests, config, CI, refactoring agents instructions, etc.)
-- Scope convention: use `llma` for LLM analytics changes (for example, `feat(llma): ...`)
+- Scope convention: use `aio` for AI observability changes (for example, `feat(aio): ...`)
 
 ### Format
 
@@ -77,6 +77,17 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
+
+#### Stacked PRs
+
+Restacking force-pushes every branch, and each push triggers a full CI fan-out.
+Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
+The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
+Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
+
+- Keep stacks shallow; merge the base before extending.
+- Restack only when you need to, rather than rebasing the whole stack on master repeatedly.
+- When a restack must push many branches, stagger them instead of force-pushing all at once.
 
 #### Pre-push checks — ci:preflight
 
