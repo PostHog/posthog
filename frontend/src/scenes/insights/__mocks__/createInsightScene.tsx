@@ -43,11 +43,7 @@ export const insightSceneMswDecorator = mswDecorator({
 })
 
 /** Play fn: holds the snapshot until the funnel steps chart height stops changing. */
-export const waitForFunnelToStabilize = async ({
-    canvasElement,
-}: {
-    canvasElement: HTMLElement
-}): Promise<void> => {
+export const waitForFunnelToStabilize = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     let lastHeight = 0
     await waitFor(
         () => {
@@ -63,11 +59,7 @@ export const waitForFunnelToStabilize = async ({
 }
 
 /** Play fn: expands the first funnel step's inline property filters. */
-export const expandFirstPropertyFilter = async ({
-    canvasElement,
-}: {
-    canvasElement: HTMLElement
-}): Promise<void> => {
+export const expandFirstPropertyFilter = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const expandFiltersButton = await waitFor(
         () => {
             const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
