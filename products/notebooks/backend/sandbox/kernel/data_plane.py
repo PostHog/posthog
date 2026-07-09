@@ -18,8 +18,15 @@ from typing import Any
 import pyarrow as pa
 
 _REQUEST_TIMEOUT_SECONDS = 30
-# Total budget for one query: enqueue + Celery pickup + ClickHouse execution.
+# Total budget for one inline query: enqueue + Celery pickup + ClickHouse execution.
 _POLL_DEADLINE_SECONDS = 180
+# Object materialization is dispatched to a Temporal workflow whose schedule_to_close is
+# 10 minutes over a 500k-row / 50GB-scan ceiling — exactly the large frames this path
+# exists to carry. The client budget must cover the server budget (plus margin for the
+# final poll interval), or the headline case times out client-side while the worker keeps
+# producing an object nobody fetches. Sync with NotebookFrameMaterializeWorkflow's
+# schedule_to_close_timeout in temporal/frame_materialize.py.
+_OBJECT_POLL_DEADLINE_SECONDS = 660
 _POLL_INITIAL_INTERVAL_SECONDS = 0.3
 _POLL_MAX_INTERVAL_SECONDS = 2.0
 
@@ -112,7 +119,7 @@ def _poll_for_table(status_url: str, token: str, expect_object: bool = False) ->
     # it did before object delivery existed — no auth-header leak concern, since the target
     # is still our own data plane and inline responses carry no presigned URL.
     opener = _no_redirect_opener.open if expect_object else urllib.request.urlopen
-    deadline = time.monotonic() + _POLL_DEADLINE_SECONDS
+    deadline = time.monotonic() + (_OBJECT_POLL_DEADLINE_SECONDS if expect_object else _POLL_DEADLINE_SECONDS)
     interval = _POLL_INITIAL_INTERVAL_SECONDS
     while time.monotonic() < deadline:
         try:

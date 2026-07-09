@@ -124,6 +124,19 @@ One correction to the sketch below: the kernel's client is `urllib`, not `reques
 credential-free request instead of auto-following.
 The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
 
+_Rollout prerequisites (per environment, before flipping the flag on):_
+
+- Enable `NOTEBOOKS_FRAME_STORE_ENABLED` only **after** both the web and general-purpose Temporal worker
+  fleets are on the new image. Temporal accepts a `start_workflow` for a workflow type no worker has
+  registered yet — so flipping the flag early produces a bounded window of hung polls that the enqueue
+  rollback (which only catches a dispatch _exception_) cannot recover.
+- Confirm `OBJECT_STORAGE_PUBLIC_ENDPOINT` resolves and routes **from the sandbox kernel's network** — the
+  kernel fetches the presigned URL directly. An internal-only host (or the local SeaweedFS docker name)
+  makes every download fail (loud, not silent).
+- Known degraded-mode caveat: with the flag off (the default) or object storage down, a `delivery: "object"`
+  request falls back to the inline path clamped at 50k rows and the frame is silently truncated. Fine for
+  frames under the clamp; a user-visible truncation signal is a follow-up before GA.
+
 **Phase 2 — let ClickHouse do the writing.**
 Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
 the worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python.

@@ -20,7 +20,7 @@ import uuid
 import hashlib
 import datetime as dt
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -148,10 +148,14 @@ def _materialize_slots(team_id: int, task_id: str) -> Iterator[None]:
         team_key, team_task = team_limiter.use(task_id=f"{task_id}:team", team_id=team_id)
         yield
     finally:
+        # Release each slot independently: a Redis blip releasing the team slot must not
+        # skip the global release and leak a global slot until its 15-minute TTL.
         if team_key and team_task:
-            team_limiter.release(team_key, team_task)
+            with suppress(Exception):
+                team_limiter.release(team_key, team_task)
         if global_key and global_task:
-            global_limiter.release(global_key, global_task)
+            with suppress(Exception):
+                global_limiter.release(global_key, global_task)
 
 
 def _print_clickhouse_sql(team: Team, user: User | None, query: str) -> tuple[str, dict[str, object]]:
