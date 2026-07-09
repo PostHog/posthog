@@ -163,21 +163,17 @@ class TestSubscriptionTemporal(APILicensedTest):
         [
             ("opt_in_fires", True, True),
             ("opt_out_skips", False, False),
-            ("absent_skips", None, False),
         ]
     )
-    def test_update_honors_send_test_now(self, _name, send_test_now, should_fire):
+    def test_update_honors_explicit_send_test_now(self, _name, send_test_now, should_fire):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
 
-        payload: dict = {"target_value": "other@posthog.com"}
-        if send_test_now is not None:
-            payload["send_test_now"] = send_test_now
+        # target_value would infer a send on its own — explicit send_test_now must override either way
+        payload: dict = {"target_value": "other@posthog.com", "send_test_now": send_test_now}
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", payload)
         assert response.status_code == status.HTTP_200_OK, response.content
         assert "send_test_now" not in response.json()
-        # The confirmation send on edit is driven only by send_test_now now — a delivery-relevant
-        # field change (here target_value) no longer implies a re-send on its own.
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
         else:
@@ -327,34 +323,35 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         ).json()["id"]
 
-    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). The confirmation
-    # send on edit is driven solely by send_test_now now — the kind of field changed no longer matters.
+    # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). Explicit
+    # send_test_now always wins; when omitted, the send is inferred from whether the edit changed
+    # what gets delivered (or re-enabled the subscription) — schedule/meta-only edits stay quiet.
     @parameterized.expand(
         [
-            ("schedule_only_no_send", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
+            ("schedule_only_inferred_no_send", lambda t: (t._basic_sub(), {"frequency": "daily"}), False),
             (
                 "schedule_only_with_send",
                 lambda t: (t._basic_sub(), {"frequency": "daily", "send_test_now": True}),
                 True,
             ),
             (
-                "recipient_no_send",
+                "recipient_inferred_send",
                 lambda t: (t._basic_sub(), {"target_value": "test@posthog.com,extra@posthog.com"}),
-                False,
+                True,
             ),
             (
-                "recipient_with_send",
+                "recipient_with_opt_out",
                 lambda t: (
                     t._basic_sub(),
-                    {"target_value": "test@posthog.com,extra@posthog.com", "send_test_now": True},
+                    {"target_value": "test@posthog.com,extra@posthog.com", "send_test_now": False},
                 ),
-                True,
+                False,
             ),
-            ("re_enable_no_send", lambda t: (t._disabled_email_sub(), {"enabled": True}), False),
+            ("re_enable_inferred_send", lambda t: (t._disabled_email_sub(), {"enabled": True}), True),
             (
-                "re_enable_with_send",
-                lambda t: (t._disabled_email_sub(), {"enabled": True, "send_test_now": True}),
-                True,
+                "re_enable_with_opt_out",
+                lambda t: (t._disabled_email_sub(), {"enabled": True, "send_test_now": False}),
+                False,
             ),
             # send_test_now on an edit that leaves the sub disabled must not deliver.
             ("send_but_left_disabled", lambda t: (t._disabled_email_sub(), {"send_test_now": True}), False),

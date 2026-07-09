@@ -199,6 +199,15 @@ class AIPromptConfigSerializer(serializers.Serializer):
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
+    FIELDS_THAT_TRIGGER_REDELIVERY: ClassVar[tuple[str, ...]] = (
+        "target_value",
+        "target_type",
+        "integration_id",
+        "prompt",
+        "insight_id",
+        "dashboard_id",
+    )
+
     created_by = UserBasicSerializer(read_only=True)
     summary = serializers.CharField(read_only=True, help_text="Human-readable schedule summary, e.g. 'sent daily'.")
     invite_message = serializers.CharField(
@@ -212,7 +221,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         write_only=True,
         help_text=(
             "Whether to immediately deliver the subscription once on save so the editor can confirm "
-            "it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected."
+            "it looks right. Defaults to true on create. When omitted on update, a delivery is sent "
+            "only if the edit changed what gets delivered (recipient, channel, source) or re-enabled "
+            "the subscription. The recurring schedule is unaffected."
         ),
     )
     integration_id = serializers.IntegerField(
@@ -771,12 +782,23 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
-        send_test_now = validated_data.pop("send_test_now", False)  # off by default on edit; honored when set
+        # None means "not provided" — the delivery decision then falls back to inferring from
+        # what the edit changed, matching the long-standing default behavior.
+        send_test_now: bool | None = validated_data.pop("send_test_now", None)
         # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
+
+        # Snapshot delivery-relevant values before the write so the inferred path can tell,
+        # after, whether the edit actually changed what gets delivered. Only snapshot the
+        # dashboard_export_insights M2M when the payload carries it — that's the only case
+        # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
+        old_delivery_values = {field: getattr(instance, field) for field in self.FIELDS_THAT_TRIGGER_REDELIVERY}
+        old_export_insight_ids = (
+            set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
+        )
 
         if is_delete:
             with slo_operation(
@@ -803,22 +825,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
-        # Explicit adoption signal for the "Send a test run now" toggle on edits — the canonical
-        # "subscription updated" event carries only model fields, so intent is captured here.
-        posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
-            event="subscription_update_delivery_intent",
-            properties={
-                **analytics_props,
-                "subscription_id": instance.id,
-                "team_id": instance.team_id,
-                "resource_type": instance.resource_type,
-                "send_test_now": send_test_now,
-                "subscription_enabled": instance.enabled,
-            },
-            groups=groups(None, instance.team),
-        )
-
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
         if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
@@ -833,13 +839,36 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
-        # Skip the workflow trigger when the resulting state is disabled. No delivery
-        # should fire for a disabled subscription regardless of whether it was just
-        # disabled or already disabled.
-        if not instance.enabled:
-            return instance
+        delivery_target_changed = any(
+            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
+        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
 
-        if not send_test_now:
+        # Explicit send_test_now wins. When omitted, infer: send when the edit changed what
+        # gets delivered, or on re-enable — a schedule/meta-only edit must not push a fresh
+        # delivery. Disabled subscriptions never fire regardless.
+        wants_delivery = send_test_now if send_test_now is not None else (is_re_enabling or delivery_target_changed)
+        delivery_triggered = wants_delivery and instance.enabled
+
+        # Explicit observability for the delivery decision on edits — the canonical
+        # "subscription updated" event fires from the post_save signal before this decision
+        # exists, so a regression that silently suppressed deliveries would be invisible there.
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_update_delivery_intent",
+            properties={
+                **analytics_props,
+                "subscription_id": instance.id,
+                "team_id": instance.team_id,
+                "resource_type": instance.resource_type,
+                "send_test_now": send_test_now,
+                "delivery_triggered": delivery_triggered,
+                "re_enabled": is_re_enabling,
+                "subscription_enabled": instance.enabled,
+            },
+            groups=groups(None, instance.team),
+        )
+
+        if not delivery_triggered:
             return instance
 
         temporal = sync_connect()

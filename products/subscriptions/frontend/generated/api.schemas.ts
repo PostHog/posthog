@@ -273,7 +273,7 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
-    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected. */
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
     send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
@@ -421,7 +421,7 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
-    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create and false on update. The recurring schedule is unaffected. */
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
     send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
