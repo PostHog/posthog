@@ -226,6 +226,12 @@ export function cloudProgress(
     const prUrl = taskRunPrUrl(taskRunState, progressSteps)
     const prMerged = taskRunPrMerged(taskRunState)
 
+    // A merged PR ends the story: the CI-babysitting row would otherwise keep spinning forever
+    // (the workflow's follow-up loop skips closed PRs, so nothing will ever complete it).
+    if (prMerged) {
+        steps = steps.filter((s) => !s.id.endsWith(':ci'))
+    }
+
     // The pipeline goes quiet between agent start and the PR opening: everything reads completed
     // while the agent is still writing code, committing, and drafting the PR — which looks stalled.
     // Flip the still-pending PR slot to in-progress with an honest detail line for that window; the

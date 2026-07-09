@@ -212,7 +212,21 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         taskRunState: [
             null as TaskRunStreamState | null,
             {
-                taskRunStateUpdated: (_, { state }) => state,
+                // Reconnects (tab-visibility resume) replay historical state events; PR facts only
+                // move forward, so a replayed pre-merge state must not regress them mid-replay.
+                taskRunStateUpdated: (prev, { state }) => {
+                    if (!prev?.output) {
+                        return state
+                    }
+                    const output = { ...state.output }
+                    if (prev.output.pr_url && !output.pr_url) {
+                        output.pr_url = prev.output.pr_url
+                    }
+                    if (prev.output.pr_merged && !output.pr_merged) {
+                        output.pr_merged = prev.output.pr_merged
+                    }
+                    return { ...state, output }
+                },
             },
         ],
         // Last-write-wins per (group, step), kept in arrival order so the UI renders a stable timeline.
