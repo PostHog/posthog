@@ -282,7 +282,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
             submit: async (scanner: ReplayScanner) => {
                 // Advance to the next visible step instead of persisting, when the footer asked to (intent
-                // 'advance') or a new scanner submitted mid-wizard via Enter on the first form step. The step
+                // 'advance') or a new scanner submitted mid-wizard via Enter on any non-final step. The step
                 // order and self-driving visibility live in the editor scene, so read visibleSteps from there;
                 // findMounted keeps this usable in isolation (tests), falling back to the full order.
                 const steps = scannerEditorSceneLogic.findMounted()?.values.visibleSteps ?? SCANNER_EDITOR_STEPS
@@ -290,7 +290,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     router.values.location.pathname.endsWith(scannerStepUrl(step, props.id))
                 )
                 const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
-                if (nextStep && (values.submitIntent === 'advance' || (values.isNew && currentStep === 'configure'))) {
+                if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
                     router.actions.push(scannerStepUrl(nextStep, props.id))
                     return
