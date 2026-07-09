@@ -103,14 +103,22 @@ export function InstallationProgressContent({
     // false -> true transition so mounting an already-merged run (reloads, storybook snapshots)
     // stays quiet; the test-runner guard keeps hogfetti out of visual regression captures.
     const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
-    const prevMergedRef = useRef(prMerged)
+    // Only a live false -> true transition celebrates. Start null so the first hydrated state (SSE
+    // replay / poll snapshot arrives async after mount) arms the detector instead of reading as a
+    // transition — otherwise every reload of a merged run re-fires. One-shot per mount on top.
+    const prevMergedRef = useRef<boolean | null>(null)
     const mergeCelebratedRef = useRef(false)
     useEffect(() => {
-        if (prMerged && !prevMergedRef.current && !mergeCelebratedRef.current && !inStorybookTestRunner()) {
-            mergeCelebratedRef.current = true
-            triggerHogfetti()
-        }
+        const prev = prevMergedRef.current
         prevMergedRef.current = prMerged
+        if (prev === null || prev || !prMerged || mergeCelebratedRef.current) {
+            return
+        }
+        if (inStorybookTestRunner() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        mergeCelebratedRef.current = true
+        triggerHogfetti()
     }, [prMerged, triggerHogfetti])
 
     const headline =
@@ -211,7 +219,9 @@ export function InstallationProgressContent({
                                             : step.label}
                                     </span>
                                 </div>
-                                {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
+                                {step.detail && (
+                                    <div className="text-xs text-muted truncate ph-no-capture">{step.detail}</div>
+                                )}
                             </div>
                         </li>
                     ))}
@@ -285,7 +295,7 @@ export function InstallationProgressContent({
                 </div>
             )}
 
-            {prUrl && !prMerged && (
+            {prUrl && !prMerged && phase !== 'error' && (
                 // ph-no-capture: the label carries the customer's repo name and the href their PR
                 // url — neither may reach autocapture in the shared app analytics project.
                 <LemonButton
@@ -300,12 +310,9 @@ export function InstallationProgressContent({
                 </LemonButton>
             )}
 
-            {prUrl && prMerged && (
-                <div className="flex items-center gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--purple)' }}>
-                    <span
-                        className="flex items-center justify-center rounded w-8 h-8 shrink-0 text-white"
-                        style={{ backgroundColor: 'var(--purple)' }}
-                    >
+            {prUrl && prMerged && phase !== 'error' && (
+                <div className="flex items-center gap-3 rounded-lg border border-[var(--color-purple-500)] p-3">
+                    <span className="flex items-center justify-center rounded w-8 h-8 shrink-0 bg-[var(--color-purple-500)] text-white">
                         <IconPullRequest className="text-lg" />
                     </span>
                     <div className="flex-1 min-w-0">

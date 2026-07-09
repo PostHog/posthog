@@ -219,6 +219,11 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                         return state
                     }
                     const output = { ...state.output }
+                    // A state event that replaces the PR (resumed run, new branch) carries its own
+                    // url; don't drag the prior PR's merge onto it. Pin only while the url matches.
+                    if (output.pr_url && prev.output.pr_url && output.pr_url !== prev.output.pr_url) {
+                        return { ...state, output }
+                    }
                     if (prev.output.pr_url && !output.pr_url) {
                         output.pr_url = prev.output.pr_url
                     }

@@ -1745,7 +1745,14 @@ def set_task_run_output(
     if run is None:
         return None
     task = run.task
-    run.output = output
+    # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
+    # so a bare `= output` would drop output.pr_url / output.pr_merged recorded out of band.
+    existing = run.output if isinstance(run.output, dict) else {}
+    merged = {**output}
+    for key in ("pr_url", "pr_merged"):
+        if not merged.get(key) and existing.get(key):
+            merged[key] = existing[key]
+    run.output = merged
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
