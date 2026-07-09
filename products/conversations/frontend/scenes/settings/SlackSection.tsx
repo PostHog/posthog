@@ -109,9 +109,9 @@ function SlackChannelSection(): JSX.Element {
                             <LemonInputSelect
                                 mode="multiple"
                                 value={slackChannelIds}
-                                options={slackChannels.map((c: { id: string; name: string }) => ({
+                                options={slackChannels.map((c) => ({
                                     key: c.id,
-                                    label: `#${c.name}`,
+                                    label: `#${c.name ?? c.id}`,
                                 }))}
                                 onChange={(newValue: string[]) => setSlackChannels(newValue)}
                                 loading={slackChannelsLoading}
