@@ -350,6 +350,19 @@ class TestOrgConcurrencyLimit(BaseTest):
             result = get_org_app_concurrency_limit(uuid.uuid4())  # Non-existent org
             self.assertIsNone(result)
 
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_org_limit_redis_read_failure_falls_back_to_none(self):
+        """A Redis blip on the initial cache read must degrade to None, not crash the query"""
+        from redis.exceptions import ConnectionError
+
+        from posthog.clickhouse.client.limit import get_org_app_concurrency_limit
+
+        with patch("posthog.clickhouse.client.limit.redis.get_client") as mock_redis:
+            mock_redis.return_value.get.side_effect = ConnectionError("Temporary failure in name resolution")
+
+            result = get_org_app_concurrency_limit(self.organization.id)
+            self.assertIsNone(result)
+
 
 class TestMaterializedEndpointsRateLimiter(BaseTest):
     @patch("posthog.clickhouse.client.limit.TEST", False)

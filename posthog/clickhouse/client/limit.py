@@ -428,12 +428,13 @@ def get_org_app_concurrency_limit(org_id: uuid.UUID) -> Optional[int]:
     Returns None if no org-specific limit is found.
     """
     cache_key = f"org_app_concurrency_limit:{org_id}"
-    cached_limit = redis.get_client().get(cache_key)
-    if cached_limit:
-        return int(cached_limit)
 
     try:
         from posthog.models.organization import Organization
+
+        cached_limit = redis.get_client().get(cache_key)
+        if cached_limit:
+            return int(cached_limit)
 
         org = Organization.objects.get(id=org_id)
         feature = org.get_available_feature(AvailableFeature.ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT)
