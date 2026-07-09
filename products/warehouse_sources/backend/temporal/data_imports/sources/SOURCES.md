@@ -324,6 +324,7 @@ the row lists both.
 | surveymonkey            | HTTP                        | requests                                                        | ✅                          |
 | svix                    | HTTP                        | requests                                                        | ✅                          |
 | taboola                 | HTTP                        | requests                                                        | ✅                          |
+| tavus                   | HTTP                        | requests                                                        | ✅                          |
 | teamtailor              | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
@@ -687,7 +688,6 @@ doesn't conflict with concurrent PRs.
 - survicate
 - svix
 - systeme
-- tavus
 - tawk_to
 - teachable
 - tempo

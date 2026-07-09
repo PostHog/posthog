@@ -3245,7 +3245,7 @@ class TalkwalkerSourceConfig(config.Config):
 
 @config.config
 class TavusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
