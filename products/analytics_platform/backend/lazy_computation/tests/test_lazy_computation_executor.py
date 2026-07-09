@@ -1647,13 +1647,13 @@ class TestComputationExecutorExecute(BaseTest):
     @parameterized.expand(
         [
             # Job computed mid-window (before window_end + lag): its session metrics were
-            # incomplete, so a long band TTL must not keep it — it recomputes at finality.
-            ("computed_before_finality", False),
-            # Job computed after finality passed: complete data, keeps the full band TTL.
-            ("computed_after_finality", True),
+            # still in motion, so a long band TTL must not keep it — it recomputes once settled.
+            ("computed_before_window_settled", False),
+            # Job computed after the window settled: complete data, keeps the full band TTL.
+            ("computed_after_window_settled", True),
         ]
     )
-    def test_finality_lag_caps_freshness_of_incomplete_jobs(self, _name: str, expect_reused: bool) -> None:
+    def test_settling_period_caps_freshness_of_in_motion_jobs(self, _name: str, expect_reused: bool) -> None:
         query_info, query_hash = self._make_query_info()
 
         now = django_timezone.now()
