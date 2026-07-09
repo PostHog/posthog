@@ -1109,9 +1109,9 @@ snapshots:
     components-integrations-slack--slack-full-page-connected-all-scopes--light:
         hash: v1.k794b7964.d67103068c1769fcbc9b73d2d472cbc8becf8f4ac720db12f9b51e17bca27e8c.HpECk9oniUBmDkSVrid7Ei1WMkvAdUszmOmoR7KlVNk
     components-integrations-slack--slack-full-page-connected-missing-scopes--dark:
-        hash: v1.k794b7964.ce0c34f4eb70bdbf601f6b51c0fc788138af3934ca2fe5924be01815cba3a80d.csVSL8znxw-b7mUd4rfDQR4p9GPe0JIFA7CjWiDyOHU
+        hash: v1.k794b7964.a539c0c6b139be8b2eec344b254cd01028bac871ff8b4d477e6cc48e15863693.gCj3tOIGjekec54-OAhECGq1_a5WMMcUyRQExWK4Vss
     components-integrations-slack--slack-full-page-connected-missing-scopes--light:
-        hash: v1.k794b7964.1daf1605e02093e3818dc59d3db0baeaffd0bdf5c8c8c548d1c34917f3ab4acf.okM0AUJcubhpxwDWzgNhnuKGQ98NgLxFg7oBdO38RVY
+        hash: v1.k794b7964.e6e97d3dd1d13648064da338889864b5119061e67137a2af0d237ab4ea504adc.73GI8Q_e92ciQUA4cgFCg67refxdU6pm2PWBnREYClo
     components-integrations-slack--slack-integration--dark:
         hash: v1.k794b7964.1bcb0a5391d8290b0bdc18f53b3a3363dad6c03cfce5ffb28bdc4d8b26185f5d._h-SOFA2XkHyVKX9pGcZQItPw6XVxVXbouougXrIqko
     components-integrations-slack--slack-integration--light:
