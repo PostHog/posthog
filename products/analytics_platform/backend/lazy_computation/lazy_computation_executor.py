@@ -1141,8 +1141,8 @@ def ensure_precomputed(
                       loop (default DEFAULT_WAIT_TIMEOUT_SECONDS). The loop checks the
                       budget before starting each inline INSERT and while polling for
                       other requests' pending jobs, so a completed window always
-                      persists as a READY job even when the overall call times out —
-                      repeated calls converge. Use a small value for user-facing
+                      persists as a READY job even when the overall call times out,
+                      so repeated calls converge. Use a small value for user-facing
                       requests that have a cheap fallback path.
 
     Returns:
