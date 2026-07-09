@@ -23,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanStaleVersionError,
     _event_property_names,
     _extract_quoted_event_tokens,
     _group_type_labels,
@@ -784,20 +785,26 @@ class TestBuildFrozenPrompt(APIBaseTest):
         [
             # A corrupted plan and a stale schema version both raise StoredPlanInvalidError, NOT
             # PromptRejectedError — the caller self-heals by re-planning live, so neither a QueryPlan
-            # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
+            # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription. Only a
+            # stale version raises the StoredPlanStaleVersionError subclass, so the caller can keep the
+            # expected version-bump path out of error tracking while still capturing malformed plans.
             (
                 "malformed_plan",
                 {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
                 "malformed",
+                False,
             ),
-            ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
-            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+            ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale", True),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale", True),
         ]
     )
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_invalid_stored_plan_raises_recoverable_error(
-        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+        self, _name: str, stored: dict, match: str, is_stale_version: bool, _mock_top: object, _mock_groups: object
     ) -> None:
-        with pytest.raises(StoredPlanInvalidError, match=match):
+        expected = StoredPlanStaleVersionError if is_stale_version else StoredPlanInvalidError
+        with pytest.raises(expected, match=match) as exc_info:
             build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
+        # A malformed plan must not masquerade as the quiet stale-version case, or schema drift goes unseen.
+        assert isinstance(exc_info.value, StoredPlanStaleVersionError) is is_stale_version

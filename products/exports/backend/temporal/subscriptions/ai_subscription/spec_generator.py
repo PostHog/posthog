@@ -108,6 +108,15 @@ class StoredPlanInvalidError(Exception):
     pass
 
 
+class StoredPlanStaleVersionError(StoredPlanInvalidError):
+    """The persisted plan is well-formed but its version lags `AI_QUERY_PLAN_VERSION` — the expected
+    outcome of a deliberate version bump, which lazily invalidates every frozen plan. Re-planning live
+    handles it, so the caller should warn-log rather than promote it to an error tracking issue (unlike
+    the malformed-plan case, which signals real schema drift worth capturing)."""
+
+    pass
+
+
 @dataclass(frozen=True)
 class ReportWindow:
     """Half-open `[start, end)` analysis bounds for a report run, tz-aware in the team timezone.
@@ -574,13 +583,14 @@ def build_frozen_prompt(
 ) -> EnrichedPromptSpec:
     """Rebuild the spec from a persisted plan without either LLM pass — the deterministic reuse path.
 
-    Any invalid stored plan (stale version or bad shape) raises `StoredPlanInvalidError` so the caller
-    re-plans live: a plan-schema or prompt-harness change must invalidate frozen plans, never brick
-    the subscription.
+    Any invalid stored plan raises `StoredPlanInvalidError` so the caller re-plans live: a plan-schema
+    or prompt-harness change must invalidate frozen plans, never brick the subscription. A stale version
+    (the expected result of a deliberate `AI_QUERY_PLAN_VERSION` bump) raises the more specific
+    `StoredPlanStaleVersionError` subclass so the caller can treat it as routine rather than a bug.
     """
     cleaned = sanitize_prompt(prompt)
     if ai_query_plan.get("version") != AI_QUERY_PLAN_VERSION:
-        raise StoredPlanInvalidError("Stored query plan version is stale.")
+        raise StoredPlanStaleVersionError("Stored query plan version is stale.")
     try:
         plan = QueryPlan.model_validate(ai_query_plan.get("plan"))
     except ValidationError as exc:

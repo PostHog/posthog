@@ -41,6 +41,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanStaleVersionError,
     build_enriched_prompt,
     build_frozen_prompt,
 )
@@ -185,7 +186,19 @@ async def generate_ai_report(
                         team=team, prompt=prompt, window=window, ai_query_plan=ai_query_plan
                     )
                     freshly_planned = False
+                except StoredPlanStaleVersionError:
+                    # Expected on a deliberate AI_QUERY_PLAN_VERSION bump — every frozen plan lazily
+                    # invalidates and re-plans live. Warn-log only; capturing it would spam error
+                    # tracking on each version bump across all frozen subscriptions.
+                    logger.warning(
+                        "ai_report.frozen_plan_stale_version_replanning", trace_correlation_id=trace_correlation_id
+                    )
+                    spec = await _plan(
+                        team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id
+                    )
+                    freshly_planned = True
                 except StoredPlanInvalidError as exc:
+                    # A well-formed plan that no longer validates signals real schema drift — capture it.
                     logger.warning(
                         "ai_report.frozen_plan_invalid_replanning", trace_correlation_id=trace_correlation_id
                     )

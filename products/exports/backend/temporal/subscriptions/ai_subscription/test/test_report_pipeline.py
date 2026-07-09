@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
+    StoredPlanStaleVersionError,
 )
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
@@ -564,16 +565,37 @@ async def test_unfreezable_plans_are_not_frozen(
     assert result.plan_to_persist is None
 
 
+@pytest.mark.parametrize(
+    "frozen_error,expect_capture",
+    [
+        # A stale version is the expected outcome of a deliberate AI_QUERY_PLAN_VERSION bump — routine
+        # self-heal, so it must NOT reach error tracking (capturing it spammed on-call on every bump).
+        pytest.param(StoredPlanStaleVersionError("stale"), False, id="stale_version_not_captured"),
+        # A malformed plan signals real schema drift — still captured so it stays visible.
+        pytest.param(StoredPlanInvalidError("malformed"), True, id="malformed_plan_captured"),
+    ],
+)
 @patch(_SLO_CAPTURE)
+@patch(f"{_RP}.capture_exception")
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
-@patch(f"{_RP}.build_frozen_prompt", side_effect=StoredPlanInvalidError("malformed"))
+@patch(f"{_RP}.build_frozen_prompt")
 @patch(f"{_RP}.build_enriched_prompt")
 async def test_invalid_stored_plan_self_heals_by_replanning(
-    mock_bep: MagicMock, _mock_frozen: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+    mock_bep: MagicMock,
+    mock_frozen: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    mock_capture_exc: MagicMock,
+    _mock_capture: MagicMock,
+    frozen_error: StoredPlanInvalidError,
+    expect_capture: bool,
 ) -> None:
-    # A stored plan that no longer validates (e.g. QueryPlan schema changed) must re-plan live, not fail
-    # the delivery — otherwise a schema change would auto-disable every frozen subscription.
+    # A stored plan that no longer validates must re-plan live, not fail the delivery — otherwise a
+    # schema change or version bump would auto-disable every frozen subscription. The two causes differ
+    # only in whether the recovery is reported: a stale version is expected and stays quiet, a malformed
+    # plan is captured as possible schema drift.
+    mock_frozen.side_effect = frozen_error
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
@@ -585,3 +607,4 @@ async def test_invalid_stored_plan_self_heals_by_replanning(
     mock_bep.assert_called_once()  # self-healed by re-planning live
     assert result.markdown == "# Report"
     assert result.plan_to_persist is not None  # the fresh re-plan is frozen for next time
+    assert mock_capture_exc.called is expect_capture
