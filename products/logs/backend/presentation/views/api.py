@@ -48,6 +48,7 @@ from products.logs.backend.log_attributes_query_runner import LogAttributesQuery
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
@@ -792,6 +793,97 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
     )
 
 
+class _LogsPatternsDiffRequestSerializer(serializers.Serializer):
+    query = _LogsPatternsBodySerializer(
+        help_text=(
+            "The patterns query for the current (foreground) window: date range plus any "
+            "severity/service/search/property filters. The same filters are applied to the baseline window."
+        ),
+    )
+    baselineDateRange = _DateRangeSerializer(
+        required=False,
+        help_text=(
+            "Baseline window to compare against. Omit to default to the current window shifted "
+            "back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an "
+            "explicit range to compare against a specific period, e.g. pre-deploy or pre-incident."
+        ),
+    )
+
+
+class _LogPatternDiffEntrySerializer(serializers.Serializer):
+    classification = serializers.ChoiceField(
+        choices=["new", "rate_shift", "gone", "unchanged"],
+        help_text=(
+            '"new": appears only in the current window and clears the novelty floor (at least ~1% '
+            'volume share, or any error/fatal occurrences). "rate_shift": present in both windows '
+            "with the per-second rate changed by at least 2x either way, backed by enough samples "
+            'on both sides to trust the estimates. "gone": cleared the floor in the baseline but '
+            'absent from the current window. "unchanged" means "no confident claim", not "provably '
+            'identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.'
+        ),
+    )
+    rate_ratio = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Current-window rate divided by baseline rate, both normalized per second so windows "
+            "of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. "
+            "Null when the pattern is missing from either window."
+        ),
+    )
+    pattern = _LogPatternSerializer(
+        help_text=(
+            "The mined pattern with full stats. Taken from the current window, or from the "
+            'baseline window for "gone" entries. When template wobble split one message across '
+            "several near-identical templates, this is the highest-volume representative and the "
+            "entry's classification reflects their combined counts."
+        ),
+    )
+    baseline_estimated_count = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Estimated occurrences across the baseline window (extrapolated like `estimated_count`). "
+            "Null when the pattern was not seen in the baseline sample."
+        ),
+    )
+    baseline_volume_share_pct = serializers.FloatField(
+        allow_null=True,
+        help_text="Share of the baseline sample this pattern represented (0-100). Null when absent from the baseline.",
+    )
+
+
+class _LogsPatternsDiffWindowSerializer(serializers.Serializer):
+    scanned_count = serializers.IntegerField(help_text="Log rows fed to the miner for this window (sample size).")
+    total_count = serializers.IntegerField(help_text="Total log rows matching the filters in this window.")
+    sampled = serializers.BooleanField(
+        help_text="True when this window's counts are extrapolated from a sample rather than exact.",
+    )
+    sample_coverage_pct = serializers.FloatField(
+        help_text="Share of this window's rows eligible for sampling (0-100); below 100 the scan was time-slice bounded.",
+    )
+    date_from = serializers.CharField(help_text="Resolved window start (ISO 8601, inclusive).")
+    date_to = serializers.CharField(help_text="Resolved window end (ISO 8601, exclusive).")
+
+
+class _LogsPatternsDiffResponseSerializer(serializers.Serializer):
+    entries = _LogPatternDiffEntrySerializer(
+        many=True,
+        help_text=(
+            'Classified diff entries, most interesting first: "new" (by estimated count), then '
+            '"rate_shift" (by shift magnitude), then "gone", then "unchanged". A pattern in the '
+            "baseline is matched to the current window by literal-content fingerprint, so a "
+            "placeholder widening between runs does not read as one pattern vanishing and another appearing."
+        ),
+    )
+    current = _LogsPatternsDiffWindowSerializer(help_text="Mining metadata for the current window.")
+    baseline = _LogsPatternsDiffWindowSerializer(
+        help_text=(
+            "Mining metadata for the baseline window. Check `total_count` before trusting a wall "
+            'of "new" entries: an empty or tiny baseline (e.g. logging only started this week) '
+            "makes everything look new."
+        ),
+    )
+
+
 class _LogAttributeEntrySerializer(serializers.Serializer):
     name = serializers.CharField()
     propertyFilterType = serializers.CharField(
@@ -1206,6 +1298,44 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsPatternsDiffRequestSerializer, responses={200: _LogsPatternsDiffResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="patterns_diff")
+    def patterns_diff(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        query = LogsQuery(
+            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+        baseline_date_range = (
+            self.get_model(request.data["baselineDateRange"], DateRange)
+            if request.data.get("baselineDateRange")
+            else None
+        )
+
+        results = run_patterns_diff(self.team, query, baseline_date_range)
+
+        report_user_action(
+            request.user,
+            "logs patterns diff queried",
+            {
+                "entries_count": len(results["entries"]),
+                "changed_count": sum(1 for e in results["entries"] if e["classification"] != "unchanged"),
+                "auto_baseline": baseline_date_range is None,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(results, status=status.HTTP_200_OK)
 
     @extend_schema(parameters=[_LogsAttributesQuerySerializer], responses={200: _LogsAttributesResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])

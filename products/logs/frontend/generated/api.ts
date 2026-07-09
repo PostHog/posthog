@@ -43,6 +43,8 @@ import type {
     _LogsCountResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
+    _LogsPatternsDiffRequestApi,
+    _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
     _LogsPatternsResponseApi,
     _LogsQueryRequestApi,
@@ -427,6 +429,23 @@ export const logsPatternsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsPatternsRequestApi),
+    })
+}
+
+export const getLogsPatternsDiffCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/patterns_diff/`
+}
+
+export const logsPatternsDiffCreate = async (
+    projectId: string,
+    _logsPatternsDiffRequestApi: _LogsPatternsDiffRequestApi,
+    options?: RequestInit
+): Promise<_LogsPatternsDiffResponseApi> => {
+    return apiMutator<_LogsPatternsDiffResponseApi>(getLogsPatternsDiffCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsPatternsDiffRequestApi),
     })
 }
 

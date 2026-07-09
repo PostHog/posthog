@@ -377,6 +377,24 @@ tools:
                 - patterns.*.count
                 - patterns.*.error_count
                 - sparkline_buckets
+    logs-patterns-diff:
+        operation: logs_patterns_diff_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Diff log patterns between two windows
+        description_file: ./prompts/logs-patterns-diff.md
+        feature_flag: logs-patterns-view
+        response:
+            exclude:
+                - entries.*.pattern.examples
+                - entries.*.pattern.sparkline
+                - entries.*.pattern.count
+                - entries.*.pattern.error_count
     logs-sampling-rules-create:
         operation: logs_sampling_rules_create
         enabled: false
