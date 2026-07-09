@@ -38,7 +38,14 @@ Call `posthog:external-data-sources-list` to see existing sources. The data migh
 
 If a source exists for the system they're asking about, call `posthog:external-data-schemas-list` to show the available tables. The data might be there but under a different name or prefix.
 
-Also call `posthog:read-data-warehouse-schema` to see all queryable tables — the data might already be available as a view or joined table.
+Also query `system.information_schema.tables` via `posthog:execute-sql` to see all queryable tables — the data might already be available as a data-warehouse table or a saved-query view. Filter `table_type` to `data_warehouse` or `view`, and search the `description` text (e.g. `WHERE description ILIKE '%revenue%'`) rather than guessing names:
+
+```sql
+SELECT table_name, table_type, description
+FROM system.information_schema.tables
+WHERE table_type IN ('data_warehouse', 'view')
+ORDER BY table_name
+```
 
 ### 3. Identify the right source type
 
@@ -87,17 +94,17 @@ Common join patterns:
 
 ## Important notes
 
-- **Don't guess table names.** Always check `posthog:read-data-warehouse-schema` and `posthog:external-data-schemas-list` before saying data doesn't exist.
+- **Don't guess table names.** Always check `system.information_schema.tables` via `posthog:execute-sql` (and `posthog:external-data-schemas-list` for a source's imported tables) before saying data doesn't exist.
 - **Check prefixes.** Imported tables are often prefixed (e.g. `stripe_charges` not `charges`). The user might not know the prefix.
 - **Collect credentials securely.** Use `data-warehouse-source-connect-link` to hand the user a browser link — it opens a minimal connect page rendering the source's full connection form (OAuth or credentials, whichever the source offers) that stashes the details temporarily without creating the source. Afterwards pass `{"credential_id": <id>}` (discovered via `data-warehouse-stored-credentials-list`) to `data-warehouse-source-setup` — stored credentials are single-use and expire after 24 hours. Don't collect passwords or OAuth tokens in chat.
 - **Not all systems are supported.** If the user's system isn't in the wizard list, suggest using Postgres/MySQL as a bridge if they can export to a database, or mention that custom sources can be requested.
-- **Connecting a source also documents it.** After the first sync, PostHog automatically generates semantic descriptions for the imported tables and columns (from the source database's own column comments where present, plus an LLM pass using the table relationships and the team's business context). Those descriptions surface in `posthog:read-data-warehouse-schema`, so once a source is connected the agent can reason about what each column means and how tables join — not just their names and types. Mention this when recommending an import: connecting the source is what makes the data answerable.
+- **Connecting a source also documents it.** After the first sync, PostHog automatically generates semantic descriptions for the imported tables and columns (from the source database's own column comments where present, plus an LLM pass using the table relationships and the team's business context). Those descriptions surface in `system.information_schema.tables.description` and `system.information_schema.columns.description` (queryable via `posthog:execute-sql`), so once a source is connected the agent can reason about what each column means and how tables join — not just their names and types. Mention this when recommending an import: connecting the source is what makes the data answerable.
 
 ## Related tools
 
 - `posthog:external-data-sources-list`: Check existing source connections
-- `posthog:external-data-schemas-list`: Check what tables are already imported
-- `posthog:read-data-warehouse-schema`: See all queryable tables including views
+- `posthog:external-data-schemas-list`: Check what tables a source is importing
+- `posthog:execute-sql` against `system.information_schema.tables`: See all queryable tables including data-warehouse tables and views (filter `table_type`, search `description`)
 - `posthog:external-data-sources-wizard`: Get available source types
 - `posthog:data-warehouse-source-connect-link`: Get a secure browser/OAuth link to collect credentials
 - `posthog:data-warehouse-source-setup`: One-step create (validate, discover tables, apply sync defaults, create)
