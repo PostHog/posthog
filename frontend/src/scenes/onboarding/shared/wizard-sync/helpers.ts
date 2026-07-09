@@ -21,6 +21,9 @@ export function syncHeadline(progress: InstallationProgress): string {
     if (progress.phase === 'error') {
         return progress.error?.title ?? 'Setup hit a snag'
     }
+    if (progress.prMerged) {
+        return 'Pull request merged'
+    }
     if (progress.prUrl) {
         return 'Pull request ready'
     }
@@ -41,7 +44,13 @@ export function activeStep(steps: InstallationStep[]): InstallationStep | null {
 // otherwise the step label. This is what gives the wizard's own work top billing in the card.
 export function currentTaskLabel(progress: InstallationProgress): string | null {
     if (progress.phase === 'completed') {
+        if (progress.prMerged) {
+            return 'PR merged, congratulations!'
+        }
         return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
+    }
+    if (progress.prMerged) {
+        return 'PR merged, congratulations!'
     }
     if (progress.phase === 'error') {
         return progress.error?.detail ?? 'Something stopped the run'
