@@ -1121,6 +1121,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (
                     !searchQuery &&
                     value != null &&
+                    // An empty string is not a real committed selection: it round-trips through
+                    // `getValue` for name/value-keyed groups and would otherwise float a blank,
+                    // clickable synthetic row that re-commits `''` on click. `0`/`false` are kept.
+                    value !== '' &&
                     groupType &&
                     !META_GROUP_TYPES.has(groupType) &&
                     !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)
@@ -1160,9 +1164,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             // The selection isn't among the visible recents/pinned — prepend a
                             // synthetic row (shaped like a top match, so `getItemGroup` resolves
                             // its source group) so the user can still verify what's picked.
-                            // Only when the source group round-trips the synthetic back to the
-                            // same value: id-keyed groups (actions, cohorts) would render the
-                            // raw id, which would confuse more than it clarifies.
+                            // Guarded on the source group round-tripping the synthetic back to the
+                            // committed value: id-keyed groups (actions, cohorts) read `.id`, which
+                            // the `{ name, value, group }` shape lacks, so `getValue` returns
+                            // `undefined` and the round-trip below fails — keeping their raw ids
+                            // out of the list, which is the intent.
                             const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
                             const friendlyLabel = getCoreFilterDefinition(String(value), groupType)?.label
                             const synthetic = {

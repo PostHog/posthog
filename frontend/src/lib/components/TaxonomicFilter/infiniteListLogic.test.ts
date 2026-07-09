@@ -1267,6 +1267,15 @@ describe('infiniteListLogic', () => {
                 false
             )
         })
+
+        it('does not synthesize a blank row for an empty-string selection', async () => {
+            // '' round-trips through `getValue` for name/value-keyed groups, so without the
+            // empty-string guard a blank, clickable synthetic row would land at row 0 and
+            // re-commit '' on click.
+            const listLogic = mountSuggestedList({ value: '', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { value?: unknown })?.value === '')).toBe(false)
+        })
     })
 
     describe('contextFilteredRecentItems', () => {
