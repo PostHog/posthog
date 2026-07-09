@@ -217,6 +217,7 @@ the row lists both.
 | lightspeed_retail       | HTTP                        | requests                                                        | ✅                          |
 | linear                  | HTTP                        | requests                                                        | ✅                          |
 | lever                   | HTTP                        | requests                                                        | ✅                          |
+| lingo_dev               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner              | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |

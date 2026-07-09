@@ -1947,7 +1947,7 @@ class LinearSourceConfig(config.Config):
 
 @config.config
 class LingoDevSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
