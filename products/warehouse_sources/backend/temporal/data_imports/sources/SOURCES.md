@@ -292,6 +292,7 @@ the row lists both.
 | postgres                | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark                | HTTP                        | requests                                                        | ✅                          |
 | pretix                  | HTTP                        | requests                                                        | ✅                          |
+| printify                | HTTP                        | requests                                                        | ✅                          |
 | productboard            | HTTP                        | requests                                                        | ✅                          |
 | pylon                   | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                | HTTP                        | requests                                                        | ✅                          |
@@ -657,7 +658,6 @@ doesn't conflict with concurrent PRs.
 - poplar
 - prestashop
 - primetric
-- printify
 - productive
 - pypi
 - qonto

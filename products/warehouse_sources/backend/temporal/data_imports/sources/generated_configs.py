@@ -2739,7 +2739,7 @@ class PrimetricSourceConfig(config.Config):
 
 @config.config
 class PrintifySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
