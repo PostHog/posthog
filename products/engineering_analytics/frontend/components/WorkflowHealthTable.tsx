@@ -73,8 +73,9 @@ export interface WorkflowHealthTableProps {
     loading?: boolean
     /** Threaded into the Workflow-name link so it preserves the active source. */
     sourceId?: string | null
-    /** Default column sort. Alphabetical by workflow name by default; click Status for failing-first. */
-    defaultSorting?: { columnKey: string; order: 1 | -1 }
+    /** Column sort override. Default (null) keeps the rows' failing-first-then-name order — the one
+     *  convention shared with the PR page; pass a column to sort by it instead. */
+    defaultSorting?: { columnKey: string; order: 1 | -1 } | null
     /** Show the billable cost column (needs per-workflow cost on the rows). */
     showCost?: boolean
     /** Rows per page — 50 by default; the hub passes a small page to stay scannable. */
@@ -96,7 +97,7 @@ export function WorkflowHealthTable({
     rows,
     loading,
     sourceId,
-    defaultSorting = { columnKey: 'workflowName', order: 1 },
+    defaultSorting = null,
     showCost = false,
     pageSize = 50,
     emptyState,
@@ -112,6 +113,13 @@ export function WorkflowHealthTable({
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
         ...(searchParams.q ? { q: searchParams.q } : {}),
     }
+    // Failing workflows first — the order a reviewer triages in — then everything else alphabetically by
+    // name. The one convention shared with the PR page; a passed defaultSorting still overrides on click.
+    const orderedRows = [...rows].sort(
+        (a, b) =>
+            Number(b.latestRunFailed === true) - Number(a.latestRunFailed === true) ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -295,7 +303,7 @@ export function WorkflowHealthTable({
             size="small"
             embedded={embedded}
             columns={displayColumns}
-            dataSource={rows}
+            dataSource={orderedRows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
             // De-emphasize workflows with nothing settled — no pass/fail signal to read.
             rowClassName={(row) => (row.successRate === null ? 'opacity-60' : null)}

@@ -250,8 +250,8 @@ export function RepoOverviewScene(): JSX.Element {
     const hubReloading = overviewLoading || repoActivityLoading || workflowHealthLoading
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
-    // to the dedicated full table. Workflows are sorted by run count here so the preview is the busiest few,
-    // matching the table's default sort; attentionPrs is already ordered failing-first in the selector.
+    // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
+    // table then displays them failing-first-then-name. attentionPrs is already ordered failing-first.
     // Distinct workflow names failing on the default branch — the hero's "what's broken" subline.
     const failingWorkflows = Array.from(new Set(masterFailures.map((group) => group.workflow_name)))
     const shownPrs = attentionPrs.slice(0, prPreviewCount)

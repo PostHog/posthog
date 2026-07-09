@@ -190,7 +190,7 @@ export function WorkflowScopeChip({
 const DEFAULT_BRANCHES = ['main', 'master']
 
 /** Branch chip opening a small picker — a server-side head_branch filter shared across pages. */
-function BranchScopeChip(): JSX.Element {
+export function BranchScopeChip(): JSX.Element {
     const { branchInput, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
     const { setBranchFilter, applyBranchFilter } = useActions(engineeringAnalyticsFiltersLogic)
     const [visible, setVisible] = useState(false)
