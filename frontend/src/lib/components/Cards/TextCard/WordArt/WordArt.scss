@@ -108,6 +108,11 @@
 
 .WordArt,
 .WordArt--arch-svg {
+    // Explicit so the class emitted for the default 'small' size maps to a real rule
+    &.WordArt--size-small {
+        font-size: 2em;
+    }
+
     &.WordArt--size-medium {
         font-size: 3em;
     }
