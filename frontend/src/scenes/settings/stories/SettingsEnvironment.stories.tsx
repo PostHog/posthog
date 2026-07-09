@@ -25,6 +25,8 @@ const meta: Meta<StoryProps> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        // Gate the snapshot on the settings container so a slow scene load can't capture that homepage frame.
+        testOptions: { waitForSelector: '.Settings' },
     },
     decorators: [
         mswDecorator({
