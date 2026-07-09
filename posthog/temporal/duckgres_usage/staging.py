@@ -29,7 +29,7 @@ logger = structlog.get_logger(__name__)
 
 
 def replace_window(response: UsageResponse) -> int:
-    """Replace the open window's staging rows with the response's rows.
+    """Replace the open window's mirror rows with the response's rows.
 
     Returns the number of rows written.
     """

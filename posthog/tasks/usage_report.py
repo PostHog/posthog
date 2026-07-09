@@ -1637,7 +1637,7 @@ ENDPOINTS_QUERY_SOURCE = "endpoints"
 def _managed_warehouse_compute_rows(begin: datetime, end: datetime, *, endpoints: bool) -> list:
     """Fold duckgres compute usage to the billable scalar, per team.
 
-    Reads the day-keyed staging table the duckgres poller maintains
+    Reads the day-keyed usage mirror the duckgres poller maintains
     (posthog/temporal/duckgres_usage/). The billable unit is
     cpu_seconds + memory_seconds / 8 (the RFC's 1:8 rate ratio:
     $0.025/GiB-hr = $0.20/8), floored so fractions under-charge. Endpoint

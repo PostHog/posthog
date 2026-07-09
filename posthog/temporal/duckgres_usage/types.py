@@ -18,3 +18,6 @@ class PollDuckgresUsageResult(BaseModel):
     watermark_low: str | None = None
     watermark_high: str | None = None
     acked_watermark: str | None = None
+    # Duckgres was ahead of our recorded ack — persisted this window but did not
+    # ack (possible lost usage; alerted for reconciliation).
+    watermark_hole: bool = False

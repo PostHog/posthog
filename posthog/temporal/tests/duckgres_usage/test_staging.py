@@ -75,6 +75,12 @@ def _storage_row(date: dt.date, team_id: int = 42, gib_seconds: str = "360000") 
     return StorageRow(date=date, org_id=ORG, team_id=team_id, gib_seconds=Decimal(gib_seconds))
 
 
+def _seed_storage(date: dt.date, team_id: int = 42, gib_seconds: str = "1") -> DuckgresDailyStorageUsage:
+    return DuckgresDailyStorageUsage.objects.create(
+        date=date, organization_id=ORG, team_id=team_id, gib_seconds=Decimal(gib_seconds)
+    )
+
+
 class TestReplaceWindow:
     def test_inserts_rows_with_all_fields(self) -> None:
         response = _response(
@@ -285,3 +291,23 @@ class TestReplaceWindowStorage:
         )
 
         assert replace_window(response) == 2
+
+    def test_multi_day_window_replaces_every_storage_day(self) -> None:
+        # A pull spanning a closed day (yesterday) + the open day (today) must
+        # land storage as two separate day rows with their own values.
+        _seed_storage(dt.date(2026, 7, 6), gib_seconds="1")
+        _seed_storage(dt.date(2026, 7, 7), gib_seconds="1")
+        response = _response(
+            [],
+            low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
+            high=dt.datetime(2026, 7, 7, 9, 0, tzinfo=dt.UTC),
+            storage_rows=[
+                _storage_row(dt.date(2026, 7, 6), gib_seconds="360000"),
+                _storage_row(dt.date(2026, 7, 7), gib_seconds="180000"),
+            ],
+        )
+
+        replace_window(response)
+
+        assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 6)).gib_seconds == Decimal("360000")
+        assert DuckgresDailyStorageUsage.objects.get(date=dt.date(2026, 7, 7)).gib_seconds == Decimal("180000")

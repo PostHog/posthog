@@ -114,18 +114,19 @@ class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 class DuckgresDailyUsage(UUIDModel):
     """One UTC day of managed-warehouse compute usage for one (team, query_source, worker size).
 
-    Staging table for duckgres's billing pull API (duckgres
+    Local durable mirror of duckgres's billing pull API (duckgres
     `docs/design/billing-pull-api.md`): a Temporal poller replaces the open
     window's rows on every pull and acks duckgres only at UTC day boundaries,
-    so rows here are always complete day-so-far totals. Usage reports (v1
-    gathers and, later, v2 queries) read from this table; nothing else should
-    write to it.
+    so rows here are always complete day-so-far totals. Once duckgres GCs an
+    acked day this is the surviving copy until the usage report ships it, so
+    it's a system of record, not a scratch buffer. Usage reports (v1 gathers
+    and, later, v2 queries) read from this table; nothing else writes to it.
     """
 
     date = models.DateField()
     organization_id = models.UUIDField()
     # Not an FK: duckgres attributes usage to the org's default team, rows are
-    # bulk-replaced every poll, and billing staging must survive team deletion.
+    # bulk-replaced every poll, and the billing mirror must survive team deletion.
     team_id = models.IntegerField()
     # "standard" | "endpoints" (open set — duckgres session GUC).
     query_source = models.CharField(max_length=32)
