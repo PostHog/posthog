@@ -306,6 +306,11 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Toolbar',
     },
     {
+        value: 'apm',
+        'data-attr': `support-form-target-area-apm`,
+        label: 'Traces',
+    },
+    {
         value: 'web_analytics',
         'data-attr': `support-form-target-area-web_analytics`,
         label: 'Web analytics',
@@ -388,6 +393,8 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    tracing: 'apm',
+    traces: 'apm',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
