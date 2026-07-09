@@ -1581,7 +1581,7 @@ class HuggingFaceSourceConfig(config.Config):
 
 @config.config
 class HumanitixSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2942,7 +2942,8 @@ class SendPulseSourceConfig(config.Config):
 
 @config.config
 class SendowlSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -3015,7 +3016,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class ShortioSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3245,7 +3246,7 @@ class TalkwalkerSourceConfig(config.Config):
 
 @config.config
 class TavusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3637,7 +3638,7 @@ class ZenefitsSourceConfig(config.Config):
 
 @config.config
 class ZenloopSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
