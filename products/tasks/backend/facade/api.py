@@ -20,6 +20,7 @@ import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -1631,11 +1632,43 @@ def _is_wizard_pr_ready_email_enabled(run: TaskRun) -> bool:
         return False
 
 
+def _is_github_pull_request_url_for_repository(pr_url: str, repository: str | None) -> bool:
+    if not repository:
+        return False
+    try:
+        parsed_url = urlparse(pr_url)
+    except ValueError:
+        return False
+
+    if parsed_url.scheme != "https" or parsed_url.netloc != "github.com":
+        return False
+    if parsed_url.params or parsed_url.query or parsed_url.fragment:
+        return False
+
+    path_parts = parsed_url.path.strip("/").split("/")
+    repository_parts = repository.strip("/").split("/")
+    if len(path_parts) != 4 or len(repository_parts) != 2:
+        return False
+
+    return (
+        path_parts[0].lower() == repository_parts[0].lower()
+        and path_parts[1].lower() == repository_parts[1].lower()
+        and path_parts[2] == "pull"
+        and path_parts[3].isdigit()
+    )
+
+
 def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url or run.task.origin_product != Task.OriginProduct.ONBOARDING:
         return
     if run.task.created_by_id is None:
+        return
+    if not _is_github_pull_request_url_for_repository(pr_url, run.task.repository):
+        logger.warning(
+            "wizard_pr_ready_email_invalid_pr_url",
+            extra={"run_id": str(run.id), "task_id": str(run.task_id), "repository": run.task.repository},
+        )
         return
     if not _is_wizard_pr_ready_email_enabled(run):
         return

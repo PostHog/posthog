@@ -3591,6 +3591,44 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pr_ready_email_queued_at", task_state)
         self.assertNotIn("pr_ready_email_sent_at", task_state)
 
+    @parameterized.expand(
+        [
+            ("wrong_host", "https://example.com/posthog/posthog-js/pull/1"),
+            ("wrong_repository", "https://github.com/posthog/posthog/pull/1"),
+            ("not_a_pull_request", "https://github.com/posthog/posthog-js/issues/1"),
+            ("with_query", "https://github.com/posthog/posthog-js/pull/1?email=1"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
+    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
+    def test_onboarding_pr_url_only_emails_for_matching_github_pull_request(
+        self,
+        _case_name: str,
+        pr_url: str,
+        mock_send_wizard_pr_ready_email: MagicMock,
+        _mock_publish_stream_state_event: MagicMock,
+        _mock_emit_progress_event: MagicMock,
+        _mock_post_slack_update_for_pr: MagicMock,
+    ) -> None:
+        self._set_wizard_pr_ready_email_flag(True)
+        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+                {"output": {"pr_url": pr_url}},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_send_wizard_pr_ready_email.assert_not_called()
+        task.refresh_from_db()
+        task_state = task.state or {}
+        self.assertNotIn("pr_ready_email_queued_at", task_state)
+        self.assertNotIn("pr_ready_email_sent_at", task_state)
+
     @parameterized.expand([(Task.OriginProduct.USER_CREATED,), (Task.OriginProduct.SLACK,)])
     @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
     @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
