@@ -50,16 +50,20 @@ Verifies the experiment's linked feature flag is valid and correctly configured.
   - Report: "The linked feature flag has been deleted."
   - Action: Create a new flag and re-link it, or archive the experiment.
 
-- **Uneven variant split**: The linked flag's variant rollout percentages differ from the experiment's expected split by more than 5 percentage points.
-  Compare the flag's `filters.multivariate.variants` rollout percentages to the experiment's `parameters.feature_flag_variants`.
+- **Invalid variant rollout**: The linked flag's variant rollout percentages don't sum to 100, or a variant has a null/zero `rollout_percentage`.
+  Read the variants directly from the flag's `filters.multivariate.variants`, which is the source of truth for the experiment's variants.
   - Severity: WARNING · Category: Correctness
-  - Report: "Variant rollout percentages on the flag don't match the experiment's expected split."
-  - Action: Adjust the flag's variant percentages to match the experiment configuration.
+  - Report: "The flag's variant rollout percentages don't add up to a valid split (they sum to N%, or a variant gets 0% of traffic)."
+  - Action: Fix the flag's variant rollout percentages so every variant receives traffic and they total 100%.
 
-- **Variant mismatch**: The variant keys in the experiment's `parameters.feature_flag_variants` don't match the variant keys in the flag's `filters.multivariate.variants`.
-  - Severity: CRITICAL · Category: Correctness
-  - Report: "Variant keys differ between the experiment and its linked flag."
-  - Action: Align variant keys between the experiment and its flag.
+- **Uneven variant split**: The rollout percentages in the flag's `filters.multivariate.variants` deviate substantially (more than 5 percentage points) from an equal split across the variants.
+  - Severity: INFO · Category: Process
+  - Report: "The flag splits traffic unevenly across its variants (e.g. 70/30). Uneven splits are sometimes intentional but reduce statistical power."
+  - Action: Confirm the uneven split is intended; otherwise even it out to maximize statistical power.
+
+Do not compare the flag's variants to `experiment.parameters.feature_flag_variants` to detect drift.
+That field is a deprecated projection of the flag's native variant shape (`feature_flag.filters.multivariate.variants`) and just echoes it, so the two can never disagree, and the comparison cannot surface a real mismatch.
+The flag's `filters.multivariate.variants` (and `filters.groups` for targeting) are the source of truth for the current state; to detect variant or targeting drift _since launch_, use the activity-log checks in check 8, which compare historical `filters` edits around the experiment's run window.
 
 ---
 
