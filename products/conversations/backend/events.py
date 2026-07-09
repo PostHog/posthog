@@ -252,12 +252,12 @@ def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
     """
     if ticket.sla_due_at is None:
         return {"sla_due_at": None, "sla_active": False, "sla_breached": False, "sla_delta_seconds": None}
-    delta_seconds = int((now - ticket.sla_due_at).total_seconds())
+    delta_seconds_float = (now - ticket.sla_due_at).total_seconds()
     return {
         "sla_due_at": ticket.sla_due_at.isoformat(),
         "sla_active": True,
-        "sla_breached": delta_seconds > 0,
-        "sla_delta_seconds": delta_seconds,
+        "sla_breached": delta_seconds_float > 0,
+        "sla_delta_seconds": int(delta_seconds_float),
     }
 
 
