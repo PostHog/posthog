@@ -56,6 +56,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "closed_at": "Time at which the pull request was closed, if applicable.",
         },
     },
+    "reviews": {
+        "description": "A submitted review on a pull request (an approval, change request, or comment). One row per submitted review, with the reviewed pull request's number attached for attribution.",
+        "docs_url": "https://docs.github.com/en/rest/pulls/reviews",
+        "columns": {
+            "id": "Unique identifier for the review.",
+            "pr_number": "Number of the pull request this review was submitted on (injected from the parent pull request).",
+            "node_id": "Global node ID for the review.",
+            "user": "The user who submitted the review.",
+            "body": "The review's summary text in markdown.",
+            "state": "The review verdict (APPROVED, CHANGES_REQUESTED, COMMENTED, or DISMISSED).",
+            "commit_id": "SHA of the commit the review was submitted against.",
+            "author_association": "The reviewer's relationship to the repository (e.g. MEMBER, COLLABORATOR, CONTRIBUTOR).",
+            "html_url": "Web URL for the review on GitHub.",
+            "pull_request_url": "API URL for the pull request the review belongs to.",
+            "submitted_at": "Time at which the review was submitted.",
+        },
+    },
     "commits": {
         "description": "A commit in the repository's history.",
         "docs_url": "https://docs.github.com/en/rest/commits/commits",

@@ -376,6 +376,12 @@ def _is_issue_not_pr(item: dict[str, Any]) -> bool:
     return "pull_request" not in item or item["pull_request"] is None
 
 
+def _is_submitted_review(item: dict[str, Any]) -> bool:
+    """Drop the caller's own draft (PENDING) reviews. GitHub returns them from the list endpoint with
+    submitted_at=null; they are not metrics data and a null would land in the partition/cursor column."""
+    return item.get("state") != "PENDING"
+
+
 def _make_parent_field_injector(
     parent: dict[str, Any], field_map: dict[str, str]
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -402,6 +408,8 @@ def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]
 def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
     if endpoint == "issues":
         return _is_issue_not_pr
+    if endpoint == "reviews":
+        return _is_submitted_review
     return None
 
 
@@ -545,7 +553,12 @@ def _iter_child_for_parent(
     egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
-    child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members)."""
+    child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members).
+
+    Applies the endpoint's item filter and mapper (same seam as the top-level get_rows path) so a
+    fan-out child gets them too, e.g. reviews drops PENDING drafts before rows leave the walk. Parent
+    field injection stays in the caller, which has the parent object; the order there is filter, map,
+    then inject."""
     fan_out_param = config.fan_out_path_param
     path = config.path.format(
         repository=repository,
@@ -554,6 +567,8 @@ def _iter_child_for_parent(
     )
     params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
     url = f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
+    item_filter = _get_item_filter(config.name)
+    item_mapper = _get_item_mapper(config.name)
     for items, _page_url in _iter_pages(
         url,
         headers,
@@ -563,7 +578,10 @@ def _iter_child_for_parent(
         page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
     ):
-        yield from items
+        for item in items:
+            if item_filter and not item_filter(item):
+                continue
+            yield item_mapper(item) if item_mapper else item
 
 
 def _fan_out_get_rows(
@@ -587,6 +605,14 @@ def _fan_out_get_rows(
     id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync; the data
     volume is tiny, and there is no timestamp to bound on anyway.
 
+    The field bounding the parent walk is decoupled from the child's incremental field: a child can
+    sync on a timestamp the parent row does not carry. reviews sync on submitted_at (which lives on
+    the review, not the pull request), so the walk bounds on the PR's updated_at instead. The
+    invariant that keeps this correct: submitting a review bumps the PR's updated_at, so any PR with a
+    review newer than the child watermark (max synced submitted_at) necessarily has updated_at above
+    it; PRs bumped for other reasons get re-fanned harmlessly since reviews upsert by id. workflow_jobs
+    leaves fan_out_parent_cursor_field None, so it keeps bounding on created_at exactly as before.
+
     Same created_at-cursor staleness workflow_runs carries applies to its jobs: a run that was
     in_progress when first synced drops below the watermark once it finishes, so later job state is
     not re-fetched by the poll; the workflow_run webhook is the fix, not re-scanning history.
@@ -599,7 +625,15 @@ def _fan_out_get_rows(
 
     # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
     parent_is_incremental = bool(parent_config.incremental_fields)
-    parent_cursor_field = incremental_field or parent_config.default_incremental_field or "created_at"
+    # Read the parent rows with the PARENT's cursor field, not the child's incremental field: the
+    # child field may not exist on the parent row. Falls back to the child field then the parent
+    # default when unset, preserving today's behavior for workflow_jobs.
+    parent_cursor_field = (
+        child_config.fan_out_parent_cursor_field
+        or incremental_field
+        or parent_config.default_incremental_field
+        or "created_at"
+    )
     parent_cutoff = (
         db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
     )
@@ -622,7 +656,20 @@ def _fan_out_get_rows(
         parent_url: str = resume_config.next_url
         logger.debug(f"Github: resuming {endpoint} fan-out from parent URL: {parent_url}")
     else:
-        parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
+        # Build the parent list URL with the parent's own incremental params so it arrives sorted on
+        # parent_cursor_field descending once a cutoff exists. Without this the parent would come back
+        # in its default order (pull_requests: created asc), and _should_stop_desc below would see an
+        # old record on the first page and halt early, dropping newer parents. workflow_runs is
+        # unaffected: _build_initial_params returns per_page only for it (the API ignores sort/
+        # direction and always returns newest-first), so the runs walk is byte-identical to before.
+        parent_params = _build_initial_params(
+            parent_config,
+            parent_config.name,
+            should_use_incremental_field and parent_is_incremental,
+            parent_cutoff,
+            parent_cursor_field,
+        )
+        parent_url = _build_initial_url(parent_config, repository, parent_params)
 
     for parents, page_url in _iter_pages(
         parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
