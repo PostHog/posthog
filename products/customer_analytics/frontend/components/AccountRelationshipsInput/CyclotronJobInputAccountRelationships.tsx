@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
@@ -19,54 +19,55 @@ export default function CyclotronJobInputAccountRelationships({
     value,
     onChange,
 }: CustomInputRendererProps): JSX.Element {
-    const { definitions, definitionsLoading } = useValues(accountRelationshipsInputLogic)
+    const { definitions, definitionsLoading, pendingDefinitionIds } = useValues(accountRelationshipsInputLogic)
+    const { addPendingDefinition, removePendingDefinition } = useActions(accountRelationshipsInputLogic)
 
-    // Keys are definition UUIDs (stable across renames); values are user assignments or null (ends assignment).
-    // Newly added rows stay out of the saved value until the user picks something — writing null on add
-    // would silently end the account's active assignment on the next run.
-    const assignments: Record<string, RelationshipAssignment> = value ?? {}
-    const [pendingIds, setPendingIds] = useState<string[]>([])
-    const entries: [string, RelationshipAssignment | undefined][] = [
-        ...Object.entries(assignments),
-        ...pendingIds.filter((id) => !(id in assignments)).map((id): [string, undefined] => [id, undefined]),
+    const assignmentsByDefinitionId: Record<string, RelationshipAssignment> = value ?? {}
+    const rows: [string, RelationshipAssignment | undefined][] = [
+        ...Object.entries(assignmentsByDefinitionId),
+        ...pendingDefinitionIds
+            .filter((definitionId) => !(definitionId in assignmentsByDefinitionId))
+            .map((definitionId): [string, undefined] => [definitionId, undefined]),
     ]
-    const selectedIds = new Set(entries.map(([id]) => id))
+    const selectedIds = new Set(rows.map(([definitionId]) => definitionId))
     const available = definitions.filter((d) => !selectedIds.has(d.id))
 
-    const setAssignment = (id: string, assignment: RelationshipAssignment): void => {
-        setPendingIds((ids) => ids.filter((pending) => pending !== id))
-        onChange({ ...assignments, [id]: assignment })
+    const setAssignment = (definitionId: string, assignment: RelationshipAssignment): void => {
+        removePendingDefinition(definitionId)
+        onChange({ ...assignmentsByDefinitionId, [definitionId]: assignment })
     }
-    const addDefinition = (id: string): void => setPendingIds((ids) => [...ids, id])
-    const removeDefinition = (id: string): void => {
-        setPendingIds((ids) => ids.filter((pending) => pending !== id))
-        if (id in assignments) {
-            const next = { ...assignments }
-            delete next[id]
+    const removeDefinition = (definitionId: string): void => {
+        removePendingDefinition(definitionId)
+        if (definitionId in assignmentsByDefinitionId) {
+            const next = { ...assignmentsByDefinitionId }
+            delete next[definitionId]
             onChange(next)
         }
     }
 
     return (
         <div className="flex flex-col gap-2">
-            {entries.map(([id, assignment]) => {
-                const definition = definitions.find((d) => d.id === id)
+            {rows.map(([definitionId, assignment]) => {
+                const definition = definitions.find((d) => d.id === definitionId)
+                const isPending = assignment === undefined
                 return (
-                    <div className="flex gap-2 items-center" key={id}>
-                        <div className="flex-1 min-w-50 font-medium truncate" title={definition?.name ?? id}>
+                    <div className="flex gap-2 items-center" key={definitionId}>
+                        <div className="flex-1 min-w-50 font-medium truncate" title={definition?.name ?? definitionId}>
                             {definition?.name ?? <span className="text-secondary italic">Unknown relationship</span>}
                         </div>
                         <MemberSelect
                             value={assignment?.id ?? null}
                             allowNone
                             defaultLabel="Clear assignment"
-                            onChange={(user) => setAssignment(id, user ? { type: 'user', id: user.id } : null)}
+                            onChange={(user) =>
+                                setAssignment(definitionId, user ? { type: 'user', id: user.id } : null)
+                            }
                         >
                             {(selectedUser) => (
                                 <LemonButton size="small" type="secondary">
                                     {selectedUser ? (
                                         fullName(selectedUser)
-                                    ) : assignment === undefined ? (
+                                    ) : isPending ? (
                                         <span className="text-secondary">Select member</span>
                                     ) : (
                                         'Clear assignment'
@@ -74,11 +75,11 @@ export default function CyclotronJobInputAccountRelationships({
                                 </LemonButton>
                             )}
                         </MemberSelect>
-                        <LemonButton icon={<IconX />} size="small" onClick={() => removeDefinition(id)} />
+                        <LemonButton icon={<IconX />} size="small" onClick={() => removeDefinition(definitionId)} />
                     </div>
                 )
             })}
-            <AddDefinitionDropdown available={available} onSelect={addDefinition} loading={definitionsLoading} />
+            <AddDefinitionDropdown available={available} onSelect={addPendingDefinition} loading={definitionsLoading} />
         </div>
     )
 }

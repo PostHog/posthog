@@ -308,37 +308,32 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
 def _apply_external_relationship_assignments(
     account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided relationship assignments, keyed by definition name or UUID (None
-    ends the active assignment). UUID keys are rename-safe — the new template uses them.
-    Name keys stay valid for back-compat with the old template and external callers.
-    Each non-None user id is resolved against an ``OrganizationMembership`` in the
-    account's org so assignees are always trusted.
+    """Apply provided relationship assignments, keyed by definition UUID (None ends the
+    active assignment). Each non-None user id is resolved against an
+    ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
     returns (commits) on an error result rather than rolling back.
     """
-    uuid_keys: dict[str, UUID] = {}
+    keys_to_ids: dict[str, UUID] = {}
     for key in assignments:
         try:
-            uuid_keys[key] = UUID(key)
+            keys_to_ids[key] = UUID(key)
         except ValueError:
-            pass
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=key,
+            )
 
-    by_id: dict[UUID, AccountRelationshipDefinition] = {}
-    by_name: dict[str, AccountRelationshipDefinition] = {}
-    if assignments:
-        # Every key doubles as a name candidate for back-compat with definitions literally
-        # named like a UUID. UUID lookup wins, so a key matching one definition's id and
-        # another definition's name resolves to the id match.
+    definitions = {
+        definition.id: definition
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
-            Q(id__in=uuid_keys.values()) | Q(name__in=assignments.keys())
-        ):
-            by_id[definition.id] = definition
-            by_name[definition.name] = definition
+            id__in=keys_to_ids.values()
+        )
+    }
 
     resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
     for key, user_id in assignments.items():
-        definition = by_id.get(uuid_keys[key]) if key in uuid_keys else None
-        definition = definition or by_name.get(key)
+        definition = definitions.get(keys_to_ids[key])
         if definition is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,

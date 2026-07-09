@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -21,6 +21,21 @@ export const accountRelationshipsInputLogic = kea<accountRelationshipsInputLogic
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),
+    actions({
+        addPendingDefinition: (definitionId: string) => ({ definitionId }),
+        removePendingDefinition: (definitionId: string) => ({ definitionId }),
+    }),
+    reducers({
+        // Rows the user added but hasn't assigned yet. They stay out of the input value because
+        // a null assignment ends the account's active assignment when the workflow runs.
+        pendingDefinitionIds: [
+            [] as string[],
+            {
+                addPendingDefinition: (state, { definitionId }) => [...state, definitionId],
+                removePendingDefinition: (state, { definitionId }) => state.filter((id) => id !== definitionId),
+            },
+        ],
+    }),
     loaders(({ values }) => ({
         definitions: [
             [] as AccountRelationshipDefinitionApi[],
