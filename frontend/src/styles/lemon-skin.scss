@@ -16,16 +16,21 @@
  * Quill's own rules live in `@layer components`, so these unlayered overrides
  * win the cascade without specificity hacks.
  *
- * Covered: Button, Input, Textarea, Checkbox, Switch, RadioGroup, Select,
- * Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton, Label, Kbd,
- * Tooltip, Popover/DropdownMenu/ContextMenu surfaces, Tabs (line variant),
- * Dialog (→ LemonModal), Progress.
+ * Covered: Button, Input, InputGroup, Textarea, Checkbox, Switch, RadioGroup,
+ * Select, Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton,
+ * Label, Kbd, Item, MenuLabel, Empty, Tooltip,
+ * Popover/DropdownMenu/ContextMenu surfaces, Tabs (line variant),
+ * Dialog (→ LemonModal), Progress — plus a core-token rebind that turns
+ * bespoke Tailwind in quill-based features lemony wholesale. First real
+ * consumer: the taxonomic filter rebuild
+ * (lib/components/TaxonomicFilter/menu/).
  *
  * PORTAL CAVEAT: overlay content (tooltip, menus, select popup, dialog)
- * renders in portals at <body>, outside any scoped wrapper. Those rules only
- * take effect when the attributes sit on <body>/<html> — which is exactly the
- * eventual app-wide flip deployment. In scoped demos, overlays keep quill's
- * native look.
+ * renders in portals at <body>, outside any scoped wrapper. Two ways to
+ * cover it: put the attributes on <body>/<html> (the eventual app-wide flip
+ * deployment), or pass `data-lemon-skin` to the quill *Content component so
+ * it lands on the portaled element itself — the taxonomic filter menu does
+ * the latter, and the portal-surface rules below match both placements.
  *
  * Known gaps, acceptable for a prototype: link/link-muted button variants,
  * icon-* button sizes, Accordion/Collapsible, Card, Avatar, Table, Toast,
@@ -57,6 +62,7 @@
     --lemon-skin-border-hover: var(--color-posthog-3000-400);
     --lemon-skin-surface: var(--color-white);
     --lemon-skin-bg-page: var(--color-posthog-3000-50);
+    --lemon-skin-text-secondary: var(--color-neutral-750);
     --lemon-skin-radius: 0.375rem;
     --lemon-skin-radius-lg: 0.625rem;
 }
@@ -66,6 +72,44 @@
     --lemon-skin-border-hover: var(--color-neutral-cool-600);
     --lemon-skin-surface: var(--color-neutral-cool-850);
     --lemon-skin-bg-page: var(--color-neutral-cool-950);
+    --lemon-skin-text-secondary: var(--color-neutral-350);
+}
+
+/*
+ * Core quill semantic tokens → Lemon values. This is the broad brush: it
+ * recolors quill primitive CSS AND bespoke Tailwind in quill-based features
+ * (`bg-(--fill-hover)`, `text-muted-foreground`, `border-border`, `text-xs`)
+ * in one place, so feature code like the taxonomic filter rebuild turns
+ * lemony without per-feature rules. The per-component sections below refine
+ * geometry and typography on top.
+ *
+ * Quill primitives set `data-quill` on their own root elements, and
+ * tokens.scoped.css sets token values directly on every `[data-quill]`
+ * element — an inherited rebind from a wrapper would lose to those. The
+ * extra selectors out-specificity the scoped token sheet.
+ */
+[data-lemon-skin],
+[data-lemon-skin][data-quill],
+[data-lemon-skin] [data-quill] {
+    --foreground: var(--text-3000);
+    --muted-foreground: var(--lemon-skin-text-secondary);
+    --border: var(--lemon-skin-border);
+    --input: var(--lemon-skin-border);
+    --card: var(--color-bg-surface-popover);
+    --background: var(--lemon-skin-surface);
+    --primary: var(--lemon-skin-accent);
+    --primary-foreground: var(--lemon-skin-surface);
+    --fill-hover: var(--color-bg-fill-button-tertiary-hover);
+    --fill-selected: var(--color-bg-fill-button-tertiary-active);
+    --fill-expanded: var(--color-bg-fill-button-tertiary-active);
+    --radius-xs: 0.25rem;
+    --radius-sm: 0.375rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.625rem;
+
+    /* Quill's base 12px text → Lemon's 14px, wherever quill CSS reads the var */
+    --text-xs: 0.875rem;
+    --shadow-md: var(--shadow-elevation-3000);
 }
 
 /* ═══ Button → LemonButton ═════════════════════════════════════════════ */
@@ -214,19 +258,41 @@
 /* ═══ Input → LemonInput ═══════════════════════════════════════════════ */
 
 [data-lemon-skin] .quill-input {
-    height: calc(2.125rem + 3px);
-    padding: 0.25rem 0.5rem;
     font-family: var(--font-sans);
     font-size: 0.875rem;
     color: var(--text-3000);
+}
+
+/*
+ * Geometry and chrome only for standalone inputs — inside an InputGroup the
+ * group owns the border and the fixed 2rem height (search overlays like the
+ * taxonomic filter's input-trigger measure against it).
+ */
+[data-lemon-skin] .quill-input:not([data-slot='input-group-control']) {
+    height: calc(2.125rem + 3px);
+    padding: 0.25rem 0.5rem;
     background-color: var(--color-bg-fill-input);
     border: 1px solid var(--lemon-skin-border);
     border-radius: var(--lemon-skin-radius);
 }
 
-[data-lemon-skin] .quill-input:hover:not(:disabled),
-[data-lemon-skin] .quill-input:focus-visible {
+[data-lemon-skin] .quill-input:not([data-slot='input-group-control']):hover:not(:disabled),
+[data-lemon-skin] .quill-input:not([data-slot='input-group-control']):focus-visible {
     /* Lemon inputs signal focus with a border-color change, not a ring */
+    border-color: var(--lemon-skin-border-hover);
+    box-shadow: none;
+}
+
+/* ═══ InputGroup (input with addons) — recolor only, keep 2rem metrics ═ */
+
+[data-lemon-skin] .quill-input-group {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-fill-input);
+    border-color: var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-input-group:has([data-slot='input-group-control']:focus-visible) {
     border-color: var(--lemon-skin-border-hover);
     box-shadow: none;
 }
@@ -454,9 +520,49 @@
     border-radius: 0.25rem;
 }
 
-/* ═══ Tooltip → Lemon Tooltip (see PORTAL CAVEAT above) ════════════════ */
+/* ═══ Item rows (ItemGroup, ItemMenuItem, combobox rows) ═══════════════ */
 
-[data-lemon-skin] .quill-tooltip__content {
+[data-lemon-skin] .quill-item {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+}
+
+[data-lemon-skin] .quill-item__title {
+    font-size: 0.875rem;
+}
+
+[data-lemon-skin] .quill-item__description {
+    font-size: 0.75rem;
+}
+
+/* ═══ MenuLabel → Lemon section title (no uppercase tracking) ══════════ */
+
+[data-lemon-skin] .quill-menu-label {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--lemon-skin-text-secondary);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* ═══ Empty state — Lemon centers muted text without the dashed frame ══ */
+
+[data-lemon-skin] .quill-empty {
+    border: none;
+}
+
+/*
+ * Portal-mounted surfaces below (tooltip, popover, menus, select popup,
+ * dialog): the skin attribute is passed to the *Content component and lands
+ * ON the portaled element itself, so each surface rule needs a self variant
+ * alongside the descendant one.
+ */
+
+/* ═══ Tooltip → Lemon Tooltip ══════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-tooltip__content,
+.quill-tooltip__content[data-lemon-skin] {
     font-family: var(--font-sans);
     color: var(--color-text-primary-inverse);
     background-color: var(--color-bg-surface-tooltip);
@@ -471,10 +577,8 @@
 
 /* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
 
-[data-lemon-skin] .quill-popover__content,
-[data-lemon-skin] .quill-menu__content,
-[data-lemon-skin] .quill-menu__sub-content,
-[data-lemon-skin] .quill-select__content {
+[data-lemon-skin] :is(.quill-popover__content, .quill-menu__content, .quill-menu__sub-content, .quill-select__content),
+:is(.quill-popover__content, .quill-menu__content, .quill-menu__sub-content, .quill-select__content)[data-lemon-skin] {
     font-family: var(--font-sans);
     font-size: 0.875rem;
     background-color: var(--color-bg-surface-popover);
@@ -561,9 +665,10 @@
     background-color: var(--brand-blue);
 }
 
-/* ═══ Dialog → LemonModal (see PORTAL CAVEAT above) ════════════════════ */
+/* ═══ Dialog → LemonModal ══════════════════════════════════════════════ */
 
-[data-lemon-skin] .quill-dialog__content {
+[data-lemon-skin] .quill-dialog__content,
+.quill-dialog__content[data-lemon-skin] {
     font-family: var(--font-sans);
     font-size: 0.875rem;
     background-color: var(--lemon-skin-surface);

@@ -627,7 +627,7 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                <span ref={triggerWrapRef} className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
+                <span ref={triggerWrapRef} data-lemon-skin className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
                     {useInputTrigger ? (
                         <MenuInputTrigger
                             iconButton={inputTriggerIcon}
@@ -657,6 +657,9 @@ export function TaxonomicFilterMenu({
                     {triggerAccessory}
                 </span>
                 <PopoverContent
+                    // Lemon-skin the panel (lemon-skin.scss) — the attribute must
+                    // ride on the portaled element itself, wrappers can't reach it
+                    data-lemon-skin
                     align="start"
                     side="bottom"
                     // Input trigger: shift the panel up by (trigger height +
@@ -770,7 +773,7 @@ export function TaxonomicFilterMenu({
                     onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
-            <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuContent data-lemon-skin align="start" className="min-w-[240px]">
                 {/* The input-trigger box already does "type to make a new filter",
                     so the explicit "New filter…" row would be redundant there. */}
                 {!useInputTrigger && (

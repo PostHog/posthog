@@ -277,6 +277,9 @@ export function MenuFilterDwhConfig({
             }}
         >
             <DialogContent
+                // Lemon-skin the dialog (lemon-skin.scss) — must ride on the
+                // portaled element itself, wrappers can't reach it
+                data-lemon-skin
                 // `nested` because a popover with focus management is
                 // already open underneath; tells base-ui to stack focus
                 // traps + handle overlay clicks correctly.
