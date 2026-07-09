@@ -93,7 +93,7 @@ describe('PersonCreateService', () => {
 
             mockPersonStore.createPerson.mockResolvedValue(mockResult)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, messages] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -106,11 +106,10 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(mockPerson)
             expect(created).toBe(true)
-            expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
-                value: Buffer.from('test'),
-                key: null,
-                teamId,
-            })
+            // The messages are handed back for the caller to produce after any enclosing
+            // transaction commits; createPerson must not produce them itself.
+            expect(messages).toEqual(mockResult.messages)
+            expect(mockOutputs.produce).not.toHaveBeenCalled()
         })
 
         it('should handle PersonPropertiesSizeViolationError and log ingestion warning', async () => {
@@ -174,7 +173,7 @@ describe('PersonCreateService', () => {
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)
             mockPersonStore.fetchForUpdate.mockResolvedValue(existingPerson)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, messages] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -187,6 +186,8 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
+            // A concurrent creation produced the messages already, so this path returns none.
+            expect(messages).toEqual([])
             expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
         })
 

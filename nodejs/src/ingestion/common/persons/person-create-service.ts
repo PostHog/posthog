@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { PersonMessage } from '~/common/persons/person-message'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
@@ -13,7 +14,13 @@ export class PersonCreateService {
     constructor(private context: PersonContext) {}
 
     /**
-     * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
+     * Creates the person and returns the Kafka messages the caller is responsible for producing.
+     * Producing is left to the caller so that, when this runs inside a Postgres transaction, the
+     * produce can happen after the transaction commits rather than holding a persons-pool connection
+     * open for the duration of the Kafka ack.
+     *
+     * @returns [Person, boolean that indicates if person was created by this call (false if an
+     *   existing person was found from concurrent creation), Kafka messages the caller must produce]
      */
     async createPerson(
         createdAt: DateTime,
@@ -26,7 +33,7 @@ export class PersonCreateService {
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonsStoreTransactionForBatch
-    ): Promise<[InternalPerson, boolean]> {
+    ): Promise<[InternalPerson, boolean, PersonMessage[]]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
@@ -56,8 +63,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await this.context.produceMessages(result.messages)
-                return [result.person, result.created]
+                return [result.person, result.created, result.messages]
             }
 
             // Handle creation conflict - another process created the person concurrently
@@ -70,7 +76,7 @@ export class PersonCreateService {
                         distinctIdInfo.distinctId
                     )
                     if (existingPerson) {
-                        return [existingPerson, false]
+                        return [existingPerson, false, []]
                     }
                 }
 

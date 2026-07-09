@@ -32,20 +32,20 @@ export class PersonPropertyService {
     }
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
-        const [person, propertiesHandled] = await this.createOrGetPerson()
+        const [person, propertiesHandled, kafkaAck] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return [person, Promise.resolve()]
+            return [person, kafkaAck]
         }
         return await this.updatePersonProperties(person)
     }
 
     /**
-     * @returns [Person, boolean that indicates if properties were already handled or not]
+     * @returns [Person, boolean that indicates if properties were already handled or not, Kafka ack]
      */
-    private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+    private async createOrGetPerson(): Promise<[InternalPerson, boolean, Promise<void>]> {
         const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
-            return [person, false]
+            return [person, false, Promise.resolve()]
         }
 
         let properties = {}
@@ -55,7 +55,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        return await this.personCreateService.createPerson(
+        const [createdPerson, wasCreated, kafkaMessages] = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -66,6 +66,10 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+        // Not inside a transaction here, so producing immediately is safe; thread the ack so it is
+        // still awaited before the offset is committed.
+        const kafkaAck = this.context.produceMessages(kafkaMessages)
+        return [createdPerson, wasCreated, kafkaAck]
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
