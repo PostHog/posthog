@@ -215,18 +215,20 @@ def list_custom_property_value_suggestions(*, team_id: int, definition_id: str |
 
     if needle:
         queryset = queryset.filter(value_str__icontains=needle)
-    return list(
+    string_values = (
         queryset.exclude(value_str__isnull=True)
         .values_list("value_str", flat=True)
         .distinct()
         .order_by("value_str")[:VALUE_SUGGESTIONS_LIMIT]
     )
+    return [value for value in string_values if value is not None]
 
 
-def _format_numeric_suggestion(value: float) -> str | None:
+def _format_numeric_suggestion(value: float | None) -> str | None:
     # Integral floats render without a trailing ".0", matching how the filter column displays
     # them. Non-finite values can't pass write-path coercion; skip a stray row rather than crash.
-    if not math.isfinite(value):
+    # None only occurs in the type, not at runtime — the caller excludes null rows.
+    if value is None or not math.isfinite(value):
         return None
     return str(int(value)) if value == int(value) else str(value)
 
