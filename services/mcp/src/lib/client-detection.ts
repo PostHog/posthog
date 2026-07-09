@@ -213,13 +213,19 @@ export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
 }
 
 type CapabilityOverride = {
+    // Matched against the self-reported `clientInfo.name`.
     fragments: readonly string[]
+    // Matched against the User-Agent, for surfaces that omit `clientInfo.name`
+    // entirely — Codex through OpenAI's shared `openai-mcp` client identifies
+    // only via `openai-mcp/x.y.z (Codex)`.
+    userAgentFragments?: readonly string[]
     capabilities: Partial<ClientCapabilities>
 }
 
 const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
+        userAgentFragments: ['codex'],
         capabilities: { supportsInstructions: false },
     },
 ]
@@ -347,7 +353,10 @@ export class MCPClientProfile {
     private _resolveCapabilities(): ClientCapabilities {
         const resolved: ClientCapabilities = { ...DEFAULT_CLIENT_CAPABILITIES }
         for (const override of CLIENT_CAPABILITY_OVERRIDES) {
-            if (matchesAnyFragment(this.clientName, override.fragments)) {
+            if (
+                matchesAnyFragment(this.clientName, override.fragments) ||
+                matchesAnyFragment(this.userAgent, override.userAgentFragments ?? [])
+            ) {
                 Object.assign(resolved, override.capabilities)
             }
         }

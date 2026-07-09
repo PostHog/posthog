@@ -473,6 +473,19 @@ describe('MCPClientProfile', () => {
             }
         )
 
+        it('is false for the name-less Codex surface of openai-mcp (User-Agent only)', () => {
+            expect(
+                new MCPClientProfile({ userAgent: 'openai-mcp/1.0.0 (Codex)' }).capabilities.supportsInstructions
+            ).toBe(false)
+        })
+
+        it.each([['openai-mcp/1.0.0'], ['openai-mcp/1.0.0 (ChatGPT)']])(
+            'stays true for the non-Codex openai-mcp user-agent %s',
+            (userAgent) => {
+                expect(new MCPClientProfile({ userAgent }).capabilities.supportsInstructions).toBe(true)
+            }
+        )
+
         it.each([
             ['claude-code'],
             ['Claude Code'],
