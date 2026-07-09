@@ -66,17 +66,16 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 return response.results
             },
         },
-        // Subscriptions on the dashboard's insight tiles. Fetched in one request via the
-        // `insights` filter so the overview shows a per-tab count without a call per insight.
+        // Subscriptions on the dashboard's insight tiles. The backend resolves the tile set from
+        // dashboardId, so the count doesn't depend on the dashboard's tiles being loaded client-side.
         insightSubscriptions: {
             __default: [] as SubscriptionType[],
             loadInsightSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
-                const insightIds = props.dashboardInsightIds
-                if (!props.dashboardId || !insightIds?.length) {
+                if (!props.dashboardId) {
                     return []
                 }
                 breakpoint?.()
-                const response = await api.subscriptions.list({ insightIds })
+                const response = await api.subscriptions.list({ dashboardTiles: props.dashboardId })
                 breakpoint?.()
                 return response.results
             },

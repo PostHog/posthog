@@ -99,11 +99,10 @@ function SubscriptionTabList({
 export function TabbedManageSubscriptions({
     insightShortId,
     dashboardId,
-    dashboardInsightIds,
     onCancel,
     onSelect,
 }: TabbedManageSubscriptionsProps): JSX.Element {
-    const logicProps: SubscriptionsLogicProps = { insightShortId, dashboardId, dashboardInsightIds }
+    const logicProps: SubscriptionsLogicProps = { insightShortId, dashboardId }
     const {
         subscriptions,
         subscriptionsLoading,

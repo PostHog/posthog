@@ -43,6 +43,7 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import str_to_bool
 
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
@@ -904,6 +905,13 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 required=False,
                 description="Filter by dashboard ID.",
             ),
+            OpenApiParameter(
+                name="dashboard_tiles",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to subscriptions on insights that are tiles of the given dashboard ID.",
+            ),
         ],
     ),
 )
@@ -1004,12 +1012,19 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             if key == "insight":
                 queryset = queryset.filter(insight_id=request_params["insight"])
             elif key == "insights":
-                # Comma-separated insight IDs. The dashboard overview uses this to list
-                # subscriptions across a dashboard's insight tiles in a single query.
+                # Comma-separated insight IDs — list subscriptions across an explicit set of insights.
                 insight_ids = [int(i) for i in request_params["insights"].split(",") if i.strip().isdigit()]
                 if not insight_ids:
                     raise ValidationError({"insights": ["Must be a comma-separated list of integer insight IDs."]})
                 queryset = queryset.filter(insight_id__in=insight_ids)
+            elif key == "dashboard_tiles":
+                # Subscriptions on insights that are tiles of the given dashboard, resolved server-side
+                # so the overview's "Insights" tab never depends on which tiles the client happens to
+                # have loaded into memory. The default DashboardTile manager already skips deleted rows.
+                tile_insight_ids = DashboardTile.objects.filter(
+                    dashboard_id=request_params["dashboard_tiles"], insight_id__isnull=False
+                ).values_list("insight_id", flat=True)
+                queryset = queryset.filter(insight_id__in=tile_insight_ids)
             elif key == "dashboard":
                 queryset = queryset.filter(dashboard_id=request_params["dashboard"])
             elif key == "deleted":

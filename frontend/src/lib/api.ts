@@ -6182,17 +6182,20 @@ const api = {
             insightId,
             insightIds,
             dashboardId,
+            dashboardTiles,
             resourceType,
         }: {
             insightId?: number
             insightIds?: number[]
             dashboardId?: number
+            dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
                 insightId ? `insight=${insightId}` : null,
                 insightIds?.length ? `insights=${insightIds.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
+                dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)
             return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
