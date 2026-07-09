@@ -215,8 +215,30 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(undefined)).toBe(false)
     })
 
-    it('returns true for trends insight viz with trendsFilter', () => {
-        expect(areAlertsSupportedForInsight(API_QUERY)).toBe(true)
+    it.each([
+        ['with trendsFilter', API_QUERY],
+        [
+            'without trendsFilter',
+            {
+                ...API_QUERY,
+                source: {
+                    ...API_QUERY.source,
+                    trendsFilter: undefined,
+                },
+            },
+        ],
+        [
+            'with null trendsFilter',
+            {
+                ...API_QUERY,
+                source: {
+                    ...API_QUERY.source,
+                    trendsFilter: null,
+                },
+            },
+        ],
+    ])('returns true for trends insight viz %s', (_name, query) => {
+        expect(areAlertsSupportedForInsight(query)).toBe(true)
     })
 
     it('returns false for funnel insight viz when the funnel flag is off', () => {
@@ -237,17 +259,6 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
         expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
         expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
-    })
-
-    it('returns false when trendsFilter is null', () => {
-        const query = {
-            ...API_QUERY,
-            source: {
-                ...API_QUERY.source,
-                trendsFilter: null,
-            },
-        }
-        expect(areAlertsSupportedForInsight(query)).toBe(false)
     })
 })
 

@@ -38,7 +38,7 @@ export const areAlertsSupportedForInsight = (
     if (!query) {
         return false
     }
-    if (isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null) {
+    if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
         return true
     }
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
