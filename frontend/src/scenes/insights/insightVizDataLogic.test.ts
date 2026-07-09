@@ -411,6 +411,38 @@ describe('insightVizDataLogic', () => {
                     },
                 })
         })
+
+        it.each([
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', 'minute'],
+            // A bare same-day pair means "that whole day" and must stay hourly, not 1440 minute buckets
+            ['2024-06-10', '2024-06-10', 'hour'],
+            // A time-carrying range over 12 hours must not go sub-hour
+            ['2024-06-10 08:00:00', '2024-06-11 20:00:00', 'hour'],
+            ['2024-06-01', '2024-07-15', 'day'],
+        ])('auto-adjusts interval for absolute range %s..%s to %s', async (dateFrom, dateTo, expectedInterval) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
+    })
+
+    describe('zoomDateRange', () => {
+        it.each([
+            ['2024-06-10', '2024-06-12', false],
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', true],
+        ])('zooms %s..%s with explicitDate=%s', async (dateFrom, dateTo, explicitDate) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.zoomDateRange(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.dateRange).toEqual({
+                date_from: dateFrom,
+                date_to: dateTo,
+                explicitDate,
+            })
+        })
     })
 
     describe('updateBreakdownFilter', () => {
