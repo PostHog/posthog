@@ -50,6 +50,7 @@ from products.tasks.backend.logic.services.image_builder import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelMembership,
     CodeInvite,
     CodeInviteRedemption,
     CodeWorkflowConfig,
@@ -4544,8 +4545,8 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
-    """All live public channels plus the requester's personal channel (provisioned lazily),
-    personal first, then by name."""
+    """All live public channels plus the requester's personal channel (provisioned lazily) and
+    any private channels they're a member of. Personal first, then by name."""
     channels: list[Channel] = []
     if user_id is not None:
         channels.append(_ensure_personal_channel(team_id, user_id))
@@ -4554,7 +4555,90 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         .select_related("created_by")
         .order_by("name")
     )
+    if user_id is not None:
+        member_channel_ids = ChannelMembership.objects.filter(team_id=team_id, user_id=user_id).values("channel_id")
+        channels.extend(
+            Channel.objects.filter(
+                team_id=team_id,
+                channel_type=Channel.ChannelType.PRIVATE,
+                deleted=False,
+                id__in=member_channel_ids,
+            )
+            .select_related("created_by")
+            .order_by("name")
+        )
     return [_channel_to_dto(channel) for channel in channels]
+
+
+def create_private_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:
+    """Create a private channel, joining the creator as its first member. Unlike public channels,
+    private channels aren't resolve-or-create by name (they aren't uniquely named), so each call
+    creates a fresh channel. ``None`` for empty names."""
+    normalized = normalize_channel_name(name)
+    if not normalized:
+        return None
+    channel = Channel.objects.create(
+        team_id=team_id, name=normalized, channel_type=Channel.ChannelType.PRIVATE, created_by_id=user_id
+    )
+    if user_id is not None:
+        ChannelMembership.objects.get_or_create(team_id=team_id, channel=channel, user_id=user_id)
+    return _channel_to_dto(channel)
+
+
+def _channel_visible_to(channel: Channel, team_id: int, user_id: int | None) -> bool:
+    if channel.channel_type == Channel.ChannelType.PUBLIC:
+        return True
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        return channel.created_by_id == user_id
+    return (
+        user_id is not None
+        and ChannelMembership.objects.filter(team_id=team_id, channel_id=channel.id, user_id=user_id).exists()
+    )
+
+
+def join_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | str:
+    """Add the requester to a public or private channel (idempotent). Returns the DTO, or an error
+    kind: ``not_found`` / ``personal`` / ``no_user``. Membership on a private channel is what makes
+    it visible in the requester's channel list."""
+    if user_id is None:
+        return "no_user"
+    channel = Channel.objects.select_related("created_by").filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return "not_found"
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        return "personal"
+    ChannelMembership.objects.get_or_create(team_id=team_id, channel=channel, user_id=user_id)
+    return _channel_to_dto(channel)
+
+
+def leave_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> str:
+    """Remove the requester from a channel (idempotent). Returns ``ok`` / ``not_found`` /
+    ``personal`` / ``no_user``."""
+    if user_id is None:
+        return "no_user"
+    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None:
+        return "not_found"
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        return "personal"
+    ChannelMembership.objects.filter(team_id=team_id, channel_id=channel_id, user_id=user_id).delete()
+    return "ok"
+
+
+def list_channel_members(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.TaskUserBasicInfo] | None:
+    """The members of a channel, oldest join first. ``None`` when the channel isn't visible to the
+    requester (missing, or a private channel they don't belong to)."""
+    channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
+    if channel is None or not _channel_visible_to(channel, team_id, user_id):
+        return None
+    memberships = (
+        ChannelMembership.objects.filter(team_id=team_id, channel_id=channel_id)
+        .select_related("user")
+        .order_by("created_at", "id")
+    )
+    return [info for membership in memberships if (info := _user_basic_info(membership.user)) is not None]
 
 
 def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contracts.ChannelDTO | None:

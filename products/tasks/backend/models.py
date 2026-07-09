@@ -64,6 +64,7 @@ class Channel(TeamScopedRootMixin):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
+        PRIVATE = "private", "Private"
 
     PERSONAL_CHANNEL_NAME = "me"
 
@@ -100,6 +101,29 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+class ChannelMembership(TeamScopedRootMixin, UUIDModel):
+    """A user's membership of a Channel — the canonical member list a channel carries and the
+    join/leave record behind it. Public channels are open feeds every teammate can see; private
+    channels are visible only to their members. Personal channels don't carry membership rows
+    (they are provisioned one-per-user)."""
+
+    # App-level scoping is enforced by TeamScopedRootMixin; db_constraint=False avoids locking
+    # the hot posthog_team / posthog_user tables (see Channel above for the full reasoning).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey(Channel, on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_membership"
+        constraints = [
+            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
+        ]
+
+    def __str__(self):
+        return f"user {self.user_id} in {self.channel_id}"
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"

@@ -13,6 +13,7 @@ class Channel(models.Model):
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"        # visible to the whole team
         PERSONAL = "personal", "Personal"  # the user's private "#me" channel
+        PRIVATE = "private", "Private"     # visible only to its members (ChannelMembership)
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -38,6 +39,26 @@ class Channel(models.Model):
                 condition=Q(channel_type="personal", deleted=False),
                 name="task_channel_team_user_personal_unique",
             ),
+        ]
+
+
+class ChannelMembership(models.Model):
+    """A user's membership of a Channel — the canonical member list a channel
+    carries, and the join/leave record behind it. Public channels are open feeds;
+    private channels are visible only to their members. Personal channels don't
+    carry membership rows (they are provisioned one-per-user)."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_membership"
+        constraints = [
+            # a user is a member of a channel at most once
+            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
         ]
 
 
@@ -76,17 +97,34 @@ public channel is visible to every team member (multiplayer feed). Tasks in a
 personal channel remain visible only via the existing `created_by` rule.
 Thread messages inherit the task's visibility.
 
+Channel listing itself is member-gated for private channels: `GET
+/task_channels/` returns every public channel plus the requester's personal
+channel plus any private channels they belong to (a `ChannelMembership` row).
+A private channel a user isn't in is invisible to them, including its member
+list. Task-level visibility for private channels is still the existing
+`created_by` rule and is tightened in a follow-up.
+
 ## API
 
 ### `/api/projects/{id}/task_channels/`
 
-- `GET /` — list channels: all live public channels plus the requester's
-  personal channel. Listing lazily `get_or_create`s the personal `#me` channel,
-  so every user always has one.
-- `POST / {name}` — resolve-or-create a public channel by name
-  (`get_or_create`, so concurrent creates and name-bridging are race-safe).
+- `GET /` — list channels: all live public channels, the requester's personal
+  channel, and any private channels they're a member of. Listing lazily
+  `get_or_create`s the personal `#me` channel, so every user always has one.
+- `POST / {name, channel_type?}` — `channel_type` defaults to `public`:
+  resolve-or-create a public channel by name (`get_or_create`, so concurrent
+  creates and name-bridging are race-safe). `channel_type=private` always
+  creates a new members-only channel with the requester as its first member
+  (private channels aren't uniquely named, so this never resolves an existing one).
 - `PATCH /{id}/ {name}` — rename a public channel. Personal channels cannot be renamed.
 - `DELETE /{id}/` — soft-delete a public channel. Personal channels cannot be deleted.
+- `POST /{id}/join/` — add the requester to a public or private channel
+  (idempotent). Joining a private channel is what makes it appear in their
+  channel list. Personal channels cannot be joined.
+- `POST /{id}/leave/` — remove the requester from a channel (idempotent).
+  Personal channels cannot be left.
+- `GET /{id}/members/` — members of the channel, oldest join first. 404 for a
+  private channel the requester isn't a member of.
 
 ### Task endpoints
 
@@ -128,7 +166,11 @@ Thread messages inherit the task's visibility.
 
 ## Out of scope (v1)
 
-- Channel membership / invited private channels (only team-public + personal).
+- Invite-based access control for private channels — v1 membership is
+  self-service join/leave by channel id (the UUID is the capability); there is
+  no per-channel invite/admin/role model or member-management-by-others yet.
+- Tightening task-level visibility to private-channel membership (task visibility
+  still keys off `created_by`; only channel listing is member-gated so far).
 - Message editing and emoji reactions.
 - Real-time push for feed/thread updates (clients poll; SSE can come later).
 - Backfilling `channel` onto existing tasks.

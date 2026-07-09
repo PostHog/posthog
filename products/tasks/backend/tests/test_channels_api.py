@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -63,6 +64,57 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(first.json()["name"], "growth-ideas")
         second = self.client.post(self._channels_url(), {"name": "growth ideas"})
         self.assertEqual(second.json()["id"], first.json()["id"])
+
+    def _member_ids(self, client: APIClient, channel_id: str) -> list[int]:
+        return [m["id"] for m in client.get(f"{self._channels_url()}{channel_id}/members/").json()]
+
+    def test_private_channel_is_visible_only_to_its_members(self):
+        created = self.client.post(self._channels_url(), {"name": "secret plans", "channel_type": "private"})
+        self.assertEqual(created.status_code, status.HTTP_200_OK, created.content)
+        channel = created.json()
+        self.assertEqual(channel["channel_type"], "private")
+
+        # The creator is joined as the first member and sees the channel in their list.
+        self.assertIn(channel["id"], [c["id"] for c in self.client.get(self._channels_url()).json()])
+        self.assertEqual(self._member_ids(self.client, channel["id"]), [self.user.id])
+
+        # A teammate who isn't a member neither sees it listed nor can read its members.
+        other = APIClient()
+        other.force_authenticate(self.other_user)
+        self.assertNotIn(channel["id"], [c["id"] for c in other.get(self._channels_url()).json()])
+        self.assertEqual(
+            other.get(f"{self._channels_url()}{channel['id']}/members/").status_code, status.HTTP_404_NOT_FOUND
+        )
+
+    def test_joining_reveals_a_private_channel_and_leaving_hides_it(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "secret", "channel_type": "private"}).json()["id"]
+        other = APIClient()
+        other.force_authenticate(self.other_user)
+
+        joined = other.post(f"{self._channels_url()}{channel_id}/join/")
+        self.assertEqual(joined.status_code, status.HTTP_200_OK, joined.content)
+        self.assertIn(channel_id, [c["id"] for c in other.get(self._channels_url()).json()])
+        self.assertCountEqual(self._member_ids(self.client, channel_id), [self.user.id, self.other_user.id])
+
+        left = other.post(f"{self._channels_url()}{channel_id}/leave/")
+        self.assertEqual(left.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertNotIn(channel_id, [c["id"] for c in other.get(self._channels_url()).json()])
+
+    def test_public_channel_join_is_idempotent(self):
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        other = APIClient()
+        other.force_authenticate(self.other_user)
+        self.assertEqual(other.post(f"{self._channels_url()}{channel_id}/join/").status_code, status.HTTP_200_OK)
+        self.assertEqual(other.post(f"{self._channels_url()}{channel_id}/join/").status_code, status.HTTP_200_OK)
+        # Joining twice registers a single membership row, not two.
+        self.assertEqual(self._member_ids(self.client, channel_id), [self.other_user.id])
+
+    @parameterized.expand([("join",), ("leave",)])
+    def test_personal_channel_cannot_be_joined_or_left(self, action: str):
+        self.client.get(self._channels_url())
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+        response = self.client.post(f"{self._channels_url()}{personal.id}/{action}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_personal_channel_cannot_be_renamed_or_deleted(self):
         self.client.get(self._channels_url())

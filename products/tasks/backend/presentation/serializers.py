@@ -1255,10 +1255,19 @@ class ChannelSerializer(DataclassSerializer):
 
 
 class ChannelWriteSerializer(serializers.Serializer):
-    """Request body for creating (resolve-or-create) or renaming a public channel."""
+    """Request body for creating (resolve-or-create) or renaming a channel."""
 
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+    )
+    channel_type = serializers.ChoiceField(
+        choices=[("public", "Public"), ("private", "Private")],
+        default="public",
+        help_text=(
+            "Visibility of a newly created channel. 'public' resolves-or-creates the shared feed "
+            "with this name; 'private' always creates a new members-only channel with the creator "
+            "as its first member. Ignored when renaming."
+        ),
     )
 
 

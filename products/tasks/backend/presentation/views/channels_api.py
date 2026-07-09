@@ -21,6 +21,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
     TaskThreadMessageWriteSerializer,
+    TaskUserBasicInfoSerializer,
 )
 
 
@@ -55,13 +56,21 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         request=ChannelWriteSerializer,
         responses={200: ChannelSerializer},
-        summary="Resolve or create a public channel",
-        description="Returns the existing public channel with the (normalized) name, creating it if needed.",
+        summary="Create a channel",
+        description=(
+            "Public (default): returns the existing public channel with the (normalized) name, "
+            "creating it if needed. Private: always creates a new members-only channel with the "
+            "requester as its first member."
+        ),
     )
     def create(self, request, **kwargs):
         serializer = ChannelWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=serializer.validated_data["name"])
+        name = serializer.validated_data["name"]
+        if serializer.validated_data["channel_type"] == "private":
+            channel = tasks_facade.create_private_channel(self.team_id, self._user_id(), name=name)
+        else:
+            channel = tasks_facade.resolve_channel(self.team_id, self._user_id(), name=name)
         if channel is None:
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ChannelSerializer(channel).data)
@@ -93,6 +102,54 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=None,
+        responses={200: ChannelSerializer},
+        summary="Join a channel",
+        description="Adds the requester to a public or private channel (idempotent). Personal channels cannot be joined.",
+    )
+    @action(detail=True, methods=["post"], url_path="join", required_scopes=["task:write"])
+    def join(self, request, pk=None, **kwargs):
+        result = tasks_facade.join_channel(pk, self.team_id, self._user_id())
+        if result == "not_found":
+            raise NotFound()
+        if result == "personal":
+            raise PermissionDenied("Personal channels cannot be joined")
+        if result == "no_user":
+            raise PermissionDenied("Anonymous requests cannot join channels")
+        return Response(ChannelSerializer(result).data)
+
+    @extend_schema(
+        request=None,
+        responses={204: None},
+        summary="Leave a channel",
+        description="Removes the requester from a channel (idempotent). Personal channels cannot be left.",
+    )
+    @action(detail=True, methods=["post"], url_path="leave", required_scopes=["task:write"])
+    def leave(self, request, pk=None, **kwargs):
+        result = tasks_facade.leave_channel(pk, self.team_id, self._user_id())
+        if result == "not_found":
+            raise NotFound()
+        if result == "personal":
+            raise PermissionDenied("Personal channels cannot be left")
+        if result == "no_user":
+            raise PermissionDenied("Anonymous requests cannot leave channels")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(response=TaskUserBasicInfoSerializer(many=True), description="Channel members")
+        },
+        summary="List channel members",
+        description="Members of the channel, oldest join first. 404 for private channels the requester isn't in.",
+    )
+    @action(detail=True, methods=["get"], url_path="members", pagination_class=None)
+    def members(self, request, pk=None, **kwargs):
+        members = tasks_facade.list_channel_members(pk, self.team_id, self._user_id())
+        if members is None:
+            raise NotFound()
+        return Response(TaskUserBasicInfoSerializer(members, many=True).data)
 
 
 class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
