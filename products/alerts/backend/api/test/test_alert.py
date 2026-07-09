@@ -81,6 +81,10 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "investigation_agent_enabled": False,
             "investigation_gates_notifications": False,
             "investigation_inconclusive_action": "notify",
+            "investigation_mode": "notebook",
+            "investigation_repository": None,
+            "investigation_context": None,
+            "investigation_rerun_on_continued_breach": True,
         }
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
@@ -2036,3 +2040,235 @@ class TestAlertRealTimeInterval(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+
+class TestPosthogCodeInvestigationValidation(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+
+    def _base_body(self, **overrides) -> dict[str, Any]:
+        return {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "code investigation alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+            **overrides,
+        }
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, status.HTTP_400_BAD_REQUEST, "investigation_mode"),
+            ("flag_on_no_access", True, False, status.HTTP_400_BAD_REQUEST, "investigation_mode"),
+            ("flag_on_with_access", True, True, status.HTTP_201_CREATED, None),
+        ]
+    )
+    def test_posthog_code_mode_flag_and_access_gating(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        tasks_access: bool,
+        expected_status: int,
+        expected_error_attr: str | None,
+    ) -> None:
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=flag_enabled),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=tasks_access),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(investigation_mode="posthog_code"),
+            )
+        assert response.status_code == expected_status, response.content
+        if expected_error_attr:
+            assert expected_error_attr in response.json().get("attr", "")
+
+    def test_posthog_code_mode_threshold_alert_no_detector_config_accepted(self) -> None:
+        # In posthog_code mode the "investigation_agent_enabled requires detector_config" check must NOT apply.
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(
+                    investigation_mode="posthog_code",
+                    investigation_agent_enabled=True,
+                    detector_config=None,
+                ),
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_notebook_mode_investigation_agent_still_requires_detector_config(self) -> None:
+        # The existing notebook-mode check must stay: agent enabled without detector_config -> 400.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            self._base_body(
+                investigation_mode="notebook",
+                investigation_agent_enabled=True,
+                detector_config=None,
+            ),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_agent_enabled" in response.json().get("attr", "")
+
+    @parameterized.expand(
+        [
+            ("bad_format_no_slash", "notarepo"),
+            ("bad_format_extra_slash", "org/repo/extra"),
+        ]
+    )
+    def test_investigation_repository_invalid_format_rejected(
+        self,
+        _name: str,
+        repository: str,
+    ) -> None:
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=True),
+            mock.patch(
+                "products.alerts.backend.api.alert.GitHubIntegration.first_for_team_repository", return_value=None
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(investigation_mode="posthog_code", investigation_repository=repository),
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_repository" in response.json().get("attr", "")
+
+    def test_investigation_repository_blank_string_skips_check(self) -> None:
+        # Blank (allow_blank=True) is treated as absent -- the integration check is not triggered.
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(investigation_mode="posthog_code", investigation_repository=""),
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+    def test_investigation_repository_valid_format_with_integration_accepted(self) -> None:
+        mock_integration = mock.MagicMock()
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=True),
+            mock.patch(
+                "products.alerts.backend.api.alert.GitHubIntegration.first_for_team_repository",
+                return_value=mock_integration,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(investigation_mode="posthog_code", investigation_repository="my-org/my-repo"),
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["investigation_repository"] == "my-org/my-repo"
+
+    def test_investigation_repository_valid_format_no_integration_rejected(self) -> None:
+        with (
+            mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True),
+            mock.patch("products.alerts.backend.api.alert.has_tasks_access", return_value=True),
+            mock.patch(
+                "products.alerts.backend.api.alert.GitHubIntegration.first_for_team_repository", return_value=None
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                self._base_body(investigation_mode="posthog_code", investigation_repository="my-org/my-repo"),
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "investigation_repository" in response.json().get("attr", "")
+
+
+class TestAlertCheckInvestigationTaskUrl(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="task url test alert",
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            threshold=Threshold.objects.create(
+                team=self.team,
+                insight_id=self.insight["id"],
+                configuration={"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
+            ),
+            calculation_interval=AlertCalculationInterval.DAILY,
+        )
+
+    def test_check_without_task_run_returns_null_url(self) -> None:
+        check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            calculated_value=None,
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            targets_notified={},
+            state="Not firing",
+            investigation_task_run_id=None,
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert.id}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check_data = next((c for c in response.json()["checks"] if c["id"] == str(check.id)), None)
+        assert check_data is not None
+        assert check_data["investigation_task_url"] is None
+
+    def test_check_with_task_run_resolves_task_url(self) -> None:
+        import uuid
+
+        run_id = uuid.uuid4()
+        task_id = uuid.uuid4()
+        check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            calculated_value=None,
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            targets_notified={},
+            state="Firing",
+            investigation_task_run_id=run_id,
+        )
+        with mock.patch("products.alerts.backend.api.alert.tasks_facade.get_task_id_for_run", return_value=task_id):
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert.id}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check_data = next((c for c in response.json()["checks"] if c["id"] == str(check.id)), None)
+        assert check_data is not None
+        expected_url = f"/project/{self.team.id}/tasks/{task_id}"
+        assert check_data["investigation_task_url"] == expected_url
+        assert "/tasks/" in check_data["investigation_task_url"]
+
+    def test_check_with_task_run_but_task_not_found_returns_null(self) -> None:
+        import uuid
+
+        run_id = uuid.uuid4()
+        check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            calculated_value=None,
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            targets_notified={},
+            state="Firing",
+            investigation_task_run_id=run_id,
+        )
+        with mock.patch("products.alerts.backend.api.alert.tasks_facade.get_task_id_for_run", return_value=None):
+            response = self.client.get(f"/api/projects/{self.team.id}/alerts/{self.alert.id}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        check_data = next((c for c in response.json()["checks"] if c["id"] == str(check.id)), None)
+        assert check_data is not None
+        assert check_data["investigation_task_url"] is None

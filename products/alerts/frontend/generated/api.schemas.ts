@@ -170,6 +170,16 @@ export interface AlertCheckApi {
      * @nullable
      */
     readonly investigation_notebook_short_id: string | null
+    /**
+     * TaskRun spawned for a PostHog Code investigation (reference only; tasks is facade-isolated, no FK).
+     * @nullable
+     */
+    readonly investigation_task_run_id: string | null
+    /**
+     * Deep link to the PostHog Code investigation task, when one was spawned.
+     * @nullable
+     */
+    readonly investigation_task_url: string | null
     /** @nullable */
     readonly notification_sent_at: string | null
     readonly notification_suppressed_by_agent: boolean
@@ -481,6 +491,17 @@ export const InvestigationInconclusiveActionEnumApi = {
     Suppress: 'suppress',
 } as const
 
+/**
+ * * `notebook` - Notebook
+ * * `posthog_code` - PostHog Code
+ */
+export type InvestigationModeEnumApi = (typeof InvestigationModeEnumApi)[keyof typeof InvestigationModeEnumApi]
+
+export const InvestigationModeEnumApi = {
+    Notebook: 'notebook',
+    PosthogCode: 'posthog_code',
+} as const
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -557,6 +578,24 @@ export interface AlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How firing alerts are investigated: 'notebook' (in-process agent, detector alerts only) or 'posthog_code' (sandboxed PostHog Code task; works for threshold and detector alerts).
+     *
+     * * `notebook` - Notebook
+     * * `posthog_code` - PostHog Code */
+    investigation_mode?: InvestigationModeEnumApi
+    /**
+     * Optional org/repo for the investigation's draft PR. Must be covered by the team's GitHub integration.
+     * @maxLength 255
+     * @nullable
+     */
+    investigation_repository?: string | null
+    /**
+     * Owner guidance appended verbatim to the investigation prompt (skills to use, known failure patterns, runbook links).
+     * @nullable
+     */
+    investigation_context?: string | null
+    /** Experimental: re-run the investigation while the alert stays firing, backing off per episode (1h, 2h, 4h... capped at 24h). */
+    investigation_rerun_on_continued_breach?: boolean
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
@@ -639,6 +678,24 @@ export interface PatchedAlertApi {
      * * `notify` - Notify
      * * `suppress` - Suppress */
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
+    /** How firing alerts are investigated: 'notebook' (in-process agent, detector alerts only) or 'posthog_code' (sandboxed PostHog Code task; works for threshold and detector alerts).
+     *
+     * * `notebook` - Notebook
+     * * `posthog_code` - PostHog Code */
+    investigation_mode?: InvestigationModeEnumApi
+    /**
+     * Optional org/repo for the investigation's draft PR. Must be covered by the team's GitHub integration.
+     * @maxLength 255
+     * @nullable
+     */
+    investigation_repository?: string | null
+    /**
+     * Owner guidance appended verbatim to the investigation prompt (skills to use, known failure patterns, runbook links).
+     * @nullable
+     */
+    investigation_context?: string | null
+    /** Experimental: re-run the investigation while the alert stays firing, backing off per episode (1h, 2h, 4h... capped at 24h). */
+    investigation_rerun_on_continued_breach?: boolean
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }

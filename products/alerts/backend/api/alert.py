@@ -39,6 +39,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.integration import GitHubIntegration
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -46,6 +47,7 @@ from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_sch
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 from posthog.utils import relative_date_parse
 
+import products.tasks.backend.facade.api as tasks_facade
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
@@ -56,6 +58,7 @@ from products.alerts.backend.evaluation.validation import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
+from products.tasks.backend.facade.access import has_tasks_access
 
 
 def _validate_interval_entitlement(
@@ -144,6 +147,9 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
     )
+    investigation_task_url = serializers.SerializerMethodField(
+        help_text="Deep link to the PostHog Code investigation task, when one was spawned."
+    )
 
     class Meta:
         model = AlertCheck
@@ -162,6 +168,8 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "investigation_verdict",
             "investigation_summary",
             "investigation_notebook_short_id",
+            "investigation_task_run_id",
+            "investigation_task_url",
             "notification_sent_at",
             "notification_suppressed_by_agent",
         ]
@@ -173,6 +181,16 @@ class AlertCheckSerializer(serializers.ModelSerializer):
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
         return notebook.short_id if notebook is not None else None
+
+    def get_investigation_task_url(self, instance: AlertCheck) -> str | None:
+        if not instance.investigation_task_run_id:
+            return None
+        task_id = tasks_facade.get_task_id_for_run(
+            instance.investigation_task_run_id, instance.alert_configuration.team_id
+        )
+        if task_id is None:
+            return None
+        return f"/project/{instance.alert_configuration.team_id}/tasks/{task_id}"
 
 
 class AlertSubscriptionSerializer(serializers.ModelSerializer):
@@ -298,6 +316,28 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         required=False,
         help_text="How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.",
     )
+    investigation_mode = serializers.ChoiceField(
+        choices=AlertConfiguration.InvestigationMode.choices,
+        required=False,
+        help_text="How firing alerts are investigated: 'notebook' (in-process agent, detector alerts only) or 'posthog_code' (sandboxed PostHog Code task; works for threshold and detector alerts).",
+    )
+    investigation_repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text="Optional org/repo for the investigation's draft PR. Must be covered by the team's GitHub integration.",
+    )
+    investigation_context = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Owner guidance appended verbatim to the investigation prompt (skills to use, known failure patterns, runbook links).",
+    )
+    investigation_rerun_on_continued_breach = serializers.BooleanField(
+        required=False,
+        help_text="Experimental: re-run the investigation while the alert stays firing, backing off per episode (1h, 2h, 4h... capped at 24h).",
+    )
     state = serializers.CharField(
         read_only=True,
         help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
@@ -339,6 +379,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "investigation_agent_enabled",
             "investigation_gates_notifications",
             "investigation_inconclusive_action",
+            "investigation_mode",
+            "investigation_repository",
+            "investigation_context",
+            "investigation_rerun_on_continued_breach",
             "search_match_type",
         ]
         read_only_fields = [
@@ -566,6 +610,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def _funnel_alerts_enabled(self) -> bool:
         return self._insight_alert_flag_enabled("funnel-insight-alerts")
 
+    def _posthog_code_flag_enabled(self) -> bool:
+        return self._insight_alert_flag_enabled("alerts-posthog-code-investigation")
+
     def _insight_alert_flag_enabled(self, flag: str) -> bool:
         # Scope the flag to the alert's organization (via team scope), not the user's current
         # organization — otherwise a user in multiple orgs could flip their current org to a
@@ -665,24 +712,36 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             organization=organization,
         )
 
-        # Investigation agent is only supported for detector-based alerts.
+        mode = attrs.get(
+            "investigation_mode",
+            getattr(self.instance, "investigation_mode", AlertConfiguration.InvestigationMode.NOTEBOOK),
+        )
         investigation_enabled = attrs.get(
             "investigation_agent_enabled",
             self.instance.investigation_agent_enabled if self.instance else False,
         )
-        if investigation_enabled:
-            detector_config = attrs.get(
-                "detector_config",
-                self.instance.detector_config if self.instance else None,
-            )
-            if not detector_config:
+        request = self.context["request"]
+
+        if mode == AlertConfiguration.InvestigationMode.POSTHOG_CODE:
+            if not self._posthog_code_flag_enabled():
                 raise ValidationError(
-                    {
-                        "investigation_agent_enabled": [
-                            "Investigation agent is only supported for anomaly detection alerts."
-                        ]
-                    }
+                    {"investigation_mode": "PostHog Code investigations are not enabled for this project."}
                 )
+            if not has_tasks_access(request.user):
+                raise ValidationError(
+                    {"investigation_mode": "PostHog Code investigations require access to the Tasks product."}
+                )
+        else:
+            # Investigation agent is only supported for detector-based alerts (notebook mode only).
+            if investigation_enabled:
+                if not detector_config:
+                    raise ValidationError(
+                        {
+                            "investigation_agent_enabled": [
+                                "Investigation agent is only supported for anomaly detection alerts."
+                            ]
+                        }
+                    )
 
         # Notification gating only makes sense when the investigation agent is on —
         # otherwise there's no verdict to wait for and the safety-net task would
@@ -699,6 +758,22 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                     ]
                 }
             )
+
+        # Validate the repository path and GitHub integration access.
+        team = self.context["get_team"]()
+        repository = attrs.get(
+            "investigation_repository",
+            getattr(self.instance, "investigation_repository", None),
+        )
+        if repository:
+            if GitHubIntegration.first_for_team_repository(team.pk, repository, source="alert_investigation") is None:
+                raise ValidationError(
+                    {
+                        "investigation_repository": (
+                            "Use the org/repo format, or the team's GitHub integration cannot access this repository."
+                        )
+                    }
+                )
 
         if self.context["request"].method == "POST":
             if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):

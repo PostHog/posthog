@@ -68,6 +68,7 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyInvestigationRepositoryMax = 255
 
 export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -1285,6 +1286,32 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
         ),
+    investigation_mode: zod
+        .enum(['notebook', 'posthog_code'])
+        .describe('* `notebook` - Notebook\n* `posthog_code` - PostHog Code')
+        .optional()
+        .describe(
+            "How firing alerts are investigated: 'notebook' (in-process agent, detector alerts only) or 'posthog_code' (sandboxed PostHog Code task; works for threshold and detector alerts).\n\n* `notebook` - Notebook\n* `posthog_code` - PostHog Code"
+        ),
+    investigation_repository: zod
+        .string()
+        .max(alertsCreateBodyInvestigationRepositoryMax)
+        .nullish()
+        .describe(
+            "Optional org/repo for the investigation's draft PR. Must be covered by the team's GitHub integration."
+        ),
+    investigation_context: zod
+        .string()
+        .nullish()
+        .describe(
+            'Owner guidance appended verbatim to the investigation prompt (skills to use, known failure patterns, runbook links).'
+        ),
+    investigation_rerun_on_continued_breach: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Experimental: re-run the investigation while the alert stays firing, backing off per episode (1h, 2h, 4h... capped at 24h).'
+        ),
 })
 
 export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -1356,6 +1383,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyInvestigationRepositoryMax = 255
 
 export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -2595,6 +2623,32 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
+        ),
+    investigation_mode: zod
+        .enum(['notebook', 'posthog_code'])
+        .describe('* `notebook` - Notebook\n* `posthog_code` - PostHog Code')
+        .optional()
+        .describe(
+            "How firing alerts are investigated: 'notebook' (in-process agent, detector alerts only) or 'posthog_code' (sandboxed PostHog Code task; works for threshold and detector alerts).\n\n* `notebook` - Notebook\n* `posthog_code` - PostHog Code"
+        ),
+    investigation_repository: zod
+        .string()
+        .max(alertsPartialUpdateBodyInvestigationRepositoryMax)
+        .nullish()
+        .describe(
+            "Optional org/repo for the investigation's draft PR. Must be covered by the team's GitHub integration."
+        ),
+    investigation_context: zod
+        .string()
+        .nullish()
+        .describe(
+            'Owner guidance appended verbatim to the investigation prompt (skills to use, known failure patterns, runbook links).'
+        ),
+    investigation_rerun_on_continued_breach: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Experimental: re-run the investigation while the alert stays firing, backing off per episode (1h, 2h, 4h... capped at 24h).'
         ),
 })
 

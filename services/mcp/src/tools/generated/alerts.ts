@@ -68,6 +68,18 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.investigation_inconclusive_action !== undefined) {
             body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
         }
+        if (params.investigation_mode !== undefined) {
+            body['investigation_mode'] = params.investigation_mode
+        }
+        if (params.investigation_repository !== undefined) {
+            body['investigation_repository'] = params.investigation_repository
+        }
+        if (params.investigation_context !== undefined) {
+            body['investigation_context'] = params.investigation_context
+        }
+        if (params.investigation_rerun_on_continued_breach !== undefined) {
+            body['investigation_rerun_on_continued_breach'] = params.investigation_rerun_on_continued_breach
+        }
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
@@ -197,6 +209,18 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.investigation_inconclusive_action !== undefined) {
             body['investigation_inconclusive_action'] = params.investigation_inconclusive_action
+        }
+        if (params.investigation_mode !== undefined) {
+            body['investigation_mode'] = params.investigation_mode
+        }
+        if (params.investigation_repository !== undefined) {
+            body['investigation_repository'] = params.investigation_repository
+        }
+        if (params.investigation_context !== undefined) {
+            body['investigation_context'] = params.investigation_context
+        }
+        if (params.investigation_rerun_on_continued_breach !== undefined) {
+            body['investigation_rerun_on_continued_breach'] = params.investigation_rerun_on_continued_breach
         }
         const result = await context.api.request<Schemas.Alert>({
             method: 'PATCH',
