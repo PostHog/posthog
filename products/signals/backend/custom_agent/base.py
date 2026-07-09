@@ -559,10 +559,20 @@ Rules:
     def _initial_session_preamble(self) -> str:
         if self.repository:
             repository_context = (
-                f"Selected subject repository: `{self.repository}`. Use it as the main codebase for investigation."
+                f"Selected subject repository: `{self.repository}`. Use it as the main codebase for investigation — "
+                "but it's a starting point, not a boundary. PostHog spans many repositories (the `PostHog/posthog` "
+                "monorepo, SDK repos, docs, and more). If the evidence points at code in a different repository, "
+                "clone it and keep going: `gh repo clone <org>/<repo>` (or `git clone "
+                "https://github.com/<org>/<repo>.git`) works with the credentials already in this sandbox for any "
+                "repo the team's GitHub App can reach. Cloning a further repo is cheap and expected — do it the "
+                "moment a different repo becomes relevant, rather than forcing a conclusion onto this one."
             )
         else:
-            repository_context = "No subject repository for this run; do not assume any codebase context."
+            repository_context = (
+                "No subject repository was pre-selected for this run; do not assume any codebase context. If the "
+                "task turns out to involve a specific PostHog repository, clone it yourself (`gh repo clone "
+                "<org>/<repo>` or `git clone https://github.com/<org>/<repo>.git`) and investigate there."
+            )
         return f"""You are running as a custom PostHog Signals agent.
 
 ## Initial request
