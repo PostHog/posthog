@@ -2,6 +2,11 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -131,4 +136,15 @@ export const Area: Story = {
 
 export const AreaBreakdown: Story = {
     render: () => renderTrendsLineChart(trendsAreaBreakdownFixture),
+}
+
+// Full insight scene in edit mode — the only snapshot of the editor's populated breakdown section
+export const EditSceneBreakdown: Story = createInsightStory(trendsLineBreakdownFixture as any, 'edit')
+EditSceneBreakdown.decorators = [insightSceneMswDecorator]
+EditSceneBreakdown.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }

@@ -3,6 +3,11 @@ import { BindLogic } from 'kea'
 import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -134,4 +139,15 @@ export const GoalLine: Story = {
 export const Compare: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
     parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
+}
+
+// Full insight scene in edit mode — the funnel trends editor
+export const EditScene: Story = createInsightStory(funnelHistoricalTrendsFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas',
+    },
 }
