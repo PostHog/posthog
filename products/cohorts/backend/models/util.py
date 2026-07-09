@@ -166,9 +166,7 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
         try:
             save_fn()
         except Exception:
-            logger.warning(
-                "cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True
-            )
+            logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
 
 
 def run_cohort_query(
