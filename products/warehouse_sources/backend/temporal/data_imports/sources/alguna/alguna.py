@@ -45,7 +45,8 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
 def validate_credentials(api_key: str) -> bool:
     url = _build_url("/customers", {"limit": 1, "offset": 0, "sort": "created_at:asc"})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -87,7 +88,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ALGUNA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume.offset if resume is not None else 0
@@ -100,7 +101,9 @@ def get_rows(
             params["sort"] = config.sort
 
         data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-        items = data.get("data", [])
+        # Direct access: a 200 body without "data" means the response shape changed — fail the
+        # sync loudly instead of silently reporting 0 rows.
+        items = data["data"]
         if not items:
             break
 
