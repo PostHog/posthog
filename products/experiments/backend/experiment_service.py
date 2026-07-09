@@ -874,6 +874,13 @@ class ExperimentService:
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
+        # Flag config belongs on feature_flag_config; parameters must stay clean (migration 0026).
+        if parameters and any(key in parameters for key in self.FEATURE_FLAG_CONFIG_KEYS):
+            raise ValueError(
+                "Flag config is not accepted via parameters; pass feature_flag_config "
+                "({filters, ensure_experience_continuity})."
+            )
+
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
             experiment_name=name,
@@ -3333,8 +3340,9 @@ class ExperimentService:
             feature_flag_key = source_experiment.feature_flag.key
 
         # `parameters` carries only the source's experiment-own keys — flag config lives on the
-        # flag and is passed via feature_flag_config below.
-        parameters = deepcopy(source_experiment.parameters) or {}
+        # flag and is passed via feature_flag_config below. Strip any flag-config keys a pre-0026
+        # source column still holds so the clean copy does not trip create_experiment's guard.
+        parameters = self._strip_feature_flag_config(deepcopy(source_experiment.parameters)) or {}
 
         # Variants, payloads, group aggregation, and experience continuity come from the source
         # experiment's feature flag (the source of truth), in the flag's own write shape.

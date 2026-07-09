@@ -173,6 +173,27 @@ class TestExperimentService(APIBaseTest):
         assert variants[1]["key"] == "test"
         assert flag.active is False  # draft → flag inactive
 
+    @parameterized.expand(
+        [
+            ("feature_flag_variants", {"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]}),
+            ("ensure_experience_continuity", {"ensure_experience_continuity": True}),
+        ]
+    )
+    def test_create_experiment_rejects_flag_config_in_parameters(self, _name, parameters):
+        # Flag config must arrive via feature_flag_config; the deprecated `parameters` keys are rejected
+        # so no caller can revive the derive path or leak flag config into the parameters column.
+        service = self._service()
+
+        with pytest.raises(ValueError, match="not accepted via parameters"):
+            service.create_experiment(
+                name="Rejects Flag Config",
+                feature_flag_key="rejects-flag-config",
+                parameters=parameters,
+            )
+
+        assert not Experiment.objects.filter(name="Rejects Flag Config").exists()
+        assert not FeatureFlag.objects.filter(key="rejects-flag-config", team_id=self.team.id).exists()
+
     def test_create_launched_experiment_activates_flag(self):
         from django.utils import timezone
 

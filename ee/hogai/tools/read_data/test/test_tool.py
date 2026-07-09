@@ -1428,12 +1428,6 @@ class TestReadDataTool(BaseTest):
             name="Test Experiment",
             description="An A/B test experiment",
             feature_flag=flag,
-            parameters={
-                "feature_flag_variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "test", "rollout_percentage": 50},
-                ]
-            },
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
