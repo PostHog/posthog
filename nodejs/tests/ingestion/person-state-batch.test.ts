@@ -16,6 +16,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonMessage } from '~/common/persons/person-message'
 import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import { DependencyUnavailableError } from '~/common/utils/db/error'
@@ -2832,6 +2833,63 @@ describe('PersonState.processEvent()', () => {
             })
             expect(personRepository.updatePerson).not.toHaveBeenCalled()
             expect(kafkaProducer.produce).not.toHaveBeenCalled()
+        })
+
+        it(`merge is skipped with an ingestion warning when the merged person write violates the size limit`, async () => {
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            const produceSpy = jest.spyOn(kafkaProducer, 'produce')
+
+            // Simulate the check_properties_size violation surfacing from the person write
+            // inside the merge transaction
+            const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            jest.spyOn(personsStore, 'updatePersonForMerge').mockRejectedValue(
+                new PersonPropertiesSizeViolationError(
+                    'Person properties update would exceed size limit',
+                    teamId,
+                    first.id
+                )
+            )
+
+            const mergeService: PersonMergeService = personMergeService(
+                {},
+                hub,
+                personRepository,
+                true,
+                timestamp,
+                mainTeam,
+                createDefaultSyncMergeMode(),
+                undefined,
+                personsStore
+            )
+
+            const result = await mergeService.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: firstUserDistinctId,
+                otherPerson: second,
+                otherPersonDistinctId: secondUserDistinctId,
+            })
+
+            // The merge is abandoned but the event keeps processing with the target person
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Merge should have been skipped gracefully')
+            }
+            expect(result.person).toMatchObject({ uuid: firstUserUuid })
+
+            // The transaction rolled back: both persons still exist
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(2)
+
+            const warningCalls = produceSpy.mock.calls.filter((call) => call[0].topic === KAFKA_INGESTION_WARNINGS)
+            expect(warningCalls).toHaveLength(1)
+            const payload = parseJSON(String(warningCalls[0][0].value))
+            expect(payload.type).toBe('person_properties_size_violation')
         })
 
         it(`postgres and clickhouse get updated`, async () => {

@@ -2069,7 +2069,56 @@ describe('PostgresPersonRepository', () => {
         })
 
         describe('updatePerson with oversized properties', () => {
-            it('should trim existing oversized person properties and update successfully', async () => {
+            it.each([
+                ['inside a transaction', true],
+                ['outside a transaction', false],
+            ])('rejects the violation %s without attempting remediation', async (_, inTransaction) => {
+                const team = await getFirstTeam(hub.postgres)
+                const person = await createTestPerson(team.id, `test-oversized-${inTransaction}`, { name: 'John' })
+
+                // Remediation reads the current size via personPropertiesSize, which queries the pool
+                // (PostgresUse.PERSONS_READ). Inside a transaction that would acquire a second
+                // connection while the transaction still holds one — a deadlock hazard on a saturated
+                // pool — so updatePerson must throw immediately and never remediate on its own.
+                const personPropertiesSizeSpy = jest.spyOn(oversizedRepository, 'personPropertiesSize')
+
+                const originalQuery = postgres.query.bind(postgres)
+                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
+                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
+                        const error = new Error('Check constraint violation')
+                        ;(error as any).code = '23514'
+                        ;(error as any).constraint = 'check_properties_size'
+                        throw error
+                    }
+                    return originalQuery(use, query, values, tag)
+                })
+
+                const oversizedUpdate = { properties: { description: 'x'.repeat(200) } }
+                const updateFields = createPersonUpdateFields(person, oversizedUpdate)
+
+                await expect(
+                    inTransaction
+                        ? oversizedRepository.inTransaction('test-in-tx-oversized', (tx) =>
+                              tx.updatePerson(person, updateFields)
+                          )
+                        : oversizedRepository.updatePerson(person, updateFields)
+                ).rejects.toThrow(PersonPropertiesSizeViolationError)
+
+                expect(personPropertiesSizeSpy).not.toHaveBeenCalled()
+                if (inTransaction) {
+                    const acquiredPoolConnection = mockQuery.mock.calls.some(
+                        ([use]) => use === PostgresUse.PERSONS_READ
+                    )
+                    expect(acquiredPoolConnection).toBe(false)
+                }
+
+                mockQuery.mockRestore()
+                personPropertiesSizeSpy.mockRestore()
+            })
+        })
+
+        describe('remediateOversizedPersonProperties', () => {
+            it('trims the existing oversized record and applies the update', async () => {
                 const team = await getFirstTeam(hub.postgres)
 
                 const normalPerson = await createTestPerson(team.id, 'test-oversized-update', {
@@ -2089,37 +2138,27 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                const [updatedPerson, messages] = await oversizedRepository.updatePerson(
+                const [updatedPerson, messages] = await oversizedRepository.remediateOversizedPersonProperties(
                     normalPerson,
                     createPersonUpdateFields(normalPerson, oversizedUpdate)
                 )
 
-                expect(updatedPerson).toBeDefined()
                 expect(updatedPerson.version).toBe(normalPerson.version + 1)
                 expect(messages).toHaveLength(1)
-                expect(Object.keys(updatedPerson.properties).length).toBeLessThanOrEqual(3)
+                // The trimmed existing properties are written; the trimmable 'description' is dropped
+                // and the update's own properties are discarded.
+                expect(updatedPerson.properties).toEqual({ name: 'John' })
 
                 mockPersonPropertiesSize.mockRestore()
             })
 
-            it('should reject update when current person is under limit but update would exceed it', async () => {
+            it('rejects when the existing record is within limits (the update itself violates)', async () => {
                 const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-normal-person', { name: 'John' })
 
                 const mockPersonPropertiesSize = jest
                     .spyOn(oversizedRepository, 'personPropertiesSize')
                     .mockResolvedValue(30)
-
-                const originalQuery = postgres.query.bind(postgres)
-                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
-                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
-                        const error = new Error('Check constraint violation')
-                        ;(error as any).code = '23514'
-                        ;(error as any).constraint = 'check_properties_size'
-                        throw error
-                    }
-                    return originalQuery(use, query, values, tag)
-                })
 
                 const oversizedUpdate = {
                     properties: {
@@ -2128,59 +2167,16 @@ describe('PostgresPersonRepository', () => {
                 }
 
                 await expect(
-                    oversizedRepository.updatePerson(
-                        normalPerson,
-                        createPersonUpdateFields(normalPerson, oversizedUpdate)
-                    )
-                ).rejects.toThrow(PersonPropertiesSizeViolationError)
-                await expect(
-                    oversizedRepository.updatePerson(
+                    oversizedRepository.remediateOversizedPersonProperties(
                         normalPerson,
                         createPersonUpdateFields(normalPerson, oversizedUpdate)
                     )
                 ).rejects.toThrow('Person properties update would exceed size limit')
 
                 mockPersonPropertiesSize.mockRestore()
-                mockQuery.mockRestore()
             })
 
-            it('rejects an in-transaction size violation without acquiring a pool connection', async () => {
-                const team = await getFirstTeam(hub.postgres)
-                const person = await createTestPerson(team.id, 'test-in-tx-oversized', { name: 'John' })
-
-                // Remediation reads the current size via personPropertiesSize, which queries the pool
-                // (PostgresUse.PERSONS_READ) and would acquire a second connection while the transaction
-                // still holds one — a deadlock hazard on a saturated pool. It must never run inside a tx.
-                const personPropertiesSizeSpy = jest.spyOn(oversizedRepository, 'personPropertiesSize')
-
-                const originalQuery = postgres.query.bind(postgres)
-                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
-                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
-                        const error = new Error('Check constraint violation')
-                        ;(error as any).code = '23514'
-                        ;(error as any).constraint = 'check_properties_size'
-                        throw error
-                    }
-                    return originalQuery(use, query, values, tag)
-                })
-
-                const oversizedUpdate = { properties: { description: 'x'.repeat(200) } }
-
-                await expect(
-                    oversizedRepository.inTransaction('test-in-tx-oversized', (tx) =>
-                        tx.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
-                    )
-                ).rejects.toThrow(PersonPropertiesSizeViolationError)
-
-                expect(personPropertiesSizeSpy).not.toHaveBeenCalled()
-                const acquiredPoolConnection = mockQuery.mock.calls.some(([use]) => use === PostgresUse.PERSONS_READ)
-                expect(acquiredPoolConnection).toBe(false)
-
-                mockQuery.mockRestore()
-                personPropertiesSizeSpy.mockRestore()
-            })
-
-            it('should fail gracefully when trimming fails', async () => {
+            it('should fail gracefully when the trimmed retry still violates the constraint', async () => {
                 const team = await getFirstTeam(hub.postgres)
                 const normalPerson = await createTestPerson(team.id, 'test-trim-failure', {
                     name: 'John',
@@ -2192,18 +2188,12 @@ describe('PostgresPersonRepository', () => {
                     .mockResolvedValue(60)
 
                 const originalQuery = postgres.query.bind(postgres)
-                let updateCallCount = 0
                 const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
                     if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
-                        updateCallCount++
-                        if (updateCallCount === 1) {
-                            const error = new Error('Check constraint violation')
-                            ;(error as any).code = '23514'
-                            ;(error as any).constraint = 'check_properties_size'
-                            throw error
-                        } else if (updateCallCount === 2) {
-                            throw new Error('Trimming update failed')
-                        }
+                        const error = new Error('Check constraint violation')
+                        ;(error as any).code = '23514'
+                        ;(error as any).constraint = 'check_properties_size'
+                        throw error
                     }
                     return originalQuery(use, query, values, tag)
                 })
@@ -2217,90 +2207,11 @@ describe('PostgresPersonRepository', () => {
                 }
 
                 await expect(
-                    oversizedRepository.updatePerson(
-                        normalPerson,
-                        createPersonUpdateFields(normalPerson, oversizedUpdate)
-                    )
-                ).rejects.toThrow(PersonPropertiesSizeViolationError)
-
-                updateCallCount = 0
-                await expect(
-                    oversizedRepository.updatePerson(
+                    oversizedRepository.remediateOversizedPersonProperties(
                         normalPerson,
                         createPersonUpdateFields(normalPerson, oversizedUpdate)
                     )
                 ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
-
-                mockPersonPropertiesSize.mockRestore()
-                mockQuery.mockRestore()
-            })
-
-            it('should fail when protected properties alone exceed size limit and cannot be trimmed', async () => {
-                const team = await getFirstTeam(hub.postgres)
-
-                const largeProtectedProperties = {
-                    name: 'John Doe with a very long name that takes up significant space',
-                    email: 'john.doe.with.an.extremely.long.email.address.that.should.be.protected@example.com',
-                    utm_source: 'x'.repeat(30),
-                    utm_medium: 'x'.repeat(30),
-                    utm_campaign: 'x'.repeat(30),
-                    utm_content: 'x'.repeat(30),
-                    utm_term: 'x'.repeat(30),
-                    $browser: 'Chrome with very long user agent string information',
-                    $browser_version: 'Version 120.0.0.0 with extended metadata',
-                    $os: 'Operating System with detailed version information',
-                    $device_type: 'Desktop computer with specific hardware details',
-                    $current_url:
-                        'https://example.com/very/long/path/with/many/segments/and/parameters?param1=value1&param2=value2',
-                    $referring_domain: 'referring-domain-with-long-name.example.com',
-                    $referrer: 'https://referring-site.com/with/very/long/path/that/contains/many/details',
-                    description: 'This is a trimmable property',
-                    customData: 'This can be removed',
-                }
-
-                const oversizedPerson = await createTestPerson(
-                    team.id,
-                    'test-protected-oversized',
-                    largeProtectedProperties
-                )
-
-                const mockPersonPropertiesSize = jest
-                    .spyOn(oversizedRepository, 'personPropertiesSize')
-                    .mockResolvedValue(60)
-
-                const originalQuery = postgres.query.bind(postgres)
-                let updateCallCount = 0
-                const mockQuery = jest.spyOn(postgres, 'query').mockImplementation(async (use, query, values, tag) => {
-                    if (typeof query === 'string' && query.includes('UPDATE posthog_person SET')) {
-                        updateCallCount++
-
-                        const error = new Error('Check constraint violation')
-                        ;(error as any).code = '23514'
-                        ;(error as any).constraint = 'check_properties_size'
-                        throw error
-                    }
-                    return originalQuery(use, query, values, tag)
-                })
-
-                const update = {
-                    properties: {
-                        $app_name: 'Application name with detailed information',
-                        $app_version: 'Version 1.2.3 with build metadata',
-                    },
-                }
-
-                await expect(
-                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
-                ).rejects.toThrow(PersonPropertiesSizeViolationError)
-
-                expect(updateCallCount).toBe(2)
-
-                updateCallCount = 0
-                await expect(
-                    oversizedRepository.updatePerson(oversizedPerson, createPersonUpdateFields(oversizedPerson, update))
-                ).rejects.toThrow('Person properties update failed after trying to trim oversized properties')
-
-                expect(updateCallCount).toBe(2)
 
                 mockPersonPropertiesSize.mockRestore()
                 mockQuery.mockRestore()
@@ -2457,17 +2368,18 @@ describe('PostgresPersonRepository', () => {
                     },
                 }
 
-                try {
-                    await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
-                    expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch {}
+                await oversizedRepository.remediateOversizedPersonProperties(
+                    person,
+                    createPersonUpdateFields(person, oversizedUpdate)
+                )
+                expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc
             })
         })
 
-        describe('handleOversizedPersonProperties and related methods', () => {
+        describe('oversized properties helpers', () => {
             it('should test trimPropertiesToFitSize respects protected properties', () => {
                 const properties = {
                     email: 'user@example.com',

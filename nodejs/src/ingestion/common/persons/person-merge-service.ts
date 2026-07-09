@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { personMergeFailureCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -438,6 +439,31 @@ export class PersonMergeService {
             return mergeSuccess(mergeInto, Promise.resolve(), true)
         }
 
+        if (result.error instanceof PersonPropertiesSizeViolationError) {
+            // The combined properties of the two persons exceed the size limit. We skip the merge
+            // (the transaction rolled back) and keep processing the event with the target person.
+            // No remediation is attempted here: the violating value is the merged blob itself, so
+            // trimming the target row wouldn't make a retry with the same properties succeed.
+            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                type: 'person_properties_size_violation',
+                details: {
+                    sourcePersonDistinctId: otherPersonDistinctId,
+                    targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
+                    eventUuid: this.context.event.uuid,
+                    personId: mergeInto.uuid,
+                    otherPersonId: otherPerson.uuid,
+                    message: 'Merged person properties would exceed size limit, merge was skipped',
+                },
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
+            logger.warn('🤔', 'refused to merge persons, merged properties would exceed size limit', {
+                team_id: this.context.team.id,
+            })
+            return mergeSuccess(mergeInto, Promise.resolve(), true)
+        }
+
         // For other errors (PersonMergeLimitExceededError, etc.), return the error result
         return result
     }
@@ -543,6 +569,11 @@ export class PersonMergeService {
             } else if (error instanceof TargetPersonNotFoundError) {
                 return mergeError(error)
             } else if (error instanceof PersonMergeLimitExceededError) {
+                return mergeError(error)
+            } else if (error instanceof PersonPropertiesSizeViolationError) {
+                // The merged properties blob violates the size constraint. The transaction has
+                // rolled back; retrying with the same properties would fail identically, so this
+                // is surfaced as a non-retryable merge failure and handled in mergePeople.
                 return mergeError(error)
             } else if (error.code === '23503') {
                 // Foreign key constraint violation when attempting to delete the source person.

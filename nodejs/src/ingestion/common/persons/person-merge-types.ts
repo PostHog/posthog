@@ -1,3 +1,4 @@
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { InternalPerson } from '~/types'
 
 /**
@@ -90,7 +91,7 @@ export type PersonMergeResult =
       }
     | {
           success: false
-          error: PersonMergeError
+          error: PersonMergeError | PersonPropertiesSizeViolationError
       }
 
 /**
@@ -129,7 +130,7 @@ export function mergeSuccess(
 /**
  * Helper function to create a merge error result
  */
-export function mergeError(error: PersonMergeError): PersonMergeResult {
+export function mergeError(error: PersonMergeError | PersonPropertiesSizeViolationError): PersonMergeResult {
     return {
         success: false,
         error,

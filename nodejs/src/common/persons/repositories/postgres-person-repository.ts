@@ -74,34 +74,27 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
     }
 
-    // Only safe to call outside a transaction: it reads person size from the pool and retries the
-    // update, which cannot work on an aborted transaction connection (see updatePerson's catch).
-    private async handleOversizedPersonProperties(
+    /**
+     * Remediate a person row whose properties violate the size constraint: trim the existing
+     * properties down to the configured target and apply `update` with its `properties` replaced
+     * by the trimmed set (the update's own properties are discarded — data is lost either way).
+     *
+     * MUST NOT be called while holding a transaction. It runs its own queries (size check on
+     * PERSONS_READ, update on PERSONS_WRITE), so calling it with a transaction open acquires a
+     * second connection while the first is still held — a deadlock hazard on a shared pool with
+     * no acquire timeout. And a transaction that just hit the 23514 violation is aborted anyway:
+     * every statement on it fails with 25P02 until rollback.
+     *
+     * Throws PersonPropertiesSizeViolationError if the existing row is already within limits (the
+     * incoming update itself violates — nothing to trim) or if the trimmed retry still fails.
+     */
+    async remediateOversizedPersonProperties(
         person: InternalPerson,
         update: PersonUpdateFields
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
-        if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
-            try {
-                personPropertiesSizeViolationCounter.inc({
-                    violation_type: 'existing_record_violates_limit',
-                })
-                return await this.handleExistingOversizedRecord(person, update)
-            } catch {
-                logger.warn('Failed to handle previously oversized person record', {
-                    team_id: person.team_id,
-                    person_id: person.id,
-                    violation_type: 'existing_record_violates_limit',
-                })
-
-                throw new PersonPropertiesSizeViolationError(
-                    `Person properties update failed after trying to trim oversized properties`,
-                    person.team_id,
-                    person.id
-                )
-            }
-        } else {
+        if (currentSize < this.options.personPropertiesDbConstraintLimitBytes) {
             // current record is within limits, reject the write
             personPropertiesSizeViolationCounter.inc({
                 violation_type: 'attempt_to_violate_limit',
@@ -119,12 +112,11 @@ export class PostgresPersonRepository
                 person.id
             )
         }
-    }
 
-    private async handleExistingOversizedRecord(
-        person: InternalPerson,
-        update: PersonUpdateFields
-    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
+        personPropertiesSizeViolationCounter.inc({
+            violation_type: 'existing_record_violates_limit',
+        })
+
         try {
             const trimmedProperties = this.trimPropertiesToFitSize(
                 // NOTE: we exclude the properties in the update and just try to trim the existing properties for simplicity
@@ -152,7 +144,12 @@ export class PostgresPersonRepository
                 person_id: person.id,
                 error,
             })
-            throw error
+
+            throw new PersonPropertiesSizeViolationError(
+                `Person properties update failed after trying to trim oversized properties`,
+                person.team_id,
+                person.id
+            )
         }
     }
 
@@ -1020,27 +1017,22 @@ export class PostgresPersonRepository
 
             return [updatedPerson, [kafkaMessage], versionDisparity > 0]
         } catch (error) {
-            if (this.isPropertiesSizeConstraintViolation(error) && tag !== 'oversized_properties_remediation') {
-                if (tx) {
-                    // We can't remediate inside a transaction. The 23514 violation has already aborted
-                    // the transaction, so every subsequent statement on this client fails with 25P02
-                    // until rollback (we use no savepoints). On top of that, the remediation path's
-                    // size check runs against the pool (PostgresUse.PERSONS_READ), which would acquire
-                    // a second connection while this one still holds the transaction. On a shared pool
-                    // with no acquire timeout, enough concurrent merges taking that path deadlock the
-                    // pool permanently. The merge callers already handle this error, so surface it.
-                    personPropertiesSizeViolationCounter.inc({
-                        violation_type: 'attempt_to_violate_limit_in_transaction',
-                    })
+            if (this.isPropertiesSizeConstraintViolation(error)) {
+                // No remediation here: this may be running on a transaction connection, which the
+                // 23514 violation has already aborted (every statement fails with 25P02 until
+                // rollback — we use no savepoints), and remediation reads from the pool, which
+                // would acquire a second connection while this one is still held — a deadlock
+                // hazard on a shared pool with no acquire timeout. Callers that can remediate do
+                // so via remediateOversizedPersonProperties, outside any transaction.
+                personPropertiesSizeViolationCounter.inc({
+                    violation_type: 'update_person_size_violation',
+                })
 
-                    throw new PersonPropertiesSizeViolationError(
-                        `Person properties update would exceed size limit`,
-                        person.team_id,
-                        person.id
-                    )
-                }
-
-                return await this.handleOversizedPersonProperties(person, update)
+                throw new PersonPropertiesSizeViolationError(
+                    `Person properties update would exceed size limit`,
+                    person.team_id,
+                    person.id
+                )
             }
 
             // Re-throw other errors

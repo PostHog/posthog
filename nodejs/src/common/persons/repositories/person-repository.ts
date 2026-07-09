@@ -116,6 +116,17 @@ export interface PersonRepository {
         tag?: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
+    /**
+     * Recover from a PersonPropertiesSizeViolationError thrown by updatePerson by trimming the
+     * existing oversized row and re-applying the update. Must not be called while holding a
+     * transaction — it acquires its own connections. Throws PersonPropertiesSizeViolationError
+     * when remediation is impossible (existing row within limits) or the trimmed retry fails.
+     */
+    remediateOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     /**

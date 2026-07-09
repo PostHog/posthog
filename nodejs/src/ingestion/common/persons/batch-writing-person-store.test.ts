@@ -8,6 +8,7 @@ import {
     personPropertyKeyUpdateCounter,
 } from '~/common/persons/metrics'
 import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -128,6 +129,7 @@ describe('BatchWritingPersonStore', () => {
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
+            remediateOversizedPersonProperties: jest.fn().mockResolvedValue([person, [], false]),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
             updatePersonsBatch: jest.fn().mockImplementation((updates) => {
                 // Return a map with success for each update
@@ -809,6 +811,57 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
                 expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+            })
+
+            it('should remediate oversized properties and succeed when the individual update hits the size limit', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                })
+
+                mockRepo.updatePerson = jest
+                    .fn()
+                    .mockRejectedValue(new PersonPropertiesSizeViolationError('too big', teamId, person.id))
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await personStore.flush()
+
+                expect(mockRepo.updatePerson).toHaveBeenCalledTimes(1)
+                expect(mockRepo.remediateOversizedPersonProperties).toHaveBeenCalledTimes(1)
+                expect(emitIngestionWarning).not.toHaveBeenCalled()
+            })
+
+            it('should emit an ingestion warning and continue the flush when remediation also fails', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                })
+
+                const violation = new PersonPropertiesSizeViolationError('too big', teamId, person.id)
+                mockRepo.updatePerson = jest.fn().mockRejectedValue(violation)
+                mockRepo.remediateOversizedPersonProperties = jest.fn().mockRejectedValue(violation)
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(
+                    person,
+                    { new_value: 'new_value' },
+                    [],
+                    {},
+                    'test'
+                )
+                await expect(personStore.flush()).resolves.toEqual([])
+
+                expect(mockRepo.remediateOversizedPersonProperties).toHaveBeenCalledTimes(1)
+                expect(emitIngestionWarning).toHaveBeenCalledWith(
+                    expect.anything(),
+                    teamId,
+                    expect.objectContaining({ type: 'person_properties_size_violation' })
+                )
             })
 
             it('should retry individual updates on error when useBatchUpdates is false', async () => {

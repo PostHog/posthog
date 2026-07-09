@@ -1887,7 +1887,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
         const start = performance.now()
 
-        const [_, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
+        let messages: PersonMessage[]
+        try {
+            ;[, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
+        } catch (error) {
+            if (!(error instanceof PersonPropertiesSizeViolationError)) {
+                throw error
+            }
+            // We're not inside a transaction here, so it's safe to remediate: trim the oversized
+            // row and retry the update once. If the row can't be remediated (it's the incoming
+            // update that violates, or the trimmed retry fails), this throws the violation again
+            // and handleIndividualUpdateError emits the ingestion warning.
+            ;[, messages] = await this.personRepository.remediateOversizedPersonProperties(person, updateFields)
+        }
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
 

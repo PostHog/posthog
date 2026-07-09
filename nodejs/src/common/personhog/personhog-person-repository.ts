@@ -189,6 +189,13 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.updatePerson(person, update, tag)
     }
 
+    remediateOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
+        return this.postgres.remediateOversizedPersonProperties(person, update)
+    }
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]> {
         return this.postgres.updatePersonAssertVersion(personUpdate)
     }
