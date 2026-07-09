@@ -116,3 +116,20 @@ def _trim_and_tag(identifier: str, tag: str, max_length: int) -> str:
     )
     assert len(trimmed) == max_length
     return trimmed
+
+
+def duckgres_sink_table_name(source_type: str, prefix: str | None, normalized_name: str) -> str:
+    """The stable duckgres table name shared by data-import writers and readers.
+
+    The copy workflow and read bindings used this normalization before the v3
+    sink existed. Keeping that deployed naming canonical lets the sink take
+    ownership without switching readers to a table that has not been written
+    yet during a rolling deployment.
+    """
+    raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
+    cleaned = re.sub(r"[^0-9a-zA-Z]+", "_", raw_name.strip()).strip("_").lower()
+    if not cleaned:
+        cleaned = "data_import"
+    if cleaned[0].isdigit():
+        cleaned = f"data_import_{cleaned}"
+    return cleaned[:63]

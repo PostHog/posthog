@@ -19,7 +19,10 @@ from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import (
+    NamingConvention,
+    duckgres_sink_table_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import batch_kind
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     PendingBatch,
@@ -439,14 +442,7 @@ def _duckgres_schema_name(team_id: int) -> str:
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
-    source_type = schema.source.source_type
-    normalized_name = schema.normalized_name
-    raw_name = (
-        f"{source_type}_{schema.source.prefix}_{normalized_name}"
-        if schema.source.prefix
-        else f"{source_type}_{normalized_name}"
-    )
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    return duckgres_sink_table_name(schema.source.source_type, schema.source.prefix, schema.normalized_name)
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:

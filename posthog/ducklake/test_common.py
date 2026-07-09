@@ -420,3 +420,27 @@ class TestDuckgresDataImportsSchema:
         self._server_team(team, table_suffix="a;drop")
         with pytest.raises(ValueError):
             duckgres_data_imports_schema(team.id)
+
+
+class TestDuckgresDataImportsTableName:
+    def _schema(self, source_type: str, name: str, prefix: str | None = None):
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+        return ExternalDataSchema(name=name, source=ExternalDataSource(source_type=source_type, prefix=prefix))
+
+    def test_reader_names_preserve_existing_copy_tables(self):
+        # Readers must retain the copy-era names while the sink takes ownership;
+        # switching names before the first sink write makes existing tables
+        # disappear for users during deployment.
+        from posthog.ducklake.common import duckgres_data_imports_table_name
+
+        assert duckgres_data_imports_table_name(self._schema("MySQL", "orders")) == "mysql_orders"
+        assert duckgres_data_imports_table_name(self._schema("MongoDB", "users")) == "mongodb_users"
+        assert duckgres_data_imports_table_name(self._schema("BigQuery", "events")) == "bigquery_events"
+        assert duckgres_data_imports_table_name(self._schema("Stripe", "charges")) == "stripe_charges"
+
+    def test_long_names_preserve_existing_truncation(self):
+        from posthog.ducklake.common import duckgres_data_imports_table_name
+
+        name = duckgres_data_imports_table_name(self._schema("Postgres", "a" * 90))
+        assert name == f"postgres_{'a' * 54}"
