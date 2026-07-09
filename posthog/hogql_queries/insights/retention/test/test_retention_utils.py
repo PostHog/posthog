@@ -24,6 +24,12 @@ class TestBreakdownExtractExpr(SimpleTestCase):
         expr = breakdown_extract_expr("industry", "group", group_type_index=cast(int, 1.0))
         self.assertEqual(_chain(expr), ["group_1", "properties", "industry"])
 
+    def test_group_breakdown_virtual_property_skips_properties_key(self) -> None:
+        # Virtual group properties are expression fields on the groups table, so the
+        # chain must be `group_{index}.$virt_x`, not `group_{index}.properties.$virt_x`.
+        expr = breakdown_extract_expr("$virt_revenue", "group", group_type_index=0)
+        self.assertEqual(_chain(expr), ["group_0", "$virt_revenue"])
+
     def test_group_breakdown_without_index_raises_clear_error(self) -> None:
         # A missing index must fail loudly rather than emit an unresolvable `group_None` field.
         with self.assertRaises(ValueError):
