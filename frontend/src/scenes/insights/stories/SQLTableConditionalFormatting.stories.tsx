@@ -1,48 +1,107 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { DataTableVisualization } from '~/queries/nodes/DataVisualization/DataVisualization'
+import {
+    ConditionalFormattingRule,
+    DataVisualizationNode,
+    HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
-import { mswDecorator } from '~/mocks/browser'
+const PALETTE: { hex: string; name: string }[] = [
+    { hex: '#FFADAD', name: 'Red (default)' },
+    { hex: '#E8A598', name: 'Salmon' },
+    { hex: '#FFD6A5', name: 'Orange' },
+    { hex: '#FFCFD2', name: 'Pink' },
+    { hex: '#FDFFB6', name: 'Yellow' },
+    { hex: '#C1FBA4', name: 'Green' },
+    { hex: '#9BF6FF', name: 'Cyan' },
+    { hex: '#A0C4FF', name: 'Blue' },
+    { hex: '#BDB2FF', name: 'Purple' },
+    { hex: '#FFC6FF', name: 'Magenta' },
+]
 
-import __sqlTableConditionalFormatting from '../../../mocks/fixtures/api/projects/team_id/insights/sqlTableConditionalFormatting.json'
+// Compiled Hog for the "equals" template (`return value == input`): reads the `value` and `input`
+// globals, compares them (EQ = 11) and returns (RETURN = 38).
+const EQUALS_BYTECODE: (string | number)[] = ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38]
 
-type Story = StoryObj<{}>
-const meta: Meta = {
+function equalsRule(columnName: string, hex: string, colorMode: 'light' | 'dark'): ConditionalFormattingRule {
+    return {
+        id: `${colorMode}-${hex}`,
+        templateId: 'equals',
+        columnName,
+        input: hex,
+        color: hex,
+        colorMode,
+        bytecode: EQUALS_BYTECODE,
+    }
+}
+
+// One rule per default palette color, for both the "light" and "dark" columns, so every color is
+// exercised as a light-mode-saved rule and a dark-mode-saved rule.
+const conditionalFormatting: ConditionalFormattingRule[] = PALETTE.flatMap(({ hex }) => [
+    equalsRule('light', hex, 'light'),
+    equalsRule('dark', hex, 'dark'),
+])
+
+const query: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT color, hex AS light, hex AS dark FROM palette',
+    },
+    display: ChartDisplayType.ActionsTable,
+    tableSettings: {
+        columns: [
+            { column: 'color' },
+            { column: 'light', settings: { display: { label: 'Light mode' } } },
+            { column: 'dark', settings: { display: { label: 'Dark mode' } } },
+        ],
+        conditionalFormatting,
+    },
+}
+
+// Each row shows a color's hex in both the light and dark columns, so the cell text sits on its own
+// color and its legibility is obvious.
+const cachedResults: HogQLQueryResponse<string[][]> = {
+    results: PALETTE.map(({ hex, name }) => [name, hex, hex]),
+    columns: ['color', 'light', 'dark'],
+    types: [
+        ['color', 'String'],
+        ['light', 'String'],
+        ['dark', 'String'],
+    ],
+}
+
+type Story = StoryObj<typeof DataTableVisualization>
+const meta: Meta<typeof DataTableVisualization> = {
     title: 'Scenes-App/Insights/SQLTableConditionalFormatting',
+    component: DataTableVisualization,
     parameters: {
-        layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium'],
-            viewport: {
-                width: 1300,
-                height: 720,
-            },
+            waitForSelector: '.DataVisualizationTable',
         },
-        viewMode: 'story',
-        mockDate: '2022-03-11',
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/groups_types': [],
-            },
-        }),
-    ],
 }
 
 export default meta
 
-// Table with a conditional-formatting rule for every default palette color, once as a light-mode
-// rule and once as a dark-mode rule (the "light mode" and "dark mode" columns). Each cell shows its
-// own hex on its own background, so the text must stay legible on every color. Storybook snapshots
-// both light and dark themes automatically, giving us the light and dark rendering of each color.
-/* eslint-disable @typescript-eslint/no-var-requires */
-export const SQLTableConditionalFormatting: Story = createInsightStory(__sqlTableConditionalFormatting as any)
-SQLTableConditionalFormatting.parameters = {
-    ...meta.parameters,
-    testOptions: {
-        ...meta.parameters?.testOptions,
-        waitForSelector: '.DataVisualizationTable',
-    },
+// Renders just the table (not the whole insight scene). Storybook snapshots both light and dark
+// themes automatically, so together they show each default color rendered in both modes with
+// readable text.
+export const ConditionalFormatting: Story = {
+    render: () => (
+        <div className="p-4">
+            <DataTableVisualization
+                uniqueKey="conditional-formatting"
+                query={query}
+                setQuery={() => {}}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        </div>
+    ),
 }
-/* eslint-enable @typescript-eslint/no-var-requires */
