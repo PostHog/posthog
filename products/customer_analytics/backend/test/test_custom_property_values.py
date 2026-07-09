@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -285,7 +285,7 @@ class TestListCustomPropertyValueSuggestions(BaseTest):
             value=value,
         )
 
-    def _suggestions(self, definition_id: object, search: str | None = None) -> list[str]:
+    def _suggestions(self, definition_id: str | UUID, search: str | None = None) -> list[str]:
         return list_custom_property_value_suggestions(team_id=self.team.id, definition_id=definition_id, search=search)
 
     def test_select_returns_option_labels_filtered_by_search(self):
