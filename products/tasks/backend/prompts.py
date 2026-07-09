@@ -5,6 +5,10 @@ Shell efficiency: optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have."""
 
+# Sentinel swapped for the run's server-generated head branch by build_wizard_pr_agent_prompt.
+# A .replace() sentinel (not str.format) because the prompt body is full of literal braces.
+WIZARD_HEAD_BRANCH_PLACEHOLDER = "<wizard-head-branch>"
+
 WIZARD_PR_AGENT_PROMPT = f"""
 # Context
 
@@ -58,9 +62,9 @@ are actually in the repository.
 
 ## Step 2 - Commit the wizard's changes to a new branch
 
-1. Create a branch named `posthog/instrumentation-<random-short-sha>`, where
-   `<random-short-sha>` is a random 6-character hex string you generate (NOT the HEAD
-   commit SHA). Its only purpose is to keep this branch from clashing with an existing branch.
+1. Create a branch named exactly `{WIZARD_HEAD_BRANCH_PLACEHOLDER}`. This name was
+   pre-generated for this run and PostHog uses it to link the pull request back to the
+   setup progress — do NOT choose a different branch name.
 2. Look at `git log` to learn this repository's commit message convention.
 3. Commit the wizard's changes in that style; the message should resemble the concept of
    "Add PostHog to codebase". For example, in a repo using conventional commits:
@@ -72,11 +76,11 @@ are actually in the repository.
 4. Do NOT commit `posthog-setup-report.md` or `.posthog-events.json` - they are local reference
    only. Leave them untracked or exclude them from staging.
 
-**Checkpoint:** the commit exists on `posthog/instrumentation-<random-short-sha>` and
+**Checkpoint:** the commit exists on `{WIZARD_HEAD_BRANCH_PLACEHOLDER}` and
 contains neither reference file:
 
 ```bash
-git rev-parse --abbrev-ref HEAD          # prints: posthog/instrumentation-<random-short-sha>
+git rev-parse --abbrev-ref HEAD          # prints: {WIZARD_HEAD_BRANCH_PLACEHOLDER}
 git show --stat HEAD                     # lists the wizard's files
 git show --stat HEAD | grep -E 'posthog-setup-report|posthog-events|wizard-output' && echo "FAIL: forbidden files committed" || echo "OK: no forbidden files"
 # expected: OK: no forbidden files (the grep finding nothing is the pass case)
@@ -255,3 +259,13 @@ unrelated to the integration and documented in a PR comment.
 
 {SHELL_EFFICIENCY_INSTRUCTION}
 """
+
+
+def build_wizard_pr_agent_prompt(head_branch: str) -> str:
+    """The wizard PR agent prompt with the run's server-generated head branch baked in.
+
+    The branch must be known before the agent runs so the GitHub PR webhook can bind the
+    opened PR back to the TaskRun (see webhooks.find_task_run); letting the agent invent
+    the name made that binding impossible.
+    """
+    return WIZARD_PR_AGENT_PROMPT.replace(WIZARD_HEAD_BRANCH_PLACEHOLDER, head_branch)

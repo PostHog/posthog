@@ -17,6 +17,7 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 
 import re
 import logging
+import secrets
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -63,7 +64,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
-from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
+from products.tasks.backend.prompts import build_wizard_pr_agent_prompt
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -765,11 +766,17 @@ def create_wizard_cloud_run(
 
     ``user_id`` is the person going through onboarding; it becomes the task's ``created_by`` so the
     run is explicitly attributed to them.
+
+    The PR head branch is generated here (not by the agent) so the GitHub PR webhook can bind the
+    opened PR back to this run by branch + repository — wizard PRs are bot-authored, which the
+    agent-side PR attribution cannot match.
     """
+    head_branch = f"posthog/instrumentation-{secrets.token_hex(3)}"
+    prompt = build_wizard_pr_agent_prompt(head_branch)
     return create_and_run_task(
         team=team,
         title="Set up PostHog",
-        description=WIZARD_PR_AGENT_PROMPT,
+        description=prompt,
         origin_product=Task.OriginProduct.ONBOARDING,
         user_id=user_id,
         repository=repository,
@@ -777,10 +784,11 @@ def create_wizard_cloud_run(
         mode="background",
         branch=branch,
         wizard_config={},
+        wizard_head_branch=head_branch,
         posthog_mcp_scopes="read_only",
         # The agent server boots idle; this is the message that actually kicks it off once ready
         # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
-        pending_user_message=WIZARD_PR_AGENT_PROMPT,
+        pending_user_message=prompt,
     )
 
 

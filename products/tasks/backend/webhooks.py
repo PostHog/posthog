@@ -44,6 +44,16 @@ def find_task_run(
         if task_run:
             return task_run
 
+        # Wizard cloud runs push to a server-generated head branch stored in run state —
+        # TaskRun.branch holds the checkout (base) branch, so the leg above can't match them.
+        task_run = (
+            TaskRun.objects.filter(state__wizard_head_branch=branch, task__repository__iexact=repository)
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
     return None
 
 
@@ -158,7 +168,16 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
+    if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
+        return
+    # Surface the PR to any live UI: without these the output write is invisible until the
+    # client refetches the run (the onboarding progress modal streams, it doesn't poll).
+    # Tolerant for the same reason as the write itself — GitHub retries webhook 5xx.
+    try:
+        task_run.emit_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)
+        task_run.publish_stream_state_event()
+    except Exception:
+        logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:
@@ -171,26 +190,29 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed")
 
 
-def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> None:
+def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
     """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
 
-    Tolerant: a failure here must not fail the webhook (GitHub retries 5xx, and the event is
-    already handled).
+    Returns True only when this call performed the write, so callers can fire follow-on
+    side effects exactly once. Tolerant: a failure here must not fail the webhook (GitHub
+    retries 5xx, and the event is already handled).
     """
     if isinstance(task_run.output, dict) and task_run.output.get(key):
-        return
+        return False
     try:
         with transaction.atomic():
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
             output = locked.output if isinstance(locked.output, dict) else {}
             if output.get(key):
-                return
+                return False
             locked.output = {**output, key: value}
             locked.save(update_fields=["output", "updated_at"])
         # Keep the in-memory instance consistent for the rest of this request.
         task_run.output = locked.output
+        return True
     except Exception:
         logger.warning(failure_log_event, run_id=str(task_run.id), exc_info=True)
+        return False
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.

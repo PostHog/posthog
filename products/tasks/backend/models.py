@@ -432,6 +432,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -599,6 +600,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             # Wizard runs must boot the agent only after the wizard step.
             extra_state["overlap_clone_boot_enabled"] = False
 
+        # Server-generated head branch the agent is instructed to push to, so the GitHub PR
+        # webhook can bind the opened PR back to this run (webhooks.find_task_run). Kept out of
+        # TaskRun.branch, which means "branch to check out at provisioning" — not "branch the
+        # agent will create".
+        if wizard_head_branch:
+            extra_state["wizard_head_branch"] = wizard_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -688,6 +696,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
+        wizard_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -718,6 +727,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
             wizard_config=wizard_config,
+            wizard_head_branch=wizard_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,

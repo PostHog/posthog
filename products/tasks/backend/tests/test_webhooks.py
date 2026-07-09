@@ -746,6 +746,21 @@ class TestFindTaskRun(TestCase):
         )
         self.assertEqual(result, branch_run)
 
+    def test_finds_wizard_run_by_state_head_branch(self):
+        # Wizard cloud runs never have the PR head branch in TaskRun.branch (that column is
+        # the checkout base); the server-generated head branch lives in run state. Dropping
+        # this match leg silently unbinds every wizard PR from its run again.
+        wizard_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"wizard_head_branch": "posthog/instrumentation-ab12cd"},
+        )
+        result = find_task_run(branch="posthog/instrumentation-ab12cd", repository="posthog/posthog")
+        self.assertEqual(result, wizard_run)
+        # Same branch name from a foreign repository must not be attributed to this run.
+        self.assertIsNone(find_task_run(branch="posthog/instrumentation-ab12cd", repository="acme/other"))
+
     def test_returns_none_when_no_match(self):
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/999")
         self.assertIsNone(result)
