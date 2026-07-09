@@ -56,6 +56,7 @@ def process_query_dict(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    cache_age_seconds: Optional[int] = None,
     pagination_cursor: Optional[str] = None,
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
@@ -107,6 +108,7 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
+        cache_age_seconds=cache_age_seconds,
         pagination_cursor=pagination_cursor,
         analytics_props=analytics_props,
     )
