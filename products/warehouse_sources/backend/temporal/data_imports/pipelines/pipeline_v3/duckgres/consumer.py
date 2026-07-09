@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
     blocked_schema_ids as compute_blocked_schema_ids,
+    failing_schema_ids as compute_failing_schema_ids,
     run_backfill_planner,
     sink_eligible_schema_ids as compute_eligible_schema_ids,
 )
@@ -64,12 +65,20 @@ SINK_OLDEST_ELIGIBLE_AGE_SECONDS = Gauge(
 )
 SINK_BLOCKED_BACKLOG = Gauge(
     "duckgres_sink_blocked_backlog",
-    "Delta-succeeded batches held back because their schema is not yet primed (backfill pending/in-flight)",
+    "Delta-succeeded batches held back behind a healthily progressing backfill (pending/in-flight). "
+    "Excludes failing schemas, so this is the pageable signal: sustained growth is a real throughput problem.",
     multiprocess_mode="livemax",
 )
 SINK_BLOCKED_OLDEST_AGE_SECONDS = Gauge(
     "duckgres_sink_blocked_oldest_age_seconds",
-    "Age of the oldest blocked batch — approaching queue retention means the post-backfill handoff will gap",
+    "Age of the oldest healthily blocked batch — approaching queue retention means the post-backfill handoff will gap",
+    multiprocess_mode="livemax",
+)
+# Visibility-only, deliberately unalerted: hard-blocked schemas are an operator
+# remediation queue (durably tracked on DuckgresSinkSchemaState), not a page.
+SINK_FAILING_BLOCKED_BACKLOG = Gauge(
+    "duckgres_sink_failing_blocked_backlog",
+    "Delta-succeeded batches held back behind a hard-blocked schema (backfill failure streak / needs_resync)",
     multiprocess_mode="livemax",
 )
 SINK_SUPERSEDED_BATCHES_TOTAL = Gauge(
@@ -98,6 +107,10 @@ class DuckgresBatchConsumerAdapter:
         # None = not yet computed; the fetch claims nothing until the first
         # successful planner pass so unprimed schemas can't sneak live batches in.
         self._blocked_schema_ids: list[str] | None = None
+        # Subset of the blocked set whose backfill is hard-blocked (failure
+        # streak / needs_resync); their batches report on the unalerted failing
+        # gauge instead of the pageable blocked gauges.
+        self._failing_schema_ids: list[str] | None = None
         # Allow-list of v3-enabled schema ids (prod only). None = not yet computed
         # (fetch claims nothing) in prod; stays None in dev where team_ids is None
         # and the sink is intentionally ungated.
@@ -141,23 +154,24 @@ class DuckgresBatchConsumerAdapter:
             # Eligibility-CTE queries scan the queue DB over the partition-pruning
             # window per enabled team; they are statement-timeout bounded (see
             # jobs_db). A timeout or transient queue-DB error must not wedge or
-            # crash the poll loop — skip this tick and retry on the next one
-            # rather than stacking long-running scans on the shared queue DB.
+            # crash the poll loop — skip this tick and retry on the next one.
             superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
             SINK_SUPERSEDED_BATCHES_TOTAL.set(superseded)
             if superseded:
                 logger.info("duckgres_superseded_obsolete_batches", count=superseded)
 
-            backlog, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            backlog, oldest_age, blocked, blocked_age, failing_blocked = await DuckgresBatchQueue.get_backlog_stats(
                 conn,
                 team_ids=team_ids,
                 blocked_schema_ids=self._blocked_schema_ids,
                 eligible_schema_ids=self._eligible_schema_ids,
+                failing_schema_ids=self._failing_schema_ids,
             )
             SINK_ELIGIBLE_BACKLOG.set(backlog)
             SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
             SINK_BLOCKED_BACKLOG.set(blocked)
             SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
+            SINK_FAILING_BLOCKED_BACKLOG.set(failing_blocked)
         except Exception as e:
             logger.exception("duckgres_sink_maintenance_query_failed")
             capture_exception(e)
@@ -169,6 +183,7 @@ class DuckgresBatchConsumerAdapter:
             # refresh the live-batch block list it derives from.
             await sync_to_async(run_backfill_planner, thread_sensitive=False)(team_ids)
             self._blocked_schema_ids = await sync_to_async(compute_blocked_schema_ids, thread_sensitive=False)(team_ids)
+            self._failing_schema_ids = await sync_to_async(compute_failing_schema_ids, thread_sensitive=False)(team_ids)
             # v3 allow-list: prod only. In dev (team_ids None) the sink stays
             # ungated, matching the team filter. Kept in the planner try so a
             # transient app-DB/flag blip leaves the previous allow-list intact.
@@ -196,7 +211,9 @@ class DuckgresBatchConsumerAdapter:
             team_count=None if team_ids is None else len(team_ids),
             eligible_backlog=backlog,
             blocked_backlog=blocked,
+            failing_blocked_backlog=failing_blocked,
             blocked_schema_count=None if self._blocked_schema_ids is None else len(self._blocked_schema_ids),
+            failing_schema_count=None if self._failing_schema_ids is None else len(self._failing_schema_ids),
             eligible_schema_count=None if self._eligible_schema_ids is None else len(self._eligible_schema_ids),
         )
 
