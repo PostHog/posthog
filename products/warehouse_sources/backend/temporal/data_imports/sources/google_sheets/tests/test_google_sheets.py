@@ -440,6 +440,17 @@ def test_permission_error_is_non_retryable():
     assert any(key in error_msg for key in non_retryable_errors)
 
 
+def test_api_error_404_entity_not_found_is_non_retryable():
+    """The values-read calls raise a raw gspread APIError (not SpreadsheetNotFound) on a 404, whose
+    `str()` is "APIError: [404]: Requested entity was not found." The framework matches non-retryable
+    keys as substrings of that string, so a deleted/moved/unshared sheet hit mid-read must match a
+    key — otherwise the deterministic 404 gets retried forever."""
+    error = _api_error(404, "Requested entity was not found.", "NOT_FOUND")
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+
+    assert any(key in str(error) for key in non_retryable_errors)
+
+
 @pytest.mark.parametrize(
     "call_site",
     [
