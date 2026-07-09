@@ -1850,8 +1850,17 @@ def _save_artifact_manifest(run: TaskRun, manifest: list[dict]) -> None:
 
 def upload_task_run_artifacts(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifacts: list[dict]
-) -> list[dict] | None:
-    """Write artifact bytes to S3 and append them to the run manifest. Returns the full manifest."""
+) -> tuple[list[dict], list[dict]] | None:
+    """Write artifact bytes to S3 and append them to the run manifest.
+
+    Returns ``(uploaded, manifest)`` — the entries created for ``artifacts`` and the full
+    manifest including them — or ``None`` when the run isn't visible.
+
+    An artifact may carry an explicit ``id``; entries with that id are upserted into the
+    manifest (same-id S3 writes overwrite the same key), so callers that derive ids
+    deterministically get idempotent uploads under retries. Without an ``id`` each call
+    appends a fresh entry.
+    """
     import uuid as uuid_module  # noqa: PLC0415
 
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
@@ -1862,7 +1871,7 @@ def upload_task_run_artifacts(
 
     uploaded: list[dict] = []
     for artifact in artifacts:
-        artifact_id = uuid_module.uuid4().hex
+        artifact_id = str(artifact.get("id") or uuid_module.uuid4().hex)
         safe_name, storage_path = _build_artifact_storage_path(run, artifact_id, artifact["name"])
 
         content_bytes = artifact["content_bytes"]
@@ -1899,11 +1908,12 @@ def upload_task_run_artifacts(
 
     with transaction.atomic():
         run = TaskRun.objects.select_for_update().get(pk=run.pk)
-        manifest = list(run.artifacts or [])
+        uploaded_ids = {entry["id"] for entry in uploaded}
+        manifest = [entry for entry in (run.artifacts or []) if entry.get("id") not in uploaded_ids]
         manifest.extend(uploaded)
         _save_artifact_manifest(run, manifest)
 
-    return manifest
+    return uploaded, manifest
 
 
 def prepare_task_run_artifact_uploads(
@@ -4456,8 +4466,13 @@ def send_user_message(
     artifacts: list[dict] | None = None,
     auth_token: str | None = None,
     timeout: int | None = None,
+    message_id: str | None = None,
 ):
-    """Push a follow-up user message (and/or artifacts) into a run's live sandbox."""
+    """Push a follow-up user message (and/or artifacts) into a run's live sandbox.
+
+    ``message_id`` is the agent-server idempotency key — pass a deterministic id when the
+    caller may retry delivery so a redelivered message isn't applied twice.
+    """
     from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415 — keep sandbox deps off the api import path
         send_user_message as _send,
     )
@@ -4469,6 +4484,8 @@ def send_user_message(
         extra["artifacts"] = artifacts
     if timeout is not None:
         extra["timeout"] = timeout
+    if message_id is not None:
+        extra["message_id"] = message_id
     return _send(run, message, auth_token=auth_token, **extra)
 
 
