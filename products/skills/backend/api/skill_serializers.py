@@ -10,7 +10,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.markdown_outline import get_markdown_outline
 
-from ..models.skills import LLMSkill, LLMSkillFile
+from ..models.skills import LLMSkill, LLMSkillFile, category_for_skill_name
 
 # Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
 # form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
@@ -475,10 +475,13 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
         files = validated_data.pop("files", None)
 
         with transaction.atomic():
+            # `category` is read-only on the serializer, so it can never arrive in validated_data —
+            # the server-owned prefix stamp is the only writer.
             skill = LLMSkill.objects.create(
                 team=team,
                 created_by=request.user,
                 is_latest=True,
+                category=category_for_skill_name(validated_data["name"]),
                 **validated_data,
             )
             if files:

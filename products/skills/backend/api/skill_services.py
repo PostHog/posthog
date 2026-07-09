@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from posthog.models import Team, User
 
-from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata
+from ..models.skills import LLMSkill, LLMSkillFile, annotate_llm_skill_version_history_metadata, category_for_skill_name
 
 MAX_SKILL_VERSION = 2000
 MAX_SKILL_BODY_BYTES = 1_000_000
@@ -355,6 +355,7 @@ def create_skill(
                 name=name,
                 description=description,
                 body=body,
+                category=category_for_skill_name(name),
                 license=license or "",
                 compatibility=compatibility or "",
                 allowed_tools=allowed_tools or [],

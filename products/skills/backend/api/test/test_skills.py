@@ -92,6 +92,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
 
+    @parameterized.expand(
+        [
+            ("review_hog_prefix", "review-hog-perspective-custom-x", "review_hog"),
+            ("scout_prefix", "signals-scout-custom-x", "scout"),
+            ("plain_name", "my-plain-skill", ""),
+        ]
+    )
+    def test_create_stamps_category_from_name_prefix(self, _label, name, expected_category):
+        # The Skills page's category tabs filter on `category`, which is server-owned (read-only on
+        # the serializer) — without the create-time stamp, a custom scout / review-hog skill never
+        # surfaces on its tab beside the canonical siblings.
+        response = self.client.post(
+            self._url(),
+            data={"name": name, "description": "d", "body": "# B\nDo."},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert LLMSkill.objects.get(team=self.team, name=name).category == expected_category
+
     def test_create_skill_with_duplicate_name_fails(self):
         self.create_skill(name="existing-skill")
 

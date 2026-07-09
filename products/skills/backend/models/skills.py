@@ -4,6 +4,21 @@ from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
 
+# Server-owned grouping stamped on every create path (REST serializer, MCP tool, import): the Skills
+# page's category tabs (SKILL_CATEGORY_TABS in llmSkillsLogic.ts) filter on `category`, and the
+# generic create flows are how custom scouts and review-hog skills are authored — without the stamp
+# they'd never surface beside their canonical siblings. Values mirror SCOUT_SKILL_CATEGORY /
+# REVIEW_HOG_SKILL_CATEGORY (products can't import each other, so they're duplicated here exactly
+# like the frontend tab map duplicates them).
+CATEGORY_BY_NAME_PREFIX: tuple[tuple[str, str], ...] = (
+    ("signals-scout-", "scout"),
+    ("review-hog-", "review_hog"),
+)
+
+
+def category_for_skill_name(name: str) -> str:
+    return next((category for prefix, category in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
+
 
 class LLMSkill(UUIDModel):
     class Meta:
