@@ -98,8 +98,9 @@ def _resolve_slack_permission_policy(
 
     # Modes are stored per integration (project): the workspace can route to multiple
     # projects, and a "full_auto" grant made in one must not apply to runs in another.
-    # A user row wins over the workspace-wide (slack_user_id IS NULL) row.
-    mode: str = SlackPermissionMode.ASK_BEFORE_WRITE
+    # A user row wins over the workspace-wide (slack_user_id IS NULL) row. Runs default
+    # to full auto; externally shared channels still force human approval regardless.
+    mode: str = SlackPermissionMode.FULL_AUTO
     settings = list(
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
         .filter(models.Q(slack_user_id=slack_user_id) | models.Q(slack_user_id__isnull=True))
