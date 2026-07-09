@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -13,6 +13,7 @@ import {
     CohortType,
     FeatureFlagGroupType,
     FeatureFlagType,
+    OrganizationFeatureFlag,
     PropertyFilterType,
     PropertyOperator,
     ScheduledChangeModels,
@@ -1598,6 +1599,78 @@ describe('featureFlagLogic', () => {
                 await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
                 warnSpy.mockRestore()
             })
+        })
+    })
+
+    describe('toggleProjectFlagActive', () => {
+        const projectRow = (teamId: number, flagId: number): OrganizationFeatureFlag => ({
+            flag_id: flagId,
+            team_id: teamId,
+            filters: { groups: [] },
+            active: true,
+            created_by: null,
+            created_at: '',
+        })
+
+        beforeEach(() => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
+                },
+            })
+        })
+
+        it.each([false, true])(
+            'updates the toggled project row without touching the current flag (active → %s)',
+            async (active) => {
+                logic.actions.loadProjectsWithCurrentFlagSuccess([
+                    projectRow(MOCK_TEAM_ID, 1),
+                    { ...projectRow(555, 42), active: !active },
+                ])
+
+                logic.actions.toggleProjectFlagActive(555, 42, active)
+                expect(logic.values.projectFlagsToggling).toEqual({ '555:42': true })
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                    { team_id: MOCK_TEAM_ID, active: true },
+                    { team_id: 555, active },
+                ])
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.projectFlagsToggling).toEqual({})
+            }
+        )
+
+        it('syncs featureFlag.active when the current project row is toggled', async () => {
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1)])
+
+            logic.actions.toggleProjectFlagActive(MOCK_TEAM_ID, 1, false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([{ team_id: MOCK_TEAM_ID, active: false }])
+            expect(logic.values.featureFlag.active).toBe(false)
+        })
+
+        it('clears the in-flight marker and keeps state when the update fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/feature_flags/:id/': () => [403, { detail: 'No edit access' }],
+                },
+            })
+            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1), projectRow(555, 42)])
+
+            logic.actions.toggleProjectFlagActive(555, 42, false)
+            await expectLogic(logic).toDispatchActions(['projectFlagActiveUpdateFailed']).toFinishAllListeners()
+
+            expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                { team_id: MOCK_TEAM_ID, active: true },
+                { team_id: 555, active: true },
+            ])
+            expect(logic.values.featureFlag.active).toBe(true)
+            expect(logic.values.projectFlagsToggling).toEqual({})
         })
     })
 })

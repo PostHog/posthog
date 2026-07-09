@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.sessions.backends.base import SessionBase
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -187,6 +188,32 @@ def advance_baseline(session_key: str, baseline: Baseline, ctx: Context, *, now:
     )
 
 
+def _risk_signature(tier: RiskTier, signals: set[RiskSignal]) -> str:
+    """Identity of an anomaly for dedup purposes: its tier + the set of signals that produced it. An
+    escalation (new/added signal, higher tier) is a new incident; the same signals flapping is not."""
+    return f"{tier.name}:{','.join(sorted(signal.value for signal in signals))}"
+
+
+def _should_emit_risk(session: SessionBase, tier: RiskTier, signals: set[RiskSignal], *, now: datetime) -> bool:
+    """Dedup gate. A flagged session is re-scored on every request; without this it would emit
+    telemetry and re-assert step-up every time, inflating counts and hammering the session store.
+
+    Returns True (and records the signature + timestamp on the session) only when the anomaly's
+    signature differs from the last emitted one or the re-emit cooldown has elapsed, so a persistent
+    anomaly surfaces once per window instead of once per request. Never touches the baseline, so
+    detection integrity is unaffected: the request is still scored the same next time.
+    """
+    signature = _risk_signature(tier, signals)
+    last_signature = session.get(settings.SESSION_RISK_LAST_SIG_KEY)
+    last_emit_at = session.get(settings.SESSION_RISK_LAST_EMIT_AT_KEY) or 0.0
+    now_epoch = now.timestamp()
+    if signature == last_signature and (now_epoch - last_emit_at) < settings.RISK_REEMIT_COOLDOWN_S:
+        return False
+    session[settings.SESSION_RISK_LAST_SIG_KEY] = signature
+    session[settings.SESSION_RISK_LAST_EMIT_AT_KEY] = now_epoch
+    return True
+
+
 def evaluate_session_risk(request: HttpRequest) -> RiskTier:
     """Per-request risk orchestrator. Returns the *effective* tier the middleware should act on.
 
@@ -225,31 +252,46 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
 
     effective = RiskTier.NONE
     enforced = False
+    needs_step_up = False
     if tier == RiskTier.HIGH and flags.session_end:
         effective = RiskTier.HIGH
         enforced = True
     elif tier >= RiskTier.MEDIUM and flags.step_up:
         # Step-up is a side effect gated elsewhere; the middleware does not short-circuit on it. This
         # also catches a HIGH detection when session_end is off but step_up is on (graceful degradation).
-        request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
-        # Persist now rather than relying on SessionMiddleware, which skips save() on a 5xx response —
-        # otherwise a server error on this request would silently drop the step-up requirement.
-        request.session.save()
+        needs_step_up = True
         enforced = True
 
-    # Telemetry must never break the request: a capture failure here would otherwise 500 an
-    # otherwise-valid authenticated request from the request-phase middleware.
-    try:
-        posthoganalytics.capture(
-            distinct_id=str(user.distinct_id),
-            event="session_risk_detected",
-            properties={
-                "signals": sorted(signal.value for signal in signals),
-                "tier": tier.name,
-                "enforced": enforced,
-            },
-        )
-    except Exception:
-        logger.exception("session_risk telemetry capture failed")
+    # `effective` is computed above and returned regardless, so session-end is never suppressed.
+    should_emit = _should_emit_risk(request.session, tier, signals, now=now)
+
+    # Enforcement is independent of the telemetry dedup: apply step-up whenever it is needed and not
+    # already set, even when the identical anomaly's telemetry is being deduped. Otherwise enabling
+    # step-up mid-session would leave an already-flagged session unenforced until the cooldown expires.
+    set_step_up = needs_step_up and not request.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY)
+    if set_step_up:
+        request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+
+    # Persist the step-up flag and/or the dedup markers _should_emit_risk just wrote, now rather than
+    # relying on SessionMiddleware, which skips save() on a 5xx response — otherwise a server error
+    # here would drop the step-up requirement.
+    if should_emit or set_step_up:
+        request.session.save()
+
+    if should_emit:
+        # Telemetry must never break the request: a capture failure here would otherwise 500 an
+        # otherwise-valid authenticated request from the request-phase middleware.
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="session_risk_detected",
+                properties={
+                    "signals": sorted(signal.value for signal in signals),
+                    "tier": tier.name,
+                    "enforced": enforced,
+                },
+            )
+        except Exception:
+            logger.exception("session_risk telemetry capture failed")
 
     return effective

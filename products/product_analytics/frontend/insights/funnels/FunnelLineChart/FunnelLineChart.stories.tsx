@@ -2,10 +2,17 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import funnelHistoricalTrendsFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelHistoricalTrendsCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -124,4 +131,22 @@ export const GoalLine: Story = {
         renderFunnelLineChart(funnelHistoricalTrendsFixture, {
             goalLines: [{ label: 'Target', value: 10, displayIfCrossed: true }],
         }),
+}
+
+// Compare to previous: current and previous period conversion rates render as separate series
+// (the funnels-compare flag gates this — without it the data degrades to single-period rendering)
+export const Compare: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
+    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
+}
+
+// Full insight scene in edit mode — the funnel trends editor
+export const EditScene: Story = createInsightStory(funnelHistoricalTrendsFixture as any, 'edit')
+EditScene.decorators = [insightSceneMswDecorator]
+EditScene.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas',
+    },
 }

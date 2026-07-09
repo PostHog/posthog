@@ -16,6 +16,8 @@ from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.scheduled_changes import apply_gated_scheduled_change, regate_recurring_scheduled_change
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -160,7 +162,14 @@ def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
             scheduled_changes = (
-                ScheduledChange.objects.select_for_update(nowait=True)
+                # Scope the row lock to the ScheduledChange rows only (of=("self",)) — a bare
+                # select_related would widen select_for_update's lock to the joined change_request /
+                # created_by rows, adding contention with the approve flow that mutates ChangeRequest.
+                ScheduledChange.objects.select_for_update(nowait=True, of=("self",))
+                # No select_related("change_request"): apply_gated_scheduled_change always re-fetches
+                # the bound CR under select_for_update (the prefetched copy can be stale), and the
+                # rest of the loop only reads change_request_id — a local column needing no join.
+                .select_related("created_by")
                 .filter(
                     executed_at__isnull=True,
                     scheduled_at__lte=timezone.now(),
@@ -189,9 +198,18 @@ def process_scheduled_changes() -> None:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
                     instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
-                    instance.scheduled_changes_dispatcher(
-                        scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
-                    )
+
+                    # Approval-aware dispatch: a scheduled change whose payload flips a policy-gated
+                    # field carries a bound ChangeRequest created at scheduling time. We only apply
+                    # it through the approved path once that CR is approved; if it is still pending
+                    # when the fire window closes, the CR is expired and the change is skipped. An
+                    # unbound (ungated) change dispatches through the serializer as before.
+                    if apply_gated_scheduled_change(scheduled_change, instance):
+                        instance.scheduled_changes_dispatcher(
+                            scheduled_change.payload,
+                            scheduled_change.created_by,
+                            scheduled_change_id=scheduled_change.id,
+                        )
 
                     # Handle recurring vs one-time schedules.
                     # A recurring schedule uses either a cron expression or a fixed recurrence interval.
@@ -258,6 +276,39 @@ def process_scheduled_changes() -> None:
                             scheduled_change.last_executed_at = now
                             scheduled_change.save()
                         else:
+                            # A bound ChangeRequest is single-use; the next occurrence needs its own
+                            # approval. Always re-gate against the flag's current state and rebind
+                            # (None when no policy now applies, so the next fire dispatches ungated).
+                            # Re-gating must run *before* scheduled_at/last_executed_at are written:
+                            #   1. A row born ungated (change_request_id is None, no policy matched at
+                            #      creation) must still be re-evaluated — a policy enabled since then
+                            #      has to gate every future occurrence, so we can't skip re-gating on a
+                            #      null binding.
+                            #   2. Re-gating can raise PolicyConflict; running it first lets that
+                            #      exception propagate before the advanced scheduled_at is persisted, so
+                            #      the failure handler stops advancing the schedule rather than silently
+                            #      skipping the conflicting occurrence.
+                            try:
+                                new_change_request = regate_recurring_scheduled_change(scheduled_change, instance)
+                            except ApprovalRequired:
+                                # A pending/approved CR for the same flag+action already exists (a
+                                # second schedule, or an immediate edit awaiting approval), so this
+                                # occurrence can't be given its own gate yet. Defer instead of
+                                # advancing: advancing would require either a fresh CR (which the
+                                # conflict forbids) or a null binding, and a null binding dispatches
+                                # the next fire ungated — the exact bypass this gating closes. Leave
+                                # the row untouched (scheduled_at unchanged) so the next sweep
+                                # re-gates it, and don't route through the failure handler, so a
+                                # transient duplicate doesn't retry the schedule to exhaustion and
+                                # mark it permanently failed. It self-heals once the conflicting CR
+                                # resolves. PolicyConflict is deliberately not caught — that's a
+                                # genuine, non-transient conflict the failure handler should record.
+                                logger.info(
+                                    "Deferring recurring scheduled change; a conflicting change request is awaiting approval",
+                                    scheduled_change_id=scheduled_change.id,
+                                )
+                                continue
+                            scheduled_change.change_request = new_change_request
                             scheduled_change.scheduled_at = next_run
                             scheduled_change.last_executed_at = now
                             scheduled_change.save()
