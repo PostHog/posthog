@@ -712,6 +712,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "variant_count": 2,
                 "created_at": ANY,
                 "creation_mode": "new",
+                "experiment_create_deprecated_fields": ["filters"],
             },
         )
         self.assertEqual(mock_report_user_action.call_args.kwargs["team"], self.team)
@@ -4625,6 +4626,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "created_at": ANY,
                 "creation_mode": expected_mode,
                 "allow_unknown_events": True,
+                "experiment_create_deprecated_fields": [],
             },
             team=expected_team,
             request=ANY,

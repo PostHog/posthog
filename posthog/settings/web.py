@@ -261,6 +261,9 @@ X_FRAME_OPTIONS = "SAMEORIGIN"
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
 SOCIAL_AUTH_USER_MODEL = "posthog.User"
 SOCIAL_AUTH_REDIRECT_IS_HTTPS: bool = get_from_env("SOCIAL_AUTH_REDIRECT_IS_HTTPS", not DEBUG, type_cast=str_to_bool)
+# social-auth-core reads REQUESTS_TIMEOUT in BaseAuth.request(); without it a hung self-hosted
+# GitLab/OIDC provider can block a web worker forever.
+SOCIAL_AUTH_REQUESTS_TIMEOUT: float = get_from_env("SOCIAL_AUTH_REQUESTS_TIMEOUT", 10.0, type_cast=float)
 
 SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
@@ -646,6 +649,7 @@ SPECTACULAR_SETTINGS = {
             "log",
             "log_attribute",
             "log_resource_attribute",
+            "metric_attribute",
             "span",
             "span_attribute",
             "span_resource_attribute",

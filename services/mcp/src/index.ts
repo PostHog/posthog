@@ -297,7 +297,7 @@ const handleRequest = async (
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
-    // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
+    // client-detection logic in `resolveMode` when unset. See `parseMcpMode`.
     const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
 
     const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }

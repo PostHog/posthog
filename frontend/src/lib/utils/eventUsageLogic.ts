@@ -218,6 +218,22 @@ export function getEventPropertiesForMetric(
     }
 }
 
+/**
+ * The GET projection still echoes flag config into `parameters` (retired in a later cleanup phase).
+ * Keep those flag keys out of telemetry so events carry only experiment-own metadata.
+ */
+function experimentOwnParameters(parameters: Experiment['parameters']): Experiment['parameters'] {
+    const {
+        feature_flag_variants,
+        rollout_percentage,
+        aggregation_group_type_index,
+        feature_flag_payloads,
+        ensure_experience_continuity,
+        ...own
+    } = (parameters ?? {}) as Record<string, unknown>
+    return own as Experiment['parameters']
+}
+
 export function getEventPropertiesForExperiment(experiment: Experiment): object {
     const allMetrics = [
         ...experiment.metrics,
@@ -232,7 +248,7 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
         id: experiment.id,
         name: experiment.name,
         type: experiment.type,
-        parameters: experiment.parameters,
+        parameters: experimentOwnParameters(experiment.parameters),
         metrics: allMetrics.map((m) => getEventPropertiesForMetric(m)),
         secondary_metrics: allSecondaryMetrics.map((m) => getEventPropertiesForMetric(m)),
         metrics_count: allMetrics.length,
@@ -1706,7 +1722,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 id: experiment.id,
                 name: experiment.name,
                 type: experiment.type,
-                parameters: experiment.parameters,
+                parameters: experimentOwnParameters(experiment.parameters),
                 ...metadata,
             })
         },

@@ -28,6 +28,7 @@ tools:
         description: >
             Get the available filter options for activity logs — scopes, activity types, and users that have logged
             activity. Useful for building filter UIs or understanding what kinds of activity are tracked.
+        feature_entitlement: audit_logs
         url_prefix: /activity
     advanced-activity-logs-list:
         operation: advanced_activity_logs_list
@@ -48,6 +49,7 @@ tools:
         param_overrides:
             page_size:
                 default: 10
+        feature_entitlement: audit_logs
         url_prefix: /activity
         response:
             include:
