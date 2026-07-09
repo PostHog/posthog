@@ -214,6 +214,8 @@ def _build_environment_variables(
         "POSTHOG_PERSONAL_API_KEY": access_token,
         "POSTHOG_API_URL": get_sandbox_api_url(),
         "POSTHOG_PROJECT_ID": str(ctx.team_id),
+        "POSTHOG_TASK_ID": str(ctx.task_id),
+        "POSTHOG_TASK_RUN_ID": str(ctx.run_id),
         "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
     }
 

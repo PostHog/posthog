@@ -19,6 +19,20 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
+const DURATION_STRING = z.string().superRefine((v, ctx) => {
+    if (!/\d/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
+        return
+    }
+    if (!/^\d+[dhm]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a whole number followed by d, h, or m' })
+        return
+    }
+    if (parseInt(v, 10) < 1) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be at least 1' })
+    }
+})
+
 const _commonActionFields = {
     id: z.string(),
     name: z.string(),
@@ -200,7 +214,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('delay'),
         config: z.object({
-            delay_duration: z.string().min(2),
+            delay_duration: DURATION_STRING,
         }),
     }),
     z.object({
@@ -219,7 +233,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     })
                 )
                 .optional(),
-            max_wait_duration: z.string(),
+            max_wait_duration: DURATION_STRING,
         }),
     }),
 

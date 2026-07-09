@@ -155,10 +155,12 @@ def prepare_ast_for_printing(
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
-            context.restricted_properties = get_restricted_properties_for_team(
-                team_id=context.team_id,
-                user=context.user,
-            )
+            if context.team is not None and context.team.pk == context.team_id:
+                context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
+            else:
+                context.restricted_properties = get_restricted_properties_for_team(
+                    user=context.user, team_id=context.team_id
+                )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
