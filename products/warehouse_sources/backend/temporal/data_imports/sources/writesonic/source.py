@@ -44,6 +44,13 @@ class WritesonicSource(ResumableSource[WritesonicSourceConfig, WritesonicResumeC
         return ExternalDataSourceType.WRITESONIC
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `site_url` (and optionally `project_id`) pick which tracked site the stored API key
+        # is used against; retargeting either must re-require the key so an editor without it
+        # can't aim an existing connection at different data.
+        return ["site_url", "project_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WRITESONIC,

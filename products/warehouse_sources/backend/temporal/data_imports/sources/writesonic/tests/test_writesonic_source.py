@@ -1,5 +1,6 @@
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -51,6 +52,11 @@ class TestWritesonicSource:
         assert fields["site_url"].required is True
         assert fields["project_id"].required is False
 
+    def test_connection_host_fields_cover_data_targeting_fields(self):
+        # Changing which tracked site the stored API key is used against must force re-entry
+        # of the key; dropping either field lets an editor retarget the connection silently.
+        assert set(self.source.connection_host_fields) == {"site_url", "project_id"}
+
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
@@ -59,8 +65,7 @@ class TestWritesonicSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
 
-    @pytest.mark.parametrize(
-        "name,incremental",
+    @parameterized.expand(
         [
             ("performance_summary", True),
             ("performance_prompts", True),
@@ -71,7 +76,7 @@ class TestWritesonicSource:
             ("platforms", False),
             ("websites", False),
             ("prompts", False),
-        ],
+        ]
     )
     def test_incremental_capability_per_endpoint(self, name, incremental):
         # Only the daily exports have a genuine server-side date filter (the required `date`
@@ -107,25 +112,29 @@ class TestWritesonicSource:
             assert kwargs["project_id"] is None
             assert kwargs["schema_name"] == "topics"
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics?url=https%3A%2F%2Fexample.com",
-            "403 Client Error: Forbidden for url: https://api.writesonic.com/v2/geo/presence/business/export/performance/summary",
-            "404 Client Error: Not Found for url: https://api.writesonic.com/v2/geo/presence/business/export/config/websites",
-        ],
+            (
+                "401 Client Error: Unauthorized for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics?url=https%3A%2F%2Fexample.com",
+            ),
+            (
+                "403 Client Error: Forbidden for url: https://api.writesonic.com/v2/geo/presence/business/export/performance/summary",
+            ),
+            (
+                "404 Client Error: Not Found for url: https://api.writesonic.com/v2/geo/presence/business/export/config/websites",
+            ),
+        ]
     )
     def test_non_retryable_errors_match_auth_and_config_failures(self, observed_error):
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-            "500 Server Error for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics",
-            "429 Client Error: Too Many Requests for url: https://api.writesonic.com/v2/geo",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
+            ("500 Server Error for url: https://api.writesonic.com/v2/geo/presence/business/export/config/topics",),
+            ("429 Client Error: Too Many Requests for url: https://api.writesonic.com/v2/geo",),
+        ]
     )
     def test_non_retryable_errors_ignore_retryable_and_unrelated(self, unrelated_error):
         non_retryable = self.source.get_non_retryable_errors()

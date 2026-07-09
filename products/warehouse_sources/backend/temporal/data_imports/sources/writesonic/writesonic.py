@@ -118,7 +118,7 @@ def validate_credentials(
     schemas — a per-schema check (`schema_name` set) behaves identically."""
     url = urljoin(BASE_URL, "/v2/geo/presence/business/export/config/websites")
     try:
-        response = make_tracked_session(retry=NO_URLLIB_RETRY).get(
+        response = _make_session(api_key).get(
             url,
             params={**_base_params(site_url, project_id), "size": 1},
             headers={"X-API-Key": api_key, "Accept": "application/json"},
@@ -147,6 +147,15 @@ def validate_credentials(
             "Writesonic rejected the site URL. Enter the full URL of the tracked site, e.g. https://example.com.",
         )
     return False, f"Writesonic returned an unexpected status ({response.status_code}) while validating credentials."
+
+
+def _make_session(api_key: str) -> requests.Session:
+    """Tracked session with the credential hardening the fixed-host connectors use.
+
+    `redact_values` masks the API key in logged URLs and captured request samples (the
+    `X-API-Key` header name isn't on the transport's denylist), and `allow_redirects=False`
+    stops a 30x from replaying the credentialed header off-host."""
+    return make_tracked_session(retry=NO_URLLIB_RETRY, redact_values=(api_key,), allow_redirects=False)
 
 
 def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:
@@ -180,7 +189,7 @@ def _get(
     params: Optional[dict[str, Any]] = None,
 ) -> requests.Response:
     url = urljoin(BASE_URL, path)
-    response = make_tracked_session(retry=NO_URLLIB_RETRY).get(
+    response = _make_session(api_key).get(
         url,
         params=params,
         headers={"X-API-Key": api_key, "Accept": "application/json"},

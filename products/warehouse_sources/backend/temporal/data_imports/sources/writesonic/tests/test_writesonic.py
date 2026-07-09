@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from unittest import mock
 
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic import writesonic
 from products.warehouse_sources.backend.temporal.data_imports.sources.writesonic.settings import WRITESONIC_ENDPOINTS
@@ -81,20 +82,19 @@ def _collect(endpoint: str, manager: _FakeManager, monkeypatch: Any, api: _FakeA
 
 
 class TestToDate:
-    @pytest.mark.parametrize(
-        "value,expected",
+    @parameterized.expand(
         [
-            (date(2026, 7, 1), date(2026, 7, 1)),
-            (datetime(2026, 7, 1, 12, 30, tzinfo=UTC), date(2026, 7, 1)),
-            ("2026-07-01", date(2026, 7, 1)),
-            ("2026-07-01T12:30:00Z", date(2026, 7, 1)),
-            (1782950400, date(2026, 7, 2)),
-            ("not-a-date", None),
-            (None, None),
-            (True, None),
-        ],
+            ("date_value", date(2026, 7, 1), date(2026, 7, 1)),
+            ("aware_datetime", datetime(2026, 7, 1, 12, 30, tzinfo=UTC), date(2026, 7, 1)),
+            ("date_string", "2026-07-01", date(2026, 7, 1)),
+            ("iso_string", "2026-07-01T12:30:00Z", date(2026, 7, 1)),
+            ("epoch_int", 1782950400, date(2026, 7, 2)),
+            ("bad_string", "not-a-date", None),
+            ("none", None, None),
+            ("bool", True, None),
+        ]
     )
-    def test_to_date(self, value, expected):
+    def test_to_date(self, _name, value, expected):
         assert _to_date(value) == expected
 
 
@@ -283,8 +283,8 @@ class TestCheckResponse:
             response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error", response=response)
         return response
 
-    @pytest.mark.parametrize("status", [429, 500, 502, 503])
-    def test_retryable_statuses_raise_retryable_error(self, status):
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502), ("unavailable", 503)])
+    def test_retryable_statuses_raise_retryable_error(self, _name, status):
         with pytest.raises(WritesonicRetryableError):
             _check_response(self._response(status), "https://api.writesonic.com/x", mock.MagicMock())
 
@@ -297,8 +297,8 @@ class TestCheckResponse:
             )
         assert exc_info.value.retry_after == 30.0
 
-    @pytest.mark.parametrize("status", [401, 403, 404, 422])
-    def test_terminal_statuses_raise_http_error(self, status):
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404), ("unprocessable", 422)])
+    def test_terminal_statuses_raise_http_error(self, _name, status):
         with pytest.raises(requests.HTTPError):
             _check_response(self._response(status), "https://api.writesonic.com/x", mock.MagicMock())
 
@@ -315,18 +315,17 @@ class TestValidateCredentials:
         session.get.return_value = response
         return session
 
-    @pytest.mark.parametrize(
-        "status,expected_ok",
+    @parameterized.expand(
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (404, False),
-            (422, False),
-            (500, False),
-        ],
+            ("ok", 200, True),
+            ("unauthorized", 401, False),
+            ("forbidden", 403, False),
+            ("not_found", 404, False),
+            ("unprocessable", 422, False),
+            ("server_error", 500, False),
+        ]
     )
-    def test_status_mapping(self, status, expected_ok):
+    def test_status_mapping(self, _name, status, expected_ok):
         with mock.patch.object(writesonic, "make_tracked_session", return_value=self._mock_session(status)):
             ok, message = validate_credentials(api_key="key", site_url="https://example.com")
             assert ok is expected_ok
@@ -343,7 +342,7 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(WRITESONIC_ENDPOINTS))
+    @parameterized.expand([(endpoint,) for endpoint in WRITESONIC_ENDPOINTS])
     def test_source_response_matches_endpoint_config(self, endpoint):
         config = WRITESONIC_ENDPOINTS[endpoint]
         response = writesonic_source(
