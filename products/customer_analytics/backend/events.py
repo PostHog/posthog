@@ -8,7 +8,10 @@ project via their team's API token.
 
 from typing import Any
 
+from celery import shared_task
+
 from posthog.api.capture import capture_batch_internal
+from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import Tag
 from posthog.models.user import User
@@ -68,3 +71,18 @@ def emit_account_tags_added(
         token=account.team.api_token,
         event_source=EVENT_SOURCE,
     ).raise_for_status()
+
+
+@shared_task(name="customer_analytics.emit_account_tags_added", ignore_result=True)
+def emit_account_tags_added_task(
+    team_id: int, account_id: str, tag_ids: list[str], actor_id: int | None, workflow_id: str | None
+) -> None:
+    account = Account.objects.for_team(team_id).select_related("team").filter(id=account_id).first()
+    tags = list(Tag.objects.filter(team_id=team_id, id__in=tag_ids))
+    if account is None or not tags:
+        return
+    actor = User.objects.filter(id=actor_id).first() if actor_id else None
+    try:
+        emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+    except Exception as e:
+        capture_exception(e)

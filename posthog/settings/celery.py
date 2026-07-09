@@ -22,6 +22,7 @@ CELERY_IMPORTS: list[str] = [
     "posthog.models.product_intent.product_intent",
     "posthog.models.scoping",
     "posthog.scoping_audit",
+    "products.customer_analytics.backend.events",
 ]
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
 CELERY_BEAT_MAX_LOOP_INTERVAL = 30  # sleep max 30sec before checking for new periodic events

@@ -35,7 +35,7 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
-from products.customer_analytics.backend.events import emit_account_tags_added
+from products.customer_analytics.backend.events import emit_account_tags_added_task
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
@@ -550,14 +550,21 @@ def _schedule_account_tags_added(
     so a workflow re-adding its own trigger tag fires nothing."""
     if not tags:
         return
+    kwargs = {
+        "team_id": account.team_id,
+        "account_id": str(account.id),
+        "tag_ids": [str(tag.id) for tag in tags],
+        "actor_id": actor.id if actor else None,
+        "workflow_id": workflow_id,
+    }
 
-    def emit() -> None:
+    def enqueue() -> None:
         try:
-            emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+            emit_account_tags_added_task.delay(**kwargs)
         except Exception as e:
             capture_exception(e)
 
-    transaction.on_commit(emit)
+    transaction.on_commit(enqueue)
 
 
 def _log_activity_swallowing(
