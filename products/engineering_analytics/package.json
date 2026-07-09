@@ -5,6 +5,7 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/icons": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:"
@@ -13,6 +14,8 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*"
     }

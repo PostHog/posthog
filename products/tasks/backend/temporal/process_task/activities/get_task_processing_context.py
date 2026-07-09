@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -12,10 +11,12 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
-    MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    vm_sandbox_allowed_origins,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -23,7 +24,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -66,9 +67,11 @@ class TaskProcessingContext:
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
-    # Captured at workflow start so a flag flip mid-run can't introduce
-    # nondeterminism (the workflow consults this in its finally block).
+    # Captured at workflow start so snapshot creation is deterministic across
+    # activity retries. This means "create any Modal resume snapshot"; filesystem
+    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
+    use_modal_directory_resume_snapshots: bool = False
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -78,6 +81,10 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
+    agent_proxy_keep_stream_open: bool = False
+    # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
+    custom_image_name: str | None = None
 
     @property
     def mode(self) -> str:
@@ -87,6 +94,11 @@ class TaskProcessingContext:
     @property
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
+
+    @property
+    def auto_publish(self) -> bool:
+        """User-opted auto-publish: the agent pushes and opens a draft PR on completion."""
+        return (self.state or {}).get("auto_publish") is True
 
     @property
     def has_github_credentials(self) -> bool:
@@ -121,26 +133,23 @@ class TaskProcessingContext:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
 
-    def inactivity_timeout(self) -> timedelta:
-        """How long the run may sit idle before the workflow times it out.
+    @property
+    def wizard_config(self) -> dict | None:
+        """Config for the pre-agent setup-wizard step (set at task creation); None for normal runs."""
+        value = (self.state or {}).get("wizard_config")
+        return value if isinstance(value, dict) else None
 
-        Longer for user-driven runs (explicitly user-created, or with no origin
-        product) than for automated/background runs. A global env override or a
-        per-task override set at creation time both take precedence.
-        """
-        is_user_origin = not self.origin_product or self.origin_product == Task.OriginProduct.USER_CREATED.value
+    def inactivity_timeout(self) -> timedelta:
+        """Idle time before the workflow times the run out; longer for user-driven runs."""
+        is_user_origin = not self.origin_product or self.origin_product in (
+            Task.OriginProduct.USER_CREATED.value,
+            Task.OriginProduct.IMAGE_BUILDER.value,
+        )
         return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
-        """SandboxConfig field overrides requested at task creation (compute + TTL).
-
-        Empty when the task requested none — callers spread it into SandboxConfig so
-        unset fields keep their defaults. `bool` is excluded explicitly since it's an
-        `int` subclass and would otherwise slip through as 0/1. Values are clamped to
-        server-owned bounds (and non-positive values ignored) as defense-in-depth, so
-        even if an override reaches here via an unexpected path it can't provision an
-        oversized sandbox.
-        """
+        """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.
+        `bool` is excluded explicitly — it's an `int` subclass and would slip through as 0/1."""
         overrides: dict[str, float | int] = {}
         state = self.state or {}
         for state_key, config_key, max_value in (
@@ -194,6 +203,40 @@ class TaskProcessingContext:
         }
 
 
+def _is_agent_proxy_keep_stream_open_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("agent_proxy_keep_stream_open")
+    if isinstance(state_override, bool):
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("agent_proxy_keep_stream_open_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "agent_proxy_keep_stream_open_flag_checked",
+        run_id=run_id,
+        agent_proxy_keep_stream_open=enabled,
+    )
+    return enabled
+
+
 def _is_sandbox_event_ingest_enabled(
     *,
     distinct_id: str,
@@ -239,18 +282,6 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
-def _vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
-    if isinstance(payload, str):
-        try:
-            payload = json.loads(payload)
-        except (ValueError, TypeError):
-            payload = None
-    value = payload.get("origin_products") if isinstance(payload, dict) else payload
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return {item for item in value if isinstance(item, str)}
-    return set()
-
-
 def _is_modal_vm_sandbox_enabled(
     *,
     distinct_id: str,
@@ -278,35 +309,16 @@ def _is_modal_vm_sandbox_enabled(
         return state_override
 
     try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                MODAL_VM_SANDBOX_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-        allowed_origins: set[str] = set()
-        if enabled:
-            payload = posthoganalytics.get_feature_flag_payload(
-                MODAL_VM_SANDBOX_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-            )
-            allowed_origins = _vm_sandbox_allowed_origin_products(payload)
+        allowed_origins = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
     except Exception as e:
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
-    result = enabled and origin_product in allowed_origins
+    result = origin_product in allowed_origins
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        flag_enabled=enabled,
+        flag_enabled=bool(allowed_origins),
         origin_product=origin_product,
         allowed_origin_products=sorted(allowed_origins),
         use_modal_vm_sandbox=result,
@@ -409,6 +421,35 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
+def _is_modal_directory_resume_snapshots_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "modal_directory_resume_snapshots_flag_checked",
+        run_id=run_id,
+        use_modal_directory_resume_snapshots=enabled,
+    )
+    return enabled
+
+
 @activity.defn
 @asyncify
 @close_db_connections
@@ -448,6 +489,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
+    environment_custom_image_name: str | None = None
 
     if sandbox_environment_id:
         sandbox_environment = task_run.get_sandbox_environment()
@@ -461,6 +503,23 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             )
         else:
             sandbox_environment_name = sandbox_environment.name
+            custom_image = sandbox_environment.custom_image
+            if custom_image is not None:
+                if not custom_image.is_accessible_to_user(task.created_by_id):
+                    emit_agent_log(
+                        run_id,
+                        "warn",
+                        f"Custom image '{custom_image.name}' is private to its creator; using the default base image",
+                    )
+                elif custom_image.is_ready:
+                    environment_custom_image_name = custom_image.modal_image_name
+                else:
+                    emit_agent_log(
+                        run_id,
+                        "warn",
+                        f"Custom image '{custom_image.name}' is not ready (status: {custom_image.status}); "
+                        "using the default base image",
+                    )
             if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
                 allowed_domains = None
             else:
@@ -478,6 +537,22 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                     "debug",
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
                 )
+
+    # A per-run image (picked at task start) wins over the environment's image.
+    state_custom_image_id = state.get("custom_image_id")
+    if state_custom_image_id:
+        state_custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=state_custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
+        )
+        if state_custom_image is not None and state_custom_image.is_ready:
+            environment_custom_image_name = state_custom_image.modal_image_name
+        else:
+            emit_agent_log(
+                run_id,
+                "warn",
+                f"Requested custom image {state_custom_image_id} is missing, not accessible, or not ready; "
+                "falling back to the environment or default base image",
+            )
 
     log_with_activity_context(
         "Task processing context created",
@@ -530,6 +605,18 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run",
     )
+    custom_image_name: str | None = None
+    if environment_custom_image_name:
+        if use_modal_vm_sandbox:
+            custom_image_name = environment_custom_image_name
+            emit_agent_log(run_id, "debug", f"Using custom base image: {custom_image_name}")
+        else:
+            emit_agent_log(
+                run_id,
+                "warn",
+                "This environment's custom image requires the VM runtime, which is not enabled for this run; "
+                "using the default base image",
+            )
     use_modal_network_allowlist = _is_modal_network_allowlist_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -561,6 +648,27 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
+    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
+    )
+    agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -588,10 +696,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
+        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
+        custom_image_name=custom_image_name,
     )

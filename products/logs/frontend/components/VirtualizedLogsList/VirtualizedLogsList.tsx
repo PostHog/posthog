@@ -4,24 +4,25 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
-    createAttributeColumn,
+    createConfiguredColumn,
     createControlsColumn,
     createMessageColumn,
     createTimestampColumn,
 } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 import {
     LOG_ROW_HEADER_HEIGHT,
-    getAttributeColumnWidth,
     getColumnsFixedWidth,
     getColumnsMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/layoutUtils'
@@ -30,6 +31,8 @@ import { LogRowHeader } from 'products/logs/frontend/components/VirtualizedLogsL
 import { VirtualizedTableColumn } from 'products/logs/frontend/components/VirtualizedLogsList/types'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const DEFAULT_ROW_HEIGHT = 32
 
@@ -48,6 +51,8 @@ interface VirtualizedLogsListProps {
     onExpandTimeRange?: () => void
     orderBy?: LogsOrderBy
     onChangeOrderBy?: (orderBy: LogsOrderBy) => void
+    /** Uuids of the latest live-tail batch — these rows play the one-shot arrival highlight. */
+    newLogUuids?: Set<string>
 }
 
 interface LogsListRowProps {
@@ -68,6 +73,7 @@ interface LogsListRowProps {
     prettifiedLogIds: Set<string>
     togglePrettifyLog: (logId: string) => void
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
+    newLogUuids?: Set<string>
 }
 
 function LogsListRow({
@@ -90,6 +96,7 @@ function LogsListRow({
     prettifiedLogIds,
     togglePrettifyLog,
     dynamicRowHeight,
+    newLogUuids,
 }: {
     ariaAttributes: Record<string, unknown>
     index: number
@@ -126,6 +133,7 @@ function LogsListRow({
                 }}
                 isPrettified={prettifiedLogIds.has(log.uuid)}
                 onTogglePrettify={(l) => togglePrettifyLog(l.uuid)}
+                isNew={newLogUuids?.has(log.uuid) ?? false}
             />
         </div>
     )
@@ -146,6 +154,7 @@ export function VirtualizedLogsList({
     onExpandTimeRange,
     orderBy,
     onChangeOrderBy,
+    newLogUuids,
 }: VirtualizedLogsListProps): JSX.Element {
     const {
         id,
@@ -153,17 +162,16 @@ export function VirtualizedLogsList({
         expandedLogIds,
         cursorIndex,
         scrollToCursorRequest,
-        attributeColumns,
-        attributeColumnWidths,
+        columns: columnConfigs,
         selectedLogIds,
         prettifiedLogIds,
     } = useValues(logsViewerLogic)
     const {
         togglePinLog,
         userSetCursorIndex,
-        removeAttributeColumn,
-        setAttributeColumnWidth,
-        moveAttributeColumn,
+        removeColumn,
+        setColumnWidth,
+        moveColumn,
         selectLogRange,
         togglePrettifyLog,
         setFocused,
@@ -189,46 +197,49 @@ export function VirtualizedLogsList({
     const dataSourceRef = useRef<ParsedLogMessage[]>(dataSource)
     dataSourceRef.current = dataSource
 
+    const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
+
+    // Server aliases are keyed by the expression that produced them, so map each custom column
+    // to its alias by expression. This stays correct when columns are reordered without a re-fetch.
+    const aliasById = useMemo(() => {
+        const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
+        return new Map(customConfigs.map((config) => [config.id, customColumnAliases?.[config.expression!.trim()]]))
+    }, [columnConfigs, customColumnAliases])
+
     // Columns memoized on structural deps only — per-row state (selection,
     // expansion, prettify) is read from kea inside cell components.
-    const columns = useMemo(
-        () => [
+    const columns = useMemo(() => {
+        const managed = columnConfigs.filter((config) => config.type !== 'timestamp' && config.type !== 'message')
+        return [
             createControlsColumn({ dataSourceRef }),
-            createTimestampColumn({
-                tzLabelFormat,
-                orderBy,
-                onChangeOrderBy,
-            }),
-            ...attributeColumns.map((attributeKey, index) =>
-                createAttributeColumn({
-                    attributeKey,
-                    width: getAttributeColumnWidth(attributeKey, attributeColumnWidths),
-                    onResize: setAttributeColumnWidth,
-                    onRemove: removeAttributeColumn,
-                    onMove: moveAttributeColumn,
-                    isFirst: index === 0,
-                    isLast: index === attributeColumns.length - 1,
+            ...columnConfigs.map((config) => {
+                if (config.type === 'timestamp') {
+                    return createTimestampColumn({ tzLabelFormat, orderBy, onChangeOrderBy })
+                }
+                if (config.type === 'message') {
+                    return createMessageColumn({ wrapBody, prettifyJson, flexWidthRef })
+                }
+                return createConfiguredColumn({
+                    config,
+                    alias: aliasById.get(config.id),
+                    callbacks: { onResize: setColumnWidth, onRemove: removeColumn, onMove: moveColumn },
+                    isFirst: managed.indexOf(config) === 0,
+                    isLast: managed.indexOf(config) === managed.length - 1,
                 })
-            ),
-            createMessageColumn({
-                wrapBody,
-                prettifyJson,
-                flexWidthRef,
             }),
-        ],
-        [
-            tzLabelFormat,
-            orderBy,
-            onChangeOrderBy,
-            attributeColumns,
-            attributeColumnWidths,
-            setAttributeColumnWidth,
-            removeAttributeColumn,
-            moveAttributeColumn,
-            wrapBody,
-            prettifyJson,
         ]
-    )
+    }, [
+        tzLabelFormat,
+        orderBy,
+        onChangeOrderBy,
+        columnConfigs,
+        aliasById,
+        setColumnWidth,
+        removeColumn,
+        moveColumn,
+        wrapBody,
+        prettifyJson,
+    ])
 
     const minRowWidth = useMemo(() => getColumnsMinRowWidth(columns), [columns])
 
@@ -305,6 +316,7 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         }),
         [
             dataSource,
@@ -323,13 +335,14 @@ export function VirtualizedLogsList({
             prettifiedLogIds,
             togglePrettifyLog,
             dynamicRowHeight,
+            newLogUuids,
         ]
     )
 
     if (dataSource.length === 0 && !loading) {
         return (
             <div className="flex flex-col items-center gap-3 p-8 text-center h-full min-h-40">
-                <DetectiveHog className="w-32 h-32" />
+                <HedgehogMagnifyingGlass className="w-32 h-32" />
                 <div>
                     <h4 className="font-semibold m-0">No logs found</h4>
                     <p className="text-muted text-sm mt-1 mb-0 max-w-80">

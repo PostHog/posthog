@@ -37,6 +37,7 @@ describe('isCliModeEnabledClient', () => {
             ['amp-mcp-client'],
             ['poke'],
             ['grok'],
+            ['ando-mcp-gateway'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -444,6 +445,24 @@ describe('MCPClientProfile', () => {
             const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
             expect(profile.isCliModeEnabled()).toBe(true)
             expect(profile.isClaudeUiHost()).toBe(false)
+        })
+    })
+
+    describe('isInlineExecUiHost()', () => {
+        it.each([['ClaudeCode'], ['Cowork']])('is true for the %s vendor client', (vendorClient) => {
+            expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(true)
+        })
+
+        // Claude.ai renders via the separate render-ui tool, not the inline exec payload.
+        it.each([['ClaudeAI'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
+            'is false for the %s vendor client',
+            (vendorClient) => {
+                expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)
+            }
+        )
+
+        it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
+            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
         })
     })
 

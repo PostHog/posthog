@@ -1,8 +1,9 @@
 /** Downsample + blur media/canvas images — scene stays legible, faces/text don't. Run deferred. */
 import sharp from 'sharp'
 
-import { BlurJob } from './config'
+import { BlurCache, BlurJob } from './config'
 
+// The ml-mirror scrub sidecar duplicates these (it's outside the workspace); keep the two in sync.
 const DOWNSAMPLE_RATIO = 0.12
 const BLUR_SIGMA = 2.34
 const MAX_LONG_SIDE = 96
@@ -87,6 +88,30 @@ export async function pixelateRawRgba(base64: string, width: number, height: num
     } catch {
         return null
     }
+}
+
+/**
+ * In-batch blur memo: within one Kafka message the same image often recurs thousands of times across
+ * its rrweb events (a canvas redrawing one sprite, a repeated background), and both blur functions are
+ * pure in their input. Sharing one settled Promise per distinct input collapses that fan-out to a
+ * single sharp call. Neither producer rejects (both catch and return null), so a cached entry never
+ * poisons its consumers. Scope is one Kafka message — the map is discarded when its blur jobs finish.
+ */
+export function memoizedBlur(
+    cache: BlurCache | undefined,
+    key: string,
+    compute: () => Promise<string | null>
+): Promise<string | null> {
+    if (!cache) {
+        return compute()
+    }
+    const existing = cache.get(key)
+    if (existing !== undefined) {
+        return existing
+    }
+    const pending = compute()
+    cache.set(key, pending)
+    return pending
 }
 
 /** Run deferred blur jobs concurrently. A job that throws is swallowed — the image was already

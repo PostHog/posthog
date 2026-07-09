@@ -60,16 +60,20 @@ class ExecutionTimeRecorder:
         attributes = dict(self.histogram_attributes)
         if exc_value is not None:
             attributes["status"] = "FAILED"
-            attributes["exception"] = str(exc_value)
+            # Class name, not str(exc): a free-form message would explode label cardinality.
+            attributes["exception"] = type(exc_value).__name__
         elif self._status_override is not None:
             attributes["status"] = self._status_override
             attributes["exception"] = ""
         else:
             attributes["status"] = "COMPLETED"
             attributes["exception"] = ""
-        meter = get_metric_meter(attributes)
-        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
+        # The whole metric path is best-effort: meter acquisition can raise
+        # too (e.g. outside an activity/workflow context), and a metric-layer
+        # failure must never fail the wrapped block or mask its exception.
         try:
+            meter = get_metric_meter(attributes)
+            hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
             hist.record(value=delta)
         except Exception:
             LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)

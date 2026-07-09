@@ -8,11 +8,26 @@ export const NUMBER_CHAR = '#'
 /** A deferred image-blur job: an async closure that blurs its image and writes the result back in place. */
 export type BlurJob = () => Promise<void>
 
+/** In-batch blur memo (input → settled blur): one per Kafka message, so an image recurring across its rrweb events blurs once. */
+export type BlurCache = Map<string, Promise<string | null>>
+
+/** Diagnostic accumulator (ms) for the cv gzip de/recompression sub-steps. */
+export interface ScrubTiming {
+    decompressMs: number
+    recompressMs: number
+}
+
 /** Per-scrub context: the active allow lists plus tunables read by the scrubbers. */
 export interface ScrubContext {
     allow: AllowLists
+    firstPartyHosts?: string[]
     /** Optional collector for deferred image-blur jobs (see {@link BlurJob}). */
     blurJobs?: BlurJob[]
+    /** Optional per-Kafka-message memo shared across those jobs so identical images blur once (see {@link BlurCache}). */
+    blurCache?: BlurCache
+    /** Optional diagnostic timing accumulator (see {@link ScrubTiming}). */
+    timing?: ScrubTiming
+    useRustAnonymizer?: boolean
 }
 
 /** Shared non-null-object type guard used across the scrubbers. */

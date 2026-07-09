@@ -173,8 +173,11 @@ export interface _MetricAnomalyDimensionApi {
 export interface _MetricQueryPointApi {
     /** Bucket start as ISO 8601 timestamp. */
     time: string
-    /** Aggregated value for the bucket. */
-    value: number
+    /**
+     * Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.
+     * @nullable
+     */
+    value: number | null
 }
 
 /**
@@ -239,6 +242,11 @@ export interface _MetricAnomalyReportApi {
     top_movers: _MetricAnomalyDimensionApi[]
     /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
     series: _MetricSeriesApi
+}
+
+export interface _HasMetricsResponseApi {
+    /** Whether the team has ingested any metrics. */
+    hasMetrics: boolean
 }
 
 export interface _MetricGroupByApi {
@@ -419,10 +427,16 @@ export interface _MetricEventSampleApi {
     metric_name: string
     /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
     metric_type: string
-    /** The emitted value. */
+    /** The emitted value. For histogram/summary points this is the distribution sum; pair with count. */
     value: number
+    /** Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries. */
+    count: number
     /** Unit of the value, if any. */
     unit: string
+    /** For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges. */
+    aggregation_temporality: string
+    /** True for monotonically increasing counters. */
+    is_monotonic: boolean
     /** Service that emitted the metric. */
     service_name: string
     /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
@@ -452,15 +466,16 @@ export interface _MetricNamesResponseApi {
     results: _MetricNameApi[]
 }
 
-export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown }
-
 export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string
 }

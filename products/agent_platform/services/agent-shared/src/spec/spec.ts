@@ -392,11 +392,29 @@ export const ApprovalPolicySchema = z.preprocess(
     })
 )
 
-const DEFAULT_APPROVAL_POLICY = {
+export const DEFAULT_APPROVAL_POLICY = {
     type: 'principal' as const,
     allow_edit: false,
     ttl_ms: 24 * 60 * 60 * 1000,
 }
+
+/**
+ * Per-tool approval level for an MCP connection: the effective level of a remote
+ * tool decides what the runner does with it.
+ *   - `allow`   — exposed, runs without approval.
+ *   - `approve` — exposed, every call parks for approval (the entry's
+ *                 `approval_policy` decides who/ttl).
+ *   - `deny`    — NOT exposed to the model at all.
+ *
+ * Used both as the connection-wide default (`McpRef.default_tool_approval`) and
+ * as a per-tool override (`McpToolEntry.level`). Effective level for a tool =
+ * its override `level` ?? the connection default. A connection with
+ * `default_tool_approval: 'deny'` + per-tool `allow` overrides is a strict
+ * allowlist. See `services/agent-runner/src/loop/build-agent-tools.ts`
+ * (exposure) and `mcp-tool-lookup.ts` (approval).
+ */
+export const ToolApprovalLevelSchema = z.enum(['allow', 'approve', 'deny'])
+export type ToolApprovalLevel = z.infer<typeof ToolApprovalLevelSchema>
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
     z.object({
@@ -426,22 +444,27 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
     // every non-`client` tool carries `requires_approval`.
     /**
      * **Client-fulfilled tool.** The agent author declares the tool fully
-     * inline (id + description + args_schema); the connecting client
-     * (browser dock, IDE MCP host, etc.) advertises which ids it can
-     * fulfill at session start via `client.handles[]`. The runner
-     * reconciles:
+     * inline (id + description + args_schema); the connecting client (browser
+     * dock, IDE MCP host, etc.) declares which ids it can execute this session
+     * via `supported_client_tools` in the /run body (stashed on the session's
+     * `trigger_metadata`). The runner gates EXPOSURE on it:
      *
-     *   - In spec AND in `client.handles[]` → exposed to the model.
-     *   - In spec, NOT handled, `required: false` (default) → hidden
-     *     from the model surface; the agent.md should be written to
-     *     degrade gracefully (text-only narration).
-     *   - In spec, NOT handled, `required: true` → session open fails
-     *     with `client_tool_unsupported`.
+     *   - id in `supported_client_tools` → exposed to the model.
+     *   - NOT declared, `required: false` (default) → hidden from the model
+     *     surface; write agent.md to degrade gracefully (text-only narration).
+     *   - NOT declared, `required: true` → session open fails with
+     *     `client_tool_unsupported`.
+     *
+     * Non-chat surfaces (Slack, cron, webhook, MCP) declare nothing, so client
+     * tools — including interactive punch-outs like `connect_mcp` /
+     * `set_secret` — are simply not exposed there; the model never sees a tool
+     * it can't get a result for.
      *
      * Dispatch path: when the model calls the tool, the runner emits a
      * `client_tool_call` session event carrying the args + a call_id;
      * the client executes locally and POSTs the result to
-     * `/sessions/<id>/client_tool_result`.
+     * `/sessions/<id>/client_tool_result`. Interactive tools park the session
+     * until that result arrives.
      */
     z.object({
         kind: z.literal('client'),
@@ -485,24 +508,31 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
 ])
 
 /**
- * Per-tool selection + approval-gating entry for `external` MCP refs. The
- * bare-string form is the inclusion-only case (was `allowlist[]` pre-PR 7);
- * the object form adds approval gating using the same primitives as
- * `ToolRefSchema` (`requires_approval` + `approval_policy`). The dispatcher
- * looks the entry up by name when wrapping the model-visible
+ * Per-tool entry for an MCP ref — overrides the connection defaults for one
+ * tool. `level` sets allow / approve / deny (vs `default_tool_approval`);
+ * `approval_policy` optionally pins WHO approves + ttl for an `approve` tool
+ * (vs the connection's `approval_policy`). A tool with no entry takes the
+ * connection defaults.
+ *
+ * Per-tool `approval_policy` is what lets a designer route most approvals to the
+ * asker (`type: 'principal'`) while sending a specific sensitive tool to the
+ * agent's owning team (`type: 'agent'`) — and it's mandatory for tools an agent
+ * can call with no principal present (cron/webhook), where a principal approval
+ * is undeliverable.
+ *
+ * The runner looks the entry up by name when building/gating the model-visible
  * `<prefix>__<remoteName>` tool — see
- * `services/agent-runner/src/loop/mcp-tool-lookup.ts` and the approval-wrap
- * fallback in `driver.ts`.
+ * `services/agent-runner/src/loop/mcp-tool-lookup.ts` + `build-agent-tools.ts`.
  */
-export const McpToolEntrySchema = z.union([
-    z.string().min(1),
-    z.object({
-        /** Raw remote tool name (pre-prefix). Must match an entry from `client.listTools()`. */
-        name: z.string().min(1),
-        requires_approval: z.boolean().default(false),
-        approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
-    }),
-])
+export const McpToolEntrySchema = z.object({
+    /** Raw remote tool name (pre-prefix). Must match an entry from `client.listTools()`. */
+    name: z.string().min(1),
+    /** Override of the connection's `default_tool_approval` for this tool. */
+    level: ToolApprovalLevelSchema,
+    /** Override of the connection's `approval_policy` for this tool (who approves
+     *  + ttl). Only consulted when the effective level is `approve`. */
+    approval_policy: ApprovalPolicySchema.optional(),
+})
 
 /**
  * Runtime MCP servers an agent connects to at session start. The runner opens
@@ -515,86 +545,155 @@ export const McpToolEntrySchema = z.union([
  * per-principal OAuth identity, stamped as the asker's bearer (gates into
  * auth_required if unlinked). `secrets[]` + `headers` is the simpler
  * bring-your-own-token case, resolved through the same encrypted-env path the
- * agent's main `spec.secrets` uses. `id` is the tool-name prefix. `tools[]`
- * selects + gates: bare string = inclusion only; object form adds
- * `requires_approval` + `approval_policy`.
+ * agent's main `spec.secrets` uses. `id` is the tool-name prefix.
+ * `default_tool_approval` sets the connection-wide level; `tools[]` overrides it
+ * per tool (`{ name, level }`).
  *
  * The `kind: 'agent'` variant (agent-to-agent MCP composability) was removed
  * in favour of a single flat shape — `agent-as-mcp-server.md` will re-add it
  * when a concrete consumer lands.
  */
-export const McpRefSchema = z.object({
-    /**
-     * Stable id within the spec. Tool-name prefix at runtime —
-     * `<id>__<toolName>` is what the model sees so it can tell which MCP
-     * a tool came from. Must be unique across `spec.mcps[]`.
-     */
-    id: z.string().min(1),
-    url: z.string().url(),
-    auth: z
-        .object({
-            /** Per-principal identity provider (id from `spec.identity_providers[]`):
-             *  stamps the linked user's bearer, gates into auth_required if unlinked. */
-            provider: z.string().optional(),
-        })
-        .optional(),
-    /**
-     * Per-MCP secret names. Resolved at session start through the same
-     * encrypted-env path as the agent's main `spec.secrets`. The runner
-     * substitutes `${name}` placeholders in the URL + auth headers before
-     * opening the client; the plaintext never leaves the runner process.
-     */
-    secrets: z.array(z.string()).default([]),
-    /**
-     * Author-supplied request headers stamped on every outgoing MCP request.
-     * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
-     * the plaintext value before opening the MCP client, so the secret never
-     * leaves the runner process. Same substitution shape as
-     * `@posthog/http-request`'s `headers` — the parallel is intentional so
-     * authors can use the same mental model for "bring my own bearer token"
-     * against either a typed MCP catalog or a raw HTTP API.
-     *
-     * Use this for the bring-your-own-token case (paste a PAT once, reference
-     * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For OAuth, use
-     * `auth.provider` instead; provider-stamped headers compose with
-     * author-supplied headers — explicit author entries win on duplicate
-     * keys, matching `http-request`'s "caller-set values are not silently
-     * overwritten" rule.
-     */
-    headers: z.record(z.string(), z.string()).optional(),
-    /**
-     * Per-tool selection AND approval gating. Bare string is a passthrough
-     * (gates inclusion, no approval); object form carries
-     * `requires_approval` + `approval_policy`. Omitted / empty = expose
-     * every tool the server lists. Replaces the earlier `allowlist[]`
-     * field (PR 7 hard-break — no production specs used it).
-     *
-     * Names must be unique within the array. A duplicate would be a
-     * silent first-match-wins footgun — e.g. an author who appends a
-     * gated copy of an already-listed bare-string entry would see the
-     * gated version ignored. Better to reject at parse time.
-     */
-    tools: z
-        .array(McpToolEntrySchema)
-        .optional()
-        .refine(
-            (entries) => {
-                if (!entries) {
-                    return true
-                }
-                const seen = new Set<string>()
-                for (const e of entries) {
-                    const name = typeof e === 'string' ? e : e.name
-                    if (seen.has(name)) {
-                        return false
+export const McpRefSchema = z
+    .object({
+        /**
+         * Stable id within the spec. Tool-name prefix at runtime —
+         * `<id>__<toolName>` is what the model sees so it can tell which MCP
+         * a tool came from. Must be unique across `spec.mcps[]`.
+         */
+        id: z
+            .string()
+            .min(1)
+            // The runtime tool-name prefix is `<id>__<remoteName>` and the
+            // approval lookup splits on the FIRST `__` (mcp-tool-lookup.ts). An
+            // id that itself contains `__` misroutes the split → the per-tool
+            // approval gate silently never fires. Forbid the separator.
+            .refine((id) => !id.includes('__'), {
+                message: "mcps[].id must not contain '__' (it is the tool-name prefix separator)",
+            }),
+        url: z.string().url(),
+        /**
+         * Credential model for this server — REQUIRED, the explicit discriminator the
+         * runtime and the authoring UI branch on (rather than inferring it from which
+         * of `connection`/`auth`/`secrets` happens to be set):
+         *   - `'agent'`     — ONE shared credential every asker reuses, supplied
+         *     either by a `connection` (mcp_store installation) or a bring-your-own
+         *     static token in `secrets` + `headers`. No `auth.provider`.
+         *   - `'principal'` — each asker acts as themselves via `auth.provider`
+         *     (a per-asker linked identity). No `connection`.
+         * The `superRefine` below pins the credential fields to the kind so intent
+         * and wiring can't drift.
+         */
+        kind: z.enum(['agent', 'principal']),
+        /**
+         * Native MCP connection: the id of an `mcp_store` `MCPServerInstallation` an
+         * owner connected once (OAuth incl. DCR, or api-key). When set, the runner
+         * loads the bearer from that row (refreshing on expiry) and ignores
+         * `auth`/`secrets`/`headers` — ONE shared credential for every asker. `url`
+         * stays required (UI-filled); the installation row is the source of truth.
+         * Agent-kind only.
+         */
+        connection: z.string().min(1).optional(),
+        /**
+         * Connection-wide default approval level (per-agent tool-permission model) —
+         * REQUIRED. Every remote tool's effective level = its `tools[].level`
+         * override ?? this default; the tool is exposed unless its effective level
+         * is `deny`, and gated when `approve`. A curated allowlist is
+         * `'deny'` + per-tool `level: 'allow'`. The agent-config UI writes
+         * `'approve'` here when an MCP is first attached.
+         */
+        default_tool_approval: ToolApprovalLevelSchema,
+        /**
+         * Approval policy (who approves + ttl) for any tool whose effective level is
+         * `approve`. Defaults to the principal/24h policy.
+         */
+        approval_policy: ApprovalPolicySchema.optional(),
+        auth: z
+            .object({
+                /** Per-principal identity provider (id from `spec.identity_providers[]`):
+                 *  stamps the linked user's bearer, gates into auth_required if unlinked. */
+                provider: z.string().optional(),
+            })
+            .optional(),
+        /**
+         * Per-MCP secret names. Resolved at session start through the same
+         * encrypted-env path as the agent's main `spec.secrets`. The runner
+         * substitutes `${name}` placeholders in the URL + auth headers before
+         * opening the client; the plaintext never leaves the runner process.
+         */
+        secrets: z.array(z.string()).default([]),
+        /**
+         * Author-supplied request headers stamped on every outgoing MCP request.
+         * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
+         * the plaintext value before opening the MCP client, so the secret never
+         * leaves the runner process. Same substitution shape as
+         * `@posthog/http-request`'s `headers` — the parallel is intentional so
+         * authors can use the same mental model for "bring my own bearer token"
+         * against either a typed MCP catalog or a raw HTTP API.
+         *
+         * Use this for the bring-your-own-token case (paste a PAT once, reference
+         * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For OAuth, use
+         * `auth.provider` instead; provider-stamped headers compose with
+         * author-supplied headers — explicit author entries win on duplicate
+         * keys, matching `http-request`'s "caller-set values are not silently
+         * overwritten" rule.
+         */
+        headers: z.record(z.string(), z.string()).optional(),
+        /**
+         * Per-tool overrides of `default_tool_approval`. Each entry's `level` sets
+         * that tool to allow/approve/deny; a tool with no entry takes the default.
+         * Omitted/empty = every tool takes the connection default.
+         *
+         * Names must be unique within the array — a duplicate would be a silent
+         * first-match-wins footgun, so reject it at parse time.
+         */
+        tools: z
+            .array(McpToolEntrySchema)
+            .optional()
+            .refine(
+                (entries) => {
+                    if (!entries) {
+                        return true
                     }
-                    seen.add(name)
-                }
-                return true
-            },
-            { message: 'mcps[].tools[] entries must have unique names' }
-        ),
-})
+                    const seen = new Set<string>()
+                    for (const e of entries) {
+                        if (seen.has(e.name)) {
+                            return false
+                        }
+                        seen.add(e.name)
+                    }
+                    return true
+                },
+                { message: 'mcps[].tools[] entries must have unique names' }
+            ),
+    })
+    .superRefine((ref, ctx) => {
+        // Pin the credential fields to the declared kind so the runtime resolution
+        // (connection → shared bearer; auth.provider → per-asker identity) and the
+        // authoring UI can't disagree with the stated intent.
+        if (ref.kind === 'principal') {
+            if (!ref.auth?.provider) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['auth', 'provider'],
+                    message: "mcps[].kind 'principal' requires auth.provider (a per-asker linked identity)",
+                })
+            }
+            if (ref.connection) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: ['connection'],
+                    message:
+                        "mcps[].kind 'principal' must not set connection (that is an agent-level shared credential)",
+                })
+            }
+        } else if (ref.auth?.provider) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['auth', 'provider'],
+                message: "mcps[].kind 'agent' must not set auth.provider (use a connection or secrets + headers)",
+            })
+        }
+    })
 
 export const SkillRefSchema = z.object({
     id: z.string(),
@@ -672,6 +771,17 @@ export const SpecLimitsSchema = z.object({
     // Per-turn provider max_tokens. Unset → reasoning-aware default in runner.
     // Clamped at request time to model.maxTokens + operator override.
     max_output_tokens: z.number().int().positive().max(200_000).optional(),
+    /**
+     * Cap on open (queued) approval requests per session. A model looping on
+     * an approval-gated tool can otherwise flood approvers — Slack posts per
+     * queued row, console badge inflation — because args-hash dedupe only
+     * collapses identical calls, not distinct-args floods. At the cap,
+     * further gated calls return a synthetic `approval_budget_exhausted`
+     * error to the model instead of queueing. Decisions and TTL expiry free
+     * budget; an identical re-ask dedupes onto its existing row and is
+     * always allowed.
+     */
+    max_open_approvals: z.number().int().positive().max(100).default(10),
 })
 
 export type AuthMode = z.infer<typeof AuthModeSchema>
@@ -911,6 +1021,7 @@ export const AgentSpecSchema = z.object({
         max_wall_seconds: 15 * 60,
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
+        max_open_approvals: 10,
     }),
     reasoning: ReasoningEffortSchema.describe(
         'Spec-wide default reasoning effort, applied to every model unless a model policy entry overrides it. Omit for the provider default.'

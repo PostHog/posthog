@@ -373,9 +373,14 @@ export class BatchWritingGroupStore implements GroupStore {
         distinctId: string
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, update.team_id, 'group_upsert_message_size_too_large', {
-                groupTypeIndex: update.group_type_index,
-                groupKey: update.group_key,
+            await emitIngestionWarning(this.outputs, update.team_id, {
+                type: 'group_upsert_message_size_too_large',
+                details: {
+                    groupTypeIndex: update.group_type_index,
+                    groupKey: update.group_key,
+                    distinctId: distinctId,
+                },
+                pipelineStep: 'group-store',
             })
             return
         }
@@ -755,9 +760,13 @@ export class BatchWritingGroupStore implements GroupStore {
         batchId: number
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, teamId, 'group_upsert_message_size_too_large', {
-                groupTypeIndex,
-                groupKey,
+            await emitIngestionWarning(this.outputs, teamId, {
+                type: 'group_upsert_message_size_too_large',
+                details: {
+                    groupTypeIndex,
+                    groupKey,
+                },
+                pipelineStep: 'group-store',
             })
             return
         }

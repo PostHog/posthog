@@ -24,7 +24,7 @@ const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const realisticMetadata =
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 
@@ -188,6 +188,20 @@ describe('InstructionsFormatter', () => {
             // The bullet for the `dashboard` domain would clash with in-prose mentions,
             // so anchor on the list-prefix newline pattern to avoid false positives.
             expect(result).not.toContain('\n- dashboard\n')
+        })
+
+        it('keeps the full env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecCommandReference(fullCtx, {
+                stripEnvContext: true,
+                keepEnvContext: true,
+            })
+            // The whole env-context (tool domains, project metadata, group types)
+            // survives for clients (Claude web/desktop) that ignore the `instructions`
+            // payload, so it still reaches the model via the command reference.
+            expect(result).toContain('- dashboard')
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
         })
 
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {

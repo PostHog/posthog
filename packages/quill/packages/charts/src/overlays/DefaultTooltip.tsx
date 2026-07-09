@@ -172,7 +172,9 @@ export function DefaultTooltip<Meta = unknown>({
                                     {labelContent}
                                 </span>
                             </span>
-                            <strong data-attr="hog-chart-tooltip-value">{format(s.value, s)}</strong>
+                            <strong data-attr="hog-chart-tooltip-value" className="tabular-nums">
+                                {format(s.value, s)}
+                            </strong>
                         </div>
                     )
                 })}

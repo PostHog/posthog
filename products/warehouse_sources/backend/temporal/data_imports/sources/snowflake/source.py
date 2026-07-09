@@ -1,6 +1,9 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError, ProgrammingError
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -14,11 +17,16 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import SnowflakeImplementation
+from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
+    SnowflakeImplementation,
+    get_connection_metadata as get_connection_metadata_snowflake,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
@@ -35,10 +43,10 @@ _MALFORMED_PEM_MESSAGE = (
 )
 
 SnowflakeErrors = {
-    "No active warehouse selected in the current session": "No warehouse found for selected role",
+    "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
     "Incorrect username or password was specified": "Incorrect username or password was specified",
-    "This session does not have a current database": "Database specified not found",
+    "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then try again.",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
     # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't
@@ -197,6 +205,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # warehouse is missing/suspended or the role lacks USAGE on it — it just leaves the session
             # warehouse unset. Retrying can never succeed until the customer fixes the grant or warehouse.
             "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then resync.",
+            # Snowflake error 090105 (22000): the session has no current database, so the first query
+            # that references an unqualified object (our `information_schema` listing query) fails. The
+            # connector doesn't fail at connect time when the configured database is missing or the role
+            # lacks USAGE on it — it just leaves the session database unset. Retrying can never succeed
+            # until the customer fixes the database name or the grant. The query id is volatile, so we
+            # match the stable phrase.
+            "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
@@ -260,6 +275,21 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # a broken object on the source side that retrying can't repair.
             "but view query produces": "A Snowflake view in your source is invalid — the columns it declares no longer match the columns its query returns. Please recreate the view in Snowflake so the two agree, then resync.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_snowflake_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_snowflake_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
+
+    def get_connection_metadata(
+        self, config: SnowflakeSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, str | None]:
+        # `require_ssl` keeps signature parity with Postgres/MySQL; Snowflake transport is always TLS.
+        return get_connection_metadata_snowflake(config)
 
     def validate_credentials(
         self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None

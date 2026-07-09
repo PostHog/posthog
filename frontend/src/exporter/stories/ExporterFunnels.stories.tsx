@@ -3,6 +3,9 @@ import { useEffect } from 'react'
 
 import { ExportType, ExportedData } from '~/exporter/types'
 
+import __funnelHistoricalTrends from '../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import __funnelTimeToConvert from '../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import __funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
 import { Exporter } from '../Exporter'
 
 type Story = StoryObj<ExportedData>
@@ -39,58 +42,30 @@ const meta: Meta<ExportedData> = {
 
 export default meta
 
-export const FunnelLeftToRightInsight: Story = {
-    args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    },
-}
-
-/** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
-export const FunnelLeftToRightInsightNoResults: Story = {
-    args: {
-        insight: {
-            ...require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-            result: null,
-        },
-    },
-}
-
-export const FunnelLeftToRightBreakdownInsight: Story = {
-    args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRightBreakdown.json'),
-    },
-}
-
 export const FunnelTopToBottomInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+        insight: __funnelTopToBottom as any,
     },
 }
 /** This should not happen in the exporter, but if it does, it shouldn't error out - we want a clear message. */
 export const FunnelTopToBottomInsightNoResults: Story = {
     args: {
         insight: {
-            ...require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'),
+            ...(__funnelTopToBottom as any),
             result: null,
         },
-    },
-}
-
-export const FunnelTopToBottomBreakdownInsight: Story = {
-    args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     },
 }
 
 export const FunnelHistoricalTrendsInsight: Story = {
     tags: ['test-skip'],
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'),
+        insight: __funnelHistoricalTrends as any,
     },
 }
 
 export const FunnelTimeToConvertInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'),
+        insight: __funnelTimeToConvert as any,
     },
 }

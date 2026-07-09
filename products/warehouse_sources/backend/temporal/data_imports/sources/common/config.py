@@ -1,3 +1,4 @@
+import json
 import types
 import typing
 import reprlib
@@ -72,7 +73,7 @@ class ConfigProtocol(_Dataclass, typing.Protocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T: ...
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T: ...
 
     @classmethod
     def validate_dict(cls: type[_T], d: dict[str, typing.Any]) -> tuple[bool, list[str]]: ...
@@ -105,7 +106,7 @@ class Config(ConfigProtocol):
     """
 
     @classmethod
-    def from_dict(cls: type[_T], d: dict[str, typing.Any]) -> _T:
+    def from_dict(cls: type[_T], d: dict[str, typing.Any] | str) -> _T:
         raise NotImplementedError
 
     @classmethod
@@ -119,6 +120,30 @@ class Config(ConfigProtocol):
 def _noop_convert(x: typing.Any) -> typing.Any:
     """No-op function used as a default converter."""
     return x
+
+
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+# A stored config value that still carries it never got decrypted upstream.
+_ENCRYPTED_SECRET_PREFIX = "gAAAAA"
+
+
+class UndecryptedConfigError(ValueError):
+    """Raised when a config value reaches conversion still Fernet-encrypted.
+
+    Upstream decryption of the stored job inputs failed (e.g. the key that wrote them is no
+    longer in the keychain), so the raw token would otherwise crash the field converter with an
+    opaque, secret-leaking error such as ``invalid literal for int() with base 10: 'gAAAAA...'``.
+    """
+
+
+def _convert_value(
+    convert: typing.Callable[[typing.Any], typing.Any], value: typing.Any, field_name: str
+) -> typing.Any:
+    if isinstance(value, str) and value.startswith(_ENCRYPTED_SECRET_PREFIX):
+        raise UndecryptedConfigError(
+            f"Config field '{field_name}' is still encrypted; the stored credentials could not be decrypted"
+        )
+    return convert(value)
 
 
 @dataclasses.dataclass
@@ -245,12 +270,20 @@ def to_config(
 
             for config_type in config_types:
                 if not is_config(config_type):
+                    if config_type is type(None):
+                        # The `None` arm of an `Optional[Config]` union must not claim the
+                        # value meant for the config arm. When the config arm fails to parse
+                        # a present mapping, falling through to here would assign the raw
+                        # dict, leaving a typed field holding an untyped dict and crashing
+                        # downstream (e.g. `config.ssh_tunnel.enabled`). Skip so the field
+                        # falls back to its default instead.
+                        continue
                     try:
                         value = d[field_key]
                     except KeyError:
                         continue
                     else:
-                        inputs[field.name] = convert(value)
+                        inputs[field.name] = _convert_value(convert, value, field.name)
                         break
 
                 field_type_meta: MetaConfig | None = _try_get_meta(config_type)
@@ -294,7 +327,7 @@ def to_config(
             except KeyError:
                 continue
             else:
-                inputs[field.name] = convert(value)
+                inputs[field.name] = _convert_value(convert, value, field.name)
 
     return config_cls(**inputs)
 
@@ -574,12 +607,20 @@ def config(
     """
 
     def wrap(cls: type[_T]) -> type[_T]:
-        def from_dict(cls, d: dict[str, typing.Any]):
+        def from_dict(cls, d: dict[str, typing.Any] | str):
+            if isinstance(d, str):
+                # Stored config (an `EncryptedJSONField`) can come back double-encoded: a JSON
+                # string holding the mapping rather than the mapping itself. Recover by decoding
+                # it once so the sync proceeds instead of crashing.
+                try:
+                    d = json.loads(d)
+                except json.JSONDecodeError:
+                    pass
+
             if not isinstance(d, dict):
-                # Stored config (e.g. an `EncryptedJSONField`) can occasionally come back as a
-                # non-mapping (a double-encoded string). Fail with an actionable message instead
-                # of the opaque `TypeError: string indices must be integers` raised when `to_config`
-                # tries to index into it.
+                # Anything still not a mapping (a non-object JSON value, bytes, ...) can't build a
+                # config. Fail with an actionable message instead of the opaque
+                # `TypeError: string indices must be integers` raised when `to_config` indexes it.
                 raise TypeError(f"Cannot build '{cls.__name__}' from {type(d).__name__}; expected a mapping")
 
             if prefix:

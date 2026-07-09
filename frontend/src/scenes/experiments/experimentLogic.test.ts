@@ -19,14 +19,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import {
-    ExperimentSavedMetric,
-    ExperimentWarning,
-    classifyError,
-    experimentLogic,
-    extractErrorDetailString,
-    getDisplayOrderedIndices,
-} from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -1286,6 +1279,53 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('freezeExposure', () => {
+        it('calls freeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const frozenResponse = { ...experiment, status: 'exposure_frozen' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(frozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.freezeExposure()
+            })
+                .toDispatchActions(['freezeExposure', 'setFreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/freeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('exposure_frozen')
+            // Loading guard is reset after the request settles.
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast and resets the loading guard on failure', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment exposure is already frozen.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.freezeExposure()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment exposure is already frozen.')
+            expect(logic.values.freezeExposureLoading).toBe(false)
+            createSpy.mockRestore()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {
@@ -1406,6 +1446,7 @@ describe('experimentLogic', () => {
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
                 conclusion: 'won',
                 conclusion_comment: 'Test variant won clearly',
+                open_cleanup_pr: false,
             })
 
             // Post-condition: experiment is ended
@@ -1500,6 +1541,7 @@ describe('experimentLogic', () => {
                     release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
+                    open_cleanup_pr: false,
                 }
             )
 
@@ -1662,19 +1704,24 @@ describe('experimentLogic', () => {
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
-                    parameters: expect.objectContaining({
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 75 },
-                            { key: 'test', rollout_percentage: 25 },
-                        ],
-                    }),
+                    feature_flag: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 75 },
+                                    { key: 'test', rollout_percentage: 25 },
+                                ],
+                            },
+                        },
+                    },
                     holdout_id: experiment.holdout_id,
                     update_feature_flag_params: true,
                 })
             )
-            // Should not send rollout_percentage — it's not editable in the distribution modal
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams).not.toHaveProperty('rollout_percentage')
+            // No rollout group when the caller omits rolloutPercentage (the modal itself always
+            // passes one; this covers the omit branch)
+            const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
+            expect(sentFlagFilters).not.toHaveProperty('groups')
         })
 
         it('does not call feature flag API directly', async () => {
@@ -1924,83 +1971,6 @@ describe('experimentLogic', () => {
         it('returns all indices exactly once', () => {
             const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
             expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
-        })
-    })
-
-    describe('classifyError', () => {
-        it.each([
-            // [description, errorDetail, errorMessage, errorCode, statusCode, expected]
-            ['504 gateway timeout', null, null, null, 504, 'timeout'],
-            ['408 request timeout', null, null, null, 408, 'timeout'],
-            ['query timeout body marker', 'Query timed out', null, null, 200, 'timeout'],
-            ['memory-limit error code', null, null, 'memory_limit_exceeded', 500, 'out_of_memory'],
-            ['OOM message pattern', null, 'Memory limit exceeded while running', null, 500, 'out_of_memory'],
-            ['generic 500', null, null, null, 500, 'server_error'],
-            ['503 unavailable', null, null, null, 503, 'server_error'],
-            ['status 0 is network', null, null, null, 0, 'network_error'],
-            ['TypeError: Failed to fetch', null, 'TypeError: Failed to fetch', null, null, 'network_error'],
-            ['TypeError: Load failed', null, 'TypeError: Load failed', null, null, 'network_error'],
-            [
-                "TypeError: Failed to execute 'fetch'",
-                null,
-                "TypeError: Failed to execute 'fetch' on 'Window'",
-                null,
-                null,
-                'network_error',
-            ],
-            ['NetworkError with null status', null, 'NetworkError when fetching', null, null, 'network_error'],
-            ['404 not_found', null, 'Experiment with id 123 not found', 'not_found', 404, 'not_found'],
-            ['401 unauthenticated', null, null, null, 401, 'authentication'],
-            ['403 not_authenticated code', null, null, 'not_authenticated', 403, 'authentication'],
-            ['403 permission_denied', null, null, 'permission_denied', 403, 'authorization'],
-            ['plain 403', null, null, null, 403, 'authorization'],
-            ['400 parse_error', null, null, 'parse_error', 400, 'validation_error'],
-            ['400 invalid_input', null, null, 'invalid_input', 400, 'validation_error'],
-            ['null status, no marker', null, 'Something odd', null, null, 'unknown'],
-            ['418 teapot falls through', null, null, null, 418, 'unknown'],
-        ] as const)('%s', (_desc, errorDetail, errorMessage, errorCode, statusCode, expected) => {
-            expect(classifyError(errorDetail, errorMessage, errorCode, statusCode)).toEqual(expected)
-        })
-
-        it('prefers timeout over 5xx server_error (504 overlap)', () => {
-            expect(classifyError(null, null, null, 504)).toEqual('timeout')
-        })
-
-        it('prefers out_of_memory over generic server_error', () => {
-            expect(classifyError(null, null, 'query_memory_limit_exceeded', 500)).toEqual('out_of_memory')
-        })
-
-        it('does not treat fetch-style messages as network errors when an HTTP status was returned', () => {
-            // A 400 response whose body happens to mention "Failed to fetch" should still classify by status, not network.
-            expect(classifyError(null, 'Failed to fetch remote config', null, 400)).toEqual('validation_error')
-        })
-    })
-
-    describe('extractErrorDetailString', () => {
-        it.each([
-            ['null → null', null, null],
-            ['undefined → null', undefined, null],
-            ['string passes through', 'Experiment with id 79259 not found', 'Experiment with id 79259 not found'],
-            ['DRF {detail: "..."} unwraps the inner string', { detail: 'Not found.' }, 'Not found.'],
-            [
-                'object without string detail falls back to JSON',
-                { 'no-exposures': true, 'no-control-variant': false },
-                '{"no-exposures":true,"no-control-variant":false}',
-            ],
-            [
-                'nested detail that is not a string falls back to JSON',
-                { detail: { nested: 1 } },
-                '{"detail":{"nested":1}}',
-            ],
-            ['array falls back to JSON', [1, 2, 3], '[1,2,3]'],
-        ] as const)('%s', (_desc, input, expected) => {
-            expect(extractErrorDetailString(input)).toEqual(expected)
-        })
-
-        it('returns null for values that cannot be stringified (circular refs)', () => {
-            const circular: Record<string, unknown> = {}
-            circular.self = circular
-            expect(extractErrorDetailString(circular)).toBeNull()
         })
     })
 

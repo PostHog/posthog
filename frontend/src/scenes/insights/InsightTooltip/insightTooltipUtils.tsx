@@ -114,6 +114,8 @@ export const INTERVAL_UNIT_TO_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'D MMM YYYY',
     week: 'D MMM YYYY',
     month: 'MMMM YYYY',
+    quarter: '[Q]Q YYYY',
+    year: 'YYYY',
 }
 
 const INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT: Record<IntervalType, string> = {
@@ -123,6 +125,8 @@ const INTERVAL_UNIT_TO_DAYJS_FORMAT_SHORT: Record<IntervalType, string> = {
     day: 'D MMM',
     week: 'D MMM',
     month: 'MMM',
+    quarter: '[Q]Q',
+    year: 'YYYY',
 }
 
 /**

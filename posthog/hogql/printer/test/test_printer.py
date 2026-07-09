@@ -54,6 +54,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
@@ -2107,6 +2108,8 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
+            # A SAMPLE on a lazy table is dropped when the table expands into a subquery: ClickHouse
+            # rejects SAMPLE on a subquery, and sampling a pre-aggregated table is meaningless.
             self.assertEqual(
                 self._select(
                     "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
@@ -2124,7 +2127,7 @@ class TestPrinter(BaseTest):
                 "HAVING and(equals(argMax(person.is_deleted, person.version), 0), "
                 "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), "
                 "plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) "
-                "SETTINGS optimize_aggregation_in_order=1) AS persons SAMPLE 0.1 ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
+                "SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, if(not(empty(events__override.distinct_id)), "
                 f"events__override.person_id, events.person_id)) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -2153,6 +2156,7 @@ class TestPrinter(BaseTest):
                 enable_select_queries=True,
                 modifiers=HogQLQueryModifiers(personsArgMaxVersion=PersonsArgMaxVersion.V2),
             )
+            # SAMPLE on the lazy persons table is dropped once it expands into a subquery.
             expected = self._select(
                 "SELECT events.event FROM events SAMPLE 2/78 OFFSET 999 JOIN persons SAMPLE 0.1 ON persons.id=events.person_id",
                 context,
@@ -2164,7 +2168,7 @@ class TestPrinter(BaseTest):
                 f"max(person.version) AS version FROM person WHERE equals(person.team_id, {self.team.pk}) GROUP BY person.id "
                 f"HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, "
                 f"%(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) "
-                f"AS persons SAMPLE 0.1 ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+                f"AS persons ON equals(persons.id, events.person_id) WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
     def test_count_distinct(self):
@@ -3306,6 +3310,35 @@ class TestPrinter(BaseTest):
         printed = self._print("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency")
         self.assertIn("toDecimal128(100, 10)", printed)
         self.assertNotIn("toDecimal64(100", printed)
+
+    def test_decimal_division_uses_divide_decimal(self):
+        # Regression guard: dividing two Decimal columns whose scales differ (e.g. a warehouse
+        # Decimal(38, 2) column over a Decimal(38, 18) one) makes ClickHouse's plain divide() derive a
+        # negative result scale and error with "Decimal result's scale is less than argument's one".
+        # divideDecimal derives a valid result scale instead, so the query runs. Non-division decimal
+        # arithmetic (and non-decimal division) must stay on the plain operators.
+        from posthog.hogql.database.models import DecimalDatabaseField
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
+        assert context.database is not None
+        events = context.database.get_table("events")
+        events.fields["wholesale"] = DecimalDatabaseField(name="wholesale", nullable=True)
+        events.fields["rate"] = DecimalDatabaseField(name="rate", nullable=True)
+
+        # The reported shape: a decimal column divided by nullIf(decimal_column, 0).
+        printed = self._select("SELECT wholesale / nullIf(rate, 0) AS ratio FROM events", context)
+        assert "divideDecimal(" in printed, printed
+        assert "divide(" not in printed, printed
+
+        # Multiplication of the same decimals is unaffected.
+        printed_mult = self._select("SELECT wholesale * rate AS product FROM events", context)
+        assert "multiply(" in printed_mult, printed_mult
+        assert "divideDecimal" not in printed_mult, printed_mult
+
+        # Non-decimal division still uses plain divide().
+        printed_int = self._select("SELECT 10 / 3 AS q FROM events", context)
+        assert "divide(10, 3)" in printed_int, printed_int
+        assert "divideDecimal" not in printed_int, printed_int
 
     def test_sortable_semver(self):
         # Also test different capitalizations
@@ -6010,6 +6043,26 @@ class TestPostgresPrinter(BaseTest):
         reprinted = parsed.to_hogql()
         self.assertEqual(printed, reprinted)
 
+    @parameterized.expand(
+        [
+            ("array_access_over_alias", "(1 as x)[1]"),
+            ("nullish_array_access_over_alias", "(1 as x)?.[1]"),
+            ("property_access_over_alias", "(1 as x).a"),
+            ("array_access_over_between", "(1 between 2 and 3)[1]"),
+            ("array_access_over_is_distinct_from", "(1 is distinct from 2)[1]"),
+        ]
+    )
+    def test_array_access_over_loose_operand_roundtrips(self, _name: str, source: str):
+        """Regression: `[...]` binds tighter than the infix-printed forms (alias,
+        BETWEEN, IS DISTINCT FROM), so the printer must parenthesize such an array
+        operand — `(1 as x)[1]` used to print as `1 AS x[1]`, which does not parse
+        back, and `(1 between 2 and 3)[1]` silently regrouped on reparse."""
+        node = parse_expr(source)
+        printed = node.to_hogql()
+        parsed = parse_expr(printed)
+        self.assertEqual(clear_locations(parsed), clear_locations(node), f"AST changed after roundtrip: {printed!r}")
+        self.assertEqual(parsed.to_hogql(), printed)
+
     def test_limit_percent_with_subquery(self):
         printed = self._select("SELECT 1 FROM events LIMIT (SELECT avg(team_id) FROM events) %")
         self.assertIn("LIMIT (SELECT avg(events.team_id) FROM events) %", printed)
@@ -7061,3 +7114,229 @@ class TestMySQLPrinter(BaseTest):
         printer = MySQLPrinter(context=HogQLContext(team_id=self.team.pk))
         with self.assertRaisesMessage(QueryError, 'is not permitted as it contains the "%" character'):
             printer._print_identifier("bad%name")
+
+
+# Pins what the Snowflake printer emits for each function category. The maps are
+# standalone (no Postgres fallback), so this also guards that every still-valid
+# function stays wired. (name, hogql_expr, expected_snowflake_sql)
+SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
+    # Casts (Snowflake type synonyms; no UUID type → VARCHAR)
+    ("toString", "toString(1)", "CAST(1 AS VARCHAR)"),
+    ("toFloat", "toFloat('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE)"),
+    ("toUUID", "toUUID('x')", "CAST(%(hogql_val_0)s AS VARCHAR)"),
+    ("toDate", "toDate(now())", "CAST(CURRENT_TIMESTAMP() AS DATE)"),
+    # Date extraction (Snowflake EXTRACT unit names)
+    ("toYear", "toYear(now())", "EXTRACT(YEAR FROM CURRENT_TIMESTAMP())"),
+    ("toDayOfWeek", "toDayOfWeek(now())", "EXTRACT(dayofweekiso FROM CURRENT_TIMESTAMP())"),
+    ("toDayOfYear", "toDayOfYear(now())", "EXTRACT(dayofyear FROM CURRENT_TIMESTAMP())"),
+    ("toISOWeek", "toISOWeek(now())", "EXTRACT(weekiso FROM CURRENT_TIMESTAMP())"),
+    ("toISOYear", "toISOYear(now())", "EXTRACT(yearofweekiso FROM CURRENT_TIMESTAMP())"),
+    ("toUnixTimestamp", "toUnixTimestamp(now())", "CAST(DATE_PART('epoch_second', CURRENT_TIMESTAMP()) AS BIGINT)"),
+    ("toYYYYMMDD", "toYYYYMMDD(now())", "CAST(TO_CHAR(CURRENT_TIMESTAMP(), 'YYYYMMDD') AS INTEGER)"),
+    # Date truncation / generators
+    ("toMonday", "toMonday(now())", "CAST(DATE_TRUNC('week', CURRENT_TIMESTAMP()) AS DATE)"),
+    ("toLastDayOfMonth", "toLastDayOfMonth(now())", "CAST(LAST_DAY(CURRENT_TIMESTAMP()) AS DATE)"),
+    ("today", "today()", "CURRENT_DATE"),
+    ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
+    # toStartOf* (DATE_TRUNC; week/ISO-year via DAYOFWEEKISO so WEEK_START is irrelevant;
+    # sub-hour buckets via native TIME_SLICE)
+    ("toStartOfDay", "toStartOfDay(now())", "DATE_TRUNC('day', CURRENT_TIMESTAMP())"),
+    ("toStartOfMonth", "toStartOfMonth(now())", "DATE_TRUNC('month', CURRENT_TIMESTAMP())"),
+    ("toStartOfHour", "toStartOfHour(now())", "DATE_TRUNC('hour', CURRENT_TIMESTAMP())"),
+    ("toStartOfQuarter", "toStartOfQuarter(now())", "DATE_TRUNC('quarter', CURRENT_TIMESTAMP())"),
+    (
+        "toStartOfWeek",
+        "toStartOfWeek(now())",
+        "DATE_TRUNC('day', DATEADD('day', -(DAYOFWEEKISO(CURRENT_TIMESTAMP()) % 7), CURRENT_TIMESTAMP()))",
+    ),
+    (
+        "toStartOfISOYear",
+        "toStartOfISOYear(now())",
+        "DATEADD('day', 1 - DAYOFWEEKISO(DATE_FROM_PARTS(YEAROFWEEKISO(CURRENT_TIMESTAMP()), 1, 4)), "
+        "DATE_FROM_PARTS(YEAROFWEEKISO(CURRENT_TIMESTAMP()), 1, 4))",
+    ),
+    ("toStartOfFiveMinutes", "toStartOfFiveMinutes(now())", "TIME_SLICE(CURRENT_TIMESTAMP(), 5, 'MINUTE')"),
+    (
+        "toStartOfFifteenMinutes",
+        "toStartOfFifteenMinutes(now())",
+        "TIME_SLICE(CURRENT_TIMESTAMP(), 15, 'MINUTE')",
+    ),
+    # Intervals / arithmetic (DATEADD; no INTERVAL multiplication)
+    ("toIntervalDay", "toIntervalDay(7)", "INTERVAL '7 day'"),
+    ("addDays", "addDays(now(), 7)", "DATEADD('day', 7, CURRENT_TIMESTAMP())"),
+    ("subtractMonths", "subtractMonths(now(), 3)", "DATEADD('month', -(3), CURRENT_TIMESTAMP())"),
+    # dateDiff / formatDateTime — unit / format inlined as a literal
+    ("dateDiff", "dateDiff('day', now(), now())", "DATEDIFF('day', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())"),
+    (
+        "formatDateTime",
+        "formatDateTime(now(), '%Y-%m-%d %H:%M:%S')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD HH24:MI:SS')",
+    ),
+    # A literal double-quote is escaped as "" inside the quoted run, not dropped.
+    (
+        "formatDateTime_escapes_literal_quote",
+        "formatDateTime(now(), '%Y\"q\"')",
+        'TO_CHAR(CURRENT_TIMESTAMP(), \'YYYY"""q"""\')',
+    ),
+    (
+        "formatDateTime_escapes_lone_quote",
+        "formatDateTime(now(), '%H\"%M')",
+        'TO_CHAR(CURRENT_TIMESTAMP(), \'HH24""""MI\')',
+    ),
+    # A literal single-quote (escaped `''` in HogQL) must be re-escaped as `''` so it can't close
+    # the surrounding SQL string literal — guards the formatDateTime injection vector.
+    (
+        "formatDateTime_escapes_single_quote",
+        "formatDateTime(now(), '%Y''T''%H')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY\"''T''\"HH24')",
+    ),
+    # Conditional / null
+    ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
+    ("isNull", "isNull(1)", "(1 IS NULL)"),
+    # Regex operators → REGEXP_INSTR (match()-style "found anywhere"); 'i' = case-insensitive
+    ("regex_match", "'h' =~ 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) != 0)"),
+    ("regex_not_match", "'h' !~ 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) = 0)"),
+    ("regex_imatch", "'h' =~* 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s, 1, 1, 0, 'i') != 0)"),
+    ("regex_not_imatch", "'h' !~* 'h.*o'", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s, 1, 1, 0, 'i') = 0)"),
+    # `::` casts map HogQL type names to Snowflake types (consistent with toString/toInt/...)
+    ("cast_string", "1::String", "CAST(1 AS VARCHAR)"),
+    ("cast_int", "1.5::Int", "CAST(1.5 AS BIGINT)"),
+    ("cast_bool", "1::Bool", "CAST(1 AS BOOLEAN)"),
+    # Array / object literals → constructors
+    ("array_literal", "[1, 2, 3]", "ARRAY_CONSTRUCT(1, 2, 3)"),
+    ("object_literal", "{'a': 1}", "OBJECT_CONSTRUCT(%(hogql_val_0)s, 1)"),
+    # JSON (PARSE_JSON + bracket path; chained keys for nested access)
+    (
+        "JSONExtractString",
+        "JSONExtractString('{}', 'a')",
+        "CAST(PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s] AS VARCHAR)",
+    ),
+    (
+        "JSONExtractInt_nested",
+        "JSONExtractInt('{}', 'a', 'b')",
+        "CAST(PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s][%(hogql_val_2)s] AS INTEGER)",
+    ),
+    ("JSONExtractRaw", "JSONExtractRaw('{}', 'a')", "PARSE_JSON(%(hogql_val_0)s)[%(hogql_val_1)s]"),
+    ("JSONLength", "JSONLength('[]')", "ARRAY_SIZE(PARSE_JSON(%(hogql_val_0)s))"),
+    # String
+    ("match", "match('h', 'h.*o')", "(REGEXP_INSTR(%(hogql_val_0)s, %(hogql_val_1)s) != 0)"),
+    ("splitByChar", "splitByChar(',', 'a,b')", "SPLIT(%(hogql_val_1)s, %(hogql_val_0)s)"),
+    (
+        "replaceOne",
+        "replaceOne('a', 'b', 'c')",
+        "REGEXP_REPLACE(%(hogql_val_0)s, %(hogql_val_1)s, %(hogql_val_2)s, 1, 1)",
+    ),
+    # Math
+    ("log10", "log10(100)", "LOG(10, 100)"),
+    ("log", "log(2)", "LN(2)"),
+    ("rand", "rand()", "UNIFORM(0::float, 1::float, RANDOM())"),
+    # Aggregation (no FILTER clause; CASE WHEN / COUNT_IF)
+    ("countIf_1arg", "countIf(1)", "COUNT_IF(1)"),
+    ("countIf_2arg", "countIf(event, 1)", 'COUNT(CASE WHEN 1 THEN events."event" END)'),
+    ("sumIf", "sumIf(1, 1)", "SUM(CASE WHEN 1 THEN 1 END)"),
+    ("avgIf", "avgIf(1, 1)", "AVG(CASE WHEN 1 THEN 1 END)"),
+    ("anyIf", "anyIf(1, 1)", "MIN(CASE WHEN 1 THEN 1 END)"),
+    ("groupArrayIf", "groupArrayIf(1, 1)", "ARRAY_AGG(CASE WHEN 1 THEN 1 END)"),
+    ("uniqIf", "uniqIf(1, 1)", "COUNT(DISTINCT CASE WHEN 1 THEN 1 END)"),
+    ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
+    # Renames
+    ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
+    ("groupArray", "groupArray(event)", 'ARRAY_AGG(events."event")'),
+    ("toTypeName", "toTypeName(1)", "TYPEOF(1)"),
+    ("startsWith", "startsWith('a', 'b')", "STARTSWITH(%(hogql_val_0)s, %(hogql_val_1)s)"),
+    ("now", "now()", "CURRENT_TIMESTAMP()"),
+    ("pow", "pow(2, 3)", "POWER(2, 3)"),
+    # count() means "count all rows"; Snowflake rejects a bare COUNT(), so emit COUNT(*).
+    ("count_star", "count()", "count(*)"),
+    ("count_expr", "count(event)", 'count(events."event")'),
+    # Passthrough (valid Snowflake verbatim)
+    ("avg", "avg(1)", "avg(1)"),
+    ("coalesce", "coalesce(1, 2)", "coalesce(1, 2)"),
+    ("power", "power(2, 3)", "power(2, 3)"),
+]
+
+
+class TestSnowflakePrinter(BaseTest):
+    maxDiff = None
+
+    def _expr(
+        self,
+        query: ast.Expr | str,
+        context: Optional[HogQLContext] = None,
+    ) -> str:
+        node = parse_expr(query, backend="cpp-json") if isinstance(query, str) else query
+        context = context or HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        prepared_select_query: ast.SelectQuery = cast(
+            ast.SelectQuery,
+            prepare_ast_for_printing(select_query, context=context, dialect="snowflake", stack=[select_query]),
+        )
+        return print_prepared_ast(
+            prepared_select_query.select[0],
+            context=context,
+            dialect="snowflake",
+            stack=[prepared_select_query],
+        )
+
+    @parameterized.expand(SNOWFLAKE_EMIT_CASES)
+    def test_snowflake_emit(self, _name: str, hogql_expr: str, expected: str):
+        self.assertEqual(self._expr(hogql_expr), expected)
+
+    @parameterized.expand(
+        [
+            ("datediff_non_literal_unit", "dateDiff(event, now(), now())", "requires a literal unit"),
+            ("datediff_bad_unit", "dateDiff('fortnight', now(), now())", "Unsupported dateDiff unit 'fortnight'"),
+            (
+                "format_unknown_specifier",
+                "formatDateTime(now(), '%Q')",
+                "Unsupported formatDateTime specifier '%Q'",
+            ),
+            ("unsupported_function", "argMax(1, 2)", "not supported in the Snowflake dialect"),
+            # Tier 0: constructs with no safe Snowflake equivalent reject loudly
+            ("tuple", "(1, 2)", "Tuple expressions are not supported"),
+            ("array_slice", "[1, 2, 3][1:2]", "Array slices are not"),
+            ("unsupported_cast", "1::Nonsense", "Unsupported cast to type 'nonsense'"),
+        ]
+    )
+    def test_snowflake_errors(self, _name: str, hogql_expr: str, error_substring: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(hogql_expr)
+        self.assertIn(error_substring, str(ctx.exception))
+
+    def _select(self, query: str) -> str:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        return prepare_and_print_ast(parse_select(query, backend="cpp-json"), context, "snowflake")[0]
+
+    @parameterized.expand(
+        [
+            ("array_join", "SELECT x FROM events ARRAY JOIN [1, 2] AS x", "ARRAY JOIN is not supported"),
+            ("prewhere", "SELECT event FROM events PREWHERE event = 'x'", "PREWHERE is not supported"),
+            ("sample", "SELECT event FROM events SAMPLE 0.1", "SAMPLE is not supported"),
+            ("limit_by", "SELECT event FROM events LIMIT 1 BY event", "LIMIT BY is not supported"),
+        ]
+    )
+    def test_snowflake_clause_errors(self, _name: str, query: str, error_substring: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
+        self.assertIn(error_substring, str(ctx.exception))
+
+    def test_snowflake_qualify_emits_natively(self):
+        # QUALIFY parses and resolves but the base/HogQL printers rejected it; Snowflake supports
+        # it natively, so it should print straight through.
+        sql = self._select("SELECT event FROM events QUALIFY row_number() OVER (ORDER BY timestamp) = 1")
+        self.assertIn("QUALIFY", sql)
+
+    def test_snowflake_pivot_emits_unqualified_columns_and_star_projection(self):
+        # Snowflake rejects table-qualified columns inside PIVOT, and its output columns are named
+        # after the IN values (which HogQL can't enumerate) — so the projection stays `*`.
+        sql = self._select("SELECT * FROM events PIVOT(count(timestamp) FOR event IN ('pageview', 'click'))")
+        self.assertIn('PIVOT (count("timestamp") FOR "event" IN (', sql)
+        self.assertTrue(sql.startswith("SELECT * FROM events PIVOT ("), sql)
+
+    def test_snowflake_unpivot_emits_unqualified_columns(self):
+        sql = self._select("SELECT * FROM (SELECT 1 AS jan, 2 AS feb) AS t UNPIVOT(amount FOR month IN (jan, feb))")
+        self.assertIn('UNPIVOT ("amount" FOR "month" IN ("jan", "feb"))', sql)
+
+    def test_snowflake_pivot_rejects_inner_group_by(self):
+        with self.assertRaises(QueryError):
+            self._select("SELECT * FROM events PIVOT(count(timestamp) FOR event IN ('a') GROUP BY uuid)")

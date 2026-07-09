@@ -44,7 +44,7 @@ await build({
     external: ['pg-native', 'node-rdkafka'],
     loader: { '.json': 'json', '.sql': 'text' },
     define: { 'process.env.NODE_ENV': '"production"' },
-    // CJS deps (pg, node-pg-migrate, jose) call through to a global
+    // CJS deps (pg, jose) call through to a global
     // `require`. ESM has no `require`; banner injects one. `typescript`
     // (bundled via the janitor's compile-custom-tools) also reaches for
     // `__filename` / `__dirname`, which ESM doesn't define — shim both from

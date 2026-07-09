@@ -13,6 +13,8 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
+    _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
@@ -37,6 +40,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:
@@ -396,6 +410,18 @@ def _google_ads_exception(request_error: int) -> GoogleAdsException:
     return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
 
 
+def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -> GoogleAdsException:
+    # A failure whose request_error code the pinned library can't decode (surfaced as UNKNOWN /
+    # "The error code is not in this version.") but whose trigger still echoes the offending value.
+    error = GoogleAdsError(
+        error_code=ErrorCode(request_error=request_error),
+        message="The error code is not in this version.",
+    )
+    error.trigger.string_value = trigger_value
+    failure = GoogleAdsFailure(errors=[error])
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
@@ -473,6 +499,29 @@ class TestStalePageTokenDetection:
         assert _is_stale_page_token_error(exc) is expected
 
 
+class TestRejectedPageTokenDetection:
+    @pytest.mark.parametrize(
+        "exc, page_token, expected",
+        [
+            # Google rejected our token with a code the pinned library can't decode, but the
+            # failure trigger echoes the exact token we sent — recognise it as a stale token.
+            (
+                _google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "SAVED_TOKEN"),
+                "SAVED_TOKEN",
+                True,
+            ),
+            # A trigger naming some other value must not be mistaken for a rejected page token.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "other"), "SAVED_TOKEN", False),
+            # An empty page token (first-page request) can never be the rejected value.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, ""), "", False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), "SAVED_TOKEN", False),
+        ],
+    )
+    def test_is_rejected_page_token_error(self, exc, page_token, expected):
+        assert _is_rejected_page_token_error(exc, page_token) is expected
+
+
 class TestSearchPageTokenResumption:
     @pytest.mark.parametrize(
         "request_error",
@@ -500,6 +549,30 @@ class TestSearchPageTokenResumption:
         # The stale token is cleared from saved state so a later resume won't reuse it.
         assert manager.saved_states == [""]
         # Rows are still yielded — the data was never lost.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_restarts_pagination_when_page_token_rejected_with_unrecognised_code(self):
+        # Google rejected the saved token with a request_error code the pinned library can't
+        # decode (UNKNOWN / "The error code is not in this version."), so the code-text match
+        # misses it; the trigger echoing the token is the only stable signal to restart.
+        service = _FakeService(
+            _single_page(),
+            error_on_token=_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "STALE_TOKEN"),
+        )
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+
+        assert service.calls == ["STALE_TOKEN", ""]
+        assert manager.saved_states == [""]
         assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
 
     def test_other_google_ads_errors_propagate(self):
@@ -661,15 +734,23 @@ class TestTransientClientInitErrorDetection:
 class _StatusCodeRpcError(grpc.RpcError):
     """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
 
-    def __init__(self, status_code: grpc.StatusCode):
+    def __init__(self, status_code: grpc.StatusCode, message: str = ""):
         self._status_code = status_code
+        self._message = message
 
     def code(self) -> grpc.StatusCode:
         return self._status_code
 
+    def __str__(self) -> str:
+        return self._message
+
 
 def _grpc_unavailable_error() -> grpc.RpcError:
     return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
+
+
+def _grpc_resource_exhausted_error(message: str = "") -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.RESOURCE_EXHAUSTED, message)
 
 
 def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
@@ -696,6 +777,32 @@ class TestTransientGrpcErrorDetection:
             # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
             (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
             (_grpc_internal_error(), True),
+            # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+            # quota).") is Google-flagged retryable — both the gapic wrapper (whose ``code`` is an
+            # HTTP int, not a callable ``StatusCode``) and the raw _InactiveRpcError must be ridden out.
+            (google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."), True),
+            (_grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."), True),
+            # The SDK can also wrap a RESOURCE_EXHAUSTED transport status in a GoogleAdsException — the
+            # unwrapped raw _InactiveRpcError then takes the ``code()`` path with the signature guard.
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+                ),
+                True,
+            ),
+            # A client-side "Received message larger than max" abort is RESOURCE_EXHAUSTED too, but is
+            # deterministic — it must not be retried in-process regardless of which shape it arrives as.
+            (
+                google_api_exceptions.ResourceExhausted("Received message larger than max (90000000 vs. 67108864)"),
+                False,
+            ),
+            (_grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)"), False),
+            (
+                _google_ads_exception_wrapping(
+                    _grpc_resource_exhausted_error("Received message larger than max (90000000 vs. 67108864)")
+                ),
+                False,
+            ),
             # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
             # Google Ads API errors carry no transient gRPC status — they route through the existing
@@ -733,6 +840,11 @@ class TestSearchTransientRetry:
             _google_ads_exception_wrapping(_grpc_unavailable_error()),
             google_api_exceptions.InternalServerError("500 Internal error encountered."),
             _grpc_internal_error(),
+            google_api_exceptions.ResourceExhausted("Resource has been exhausted (e.g. check quota)."),
+            _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota)."),
+            _google_ads_exception_wrapping(
+                _grpc_resource_exhausted_error("Resource has been exhausted (e.g. check quota).")
+            ),
         ],
     )
     def test_rides_out_transient_error(self, error):

@@ -533,32 +533,52 @@ def google_ads_source(
     )
 
 
-# Google flags both ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request
-# never reached a healthy backend) and ``INTERNAL`` ("Internal error encountered." from the
-# backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
+# Google flags ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request never
+# reached a healthy backend), ``INTERNAL`` ("Internal error encountered." from the backend), and
+# ``RESOURCE_EXHAUSTED`` ("Resource has been exhausted (e.g. check quota)." — a quota/rate-limit
+# rejection) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
 # succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
 # would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
 # checkpoint — and avoids the captured error-tracking noise.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
-_TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
+_TRANSIENT_GRPC_STATUS_CODES = frozenset(
+    {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL, grpc.StatusCode.RESOURCE_EXHAUSTED}
+)
+
+# A client-side "Received message larger than max" abort also carries ``RESOURCE_EXHAUSTED`` (see the
+# receive-limit note at the top of this module), but it is deterministic — a retry re-requests the
+# same oversized page and fails identically — so it is excluded from the transient set. Raising the
+# receive limit, not retrying, is what addresses it.
+_RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
 
     The gapic transport usually surfaces these as ``google.api_core.exceptions.ServiceUnavailable``
-    / ``InternalServerError``, but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns
-    the ``StatusCode``) can also propagate. The Google Ads SDK additionally re-wraps the transport
-    error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata
-    (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the gRPC status then lives
-    on the wrapped ``error``, so we unwrap and inspect it too.
+    / ``InternalServerError`` / ``ResourceExhausted``, but the raw ``grpc`` ``_InactiveRpcError``
+    (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
+    re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
+    the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
+    # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
+    if isinstance(candidate, google_api_exceptions.ResourceExhausted):
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     code = getattr(candidate, "code", None)
-    return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
+    if not callable(code):
+        return False
+    status = code()
+    if status not in _TRANSIENT_GRPC_STATUS_CODES:
+        return False
+    if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
+        return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
+    return True
 
 
 _T = typing.TypeVar("_T")
@@ -639,6 +659,30 @@ def _is_stale_page_token_error(exc: GoogleAdsException) -> bool:
     return any(request_error in failure_text for request_error in _STALE_PAGE_TOKEN_REQUEST_ERRORS)
 
 
+def _is_rejected_page_token_error(exc: GoogleAdsException, page_token: str) -> bool:
+    """Return True if the failure names ``page_token`` as the value that triggered it.
+
+    Google sometimes rejects a stale page token with a ``request_error`` code newer than the
+    pinned client library knows, which the SDK surfaces as ``request_error: UNKNOWN`` /
+    "The error code is not in this version." rather than the ``INVALID_PAGE_TOKEN`` /
+    ``EXPIRED_PAGE_TOKEN`` that ``_is_stale_page_token_error`` matches — so that check misses it
+    and the sync fails permanently. The failure still echoes the offending value in an error
+    ``trigger``, so when a trigger equals the token we sent, treat it as a stale token and
+    restart pagination from the first page. Matched on the exact token (not the volatile error
+    code) to stay low-false-positive.
+    """
+    if not page_token:
+        return False
+    failure = getattr(exc, "failure", None)
+    if failure is None:
+        return False
+    for error in getattr(failure, "errors", None) or []:
+        trigger = getattr(error, "trigger", None)
+        if trigger is not None and getattr(trigger, "string_value", None) == page_token:
+            return True
+    return False
+
+
 def _search_as_arrow_tables(
     service: GoogleAdsServiceClient,
     customer_id: str | None,
@@ -656,9 +700,10 @@ def _search_as_arrow_tables(
       over ``primary_keys`` dedupe those repeated rows.
     * A resumed token may have expired between runs (Google Ads page tokens are
       short-lived). If Google rejects it with ``INVALID_PAGE_TOKEN`` or
-      ``EXPIRED_PAGE_TOKEN`` we discard the saved token and restart pagination
-      from the first page — the same merge semantics make re-yielding
-      already-synced rows safe.
+      ``EXPIRED_PAGE_TOKEN`` — or an unrecognised error code whose ``trigger``
+      names the token we sent (see ``_is_rejected_page_token_error``) — we
+      discard the saved token and restart pagination from the first page. The
+      same merge semantics make re-yielding already-synced rows safe.
     """
     page_token = ""
     if resumable_source_manager.can_resume():
@@ -683,7 +728,7 @@ def _search_as_arrow_tables(
             # Only a non-empty (resumed or mid-stream) token can be stale; an empty
             # token always requests the first page, so the guard also prevents an
             # infinite restart loop if the first page itself were ever rejected.
-            if page_token and _is_stale_page_token_error(e):
+            if page_token and (_is_stale_page_token_error(e) or _is_rejected_page_token_error(e, page_token)):
                 resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=""))
                 page_token = ""
                 continue

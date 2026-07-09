@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import IntegrityError, transaction
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -44,19 +46,22 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_can_create_evaluation_config(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            {
-                "name": "Test Evaluation",
-                "description": "Test Description",
-                "enabled": True,
-                "evaluation_type": "llm_judge",
-                "evaluation_config": {"prompt": "Test prompt"},
-                "output_type": "boolean",
-                "output_config": {},
-                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-            },
-        )
+        # Creating enabled+keyless only validates for a grandfathered team; pin the cutoff for determinism.
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Test Evaluation",
+                    "description": "Test Description",
+                    "enabled": True,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test prompt"},
+                    "output_type": "boolean",
+                    "output_config": {},
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                },
+            )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Evaluation.objects.count(), 1)
 
@@ -87,20 +92,145 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertFalse(report.deleted)
         self.assertEqual(report.delivery_targets, [])
 
+    def test_target_defaults_to_generation(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Default target",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["target"], "generation")
+
+    def test_can_create_trace_target_evaluation(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace target",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "trace",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["target"], "trace")
+        evaluation = Evaluation.objects.get(name="Trace target")
+        self.assertEqual(evaluation.target, "trace")
+        self.assertEqual(evaluation.target_config, {"window_seconds": 30 * 60})
+        # Reports run a generation-oriented agent — a trace eval must not get an auto-created report.
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+
+    def test_trace_target_accepts_custom_window(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace custom window",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "trace",
+                "target_config": {"window_seconds": 120},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["target_config"], {"window_seconds": 120})
+
+    def test_rejects_window_below_minimum(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace tiny window",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "trace",
+                "target_config": {"window_seconds": 5},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target_config")
+
+    def test_generation_target_strips_window_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Generation with stray config",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "generation",
+                "target_config": {"window_seconds": 120},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["target_config"], {})
+
+    def test_rejects_unknown_window_config_key(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace unknown key",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "trace",
+                "target_config": {"window_seconds": 120, "unexpected": True},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target_config")
+
+    def test_rejects_invalid_target(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad target",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test prompt"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                "target": "session",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_evaluation_rollback_when_auto_report_fails(self):
         """
         perform_create wraps the Evaluation save and the EvaluationReport auto-create in
-        transaction.atomic(). If the report insert raises, the evaluation must not persist.
+        transaction.atomic(). If the report create raises, the evaluation must not persist.
         """
         with patch(
-            "products.ai_observability.backend.api.evaluations.EvaluationReport.objects.create",
+            "products.ai_observability.backend.api.evaluations.EvaluationReport.objects.get_or_create",
             side_effect=RuntimeError("boom"),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
                     "name": "Will Rollback",
-                    "enabled": True,
                     "evaluation_type": "llm_judge",
                     "evaluation_config": {"prompt": "Test prompt"},
                     "output_type": "boolean",
@@ -135,6 +265,25 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.output_type, "sentiment")
         self.assertEqual(evaluation.output_config, {})
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+
+    def test_rejects_sentiment_evaluation_with_trace_target(self):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Sentiment over a trace",
+                    "evaluation_type": "sentiment",
+                    "evaluation_config": {},
+                    "output_type": "sentiment",
+                    "output_config": {},
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                    "target": "trace",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "target")
+        self.assertEqual(Evaluation.objects.count(), 0)
 
     def test_create_sentiment_evaluation_requires_feature_flag(self):
         with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
@@ -232,6 +381,51 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "model_configuration")
+
+    def test_clearing_model_configuration_with_explicit_null(self):
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            model_configuration=mc,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertEqual(eval_obj.model_configuration_id, mc.id)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"model_configuration": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertIsNone(eval_obj.model_configuration)
+        self.assertFalse(LLMModelConfiguration.objects.filter(id=mc.id).exists())
+
+    def test_db_constraint_blocks_model_config_on_non_judge_eval(self):
+        # QuerySet.update() bypasses Evaluation.save(), so this exercises the DB constraint itself.
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        hog_eval = Evaluation.objects.create(
+            team=self.team,
+            name="Hog",
+            evaluation_type="hog",
+            output_type="boolean",
+            model_configuration=None,
+        )
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Evaluation.objects.filter(id=hog_eval.id).update(model_configuration=mc)
 
     @parameterized.expand(
         [
@@ -759,44 +953,176 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIsNone(results[0]["result"])
         self.assertIn("Must return boolean", results[0]["error"])
 
+    @patch("posthog.hogql.query.execute_hogql_query")
+    def test_test_hog_uses_null_safe_comparisons(self, mock_query):
+        mock_query.return_value = self._mock_hogql_response(1)
 
-class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
-    def _create_trial_eval(self, enabled=False):
-        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return properties.missing <= 1.0"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0]["result"])
+        self.assertIsNone(results[0]["error"])
+
+
+class TestEnableBlockingWhenKeyRequired(APIBaseTest):
+    """Enabling a keyless llm_judge eval must mirror the runtime funded-inference gate: a config
+    with no pinned key falls back to the team's active key for the same provider, else only
+    grandfathered (mid-trial, pre-cutoff) teams may run it via funded inference. Anything the
+    serializer lets through here would just flap back to disabled on the next Temporal run."""
+
+    def _create_keyless_eval(self, model_configuration=...):
+        if model_configuration is ...:
+            model_configuration = LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini"
+            )
         return Evaluation.objects.create(
             team=self.team,
-            name="Trial Eval",
+            name="Keyless Eval",
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "test"},
             output_type="boolean",
-            model_configuration=mc,
-            enabled=enabled,
+            model_configuration=model_configuration,
+            enabled=False,
         )
 
-    def test_blocks_enabling_trial_eval_when_limit_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
-        eval_obj = self._create_trial_eval(enabled=False)
+    def _create_active_key(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        return key
 
-        response = self.client.patch(
+    def _enable(self, eval_obj):
+        return self.client.patch(
             f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
             {"enabled": True},
             format="json",
         )
+
+    @parameterized.expand(
+        [
+            ("trial_exhausted_explicit_config", 100, True),
+            ("trial_never_started_explicit_config", 0, True),
+            ("trial_never_started_null_config", 0, False),
+        ]
+    )
+    def test_blocks_enabling_keyless_eval_when_not_grandfathered(self, _name, trial_evals_used, explicit_config):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=trial_evals_used)
+        eval_obj = (
+            self._create_keyless_eval() if explicit_config else self._create_keyless_eval(model_configuration=None)
+        )
+
+        response = self._enable(eval_obj)
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Trial evaluation limit reached", str(response.data))
+        self.assertIn("Add a provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
 
-    def test_allows_enabling_trial_eval_when_limit_not_reached(self):
-        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
-        eval_obj = self._create_trial_eval(enabled=False)
+    def test_allows_enabling_keyless_eval_while_grandfathered(self):
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            eval_obj = self._create_keyless_eval()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
+            response = self._enable(eval_obj)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
+
+    def test_active_team_key_enables_explicit_keyless_eval(self):
+        # An explicit config with no pinned key falls back to the team's active key for the same
+        # provider, so it enables even with the trial exhausted (mirrors runtime resolution).
+        key = self._create_active_key()
+        EvaluationConfig.objects.create(
+            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
+        )
+        eval_obj = self._create_keyless_eval()
+
+        response = self._enable(eval_obj)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+
+    def test_active_team_key_enables_null_config_eval(self):
+        # Null configs resolve via the active key at runtime — the gate must not over-block them.
+        key = self._create_active_key()
+        EvaluationConfig.objects.create(
+            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
+        )
+        eval_obj = self._create_keyless_eval(model_configuration=None)
+
+        response = self._enable(eval_obj)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+
+    def test_unhealthy_active_key_blocks_null_config_eval_even_while_grandfathered(self):
+        # Runtime never falls back to funded inference when an active key exists, even unhealthy.
+        key = self._create_active_key()
+        key.state = LLMProviderKey.State.INVALID
+        key.save()
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(
+                team=self.team, trial_eval_limit=100, trial_evals_used=50, active_provider_key=key
+            )
+            eval_obj = self._create_keyless_eval(model_configuration=None)
+
+            response = self._enable(eval_obj)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("working provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
+
+    def test_detaching_model_configuration_enables_via_active_key(self):
+        # The gate must validate the post-detach state, not the stored config.
+        key = self._create_active_key()
+        EvaluationConfig.objects.create(
+            team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
+        )
+        eval_obj = self._create_keyless_eval()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True, "model_configuration": None},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.model_configuration)
+
+    def test_blocks_creating_enabled_keyless_eval_when_not_grandfathered(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Doomed Eval",
+                "enabled": True,
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "test"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Add a provider API key", str(response.data))
+        self.assertEqual(Evaluation.objects.filter(name="Doomed Eval").count(), 0)
 
     def test_allows_enabling_hog_eval_when_limit_reached(self):
         EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
@@ -916,13 +1242,16 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         return eval_obj
 
     def test_rejects_re_enable_when_model_still_not_allowed(self):
-        eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
+        # Only a grandfathered team gets past the funded gate to the model-allowlist message.
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            eval_obj = self._create_errored_eval(status_reason="model_not_allowed", model="gpt-9")
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {"enabled": True},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not available on the trial plan", str(response.data))
 
@@ -969,6 +1298,40 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIn("working provider API key", str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
+
+    def test_rejects_re_enable_when_provider_key_required_and_no_key(self):
+        eval_obj = self._create_errored_eval(status_reason="provider_key_required")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("provider API key", str(response.data))
+        eval_obj.refresh_from_db()
+        self.assertFalse(eval_obj.enabled)
+
+    def test_allows_re_enable_when_provider_key_required_and_byok_key_attached(self):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj = self._create_errored_eval(status_reason="provider_key_required", provider_key=key)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+        self.assertIsNone(eval_obj.status_reason)
 
     @parameterized.expand(
         [
@@ -1019,13 +1382,16 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIn("working provider API key", str(response.data))
 
     def test_allows_re_enable_when_model_not_found_with_existing_model_config(self):
-        eval_obj = self._create_errored_eval(status_reason="model_not_found")
+        # Grandfather the team so the funded gate passes — this test is about the model_not_found rule.
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            eval_obj = self._create_errored_eval(status_reason="model_not_found")
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {"enabled": True},
-            format="json",
-        )
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {"enabled": True},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()
@@ -1033,20 +1399,22 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
         self.assertIsNone(eval_obj.status_reason)
 
     def test_allows_re_enable_when_model_not_found_with_new_model(self):
-        eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")
+        with self.settings(AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE="2999-12-31T00:00:00+00:00"):
+            EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=50)
+            eval_obj = self._create_errored_eval(status_reason="model_not_found", model="missing-model")
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
-            {
-                "enabled": True,
-                "model_configuration": {
-                    "provider": "openai",
-                    "model": "gpt-5-mini",
-                    "provider_key_id": None,
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {
+                    "enabled": True,
+                    "model_configuration": {
+                        "provider": "openai",
+                        "model": "gpt-5-mini",
+                        "provider_key_id": None,
+                    },
                 },
-            },
-            format="json",
-        )
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         eval_obj.refresh_from_db()

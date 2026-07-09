@@ -19,6 +19,8 @@ import {
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
     SignalsScoutConfigCreateBody,
+    SignalsScoutConfigDestroyParams,
+    SignalsScoutConfigRunParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
     SignalsScoutEditReportBody,
@@ -27,6 +29,7 @@ import {
     SignalsScoutEmitReportParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
+    SignalsScoutMembersListQueryParams,
     SignalsScoutProjectProfileGetQueryParams,
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
@@ -517,6 +520,21 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
     },
 })
 
+const SignalsScoutConfigDeleteSchema = SignalsScoutConfigDestroyParams.omit({ project_id: true })
+
+const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSchema, unknown> => ({
+    name: 'signals-scout-config-delete',
+    schema: SignalsScoutConfigDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const SignalsScoutConfigListSchema = z.object({})
 
 const signalsScoutConfigList = (): ToolBase<
@@ -607,6 +625,9 @@ const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema,
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -715,6 +736,27 @@ const signalsScoutEmitSignal = (): ToolBase<typeof SignalsScoutEmitSignalSchema,
     },
 })
 
+const SignalsScoutMembersListSchema = SignalsScoutMembersListQueryParams
+
+const signalsScoutMembersList = (): ToolBase<
+    typeof SignalsScoutMembersListSchema,
+    WithPostHogUrl<Schemas.ScoutMember[]>
+> => ({
+    name: 'signals-scout-members-list',
+    schema: SignalsScoutMembersListSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutMembersListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutMember[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/members/`,
+            query: {
+                search: params.search,
+            },
+        })
+        return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
 const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
 const signalsScoutProjectProfileGet = (): ToolBase<
@@ -731,6 +773,21 @@ const signalsScoutProjectProfileGet = (): ToolBase<
             query: {
                 force_refresh: params.force_refresh,
             },
+        })
+        return result
+    },
+})
+
+const SignalsScoutRunNowSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
+
+const signalsScoutRunNow = (): ToolBase<typeof SignalsScoutRunNowSchema, unknown> => ({
+    name: 'signals-scout-run-now',
+    schema: SignalsScoutRunNowSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutRunNowSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
         })
         return result
     },
@@ -933,13 +990,16 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-create': signalsScoutConfigCreate,
+    'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
+    'signals-scout-members-list': signalsScoutMembersList,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
+    'signals-scout-run-now': signalsScoutRunNow,
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,
     'signals-scout-runs-emissions-list': signalsScoutRunsEmissionsList,
     'signals-scout-runs-list': signalsScoutRunsList,
