@@ -1199,6 +1199,43 @@ describe('infiniteListLogic', () => {
             expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
         })
 
+        it('statically inserts the committed selection while its row is not yet loaded', async () => {
+            logic = logicWith({ value: 'zzz custom event', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'zzz custom event',
+                group: TaxonomicFilterGroupType.Events,
+            })
+            // the synthetic is counted so the windowed loader's row math stays consistent:
+            // 1 local ("All events") + 156 remote + 1 synthetic
+            expect(logic.values.items.count).toBe(158)
+        })
+
+        it('hands off from the synthetic row to the real row once its page loads, without duplicating it', async () => {
+            // 'misc-150-generated' sits past the first page (100 rows) of the 156-row mock list
+            logic = logicWith({ value: 'misc-150-generated', groupType: TaxonomicFilterGroupType.Events })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
+            expect(logic.values.results[1]).toMatchObject({
+                name: 'misc-150-generated',
+                group: TaxonomicFilterGroupType.Events,
+            })
+
+            // scrolling to the hole after the loaded page must fetch the true remote offset
+            // (display index minus local rows minus the synthetic), completing the list
+            await expectLogic(logic, () =>
+                logic.actions.onRowsRendered({ startIndex: 90, stopIndex: 110, overscanStopIndex: 130 })
+            ).toDispatchActions(['loadRemoteItems', 'loadRemoteItemsSuccess'])
+
+            const results = logic.values.results
+            expect(logic.values.items.count).toBe(157)
+            expect(results).toHaveLength(157)
+            expect(results.every((item) => item != null)).toBe(true)
+            // the real row (it has an id; the synthetic doesn't) floats, the synthetic is gone
+            expect(results[1]).toMatchObject({ name: 'misc-150-generated', id: 'uuid-150-foobar' })
+            expect(results.filter((item) => (item as { name?: string })?.name === 'misc-150-generated')).toHaveLength(1)
+        })
+
         it('leaves relevance ordering alone while searching', async () => {
             logic = logicWith({ value: 'other event', groupType: TaxonomicFilterGroupType.Events })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
