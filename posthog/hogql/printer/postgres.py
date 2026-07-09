@@ -85,6 +85,11 @@ class PostgresPrinter(BasePrinter):
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return f"{limit_str} %"
 
+    def _visit_set_operand(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        # ClickHouse accepts a bare per-branch LIMIT/ORDER BY inside a set operation; the
+        # Postgres-family grammars only allow those on a parenthesized operand.
+        return f"({super()._visit_set_operand(node)})"
+
     def _render_select_query_limit_clause(self, limit: ast.Expr, is_percent: bool) -> str:
         rendered = f"LIMIT {self.visit(limit)}"
         if is_percent:
@@ -160,24 +165,37 @@ class PostgresPrinter(BasePrinter):
 
         func_name = node.name.lower()
 
+        args_str = ", ".join(args)
+        if func_name == "count" and not args and not node.distinct:
+            # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
+            args_str = "*"
+        if node.distinct:
+            args_str = f"DISTINCT {args_str}"
+
         handler = function_handlers.get(func_name)
         if handler is not None:
             if node.order_by:
                 raise QueryError(
                     f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
                 )
+            if node.distinct:
+                # Handlers compose custom SQL from pre-rendered args; injecting DISTINCT into
+                # that blindly risks silently changing what the aggregate counts.
+                raise QueryError(
+                    f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
+                )
             return handler(args)
 
         renamed = function_renames.get(func_name)
         if renamed is not None:
-            return f"{renamed}({', '.join(args)}{order_by_part})"
+            return f"{renamed}({args_str}{order_by_part})"
 
         if func_name in passthrough_functions:
-            return f"{func_name}({', '.join(args)}{order_by_part})"
+            return f"{func_name}({args_str}{order_by_part})"
 
         if func_name in self._connection_supported_functions:
             # Use the validated name — never the raw node.name
-            return f"{func_name}({', '.join(args)})"
+            return f"{func_name}({args_str})"
 
         raise QueryError(f"Function '{node.name}' is not supported in the {self.DIALECT_LABEL} dialect.")
 

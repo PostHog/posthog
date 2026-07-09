@@ -1,11 +1,13 @@
 from typing import Any
 from uuid import uuid4
 
+import unittest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redshift_statement
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
@@ -100,3 +102,70 @@ class TestDirectRedshiftQuery(APIBaseTest):
         with self.assertRaises(QueryError) as ctx:
             executor.generate_clickhouse_sql()
         self.assertIn("Redshift dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            # Redshift has no zero-arg count().
+            ("count_star", "SELECT count() FROM orders", "count(*)"),
+            # DISTINCT used to be silently dropped, returning plain counts.
+            ("count_distinct", "SELECT count(DISTINCT id) FROM orders", "count(DISTINCT "),
+            # Redshift CONCAT is two-arg and NULL-propagating; HogQL concat is variadic, NULL→''.
+            ("concat_null_safe_chain", "SELECT concat(email, ' ', email) FROM orders", " || COALESCE(CAST("),
+            # Redshift rejects the two-arg position() call form.
+            ("position_as_strpos", "SELECT position(email, '@') FROM orders", "STRPOS("),
+            # Redshift avg(int) truncates to an integer; HogQL avg is float.
+            ("avg_cast_to_float", "SELECT avg(id) FROM orders", "avg(CAST("),
+            # Redshift `/` on integers truncates; HogQL division is float.
+            ("division_cast_to_float", "SELECT id / 2 FROM orders", "AS DOUBLE PRECISION) / "),
+        ]
+    )
+    def test_semantic_rewrites_print_redshift_equivalents(self, _name: str, query: str, expected_fragment: str):
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_fragment, sql)
+
+    def test_set_query_operands_are_parenthesized(self):
+        # The default LIMIT is injected into every branch of a set query; Redshift only
+        # accepts a per-branch LIMIT on a parenthesized operand.
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders UNION ALL SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertRegex(sql, r"\)\s*UNION ALL\s*\(")
+
+
+class TestEnsureReadOnlyRawRedshiftStatement(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("plain_select", "SELECT salesid FROM public.sales"),
+            # sqlparse must type a CTE statement as SELECT, not over-block it.
+            ("cte_select", "WITH t AS (SELECT 1 AS v) SELECT v FROM t"),
+            # A write keyword inside a string literal must not trip the token scan.
+            ("write_word_in_string", "SELECT 'DELETE' FROM public.sales"),
+        ]
+    )
+    def test_accepts_read_only_selects(self, _name: str, sql: str):
+        self.assertEqual(ensure_read_only_raw_redshift_statement(sql), sql)
+
+    @parameterized.expand(
+        [
+            # Redshift's SELECT ... INTO creates and populates a table while still
+            # tokenizing as a SELECT statement — the one write shape with no DML/DDL token.
+            ("select_into", "SELECT * INTO backup_sales FROM public.sales"),
+            ("dml_in_cte", "WITH d AS (DELETE FROM public.sales RETURNING *) SELECT * FROM d"),
+            ("update", "UPDATE public.sales SET qtysold = 0"),
+        ]
+    )
+    def test_rejects_writes(self, _name: str, sql: str):
+        with self.assertRaises(ExposedHogQLError):
+            ensure_read_only_raw_redshift_statement(sql)

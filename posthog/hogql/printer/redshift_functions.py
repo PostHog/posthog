@@ -1,4 +1,4 @@
-"""Redshift function surface, derived subtractively from the Postgres surface.
+"""Redshift function surface, derived from the Postgres surface.
 
 Redshift is a fork of an old Postgres, so it shares most of Postgres's function surface. Rather
 than re-listing everything, we start from the Postgres renames / handlers / passthrough sets and
@@ -10,10 +10,15 @@ policy for direct Redshift sources.
 Each removed name is annotated with why Redshift rejects it. Items marked ``UNCERTAIN`` are removed
 conservatively and should be re-validated against a live Redshift cluster — if supported, delete them
 from the removal set to let the inherited Postgres mapping through.
+
+On top of the subtraction, a small set of handlers rewrites functions whose Postgres rendering is
+valid but means something different (or fails) on Redshift while a faithful equivalent exists —
+these preserve HogQL semantics rather than blocking (see ``_REDSHIFT_ONLY_HANDLERS``).
 """
 
 from collections.abc import Callable
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.postgres_functions import (
     POSTGRES_FUNCTION_HANDLERS_LOWER,
     POSTGRES_FUNCTION_RENAMES_LOWER,
@@ -62,16 +67,53 @@ def _without_unsupported(names: frozenset[str]) -> frozenset[str]:
     return frozenset(name for name in names if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS)
 
 
+def _handle_concat(args: list[str]) -> str:
+    # Redshift's CONCAT is strictly two-argument and NULL-propagating; HogQL's concat is
+    # variadic and treats NULL as ''. A coalesced `||` chain preserves both properties.
+    if not args:
+        return "''"
+    coalesced = [f"COALESCE(CAST({arg} AS VARCHAR), '')" for arg in args]
+    if len(coalesced) == 1:
+        return coalesced[0]
+    return f"({' || '.join(coalesced)})"
+
+
+def _handle_position(args: list[str]) -> str:
+    # Redshift only parses POSITION(needle IN haystack); the two-argument call form must be
+    # STRPOS, which shares HogQL's (haystack, needle) argument order and 1-based result.
+    if len(args) != 2:
+        raise QueryError("position with a start offset is not supported in the Redshift dialect")
+    return f"STRPOS({args[0]}, {args[1]})"
+
+
+def _handle_avg(args: list[str]) -> str:
+    # Redshift's avg over integer inputs returns a truncated integer; HogQL's avg is a float.
+    return f"avg(CAST({args[0]} AS DOUBLE PRECISION))"
+
+
+# Functions whose inherited Postgres rendering Redshift would reject or silently reinterpret;
+# rewritten to a Redshift-native equivalent that keeps HogQL semantics.
+_REDSHIFT_ONLY_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "concat": _handle_concat,
+    "position": _handle_position,
+    "avg": _handle_avg,
+}
+
 REDSHIFT_FUNCTION_RENAMES_LOWER: dict[str, str] = {
     name: target
     for name, target in POSTGRES_FUNCTION_RENAMES_LOWER.items()
-    if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS
+    if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS and name not in _REDSHIFT_ONLY_HANDLERS
 }
 
 REDSHIFT_FUNCTION_HANDLERS_LOWER: dict[str, Callable[[list[str]], str]] = {
-    name: handler
-    for name, handler in POSTGRES_FUNCTION_HANDLERS_LOWER.items()
-    if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS
+    **{
+        name: handler
+        for name, handler in POSTGRES_FUNCTION_HANDLERS_LOWER.items()
+        if name not in REDSHIFT_UNSUPPORTED_FUNCTIONS
+    },
+    **_REDSHIFT_ONLY_HANDLERS,
 }
 
-REDSHIFT_PASSTHROUGH_FUNCTIONS: frozenset[str] = _without_unsupported(POSTGRES_PASSTHROUGH_FUNCTIONS)
+REDSHIFT_PASSTHROUGH_FUNCTIONS: frozenset[str] = _without_unsupported(POSTGRES_PASSTHROUGH_FUNCTIONS) - frozenset(
+    _REDSHIFT_ONLY_HANDLERS
+)

@@ -142,6 +142,78 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertNotIn(".team_id", sql)
         self.assertEqual(executor.direct_source_id, str(source.id))
 
+    def _create_simple_direct_source_and_table(self) -> ExternalDataSource:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="shop",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            },
+        )
+        DataWarehouseTable.objects.create(
+            name="orders",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+        return source
+
+    @parameterized.expand(
+        [
+            # Postgres has no zero-arg count(); it must print as count(*).
+            ("count_star", "SELECT count() FROM orders", "count(*)"),
+            # DISTINCT used to be silently dropped from function calls, returning plain counts.
+            ("count_distinct", "SELECT count(DISTINCT id) FROM orders", "count(DISTINCT "),
+        ]
+    )
+    def test_count_rendering(self, _name: str, query: str, expected_fragment: str):
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn(expected_fragment, sql)
+
+    def test_set_query_operands_are_parenthesized(self):
+        # The default LIMIT is injected into every branch of a set query; Postgres only
+        # accepts a per-branch LIMIT on a parenthesized operand.
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders UNION ALL SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertRegex(sql, r"\)\s*UNION ALL\s*\(")
+
+    def test_handler_rendered_functions_reject_distinct(self):
+        # Handlers compose custom SQL from pre-rendered args; DISTINCT must error rather than
+        # be silently dropped from the aggregate.
+        source = self._create_simple_direct_source_and_table()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT uniq(DISTINCT id) FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            executor.generate_clickhouse_sql()
+        self.assertIn("DISTINCT", str(ctx.exception))
+
     def test_generate_sql_for_aliased_direct_postgres_table(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

@@ -17,9 +17,12 @@ class RedshiftPrinter(PostgresPrinter):
 
     Redshift is a fork of an old Postgres, so almost the entire ``PostgresPrinter`` surface —
     identifiers, operators (ILIKE, POSIX ``~``), date_trunc/extract, CAST, CTEs, window functions —
-    is emitted unchanged. This subclass is **purely subtractive**: it blocks the handful of
-    constructs the Redshift engine can't run, raising a clear ``QueryError`` rather than shipping
-    SQL that would fail server-side. Nothing is silently rewritten/emulated.
+    is emitted unchanged. This subclass is mostly **subtractive**: it blocks the constructs the
+    Redshift engine can't run, raising a clear ``QueryError`` rather than shipping SQL that would
+    fail server-side. The exceptions are a few semantic-preserving rewrites where Redshift would
+    otherwise silently return different results than HogQL promises: integer division is cast to
+    float (Redshift ``/`` truncates), and ``avg``/``concat``/``position`` are re-rendered in
+    ``redshift_functions._REDSHIFT_ONLY_HANDLERS``.
 
     Redshift *does* support (so they stay inherited): FULL OUTER JOIN, QUALIFY, recursive CTEs,
     ILIKE, and the POSIX regex operators. The blocked set below is what it does *not* support.
@@ -41,6 +44,14 @@ class RedshiftPrinter(PostgresPrinter):
 
     def _get_passthrough_functions(self) -> frozenset[str]:
         return REDSHIFT_PASSTHROUGH_FUNCTIONS
+
+    # --- semantic-preserving rewrites ---------------------------------------------------
+
+    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
+        if node.op == ast.ArithmeticOperationOp.Div:
+            # Redshift `/` on two integers truncates; HogQL division is always float.
+            return f"(CAST({self.visit(node.left)} AS DOUBLE PRECISION) / {self.visit(node.right)})"
+        return super().visit_arithmetic_operation(node)
 
     # --- blocked constructs (no Redshift equivalent) -----------------------------------
 
