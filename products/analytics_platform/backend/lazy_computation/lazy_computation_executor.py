@@ -884,7 +884,7 @@ class LazyComputationExecutor:
                 # fully cover the range, return them immediately — complete-but-stale beats
                 # blocking. Whoever refreshes (the warmer, or a request after the grace)
                 # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.serve_stale_grace_seconds and (ttl_ranges or pending_jobs):
+                if self.serve_stale_grace_seconds is not None and (ttl_ranges or pending_jobs):
                     graced = find_existing_jobs(
                         team, query_hash, start, end, expired_grace_seconds=self.serve_stale_grace_seconds
                     )
@@ -892,10 +892,14 @@ class LazyComputationExecutor:
                         [j for j in graced if j.status == PreaggregationJob.Status.READY],
                         grace_seconds=self.serve_stale_grace_seconds,
                     )
-                    if not find_missing_contiguous_windows(graced_ready, start, end):
+                    # Coverage must be checked on the overlap-filtered set that will actually
+                    # be returned: the filter prefers newer jobs, so a newer narrow job can
+                    # evict an older broad one and reopen a gap the unfiltered set covered.
+                    covering = filter_overlapping_jobs(graced_ready)
+                    if not find_missing_contiguous_windows(covering, start, end):
                         result = LazyComputationResult(
                             ready=True,
-                            job_ids=[j.id for j in filter_overlapping_jobs(graced_ready)],
+                            job_ids=[j.id for j in covering],
                             stale=True,
                         )
                         _log_execution("stale_hit", result)
