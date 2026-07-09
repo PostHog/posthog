@@ -29,6 +29,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
+    SESSION_FORWARD_PAD_MINUTES,
     PerQueryOptedOut,
     PerQueryOptInNotSet,
     TooManyFilters,
@@ -390,8 +391,13 @@ class TestWebEnsurePrecomputed(BaseTest):
     def test_pins_team_on_oom_and_runs_uncapped_first(self, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
         web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        # ran with the caller's raw schedule this time (not yet pinned), then pinned for next time
-        assert mock_ensure.call_args.kwargs["ttl_seconds"] == {"default": 3600}
+        # ran width-uncapped this time (not yet pinned), then pinned for next time; the
+        # schedule is normalized to a TtlSchedule carrying the session-pad finality lag
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.default_ttl_seconds == 3600
+        assert passed.max_window_days is None
+        assert passed.finality_lag_seconds == SESSION_FORWARD_PAD_MINUTES * 60
         assert is_team_oom_pinned(self.team.pk) is True
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")
