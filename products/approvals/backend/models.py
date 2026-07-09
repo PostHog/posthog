@@ -22,7 +22,6 @@ class ChangeRequestState(models.TextChoices):
 class ValidationStatus(models.TextChoices):
     VALID = "valid", "Valid"
     INVALID = "invalid", "Invalid"
-    EXPIRED = "expired", "Expired"
     STALE = "stale", "Stale (resource changed)"
 
 

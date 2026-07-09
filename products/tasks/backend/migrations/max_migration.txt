@@ -1,1 +1,1 @@
-0053_sandboxcustomimage_build_log
+0055_task_artifact_registry

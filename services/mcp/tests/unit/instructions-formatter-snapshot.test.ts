@@ -41,7 +41,7 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
-    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    featureFlags: { 'mcp-feedback-tool': true },
     renderUiEnabled: true,
 }
 

@@ -225,7 +225,7 @@ def _exchange_code_for_token(request: HttpRequest, code: str) -> dict:
         "redirect_uri": request.build_absolute_uri("/admin/oauth2/callback"),
         "grant_type": "authorization_code",
     }
-    response = requests.post(token_url, data=data)
+    response = requests.post(token_url, data=data, timeout=10)
     response.raise_for_status()
     return response.json()
 

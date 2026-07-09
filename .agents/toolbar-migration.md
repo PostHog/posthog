@@ -4,14 +4,15 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Step 1 (implemented, PR pending review); next up Step 2
+- **Current step**: Step 2 (loader + ESM splitting) is implemented and in review on `rafa/toolbar-migration-4-loader-esm-splitting` — see its section for the remaining parity gates before ready-for-review. Next after that: Step 4 (`~/types` hygiene) and the remaining Step 5/6 edges.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — branch `rafa/toolbar-migration-1-graph-guard`
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071, stacked on Step 1); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088, stacked on #69071); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (stacked on #69088)
+- **Reorder note (resolved)**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`. The gate was: flip the format only once `products.tsx` leaves the graph. That's now done via two moves in the third PR. First, the remaining chains all funneled through one root cause: the kea shims only matched exact alias strings (`scenes/teamLogic`), so relative imports (`dataThemeLogic` → `./teamLogic`) and `~/`-prefixed imports pulled the REAL logics and their whole app graph — fixed with relative + `~/` matching in `createToolbarModulePlugin`, disconnecting `products.tsx`, `scenes.ts`, `teamLogic`, `PersonDisplay`, and `experimentsLogic` in one move. Second, `scenes/urls` itself (imported by lib components shared with the app) is shimmed to the toolbar's parity-tested `~/toolbar/urls` duplicate from Step 3, taking the last products-manifest path out. Bundle graph 8448 → ~1000 files (99 → ~13.5 MiB source), shipped `dist/toolbar.js` 9.95 MB → ~4 MB (was just under the 10 MB CloudFront cliff). Graph budget ratcheted 110 MB → 18 MB.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
 ## Why
 
-The toolbar (`frontend/src/toolbar/`, entry `frontend/src/toolbar/index.tsx`) is built as a single IIFE (`frontend/toolbar-config.mjs`), which force-inlines all 157 dynamic `import()`s in its graph, and it imports the main app — `scenes/urls.ts:5` pulls `~/products` (every product manifest), `~/types` has runtime imports (`lib/Chart`, `lib/api`, an `hls.js`-dragging re-export). Tree shaking can't rescue it (no `sideEffects` fields), so `toolbar-config.mjs` keeps hand-curated denylists + kea shims (`frontend/src/toolbar/shims/`) — which already leak (`scenes/dataThemeLogic.tsx` imports `./teamLogic` relatively, bypassing the exact-string shim). The bundle sits just under the 10MB CloudFront gzip cliff (`frontend/bin/check-toolbar-size.mjs`).
+The toolbar (`frontend/src/toolbar/`, entry `frontend/src/toolbar/index.tsx`) is built as a single IIFE (`frontend/toolbar-config.mjs`), which force-inlines all 157 dynamic `import()`s in its graph, and it imports the main app — `scenes/urls.ts:5` pulls `~/products` (every product manifest), `~/types` has runtime imports (`lib/Chart`, `lib/api`, an `hls.js`-dragging re-export). Tree shaking can't rescue it (no `sideEffects` fields), so `toolbar-config.mjs` keeps hand-curated denylists + kea shims (`frontend/src/toolbar/shims/`) — which leaked until the third PR (`scenes/dataThemeLogic.tsx` imports `./teamLogic` relatively, bypassing the then-exact-string shim; fixed by matching relative and `~/` imports too). Before that fix the bundle sat just under the 10MB CloudFront gzip cliff (`frontend/bin/check-toolbar-size.mjs`); it now ships at ~4.06 MB.
 
 Measured from `frontend/toolbar-esbuild-meta.json` (dev bytes; prod ≈ dev × 0.42):
 
@@ -56,27 +57,34 @@ Work one step per PR (Graphite stack via `gt`; keep the stack shallow — merge 
 
 Done when: CI runs the graph check green with the baseline allowlist.
 
-### Step 2 — loader + ESM code splitting (no import-graph changes)
+### Step 2 — loader + ESM code splitting (in review: `rafa/toolbar-migration-4-loader-esm-splitting`)
 
-Target layout: `dist/toolbar.js` (~1-2KB classic loader) + `dist/toolbar.css` (single file, esbuild doesn't split CSS) + `dist/toolbar/toolbar-app-<hash>.js` + `dist/toolbar/toolbar-app.js` (hashless fallback) + `dist/toolbar/chunk-*-<hash>.js`.
+Landed layout: `dist/toolbar.js` (1.2KB classic loader) + `dist/toolbar/` (ESM entry `toolbar-app-<hash>.js`, hashless fallback `toolbar-app.js`, `chunk-*-<hash>.js`, per-chunk CSS, `toolbar-app.css` hashless entry CSS loaded into the shadow root, `assets/` fonts) + `dist/toolbar.css` (transition-window copy for stale-cached single-file toolbar.js only).
 
-- [ ] `frontend/toolbar-config.mjs` returns two configs, built sequentially in `frontend/build.mjs` + `frontend/bin/build-toolbar.mjs`:
-  - Toolbar App: `entryPoints: { 'toolbar-app': 'src/toolbar/index.tsx' }`, `format: 'esm'`, `splitting: true`, `outdir: dist/toolbar`, `chunkNames: 'chunk-[name]-[hash]'`, `banner: { js: 'var define = undefined;' }` (applies per output file — AMD guard on every chunk), keep `__POSTHOG_TOOLBAR_PUBLIC_PATH__` define + `createToolbarModulePlugin`, `writeMetaFile: true`. Post-build: `createHashlessEntrypoints` for `toolbar-app.js`; copy entry CSS to `dist/toolbar.css`
-  - Toolbar loader: `format: 'iife'`, `outfile: dist/toolbar.js`, define `__POSTHOG_TOOLBAR_APP_ENTRY__` = hashed entry basename from the app build's metafile. Verify esbuild leaves runtime-dynamic `import(url)` untouched in IIFE output
-- [ ] New `frontend/src/toolbar/loader.ts`: capture `document.currentScript.src` as base; synchronously define `ph_load_toolbar`/`ph_load_editor`/forwarding `posthogToolbarController` stub; on first call `import()` the entry with retry/backoff (copy the pattern from `frontend/src/lib/utils/retryImport.ts` — do NOT import app code); on failure fall back once to hashless `toolbar/toolbar-app.js?t={5-min bucket}`, then degrade to no-toolbar with `console.warn`
-- [ ] `frontend/src/toolbar/index.tsx`: `export async function loadToolbar(...)` + export controller (keep window assigns for back-compat); drop the IIFE `globalName`/banner-footer wrapper (`__posthogToolbarModule` is referenced by nothing)
-- [ ] Same PR (or CI reds) — `frontend/bin/check-toolbar-size.mjs`: per-file 10MB gzip limit across all toolbar outputs; **eager-set budget** (entry + transitive `kind: 'import-statement'` closure from the metafile, same traversal as `writePreloadManifest` in `build.mjs`; start ~10% above baseline); loader < ~20KB
-- [ ] Same PR — `frontend/bin/check-toolbar-csp-eval.mjs`: glob all toolbar JS outputs; assert loader = 0 `new Function`, eager closure = 1 (the `toolbarLogic.ts` CSP probe), total = 5 (4 pixi move into the hedgehog chunk)
-- [ ] Assert exactly one CSS output in the metafile
-- [ ] Parity gates: toolbar end-to-end on local app via `hogli start` (authorize flow, tabs, hedgehog chunk loads on demand, CSS in shadow root); Playwright page with strict CSP (`'nonce-…' 'strict-dynamic'`, and separately host-allowlist) + posthog-js loading `dist/toolbar.js` → shadow root mounts; pin an OLD posthog-js version against the new dist to prove the contract; `Toolbar.stories.tsx` green
+- [x] `frontend/toolbar-config.mjs`: `getToolbarAppBuildConfig` (ESM, `splitting: true`, outdir `dist/toolbar`, per-file `var define = undefined;` banner) + `finalizeToolbarBuild` (hashless copies, CSS promotion, loader build with `__POSTHOG_TOOLBAR_APP_ENTRY__` baked in), wired into `frontend/build.mjs` and `frontend/bin/build-toolbar.mjs` (dev watch mode verified)
+- [x] **`publicPath` must stay unset on the app build** (explicit `publicPath: undefined` to override commonConfig's `/static`): esbuild bakes publicPath into chunk import specifiers as absolute URLs, which breaks serving the same artifacts from any region/self-hosted/CDN prefix. Chunk imports are relative; svgs inline as data URLs (a relative specifier string would resolve against the customer page URL); font url()s in the CSS are relative and resolve because the CSS is fetched from inside `dist/toolbar/` (`ToolbarApp.tsx` now loads `toolbar/toolbar-app.css`). Bonus: retires the hardcoded `us.posthog.com` asset URLs (EU used to load fonts from US)
+- [x] `frontend/src/toolbar/loader.ts`: classic-script contract kept (`ph_load_toolbar`/`ph_load_editor`/controller stub synchronously); import with retry/backoff; hashless `toolbar-app.js?t={5-min bucket}` fallback; degrade to no-toolbar with console.warn
+- [x] `frontend/src/toolbar/index.tsx`: `export loadToolbar` + controller; window assigns kept for back-compat
+- [x] `check-toolbar-size.mjs` rewrite: per-file 10MB CloudFront limit across all outputs, eager-set budget 3.3MB (measured 2.97MB), loader <20KB (measured 1,153 bytes). Shared metafile helpers in `bin/toolbar-metafile.mjs`
+- [x] `check-toolbar-csp-eval.mjs` rewrite: scoped counts — loader 0, eager closure 1 (toolbarLogic probe), total 5 (4 pixi in lazy hedgehog chunks)
+- [x] Per-chunk CSS accepted (esbuild 0.25 emits it): only the entry CSS is loaded into the shadow root, so toolbar features must keep styles statically imported — verified all chunk-CSS inputs also land in the entry CSS; recheck at Step 7
+- [x] `buildInParallel` now logs callback errors before exiting (previously swallowed silently)
+- [x] Playwright smoke test (throwaway, not committed): static server over dist/ + strict CSP (`script-src 'self'`, no unsafe-eval) + classic-script injection exactly like posthog-js + `ph_load_toolbar` call → entry + 6 eager chunks fetched relative to the loader origin, shadow root mounts, controller stub delegates (`isLoaded` flips true), zero page errors
+- [x] Real-SDK smoke test (throwaway): published posthog-js (1.398.2 from node_modules, untouched) drives the whole flow — parses `#__posthog` authorize state, injects `/static/toolbar.js?v=&t=`, loader import()s the split app, shadow root mounts, controller live, zero page errors
+- [x] Local-stack click-through (Playwright driving `hogli up` at localhost:8010, throwaway script): real workspace via `/api/setup_test/`, authorized URL added, `redirect_to_site` → host page → toolbar mounts unauthenticated → full OAuth authorize flow (Authenticate → confirm modal → OAuth grant → redirect back) → `isAuthenticated: true` → all six feature menus open with real seeded data (heatmaps, actions, flags, event debugger, web vitals, experiments) → clicking Hedgehog mode fetches 10 pixi/hedgehog chunks on demand → styled bar renders from shadow-root CSS. Note: `redirect_to_site` no longer issues a `temporaryToken` — toolbar auth is OAuth now, so the unauthenticated first mount is expected behavior, not a regression
+- [ ] `Toolbar.stories.tsx` green in CI (runs on the PR)
 
-Done when: ~30% of the bundle is deferred with no source changes and all guards are green. Known-unsupported: exact-path CSP allowlists (`script-src .../toolbar.js`) — document in the PR.
+Result: 1.06MB (26%) of app JS deferred with zero source changes; every file far under the 10MB cliff (largest 1.77MB). Known-unsupported: exact-path CSP allowlists (`script-src .../toolbar.js`) — chunks need the directory allowed.
 
-### Step 3 — split the generated products manifest (biggest graph cut; helps the main app too)
+### Step 3 — toolbar-owned `urls` duplicate (landed before Step 2, see reorder note)
 
-- [ ] `frontend/build-products.mjs`: emit `frontend/src/products-urls.tsx` (only `productUrls` + the per-property imports it already tracks via `keepOnlyImport`) separately from `products.tsx` (scenes/routes/redirects/configuration; re-export `productUrls` for compat)
-- [ ] Repoint `frontend/src/scenes/urls.ts` to `~/products-urls`; strip its value imports (`fileSystemTypes` href loop moves out; `OutputTab` from data-warehouse editor and `DataPipelinesNewSceneKind` become leaf enums or literals)
-- [ ] Delete the retired edges from the Step 1 allowlist; coordinate with the `check-eager-graph.mjs` owners (this also shrinks the app's eager path)
+Approach (revised on review): rather than restructuring the generated products manifest so `scenes/urls` stops dragging it in, the toolbar gets its own deliberately duplicated `frontend/src/toolbar/urls.ts` with only the url helpers it links to, and a parity test keeps it honest. A first version of this PR split `products-urls.tsx` out of the generator; that was reverted as over-engineered — the duplicate + test is simpler to review and keeps the generator untouched.
+
+- [x] `frontend/src/toolbar/urls.ts`: the 12 helpers toolbar code uses (`action(s)`, `experiment(s)`, `featureFlag(s)`, `productTour`, `sessionProfile`, `settings`, `survey(s)`, `webAnalyticsWebVitals`), plus a documented `urlToResource` null stub (the real one walks a matcher tree built from every product manifest; its only toolbar-shipped consumer is Link's drag-to-notebook annotation, inert on customer pages)
+- [x] `frontend/src/toolbar/urls.test.ts`: parity test asserting each helper matches `scenes/urls` byte-for-byte over sample args (the test deliberately crosses the boundary — that's its job); a helper without samples fails
+- [x] All 11 toolbar files import `~/toolbar/urls`; their `-> src/scenes/urls.ts` baseline edges are deleted (47 → 36)
+- [x] The 3 lib files shipped in the toolbar (`TZLabel`, `HeatmapEventsPanel`, `Link`) still import `scenes/urls` — they're shared with the app and can't be repointed; the third PR's `scenes/urls` shim resolves them to the toolbar duplicate at build time, removing their edges and taking `scenes/urls` + the products manifest out of the toolbar graph entirely
+- [ ] Verify the app/exporter eager-graph improvements with the `check-eager-graph` owners
 
 ### Step 4 — `~/types` hygiene
 
@@ -88,7 +96,7 @@ Done when: ~30% of the bundle is deferred with no source changes and all guards 
 
 ### Step 5 — toolbar-owned direct edges
 
-- [ ] `toolbar/experiments/experimentsTabLogic.tsx`: stop importing `scenes/experiments/experimentsLogic`; fetch via `toolbarFetch`
+- [x] `toolbar/experiments/experimentsTabLogic.tsx`: stopped importing `scenes/experiments/experimentsLogic` — the pure status helpers (`getExperimentStatus`/`isLaunched`/`isExperimentPaused`/`hasEnded`) moved to leaf module `scenes/experiments/experimentStatus.ts` (re-exported from experimentsLogic for app importers); data fetching already went via `toolbarApi`
 - [ ] `toolbar/debug/EventDebugMenu.tsx`: move `PanelSettings` from `scenes/session-recordings/components/` to `lib/components/`
 - [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import
 - [ ] `toolbar/actions/StepField.tsx`: move `products/actions/frontend/utils/hints` to `lib/` (or allowlist — it's ~0KB)
@@ -96,9 +104,10 @@ Done when: ~30% of the bundle is deferred with no source changes and all guards 
 ### Step 6 — shared lib → scenes back-edges (each also helps the main app)
 
 - [ ] `lib/lemon-ui/Link/Link.tsx` → `DraggableToNotebook` (drags notebooks → tiptap): invert with a registry/context seam (the flagship shim→DI replacement)
-- [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (bypasses the teamLogic shim today): theme via props/context
+- [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (its `./teamLogic` import is now shimmed, so this edge is boundary-only, not a leak): theme via props/context
 - [ ] `lib/lemon-ui/LemonMarkdown/index.ts`: stop re-exporting `LemonMarkdownWithMermaid` from the barrel (retires the `mermaid` deny for both bundles)
-- [ ] `TZLabel` → teamLogic/urls; `HeatmapEventsPanel` → `PersonDisplay`; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
+- [x] `HeatmapEventsPanel` → `PersonDisplay`: replaced with a plain span (PersonDisplay renders exactly that for a distinct_id-only person with `noPopover`); `TZLabel` → teamLogic edge now shimmed at resolve time (`~/scenes/teamLogic` matching)
+- [ ] `TZLabel` → urls; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
 
 ### Step 7 — lazy boundaries in toolbar source
 
