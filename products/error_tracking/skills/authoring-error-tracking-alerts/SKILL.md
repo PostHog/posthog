@@ -70,7 +70,12 @@ You need three things from the user before creating anything:
 
 ### 2. Dedupe against existing alerts
 
-Call `posthog:error-tracking-alerts-list`. Filter the response client-side by `filters.events[].id`.
+Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000` so the
+scan covers **every** existing alert destination, not just the first page. The tool defaults to 100 rows
+and paginates — on a large project the default page silently hides older alerts (for example, existing
+`$error_tracking_issue_created` destinations), which leads to duplicate alerts. If a `next` cursor still
+comes back, page through it until exhausted before deduping. Then filter the combined results
+client-side by `filters.events[].id`.
 
 - If an alert exists for the **same event** delivering to the **same channel**, stop. Tell the user it
   already exists and ask whether they want to change anything (in which case use
@@ -156,7 +161,9 @@ the issue evolves.
 
 ## Token-economy rules
 
-- One `posthog:error-tracking-alerts-list` call up front, not per candidate.
+- One full `posthog:error-tracking-alerts-list` scan up front (`type: ["internal_destination"]`,
+  `limit: 1000`, paging through `next` if present), not per candidate — and not a single default-page
+  call, which caps at 100 rows and misses destinations on large projects.
 - Reuse a single integration lookup for multiple alerts going to the same workspace.
 - Confirm the channel / URL with the user **before** creating each alert. Never batch-create alerts to a
   destination the user has not explicitly named.
