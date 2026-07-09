@@ -27,6 +27,10 @@ export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
     return getExperimentStatus(experiment) === ExperimentStatus.Paused
 }
 
+export function isExperimentExposureFrozen(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.ExposureFrozen
+}
+
 export function isLaunched(experiment: ExperimentStatusInput): boolean {
     return getExperimentStatus(experiment) !== ExperimentStatus.Draft
 }

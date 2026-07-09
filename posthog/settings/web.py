@@ -571,7 +571,7 @@ SPECTACULAR_SETTINGS = {
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
         "ExperimentTypeEnum": ["web", "product", None],
-        "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
         # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
         # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
         # Pin both to stable names so neither gets a component-prefixed auto-name on collision.

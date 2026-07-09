@@ -533,7 +533,7 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
 
 const ExperimentListSchema = ExperimentsListQueryParams.extend({
     status: ExperimentsListQueryParams.shape['status'].describe(
-        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
+        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen" (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
     ),
     limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),

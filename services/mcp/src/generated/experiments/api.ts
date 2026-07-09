@@ -720,10 +720,10 @@ export const ExperimentsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     search: zod.string().optional().describe('Free-text search applied to the experiment name (case-insensitive).'),
     status: zod
-        .enum(['all', 'complete', 'draft', 'paused', 'running', 'stopped'])
+        .enum(['all', 'complete', 'draft', 'exposure_frozen', 'paused', 'running', 'stopped'])
         .optional()
         .describe(
-            'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status filtering.'
+            'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: "running" returns launched experiments with an active feature flag, "paused" returns launched experiments whose feature flag is deactivated, and "exposure_frozen" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
         ),
 })
 
