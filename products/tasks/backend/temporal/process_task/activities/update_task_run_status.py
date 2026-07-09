@@ -7,6 +7,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.metrics import observe_wizard_run_unbound
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -44,6 +45,9 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     task_run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
     task_run.publish_stream_state_event()
+
+    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]:
+        observe_wizard_run_unbound(task_run)
 
     log_with_activity_context(
         "Task run status updated",
