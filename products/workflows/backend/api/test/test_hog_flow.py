@@ -2227,6 +2227,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["affected"] == expected_affected
         assert response.json()["total"] == 10
+        # The applied key is echoed so the frontend can label the count correctly
+        assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
         if flag_enabled:
             mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
         else:

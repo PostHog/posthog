@@ -200,6 +200,11 @@ class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
+    dedupe_key = serializers.ChoiceField(
+        choices=list(SUPPORTED_DEDUPE_KEYS),
+        allow_null=True,
+        help_text="The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.",
+    )
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -1578,8 +1583,12 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         # Preview matches the actual send: with dedup active, "affected" is the number of
         # sends (unique emails + email-less persons), not the number of matching persons.
+        # The applied key is echoed back so the frontend labels the count from the
+        # response instead of guessing whether the flag-gated dedup actually ran.
+        applied_dedupe_key = None
         if dedupe_key is not None and group_type_index is None and use_workflows_batch_audience_query(self.team):
             affected = get_batch_audience_count(self.team, filters, dedupe_key)
+            applied_dedupe_key = dedupe_key
 
         return Response(
             BlastRadiusSerializer(
@@ -1587,6 +1596,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
                     "affected": affected,
                     "total": result.total,
                     "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                    "dedupe_key": applied_dedupe_key,
                 }
             ).data
         )
@@ -1905,6 +1915,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         "affected": result.affected,
                         "total": result.total,
                         "limit": get_hogflow_batch_trigger_limit(team.id),
+                        "dedupe_key": None,
                     }
                 ).data
             )

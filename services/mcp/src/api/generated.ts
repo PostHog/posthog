@@ -11900,20 +11900,6 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
-    export interface BlastRadius {
-      /** Number of users matching the filters */
-      affected: number;
-      /** Total number of users */
-      total: number;
-      /** Maximum allowed audience size for batch triggers for this team. */
-      limit: number;
-    }
-
-    /**
-     * Property filters to apply
-     */
-    export type BlastRadiusRequestFilters = { [key: string]: unknown };
-
     /**
      * * `email` - email
      */
@@ -11923,6 +11909,24 @@ export namespace Schemas {
     export const DedupeKeyEnum = {
       Email: 'email',
     } as const;
+
+    export interface BlastRadius {
+      /** Number of users matching the filters */
+      affected: number;
+      /** Total number of users */
+      total: number;
+      /** Maximum allowed audience size for batch triggers for this team. */
+      limit: number;
+      /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
+       *
+       * * `email` - email */
+      dedupe_key: DedupeKeyEnum | null;
+    }
+
+    /**
+     * Property filters to apply
+     */
+    export type BlastRadiusRequestFilters = { [key: string]: unknown };
 
     export interface BlastRadiusRequest {
       /** Property filters to apply */
