@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconOpenSidebar, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -34,6 +35,8 @@ import {
     IngestionWarningsTimeWindow,
     ingestionWarningsV2Logic,
 } from './ingestionWarningsV2Logic'
+
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 const SEVERITY_TO_TAG_TYPE: Record<string, LemonTagType> = {
     error: 'danger',
