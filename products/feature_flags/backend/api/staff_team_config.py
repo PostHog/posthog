@@ -10,7 +10,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import IsStaffUser
-from posthog.tasks.team_metadata import update_team_metadata_cache_task
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
@@ -113,6 +112,11 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         old_value = config.minimal_flag_called_events
         config.minimal_flag_called_events = new_value
         config.save(update_fields=["minimal_flag_called_events"])
+
+        # posthog.tasks.team_metadata sits under posthog.tasks, whose __init__ is a celery
+        # autoimport aggregator that pulls in every task module — keep that off the API
+        # router's import path by deferring it to call time.
+        from posthog.tasks.team_metadata import update_team_metadata_cache_task  # noqa: PLC0415
 
         # /flags and /decide read this value out of team_metadata_hypercache, not the DB, so the
         # write above has no effect until that cache is rebuilt.

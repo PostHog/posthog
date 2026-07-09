@@ -75,7 +75,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
 
     @parameterized.expand([(True,), (False,)])
     def test_set_updates_db_value_and_enqueues_cache_refresh_task(self, new_value):
-        with patch("products.feature_flags.backend.api.staff_team_config.update_team_metadata_cache_task") as mock_task:
+        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_task:
             response = self.client.post(
                 SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": new_value}, format="json"
             )
@@ -99,7 +99,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         # auto-created row from the team-creation signal.
         TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
 
-        with patch("products.feature_flags.backend.api.staff_team_config.update_team_metadata_cache_task"):
+        with patch("posthog.tasks.team_metadata.update_team_metadata_cache_task"):
             response = self.client.post(
                 SET_URL, {"team_id": self.team.id, "minimal_flag_called_events": True}, format="json"
             )
