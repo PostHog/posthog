@@ -229,6 +229,8 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksCreateBodyBranchMax = 255
 
 export const TasksCreateBody = /* @__PURE__ */ zod
@@ -281,9 +283,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksCreateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -338,6 +343,8 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
+export const tasksUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksUpdateBodyBranchMax = 255
 
 export const TasksUpdateBody = /* @__PURE__ */ zod
@@ -390,9 +397,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()
@@ -447,6 +457,8 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
+export const tasksPartialUpdateBodySignalReportTaskRelationshipMax = 200
+
 export const tasksPartialUpdateBodyBranchMax = 255
 
 export const TasksPartialUpdateBody = /* @__PURE__ */ zod
@@ -499,9 +511,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
         signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
         signal_report_task_relationship: zod
-            .enum(['implementation'])
-            .describe('\* `implementation` - Implementation')
-            .optional(),
+            .string()
+            .max(tasksPartialUpdateBodySignalReportTaskRelationshipMax)
+            .optional()
+            .describe(
+                "How the created task relates to the signal report (e.g. 'implementation', 'discussion'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. 'research' is reserved for server-side flows and is rejected. Any other routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted."
+            ),
         json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
         internal: zod
             .boolean()

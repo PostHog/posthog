@@ -2770,7 +2770,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     from posthog.models import Team  # noqa: PLC0415
 
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
-        record_implementation_task,
+        record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
@@ -2815,9 +2815,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             _activate_warm_run(warm_run, warm_task, team_id, message=message or None, artifact_ids=[])
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
-    # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
-    # is recorded by record_implementation_task below.
-    validated_data.pop("signal_report_task_relationship", None)
+    # The relationship the client asserted (validated by the serializer, which rejects `research`).
+    # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
+    signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
 
     if not validated_data.get("github_integration"):
         default_integration = Integration.objects.filter(team=team, kind="github").first()
@@ -2851,12 +2851,14 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     with transaction.atomic():
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
-            # Dual-write the implementation gate row + task_run work-log artefact (see
-            # record_implementation_task) so a manually-started task matches autostarted ones.
-            record_implementation_task(
+            # Record the task↔report association + work-log artefact for the asserted relationship
+            # (defaults to implementation, which also writes the auto-start spend gate row) so a
+            # manually-started task matches autostarted ones.
+            record_report_task(
                 team_id=task.team_id,
                 report_id=str(task.signal_report_id),
                 task_id=str(task.id),
+                relationship=signal_report_task_relationship,
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))

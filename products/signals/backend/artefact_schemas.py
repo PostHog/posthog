@@ -354,6 +354,8 @@ SIGNALS_PRODUCT = "signals"
 TASK_RUN_TYPE_REPO_SELECTION = "repo_selection"
 TASK_RUN_TYPE_RESEARCH = "research"
 TASK_RUN_TYPE_IMPLEMENTATION = "implementation"
+# A discuss-the-report task started by a user from the Inbox (not the automated research run).
+TASK_RUN_TYPE_DISCUSSION = "discussion"
 
 # Generic identifiers for a legacy `SignalReportTask` row with no `(product, type)` label — an
 # unlabelled link from the brief link-only window before associations carried identifiers.
@@ -361,7 +363,12 @@ _LEGACY_TASK_RUN_PRODUCT = "tasks"
 _LEGACY_TASK_RUN_TYPE = "agent_run"
 
 _SIGNALS_TASK_RUN_TYPES = frozenset(
-    {TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_IMPLEMENTATION}
+    {
+        TASK_RUN_TYPE_REPO_SELECTION,
+        TASK_RUN_TYPE_RESEARCH,
+        TASK_RUN_TYPE_IMPLEMENTATION,
+        TASK_RUN_TYPE_DISCUSSION,
+    }
 )
 
 
