@@ -17,7 +17,6 @@ import { urls } from 'scenes/urls'
 
 import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
-
 import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
