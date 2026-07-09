@@ -308,25 +308,36 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
 def _apply_external_relationship_assignments(
     account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided relationship assignments, keyed by definition name (None ends the
+    """Apply provided relationship assignments, keyed by definition UUID (None ends the
     active assignment). Each non-None user id is resolved against an
     ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
     returns (commits) on an error result rather than rolling back.
     """
+    keys_to_ids: dict[str, UUID] = {}
+    for key in assignments:
+        try:
+            keys_to_ids[key] = UUID(key)
+        except ValueError:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=key,
+            )
+
     definitions = {
-        definition.name: definition
+        definition.id: definition
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
-            name__in=assignments.keys()
+            id__in=keys_to_ids.values()
         )
     }
+
     resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
-    for name, user_id in assignments.items():
-        definition = definitions.get(name)
+    for key, user_id in assignments.items():
+        definition = definitions.get(keys_to_ids[key])
         if definition is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
-                error_field=name,
+                error_field=key,
             )
         if user_id is None:
             resolved.append((definition, None))
@@ -339,7 +350,7 @@ def _apply_external_relationship_assignments(
         if membership is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                error_field=name,
+                error_field=key,
             )
         resolved.append((definition, membership.user))
 

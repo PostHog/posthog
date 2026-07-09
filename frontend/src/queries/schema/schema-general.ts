@@ -3872,6 +3872,8 @@ export interface FileSystemEntry {
     tags?: ('alpha' | 'beta')[]
     /** Order of object in tree */
     visualOrder?: number
+    /** Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply */
+    user_access_level?: string | null
 }
 
 export type FileSystemIconType =
@@ -6475,6 +6477,19 @@ export interface SourceFieldInputConfig {
     secret: boolean
 }
 
+export interface SourceFieldOauthAccountSelectConfig {
+    type: 'oauth-account-select'
+    name: string
+    label: string
+    /** Name of the OAuth integration id field this account selector reads from. */
+    integrationField: string
+    /** Integration kind to validate and route the account fetch through. */
+    integrationKind: string
+    placeholder?: string
+    caption?: string
+    required?: boolean
+}
+
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
 
 export interface SourceFieldSelectConfigOption {
@@ -6520,6 +6535,7 @@ export type SourceFieldConfig =
     | SourceFieldSwitchGroupConfig
     | SourceFieldSelectConfig
     | SourceFieldOauthConfig
+    | SourceFieldOauthAccountSelectConfig
     | SourceFieldFileUploadConfig
     | SourceFieldSSHTunnelConfig
 

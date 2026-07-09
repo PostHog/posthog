@@ -1347,6 +1347,13 @@ class FileSystemEntry(BaseModel):
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
     )
+    user_access_level: str | None = Field(
+        default=None,
+        description=(
+            "Access level the user has for the referenced object ('none' means no"
+            " access); null/absent when access controls don't apply"
+        ),
+    )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
@@ -2409,6 +2416,26 @@ class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     )
     format: Literal[".json"] = ".json"
     keys: str | list[str]
+
+
+class SourceFieldOauthAccountSelectConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    caption: str | None = None
+    integrationField: str = Field(
+        ...,
+        description=("Name of the OAuth integration id field this account selector reads from."),
+    )
+    integrationKind: str = Field(
+        ...,
+        description="Integration kind to validate and route the account fetch through.",
+    )
+    label: str
+    name: str
+    placeholder: str | None = None
+    required: bool | None = None
+    type: Literal["oauth-account-select"] = "oauth-account-select"
 
 
 class SourceFieldOauthConfig(BaseModel):
@@ -4742,6 +4769,13 @@ class FileSystemImport(BaseModel):
     type: str | None = Field(
         default=None,
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
+    )
+    user_access_level: str | None = Field(
+        default=None,
+        description=(
+            "Access level the user has for the referenced object ('none' means no"
+            " access); null/absent when access controls don't apply"
+        ),
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
@@ -28163,6 +28197,7 @@ class SourceConfig(BaseModel):
         | SourceFieldSwitchGroupConfig
         | SourceFieldSelectConfig
         | SourceFieldOauthConfig
+        | SourceFieldOauthAccountSelectConfig
         | SourceFieldFileUploadConfig
         | SourceFieldSSHTunnelConfig
     ]
@@ -28200,6 +28235,7 @@ class SourceConfig(BaseModel):
             | SourceFieldSwitchGroupConfig
             | SourceFieldSelectConfig
             | SourceFieldOauthConfig
+            | SourceFieldOauthAccountSelectConfig
             | SourceFieldFileUploadConfig
             | SourceFieldSSHTunnelConfig
         ]
@@ -28240,6 +28276,7 @@ class SourceFieldSelectConfigOption(BaseModel):
             | SourceFieldSwitchGroupConfig
             | SourceFieldSelectConfig
             | SourceFieldOauthConfig
+            | SourceFieldOauthAccountSelectConfig
             | SourceFieldFileUploadConfig
             | SourceFieldSSHTunnelConfig
         ]
@@ -28260,6 +28297,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
         | SourceFieldSwitchGroupConfig
         | SourceFieldSelectConfig
         | SourceFieldOauthConfig
+        | SourceFieldOauthAccountSelectConfig
         | SourceFieldFileUploadConfig
         | SourceFieldSSHTunnelConfig
     ]
