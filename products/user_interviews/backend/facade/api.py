@@ -19,11 +19,8 @@ from uuid import UUID
 from products.user_interviews.backend import logic
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
-from products.user_interviews.backend.max_tools import AnalyzeUserInterviewsTool, CreateUserInterviewTopicTool
 
 __all__ = [
-    "AnalyzeUserInterviewsTool",
-    "CreateUserInterviewTopicTool",
     "IntervieweeIdentity",
     "derive_auto_classifications",
     "has_replied",
