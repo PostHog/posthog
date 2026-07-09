@@ -33,18 +33,6 @@ import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
 const HedgehogWizardHog = pngHoggie(wizardHogPng)
 
-// GitHub's merged-PR treatment: a purple filled badge with white text.
-function MergedBadge(): JSX.Element {
-    return (
-        <span
-            className="rounded-full px-1.5 py-0.5 text-[0.6875rem] font-semibold leading-none text-white shrink-0"
-            style={{ backgroundColor: 'var(--purple)' }}
-        >
-            Merged
-        </span>
-    )
-}
-
 // Timeline dot for a single step.
 function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
     if (status === 'completed') {
@@ -217,8 +205,11 @@ export function InstallationProgressContent({
                                         step.status === 'in_progress' && 'font-medium'
                                     )}
                                 >
-                                    <span className="truncate">{step.label}</span>
-                                    {step.id.endsWith(':pr') && prMerged && <MergedBadge />}
+                                    <span className="truncate">
+                                        {step.id.endsWith(':pr') && prMerged
+                                            ? 'PR merged, congratulations!'
+                                            : step.label}
+                                    </span>
                                 </div>
                                 {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
                             </div>
@@ -294,7 +285,7 @@ export function InstallationProgressContent({
                 </div>
             )}
 
-            {prUrl && (
+            {prUrl && !prMerged && (
                 // ph-no-capture: the label carries the customer's repo name and the href their PR
                 // url — neither may reach autocapture in the shared app analytics project.
                 <LemonButton
@@ -306,8 +297,34 @@ export function InstallationProgressContent({
                     className="ph-no-capture"
                 >
                     <span className="truncate">{prNameLabel(prUrl)}</span>
-                    {prMerged && <MergedBadge />}
                 </LemonButton>
+            )}
+
+            {prUrl && prMerged && (
+                <div className="flex items-center gap-3 rounded-lg border p-3" style={{ borderColor: 'var(--purple)' }}>
+                    <span
+                        className="flex items-center justify-center rounded w-8 h-8 shrink-0 text-white"
+                        style={{ backgroundColor: 'var(--purple)' }}
+                    >
+                        <IconPullRequest className="text-lg" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold">Pull request successfully merged</div>
+                        <div className="text-xs text-muted">
+                            You're all set. Deploy the changes and your events start flowing.
+                        </div>
+                    </div>
+                    {/* ph-no-capture: the href is the customer's PR url. */}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={prUrl}
+                        targetBlank
+                        className="ph-no-capture shrink-0"
+                    >
+                        View PR
+                    </LemonButton>
+                </div>
             )}
 
             {phase === 'completed' && dashboard && (
