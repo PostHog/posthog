@@ -130,6 +130,17 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+# Malformed customer queries (bad HogQL, ClickHouse rejecting the query it produced): customer
+# problems, not faults. Same family execute() classifies as user_error and hands back as a 400.
+_USER_QUERY_ERRORS: tuple[type[Exception], ...] = (ExposedHogQLError, ExposedCHQueryError)
+
+
+def _is_customer_query_error(error: BaseException) -> bool:
+    """Errors caused by customer input rather than a PostHog fault: cost/capacity guardrails and
+    malformed queries. Skipped from capture and re-raised so execute() classifies them for the caller."""
+    return _is_query_guardrail_error(error) or isinstance(error, _USER_QUERY_ERRORS)
+
+
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
     # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
     for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
@@ -820,8 +831,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Customer-caused errors (guardrails, malformed queries) aren't faults: skip capture
+            # and let execute() classify them.
+            if _is_customer_query_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -926,8 +938,9 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e):
+            # Customer-caused errors (guardrails, malformed queries) aren't faults: skip capture
+            # and let execute() classify them.
+            if _is_customer_query_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
