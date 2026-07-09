@@ -71,6 +71,7 @@ from products.slack_app.backend.views import (
     slack_user_link_authorize,
     slack_user_link_callback,
 )
+from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
@@ -412,6 +413,11 @@ urlpatterns = [
         include("products.access_control.backend.presentation.urls"),
     ),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
+    path(
+        "api/streamlit_bridge/query/",
+        csrf_exempt(StreamlitBridgeView.as_view()),
+        name="streamlit_bridge_query",
+    ),
     path("api/", include(router.urls)),
     # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),

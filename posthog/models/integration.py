@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q
+from django.dispatch import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -3933,3 +3934,22 @@ class PostgreSQLIntegration:
         else:
             # Preserve the default ssl_root_cert if one was not provided
             return TLS(ssl_mode=self.integration.config["ssl_mode"])
+
+
+@receiver(models.signals.post_delete, sender=Integration)
+def cleanup_ses_identity_on_integration_delete(sender: Any, instance: Integration, **kwargs: Any) -> None:
+    # A post_delete signal (rather than viewset perform_destroy) so SES identities are
+    # also cleaned up when integrations die via cascade, e.g. project or org deletion.
+    # Leaving the identity behind permanently blocks the domain for every other
+    # organization via the foreign-tenant guard in SESProvider.create_email_domain.
+    if instance.kind != "email" or instance.config.get("provider") != "ses":
+        return
+    domain = instance.config.get("domain")
+    if not domain:
+        return
+
+    from posthog.tasks.integrations import (
+        delete_ses_identity_if_unused,  # noqa: PLC0415 - breaks circular import with the tasks module
+    )
+
+    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))

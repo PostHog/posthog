@@ -16,7 +16,7 @@ compatibility: >
   emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
   scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus standard
   analytics tools (execute-sql against the events table, read-data-schema,
-  activity-log-list, inbox-reports-list).
+  advanced-activity-logs-list, inbox-reports-list).
 metadata:
   owner_team: signals
   scope: web_vitals
@@ -262,7 +262,7 @@ candidate — with an empty or tiny prior window there's no baseline to regress 
 new or freshly-popular page would look like a band cross. Judge those on their absolute
 band through the standing-poor path instead; don't date them as a deploy regression. Then
 pull a 30-day daily p75 series for that one path (`toStartOfDay(timestamp)`, same filters,
-`GROUP BY day`) to find the step day, and correlate with `activity-log-list` over the same
+`GROUP BY day`) to find the step day, and correlate with `advanced-activity-logs-list` over the same
 window. You usually can't see the team's
 deploys — frame it as "consistent with a change around {day}, confirm against your
 release log".
@@ -394,7 +394,7 @@ Direct calls (read-only):
   `$device_type` / `$geoip_country_code` / `$browser`. Metrics: `LCP`, `INP`, `CLS`, `FCP`.
 - `read-data-schema` (`kind: event_properties`, `event_name: '$web_vitals'`) — confirm the
   team's captured `$web_vitals_*` properties and sample values before aggregating.
-- `activity-log-list` — pair a dated regression onset with recent deploys or flag changes
+- `advanced-activity-logs-list` — pair a dated regression onset with recent deploys or flag changes
   for cross-source convergence.
 - `inbox-reports-list` — pre-emit dedupe against the inbox.
 

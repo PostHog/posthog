@@ -310,6 +310,27 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_activating_draft_with_invalid_template_names_offending_step(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                # Liquid-style syntax in a Hog-templated input: web drafts store it leniently,
+                # so the compile error only surfaces on activation.
+                "inputs": {"url": {"value": "{{ person.properties.email | upcase }}"}},
+            }
+        )
+        action["name"] = "Send webhook"
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        # Status-only activation (the workflows list toggle) re-validates the stored actions
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert "Send webhook" in detail, response.json()
+        assert "Invalid template" in detail, response.json()
+
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
             {
