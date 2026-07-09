@@ -162,6 +162,26 @@ class LinearIssueSignalInput(SignalInputBase):
     extra: LinearIssueSignalExtra
 
 
+# ── Jira ────────────────────────────────────────────────────────────────────────
+
+
+class JiraIssueSignalExtra(SignalExtraBase):
+    key: str
+    url: str | None
+    status: str | None
+    priority: str | None
+    assignee: str | None
+    labels: list[str]
+    created: str | None
+    updated: str | None
+
+
+class JiraIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.JIRA]
+    extra: JiraIssueSignalExtra
+
+
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
@@ -398,6 +418,7 @@ SignalInput = Annotated[
     | ZendeskTicketSignalInput
     | GithubIssueSignalInput
     | LinearIssueSignalInput
+    | JiraIssueSignalInput
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
@@ -417,6 +438,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     ZendeskTicketSignalInput,
     GithubIssueSignalInput,
     LinearIssueSignalInput,
+    JiraIssueSignalInput,
     ConversationsTicketSignalInput,
     ErrorTrackingSignalInput,
     EndpointExecutionFailedSignalInput,

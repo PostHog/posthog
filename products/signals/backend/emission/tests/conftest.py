@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 MOCK_GITHUB_ISSUE_RECORD: dict = {
@@ -99,6 +101,49 @@ MOCK_LINEAR_ISSUE_RECORD: dict = {
 @pytest.fixture
 def linear_issue_record() -> dict:
     return {**MOCK_LINEAR_ISSUE_RECORD}
+
+
+# Shaped like a row returned by the Jira signals SELECT (jira_issues.FIELDS): `id`/`key`/`self_url`/
+# `created`/`updated` are top-level columns; `summary`/`status`/`priority`/`assignee` are already
+# JSON-extracted to plain strings; `labels` arrives as a raw JSON-array string; `description` is a
+# raw Atlassian Document Format (ADF) JSON string.
+MOCK_JIRA_ISSUE_RECORD: dict = {
+    "id": "10042",
+    "key": "ENG-42",
+    "self_url": "https://acme.atlassian.net/rest/api/3/issue/10042",
+    "created": "2025-06-10T14:30:00.000+0000",
+    "updated": "2025-06-11T09:15:00.000+0000",
+    "summary": "Dashboard widgets fail to load when timezone is set to UTC+13",
+    "status": "In Progress",
+    "priority": "High",
+    "assignee": "Jane Doe",
+    "labels": '["bug", "frontend"]',
+    "description": json.dumps(
+        {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "When the user's timezone is set to UTC+13, dashboard widgets throw a "
+                                "parsing error and display 'Failed to load data'."
+                            ),
+                        }
+                    ],
+                }
+            ],
+        }
+    ),
+}
+
+
+@pytest.fixture
+def jira_issue_record() -> dict:
+    return {**MOCK_JIRA_ISSUE_RECORD}
 
 
 MOCK_PGANALYZE_ISSUE_RECORD: dict = {

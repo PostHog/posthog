@@ -111,6 +111,7 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
+    from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -119,6 +120,7 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.JIRA, "issues", JIRA_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)
     register_signal_source(InternalSourceType.CONVERSATIONS, "tickets", CONVERSATIONS_TICKETS_CONFIG)
 
