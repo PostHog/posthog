@@ -40,9 +40,12 @@ describe('getAudienceDedupeKey', () => {
         ['newsletter@example.com', 'static address'],
         ['', 'empty string'],
         [null, 'missing inputs (no email input at all)'],
-    ])('returns undefined when recipient is %j (%s) — avoids deduping on the wrong key', (template) => {
-        expect(getAudienceDedupeKey({ actions: [emailAction(template)] })).toBeUndefined()
-    })
+    ] as [string | null, string][])(
+        'returns undefined when recipient is %j (%s) — avoids deduping on the wrong key',
+        (template) => {
+            expect(getAudienceDedupeKey({ actions: [emailAction(template)] })).toBeUndefined()
+        }
+    )
 
     it('returns undefined when there is no function_email action at all', () => {
         const nonEmailAction = { id: 'a1', type: 'function', config: {} } as any
