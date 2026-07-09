@@ -176,6 +176,8 @@ export const PulseBriefsFeedbackCreateBody = /* @__PURE__ */ zod.object({
 export const pulseBriefsGenerateCreateBodyPeriodDaysDefault = 7
 export const pulseBriefsGenerateCreateBodyPeriodDaysMax = 90
 
+export const pulseBriefsGenerateCreateBodyMissionDefault = `general_brief`
+
 export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({
     config_id: zod
         .uuid()
@@ -187,6 +189,13 @@ export const PulseBriefsGenerateCreateBody = /* @__PURE__ */ zod.object({
         .max(pulseBriefsGenerateCreateBodyPeriodDaysMax)
         .default(pulseBriefsGenerateCreateBodyPeriodDaysDefault)
         .describe('Number of days the brief should cover. Defaults to 7.'),
+    mission: zod
+        .enum(['general_brief', 'query_performance'])
+        .describe('\* `general_brief` - general_brief\n\* `query_performance` - query_performance')
+        .default(pulseBriefsGenerateCreateBodyMissionDefault)
+        .describe(
+            'Mission the agent engine runs. Defaults to the general brief; query_performance is internal (staff only) and requires the agent engine.\n\n\* `general_brief` - general_brief\n\* `query_performance` - query_performance'
+        ),
 })
 
 export const PulseOpportunitiesFeedbackCreateBody = /* @__PURE__ */ zod.object({
