@@ -1391,7 +1391,7 @@ class GiphySourceConfig(config.Config):
 
 @config.config
 class GitBookSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
