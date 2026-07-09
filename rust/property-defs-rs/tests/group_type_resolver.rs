@@ -347,6 +347,18 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn allocate_person_ids(
+        &self,
+        _: Request<AllocatePersonIdsRequest>,
+    ) -> Result<Response<AllocatePersonIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn create_person(
+        &self,
+        _: Request<CreatePersonRequest>,
+    ) -> Result<Response<CreatePersonResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

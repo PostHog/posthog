@@ -192,10 +192,12 @@ message CreatePersonRequest {
   int64 team_id = 1;
   // Allocated via AllocatePersonIds. See above.
   int64 person_id = 2;
-  // Client-generated UUIDv4. The caller guarantees freshness; a reused
-  // uuid creates a second person row (posthog_person has no unique
-  // index on uuid). Existence checks belong to the caller (ingestion's
-  // distinct-id resolution), not this RPC.
+  // Client-generated UUIDv4. The caller guarantees freshness: (team_id,
+  // uuid) is unique on posthog_person, so a create reusing a team's
+  // existing uuid under a different allocated id is acked by the leader
+  // but rejected by the writer's insert — the acked create is lost.
+  // Existence checks belong to the caller (ingestion's distinct-id
+  // resolution), not this RPC.
   string uuid = 3;
   // JSON-encoded initial properties map. Empty means no properties.
   bytes properties = 4;

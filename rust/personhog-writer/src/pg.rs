@@ -109,19 +109,35 @@ impl PgStore {
     }
 }
 
-/// Insert a create record's initial distinct ids. The EXISTS guard keeps a
-/// create-then-delete race from poisoning the batch: if the person row is
-/// already gone (or was version-skipped and since deleted), the distinct
-/// ids are dropped rather than violating the FK — matching the delete's
-/// intent. ON CONFLICT DO NOTHING makes create replays idempotent and
-/// skips distinct ids whose (team_id, distinct_id) mapping is already
-/// taken, per the CreatePerson contract.
+/// Insert a create record's initial distinct ids. The EXISTS guard admits
+/// a mapping only when the person row's current (team_id, version) exactly
+/// matches the record that carried it — i.e. the record IS the row's
+/// current state, either because this transaction's upsert just applied it
+/// or because this is a replay of the record that did. Everything else is
+/// dropped rather than inserted:
+///
+/// - a stale create whose person upsert was version-skipped (the row has
+///   since moved past it) must not leave mappings from a rejected record;
+/// - a record whose person id exists only under a different team must be
+///   skipped, not error: without the team match the insert would trip the
+///   composite FK and abort the whole chunk into row fallback;
+/// - a deleted person (row gone mid-batch) must not resurrect mappings;
+/// - legacy NULL-version rows never match — creates always write version 0.
+///
+/// ON CONFLICT DO NOTHING makes replays idempotent and skips distinct ids
+/// whose (team_id, distinct_id) mapping is already taken, per the
+/// CreatePerson contract.
 const PDI_INSERT_SQL: &str =
     "INSERT INTO posthog_persondistinctid (team_id, distinct_id, person_id, version)
     SELECT team_id, distinct_id, person_id, version
-    FROM UNNEST($1::int[], $2::text[], $3::bigint[], $4::bigint[])
-        AS u(team_id, distinct_id, person_id, version)
-    WHERE EXISTS (SELECT 1 FROM posthog_person p WHERE p.id = u.person_id)
+    FROM UNNEST($1::int[], $2::text[], $3::bigint[], $4::bigint[], $5::bigint[])
+        AS u(team_id, distinct_id, person_id, version, person_version)
+    WHERE EXISTS (
+        SELECT 1 FROM posthog_person p
+        WHERE p.id = u.person_id
+          AND p.team_id = u.team_id
+          AND p.version = u.person_version
+    )
     ON CONFLICT (team_id, distinct_id) DO NOTHING";
 
 /// Build bind arrays from a slice of persons. Borrows string data directly
@@ -240,6 +256,9 @@ struct PdiArrays {
     distinct_ids: Vec<String>,
     person_ids: Vec<i64>,
     versions: Vec<i64>,
+    /// The carrying record's person version, matched against the person
+    /// row's current version by the insert guard.
+    person_versions: Vec<i64>,
 }
 
 impl PdiArrays {
@@ -265,6 +284,7 @@ fn collect_pdis(persons: &[Person]) -> PdiArrays {
             arrays.distinct_ids.push(d.distinct_id.clone());
             arrays.person_ids.push(p.id);
             arrays.versions.push(d.version.unwrap_or(0));
+            arrays.person_versions.push(p.version);
         }
     }
     arrays
@@ -287,6 +307,7 @@ async fn run_upsert_with_pdis(
             .bind(&pdis.distinct_ids)
             .bind(&pdis.person_ids)
             .bind(&pdis.versions)
+            .bind(&pdis.person_versions)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
