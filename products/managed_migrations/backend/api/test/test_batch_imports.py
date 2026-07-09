@@ -26,6 +26,159 @@ class TestBatchImportModel(BaseTest):
 
         self.assertEqual(ContentType.MIXPANEL.serialize(), {"type": "mixpanel"})
 
+    def _paused_import(self, state: dict | None) -> BatchImport:
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"test": "config"},
+            secrets={},
+            status=BatchImport.Status.PAUSED,
+            status_message="parse error",
+            display_status_message="Invalid JSON syntax",
+            lease_id="worker-lease",
+            leased_until=datetime.now(UTC) + timedelta(minutes=25),
+            backoff_attempt=3,
+            backoff_until=datetime.now(UTC) + timedelta(minutes=5),
+            state=state,
+        )
+
+    MIXED_PROGRESS_PARTS = [
+        {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+        {"key": "day-2", "current_offset": 8999445, "total_size": None},
+        {"key": "day-3", "current_offset": 0, "total_size": None},
+    ]
+
+    @parameterized.expand(
+        [
+            (
+                "inflight_part_with_unknown_total",
+                MIXED_PROGRESS_PARTS,
+                "day-2",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "inflight_part_with_known_total",
+                [
+                    {"key": "day-1", "current_offset": 500, "total_size": 2000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+                "day-1",
+                [
+                    {"key": "day-1", "current_offset": 0, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "first_part_inflight",
+                [
+                    {"key": "day-1", "current_offset": 42, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+                "day-1",
+                [
+                    {"key": "day-1", "current_offset": 0, "total_size": None},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
+                "job_paused_before_any_read",
+                [{"key": "day-1", "current_offset": 0, "total_size": None}],
+                "day-1",
+                [{"key": "day-1", "current_offset": 0, "total_size": None}],
+            ),
+        ]
+    )
+    def test_resume_with_inflight_part_reset_resets_first_unfinished_part(
+        self, _name, initial_parts, expected_reset_key, expected_parts
+    ):
+        batch_import = self._paused_import({"parts": initial_parts})
+
+        reset_key = batch_import.resume_with_inflight_part_reset()
+
+        self.assertEqual(reset_key, expected_reset_key)
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.state["parts"], expected_parts)
+        self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(batch_import.lease_id)
+        self.assertIsNone(batch_import.leased_until)
+        self.assertEqual(batch_import.backoff_attempt, 0)
+        self.assertIsNone(batch_import.backoff_until)
+        self.assertIsNone(batch_import.display_status_message)
+
+    @parameterized.expand(
+        [
+            (BatchImport.Status.RUNNING,),
+            (BatchImport.Status.COMPLETED,),
+            (BatchImport.Status.FAILED,),
+        ]
+    )
+    def test_resume_with_inflight_part_reset_rejects_non_paused(self, status):
+        batch_import = self._paused_import({"parts": self.MIXED_PROGRESS_PARTS})
+        batch_import.status = status
+        batch_import.save(update_fields=["status"])
+
+        with self.assertRaises(ValueError):
+            batch_import.resume_with_inflight_part_reset()
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
+        self.assertEqual(batch_import.lease_id, "worker-lease")
+
+    @parameterized.expand(
+        [
+            ("all_parts_done", {"parts": [{"key": "day-1", "current_offset": 1000, "total_size": 1000}]}),
+            ("empty_parts", {"parts": []}),
+            ("no_state", None),
+        ]
+    )
+    def test_resume_with_inflight_part_reset_rejects_when_no_unfinished_part(self, _name, state):
+        batch_import = self._paused_import(state)
+
+        with self.assertRaises(ValueError):
+            batch_import.resume_with_inflight_part_reset()
+
+        batch_import.refresh_from_db()
+        self.assertEqual(batch_import.status, BatchImport.Status.PAUSED)
+        self.assertEqual(batch_import.lease_id, "worker-lease")
+
+    @parameterized.expand(
+        [
+            ("no_state", None, 0, 0, None),
+            ("empty_parts", {"parts": []}, 0, 0, None),
+            ("mixed", {"parts": MIXED_PROGRESS_PARTS}, 1, 3, "day-2"),
+            (
+                "all_done",
+                {"parts": [{"key": "day-1", "current_offset": 5, "total_size": 5}]},
+                1,
+                1,
+                None,
+            ),
+            (
+                "offset_overshot_total_counts_done",
+                {"parts": [{"key": "day-1", "current_offset": 9, "total_size": 5}]},
+                1,
+                1,
+                None,
+            ),
+            (
+                "known_total_incomplete_is_inflight",
+                {"parts": [{"key": "day-1", "current_offset": 3, "total_size": 5}]},
+                0,
+                1,
+                "day-1",
+            ),
+        ]
+    )
+    def test_parts_progress_summarizes_worker_state(self, _name, state, expected_done, expected_total, inflight_key):
+        batch_import = self._paused_import(state)
+        done, total, inflight = batch_import.parts_progress()
+        self.assertEqual((done, total), (expected_done, expected_total))
+        self.assertEqual(inflight["key"] if inflight else None, inflight_key)
+
 
 class TestBatchImportConfigBuilder(BaseTest):
     def setUp(self):

@@ -1,5 +1,6 @@
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.utils.html import format_html
 
 from products.managed_migrations.backend.models.batch_imports import BatchImport
 
@@ -57,13 +58,53 @@ class BatchImportAdminForm(forms.ModelForm):
 @admin.register(BatchImport)
 class BatchImportAdmin(admin.ModelAdmin):
     form = BatchImportAdminForm
-    list_display = ("id", "team", "status", "created_by_id", "created_at", "get_sink_type", "get_send_rate")
+    actions = ("resume_with_inflight_part_reset",)
+    list_display = (
+        "id",
+        "team",
+        "status",
+        "get_progress",
+        "backoff_until",
+        "created_by_id",
+        "created_at",
+        "get_sink_type",
+        "get_send_rate",
+    )
     list_filter = ("status", "created_at")
     search_fields = ("id", "status_message", "team__name")
-    readonly_fields = ("id", "created_at", "updated_at", "state", "import_config")
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "state",
+        "import_config",
+        "display_status_message",
+        "lease_id",
+        "leased_until",
+        "backoff_attempt",
+        "backoff_until",
+        "get_worker_progress",
+    )
     autocomplete_fields = ("team",)
     fieldsets = (
-        (None, {"fields": ("team", "created_by_id", "status", "status_message")}),
+        (None, {"fields": ("team", "created_by_id", "status", "status_message", "display_status_message")}),
+        (
+            "Worker state",
+            {
+                "fields": (
+                    "get_worker_progress",
+                    "lease_id",
+                    "leased_until",
+                    "backoff_attempt",
+                    "backoff_until",
+                ),
+                "description": (
+                    "A paused job keeps its worker lease; the resume endpoint and the "
+                    "'Resume with in-flight part reset' action clear it. A running job with a "
+                    "future leased_until is actively claimed by a worker."
+                ),
+            },
+        ),
         (
             "Sink Configuration",
             {
@@ -80,6 +121,49 @@ class BatchImportAdmin(admin.ModelAdmin):
         ),
         ("Metadata", {"fields": ("id", "created_at", "updated_at", "state")}),
     )
+
+    @admin.display(description="Progress")
+    def get_progress(self, obj):
+        """Parts done / total, from the worker-owned state JSON."""
+        done, total, _inflight = obj.parts_progress()
+        if total == 0:
+            return "not started"
+        return f"{done}/{total} parts"
+
+    @admin.display(description="Worker progress")
+    def get_worker_progress(self, obj):
+        """Progress summary plus the in-flight part's key and byte offset."""
+        done, total, inflight = obj.parts_progress()
+        if total == 0:
+            return "No part state yet (job has not started)"
+        if inflight is None:
+            return format_html("<b>{}/{} parts done</b> - all parts complete", done, total)
+        return format_html(
+            "<b>{}/{} parts done</b><br>In-flight part: <code>{}</code><br>Offset: {} of {} bytes (decompressed)",
+            done,
+            total,
+            inflight.get("key", "?"),
+            inflight.get("current_offset", 0),
+            inflight.get("total_size") if inflight.get("total_size") is not None else "unknown",
+        )
+
+    @admin.action(description="Resume with in-flight part reset (re-imports the current date range from offset 0)")
+    def resume_with_inflight_part_reset(self, request, queryset):
+        """Recover a paused job whose committed byte offset no longer matches the
+        source bytes (re-download of a nondeterministic export, or a source file
+        replaced after a data-error pause). Safe for sources with deterministic
+        event UUIDs, which dedupe the re-imported overlap."""
+        for batch_import in queryset:
+            try:
+                reset_key = batch_import.resume_with_inflight_part_reset()
+            except ValueError as e:
+                self.message_user(request, f"{batch_import.id}: {e}", level=messages.WARNING)
+            else:
+                self.message_user(
+                    request,
+                    f"{batch_import.id}: resumed; part {reset_key} will re-import from offset 0",
+                    level=messages.SUCCESS,
+                )
 
     @admin.display(description="Sink Type")
     def get_sink_type(self, obj):
