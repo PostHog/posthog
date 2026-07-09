@@ -13,6 +13,7 @@ import {
     IconPlusSmall,
     IconRefresh,
     IconTrash,
+    IconUnlock,
 } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -42,10 +43,11 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
     confirmFreezeExposure,
+    confirmUnfreezeExposure,
     hasFrozenExposureStamps,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
-import { isExperimentPaused } from '../experimentsLogic'
+import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 import { FinishExperimentModal, PauseExperimentModal, ResumeExperimentModal } from './ExperimentModals'
@@ -62,6 +64,7 @@ export function PageHeaderCustom(): JSX.Element {
         experimentLoading,
         launchExperimentLoading,
         freezeExposureLoading,
+        unfreezeExposureLoading,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -72,6 +75,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
         freezeExposure,
+        unfreezeExposure,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -269,6 +273,18 @@ export function PageHeaderCustom(): JSX.Element {
                                                     }}
                                                 >
                                                     <IconLock /> Freeze exposure
+                                                </ButtonPrimitive>
+                                            )}
+                                            {isExperimentExposureFrozen(experiment) && (
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    data-attr="unfreeze-exposure"
+                                                    onClick={() => confirmUnfreezeExposure(unfreezeExposure)}
+                                                    disabledReasons={{
+                                                        'Unfreezing exposure...': unfreezeExposureLoading,
+                                                    }}
+                                                >
+                                                    <IconUnlock /> Unfreeze exposure
                                                 </ButtonPrimitive>
                                             )}
                                             <ButtonPrimitive

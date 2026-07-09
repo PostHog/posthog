@@ -1326,6 +1326,32 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('unfreezeExposure', () => {
+        it('calls unfreeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const unfrozenResponse = { ...experiment, status: 'running' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(unfrozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment({ ...experiment, status: 'exposure_frozen' } as Experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.unfreezeExposure()
+            })
+                .toDispatchActions(['unfreezeExposure', 'setUnfreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/unfreeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('running')
+            expect(keyed.values.unfreezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {
