@@ -11,6 +11,33 @@ else
     exit
 fi
 
+# Upgrading pulls a full set of new images, which needs significant free disk.
+# A nearly full disk fails the pull or leaves containers crashing mid-upgrade,
+# so check up front and offer to prune old images before anything is changed.
+DOCKER_ROOT_DIR=$(docker info --format '{{ .DockerRootDir }}' 2>/dev/null || echo /var/lib/docker)
+disk_use_pct() {
+    df -P "$DOCKER_ROOT_DIR" 2>/dev/null | awk 'NR==2 { gsub(/%/,""); print $5 }'
+}
+DISK_USE=$(disk_use_pct)
+if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 80 ]; then
+    echo ""
+    echo "⚠️  The disk holding Docker data ($DOCKER_ROOT_DIR) is ${DISK_USE}% full."
+    echo "The upgrade pulls a full set of new images and may fail or leave the stack broken without enough free space."
+    read -r -p "Remove unused Docker images and build cache now? (docker system prune -a --force) [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+        docker system prune -a --force
+        DISK_USE=$(disk_use_pct)
+        echo "Disk is now ${DISK_USE:-unknown}% full."
+    fi
+    if [ -n "$DISK_USE" ] && [ "$DISK_USE" -ge 90 ]; then
+        read -r -p "Disk is still ${DISK_USE}% full. Continue with the upgrade anyway? [y/N] " response
+        if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+            echo "Upgrade cancelled. Free up disk space and try again."
+            exit 1
+        fi
+    fi
+fi
+
 if [ "$REGISTRY_URL" == "" ]
 then
 export REGISTRY_URL="posthog/posthog"
