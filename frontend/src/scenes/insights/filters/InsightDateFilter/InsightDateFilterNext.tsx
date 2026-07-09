@@ -144,176 +144,182 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
         updateQuerySource(computeDaysOfWeekUpdate(days, querySource, dateRange))
     }
 
+    // data-lemon-skin opts these surfaces into the quill-as-lemon skin (lemon-skin.scss) so the
+    // filter sits next to Lemon chrome without a visual jump. The skin's Button rules match
+    // descendants of a skinned element, so the inline trigger needs a skinned ancestor (this
+    // contents wrapper); portaled content escapes it and carries the attribute itself.
     return (
-        <Popover open={open} onOpenChange={handleOpenChange}>
-            <PopoverTrigger
-                render={
-                    <Button
-                        variant="outline"
-                        size="default"
-                        data-attr="insight-date-filter-next"
-                        data-quill
-                        data-lemon-skin
-                        disabled={disabled || !!editingDisabledReason}
-                        title={editingDisabledReason ?? undefined}
-                    >
-                        <IconCalendar />
-                        {labelParts.join(' · ')}
-                    </Button>
-                }
-            />
-            {/* data-lemon-skin opts these surfaces into the quill-as-lemon skin (lemon-skin.scss, shipping
-                separately) so the filter sits next to Lemon chrome without a visual jump. Portaled content
-                needs the attribute on itself. Inert until the skin lands. */}
-            <PopoverContent data-lemon-skin align="start" className="w-auto p-0 overflow-hidden">
-                <div className="flex items-stretch">
-                    <div className="flex w-60 flex-col">
-                        {/* Preset rail */}
-                        <div className="flex flex-col gap-px p-2">
-                            {listedPresetNames.map((name) => (
+        <div className="contents" data-quill data-lemon-skin>
+            <Popover open={open} onOpenChange={handleOpenChange}>
+                <PopoverTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            size="default"
+                            data-attr="insight-date-filter-next"
+                            disabled={disabled || !!editingDisabledReason}
+                            title={editingDisabledReason ?? undefined}
+                        >
+                            <IconCalendar />
+                            {labelParts.join(' · ')}
+                        </Button>
+                    }
+                />
+                <PopoverContent data-lemon-skin align="start" className="w-auto p-0 overflow-hidden">
+                    <div className="flex items-stretch">
+                        <div className="flex w-60 flex-col">
+                            {/* Preset rail */}
+                            <div className="flex flex-col gap-px p-2">
+                                {listedPresetNames.map((name) => (
+                                    <Button
+                                        key={name}
+                                        variant="default"
+                                        size="sm"
+                                        left
+                                        className="w-full justify-start"
+                                        aria-selected={!customOpen && activePreset?.name === name}
+                                        onClick={() => applyPreset(name)}
+                                        data-attr={`insight-date-preset-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                                    >
+                                        {name}
+                                    </Button>
+                                ))}
                                 <Button
-                                    key={name}
                                     variant="default"
                                     size="sm"
                                     left
                                     className="w-full justify-start"
-                                    aria-selected={!customOpen && activePreset?.name === name}
-                                    onClick={() => applyPreset(name)}
-                                    data-attr={`insight-date-preset-${name.toLowerCase().replace(/\s+/g, '-')}`}
+                                    aria-selected={!customOpen && isAllTime}
+                                    onClick={applyAllTime}
+                                    data-attr="insight-date-filter-next-all-time"
                                 >
-                                    {name}
+                                    All time
                                 </Button>
-                            ))}
-                            <Button
-                                variant="default"
-                                size="sm"
-                                left
-                                className="w-full justify-start"
-                                aria-selected={!customOpen && isAllTime}
-                                onClick={applyAllTime}
-                                data-attr="insight-date-filter-next-all-time"
-                            >
-                                All time
-                            </Button>
-                            <div className="flex items-center gap-1 px-2 py-1">
-                                <span className="text-xs whitespace-nowrap">Last</span>
-                                <Input
-                                    type="number"
-                                    min={1}
-                                    value={rollingCount}
-                                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                        setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
-                                    }
-                                    className="h-6 w-12"
-                                    aria-label="Rolling period count"
-                                    data-attr="insight-date-filter-next-rolling-count"
-                                />
-                                <Select
-                                    value={rollingUnit}
-                                    onValueChange={(unit: string | null) =>
-                                        setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)
-                                    }
-                                    items={ROLLING_UNITS}
-                                >
-                                    <SelectTrigger size="sm" aria-label="Rolling period unit">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent data-lemon-skin>
-                                        {Object.entries(ROLLING_UNITS).map(([value, label]) => (
-                                            <SelectItem key={value} value={value}>
-                                                {label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <div className="flex items-center gap-1 px-2 py-1">
+                                    <span className="text-xs whitespace-nowrap">Last</span>
+                                    <Input
+                                        type="number"
+                                        min={1}
+                                        value={rollingCount}
+                                        onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                            setRollingCount(e.target.value.replace(/[^0-9]/g, ''))
+                                        }
+                                        className="h-6 w-12"
+                                        aria-label="Rolling period count"
+                                        data-attr="insight-date-filter-next-rolling-count"
+                                    />
+                                    <Select
+                                        value={rollingUnit}
+                                        onValueChange={(unit: string | null) =>
+                                            setRollingUnit(unit ?? DEFAULT_ROLLING_UNIT)
+                                        }
+                                        items={ROLLING_UNITS}
+                                    >
+                                        <SelectTrigger size="sm" aria-label="Rolling period unit">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent data-lemon-skin>
+                                            {Object.entries(ROLLING_UNITS).map(([value, label]) => (
+                                                <SelectItem key={value} value={value}>
+                                                    {label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <Button
+                                        size="sm"
+                                        onClick={applyRolling}
+                                        aria-selected={isRolling}
+                                        data-attr="insight-date-filter-next-rolling-apply"
+                                    >
+                                        Apply
+                                    </Button>
+                                </div>
                                 <Button
+                                    variant="default"
                                     size="sm"
-                                    onClick={applyRolling}
-                                    aria-selected={isRolling}
-                                    data-attr="insight-date-filter-next-rolling-apply"
+                                    left
+                                    className="w-full justify-start"
+                                    aria-selected={customOpen || isCustom}
+                                    onClick={() => setCustomOpen(!customOpen)}
+                                    data-attr="insight-date-filter-next-custom-range"
                                 >
-                                    Apply
+                                    Custom range…
                                 </Button>
                             </div>
-                            <Button
-                                variant="default"
-                                size="sm"
-                                left
-                                className="w-full justify-start"
-                                aria-selected={customOpen || isCustom}
-                                onClick={() => setCustomOpen(!customOpen)}
-                                data-attr="insight-date-filter-next-custom-range"
-                            >
-                                Custom range…
-                            </Button>
-                        </div>
-                        <div className="mt-auto">
-                            {isTrends && (
-                                <div className="flex flex-col gap-1 border-t border-border px-3 py-2">
-                                    <ToggleGroup
-                                        multiple
-                                        size="sm"
-                                        className="w-full"
-                                        value={selectedDays.map(String)}
-                                        onValueChange={(days) => setDays(days.map(Number))}
-                                    >
-                                        {ALL_DAY_NUMBERS.map((day) => (
-                                            <ToggleGroupItem
-                                                key={day}
-                                                value={String(day)}
-                                                className="flex-1"
-                                                aria-label={DAY_LABELS[day]}
-                                                title={DAY_LABELS[day]}
-                                                data-attr={`insight-date-filter-next-day-${day}`}
-                                            >
-                                                {DAY_LABELS_SINGLE[day]}
-                                            </ToggleGroupItem>
-                                        ))}
-                                    </ToggleGroup>
-                                    <div className="flex items-center justify-center gap-2">
-                                        <Button variant="link" size="xs" onClick={() => setDays(WEEKDAYS)}>
-                                            Weekdays
-                                        </Button>
-                                        <Button variant="link" size="xs" onClick={() => setDays(WEEKENDS)}>
-                                            Weekends
-                                        </Button>
-                                        <Button variant="link" size="xs" onClick={() => setDays([])}>
-                                            All days
-                                        </Button>
+                            <div className="mt-auto">
+                                {isTrends && (
+                                    <div className="flex flex-col gap-1 border-t border-border px-3 py-2">
+                                        <ToggleGroup
+                                            multiple
+                                            size="sm"
+                                            className="w-full"
+                                            value={selectedDays.map(String)}
+                                            onValueChange={(days) => setDays(days.map(Number))}
+                                        >
+                                            {ALL_DAY_NUMBERS.map((day) => (
+                                                <ToggleGroupItem
+                                                    key={day}
+                                                    value={String(day)}
+                                                    className="flex-1"
+                                                    aria-label={DAY_LABELS[day]}
+                                                    title={DAY_LABELS[day]}
+                                                    data-attr={`insight-date-filter-next-day-${day}`}
+                                                >
+                                                    {DAY_LABELS_SINGLE[day]}
+                                                </ToggleGroupItem>
+                                            ))}
+                                        </ToggleGroup>
+                                        <div className="flex items-center justify-center gap-2">
+                                            <Button variant="link" size="xs" onClick={() => setDays(WEEKDAYS)}>
+                                                Weekdays
+                                            </Button>
+                                            <Button variant="link" size="xs" onClick={() => setDays(WEEKENDS)}>
+                                                Weekends
+                                            </Button>
+                                            <Button variant="link" size="xs" onClick={() => setDays([])}>
+                                                All days
+                                            </Button>
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-                            {!isRetention && (
-                                <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
-                                    <Switch
-                                        id="insight-exclude-incomplete-period"
-                                        size="sm"
-                                        checked={!!dateRange?.excludeIncompletePeriods}
-                                        onCheckedChange={(checked) =>
-                                            updateDateRange({ excludeIncompletePeriods: checked ? true : null }, true)
-                                        }
-                                        data-attr="insight-date-filter-next-exclude-incomplete"
-                                    />
-                                    <Label htmlFor="insight-exclude-incomplete-period">Exclude incomplete period</Label>
-                                </div>
-                            )}
+                                )}
+                                {!isRetention && (
+                                    <div className="flex items-center gap-2 border-t border-border px-3 py-1.5">
+                                        <Switch
+                                            id="insight-exclude-incomplete-period"
+                                            size="sm"
+                                            checked={!!dateRange?.excludeIncompletePeriods}
+                                            onCheckedChange={(checked) =>
+                                                updateDateRange(
+                                                    { excludeIncompletePeriods: checked ? true : null },
+                                                    true
+                                                )
+                                            }
+                                            data-attr="insight-date-filter-next-exclude-incomplete"
+                                        />
+                                        <Label htmlFor="insight-exclude-incomplete-period">
+                                            Exclude incomplete period
+                                        </Label>
+                                    </div>
+                                )}
+                            </div>
                         </div>
+                        {/* Calendar panel, only when asked for */}
+                        {customOpen && (
+                            <DateTimePicker
+                                value={calendarValue}
+                                ranges={[]}
+                                weekStartsOn={weekStartDay === 1 ? Day.MONDAY : Day.SUNDAY}
+                                onApply={applyCalendar}
+                                onCancel={() => setCustomOpen(false)}
+                                showHeader={false}
+                                showTime={false}
+                                className="shadow-none ring-0 rounded-none border-l border-border"
+                            />
+                        )}
                     </div>
-                    {/* Calendar panel, only when asked for */}
-                    {customOpen && (
-                        <DateTimePicker
-                            value={calendarValue}
-                            ranges={[]}
-                            weekStartsOn={weekStartDay === 1 ? Day.MONDAY : Day.SUNDAY}
-                            onApply={applyCalendar}
-                            onCancel={() => setCustomOpen(false)}
-                            showHeader={false}
-                            showTime={false}
-                            className="shadow-none ring-0 rounded-none border-l border-border"
-                        />
-                    )}
-                </div>
-            </PopoverContent>
-        </Popover>
+                </PopoverContent>
+            </Popover>
+        </div>
     )
 }
