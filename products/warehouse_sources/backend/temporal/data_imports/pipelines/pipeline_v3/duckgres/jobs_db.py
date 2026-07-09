@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import psycopg
@@ -45,6 +47,28 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
         f"AND _ls.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}' "
         f"ORDER BY _ls.created_at DESC, _ls.id DESC LIMIT 1)"
     )
+
+
+# Server-side guard for the heavy eligibility-CTE maintenance queries (supersede
+# + backlog): each scans PARTITION_PRUNING_INTERVAL of sourcebatch per enabled
+# team, and on a high-volume org an unbounded run can saturate the shared queue
+# DB. Worse, every ~30s poll starts another, so slow runs stack into many
+# concurrent multi-hour scans that also starve the Delta consumer on the same
+# DB. Cap each statement so a slow query fails fast and the poll loop retries on
+# the next tick instead of wedging. Tune up if a legitimate run needs longer.
+ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
+
+
+@asynccontextmanager
+async def _statement_timeout(conn: psycopg.AsyncConnection[Any], timeout_ms: int) -> AsyncIterator[None]:
+    """Bound the wrapped query with a server-side ``statement_timeout``.
+
+    The consumer connection is autocommit, so ``SET LOCAL`` needs an explicit
+    transaction; it scopes the timeout to this block and resets it on exit.
+    """
+    async with conn.transaction():
+        await conn.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+        yield
 
 
 # Structured classification key written into duckgres status error_response by
@@ -415,7 +439,7 @@ class DuckgresBatchQueue:
         Skips batches currently 'executing' (their attempt resolves on its own)
         and anything already terminal. Returns the number of batches superseded.
         """
-        async with conn.cursor() as cur:
+        async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
@@ -483,23 +507,33 @@ class DuckgresBatchQueue:
         team_ids: list[int] | None = None,
         blocked_schema_ids: list[str] | None = None,
         eligible_schema_ids: list[str] | None = None,
-    ) -> tuple[int, float | None, int, float | None]:
-        """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age).
+        failing_schema_ids: list[str] | None = None,
+    ) -> tuple[int, float | None, int, float | None, int]:
+        """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age, failing_blocked_count).
 
         Eligible = delta-succeeded, unapplied, non-failed data batches the sink
         can claim now — the lag/alert signal (7-day retention and permanent run
         failure are time-bounded loss modes). Blocked = the same but held back
-        by an unprimed schema; reported separately so weeks of backfill cannot
-        pin the alert gauge while still being visible.
+        by an unprimed schema whose backfill is progressing normally; this is
+        the pageable bucket — it drains on its own, so sustained growth means a
+        real throughput problem. Failing-blocked = blocked batches behind a
+        hard-blocked schema (failure streak at threshold / needs_resync);
+        counted separately so one wedged schema can neither trigger nor mask
+        the page. Durable per-schema failure tracking lives on
+        DuckgresSinkSchemaState (this count ages out with queue retention).
         """
-        async with conn.cursor() as cur:
+        async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
                 backlog AS (
                     SELECT
                         b.created_at,
-                        {BLOCKED_LIVE_BATCH_CONDITION} AS is_blocked
+                        {BLOCKED_LIVE_BATCH_CONDITION} AS is_blocked,
+                        (
+                            %(failing_schema_ids)s::varchar[] IS NOT NULL
+                            AND b.schema_id = ANY(%(failing_schema_ids)s)
+                        ) AS is_failing
                     FROM {BATCH_TABLE} b
                     JOIN {_latest_status_lateral(STATUS_TABLE, "b")} ds ON true
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
@@ -518,14 +552,16 @@ class DuckgresBatchQueue:
                 SELECT
                     count(*) FILTER (WHERE NOT is_blocked),
                     EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE NOT is_blocked)),
-                    count(*) FILTER (WHERE is_blocked),
-                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE is_blocked))
+                    count(*) FILTER (WHERE is_blocked AND NOT is_failing),
+                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE is_blocked AND NOT is_failing)),
+                    count(*) FILTER (WHERE is_blocked AND is_failing)
                 FROM backlog
                 """,
                 {
                     "team_ids": team_ids,
                     "blocked_schema_ids": blocked_schema_ids,
                     "eligible_schema_ids": eligible_schema_ids,
+                    "failing_schema_ids": failing_schema_ids,
                 },
             )
             row = await cur.fetchone()
@@ -534,8 +570,8 @@ class DuckgresBatchQueue:
             return float(v) if v is not None else None
 
         if row is None:
-            return 0, None, 0, None
-        return int(row[0]), _age(row[1]), int(row[2]), _age(row[3])
+            return 0, None, 0, None, 0
+        return int(row[0]), _age(row[1]), int(row[2]), _age(row[3]), int(row[4])
 
     @staticmethod
     async def update_status(
