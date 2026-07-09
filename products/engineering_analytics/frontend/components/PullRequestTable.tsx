@@ -14,10 +14,12 @@ import { urls } from 'scenes/urls'
 
 import { compactAgeLabel, compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
+import { pushRoundFromSample } from '../lib/pushRounds'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { CIStatusTag } from './CIStatusTag'
 import { PullRequestStateTag } from './PullRequestStateTag'
+import { PushHistorySparkline } from './PushHistorySparkline'
 
 /** The PR's detail page, carrying the active source so it opens scoped to the same one. */
 function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
@@ -136,10 +138,19 @@ export function PullRequestTable({
         {
             title: 'Pushes',
             key: 'pushes',
-            width: 0,
+            width: 170,
             align: 'right',
+            tooltip:
+                'One bar per push (distinct head commit that triggered CI), oldest first: height is that push’s wall-clock CI time, red means it went red. Re-run cycles are the amber tag. Fork PRs are unattributed.',
+            sorter: (a, b) => a.pushes - b.pushes,
             render: (_, row) => (
-                <Tooltip title="Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.">
+                <div className="flex items-center justify-end gap-2">
+                    <PushHistorySparkline
+                        rounds={row.pushHistory.map(pushRoundFromSample)}
+                        minSlots={10}
+                        className="w-24 shrink-0"
+                        ariaLabel={`Push CI history for pull request #${row.number}`}
+                    />
                     <span className="text-xs tabular-nums whitespace-nowrap">
                         {humanFriendlyNumber(row.pushes)}
                         {row.rerunCycles > 0 && (
@@ -148,7 +159,7 @@ export function PullRequestTable({
                             </LemonTag>
                         )}
                     </span>
-                </Tooltip>
+                </div>
             ),
         },
         {

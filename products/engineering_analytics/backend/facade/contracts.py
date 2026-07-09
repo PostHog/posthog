@@ -495,6 +495,23 @@ class CIStatusRollup:
 
 
 @dataclass(frozen=True)
+class PushCISample:
+    """One CI round (push) on a pull request, for the compact push-history sparkline:
+    when the round started, its wall-clock CI time, and its verdict.
+    """
+
+    head_sha: str
+    # Earliest run start on this push.
+    started_at: datetime
+    # First run start → last completed run end on this push; None while nothing has completed.
+    wall_seconds: int | None
+    # Any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.
+    failed: bool
+    # Any latest-per-workflow run on this push hasn't completed yet.
+    pending: bool
+
+
+@dataclass(frozen=True)
 class PullRequestListItem:
     """One row of the PR list: the PR plus its head-SHA CI rollup. No ``id`` or
     ``head_sha`` — this is a display/triage row, not the full ``PullRequest``.
@@ -522,6 +539,9 @@ class PullRequestListItem:
     estimated_cost_usd: float | None = None
     # Billable (self-hosted) minutes summed over this PR's jobs; None when the job source isn't synced.
     billable_minutes: float | None = None
+    # This PR's CI rounds oldest-first, capped to the most recent pushes (see the list query) — the
+    # push-history sparkline. ``pushes`` stays the uncapped count.
+    push_history: list[PushCISample] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

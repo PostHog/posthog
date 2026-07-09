@@ -22,6 +22,7 @@ import {
 import type {
     GitHubSourceApi,
     PullRequestListItemApi,
+    PushCISampleApi,
     QuarantineRequestApi,
     QuarantineRequestResultApi,
 } from '../generated/api.schemas'
@@ -70,6 +71,8 @@ export interface PullRequestRow {
     failingWorkflows: string[]
     /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
     pushes: number
+    /** Per-push CI rounds oldest first, capped server-side — drives the push-history sparkline. */
+    pushHistory: PushCISampleApi[]
     /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
     /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
@@ -206,6 +209,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         pending: it.ci.pending,
         failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
+        pushHistory: it.push_history ?? [],
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
         billableMinutes: it.billable_minutes ?? null,

@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRState,
     PullRequestList,
     PullRequestListItem,
+    PushCISample,
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
@@ -24,6 +25,8 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
+# Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
+_PUSH_HISTORY_LIMIT = 20
 
 _SELECT = f"""
     SELECT
@@ -52,6 +55,62 @@ _SELECT = f"""
 """
 
 
+# Per-push CI rounds for the visible PRs, for the push-history sparkline. Verdicts collapse like
+# ``ci_rollup``: latest run per (push, workflow) via argMax, then any decisive failure turns the
+# round red and any not-yet-completed run marks it pending. Wall time is the round's earliest run
+# start to its latest completed run end (``updated_at`` is the end time the duration column uses).
+_PUSH_HISTORY_SELECT = """
+    SELECT
+        repo_owner, repo_name, pr_number, head_sha,
+        min(first_start) AS started_at,
+        if(countIf(last_end IS NOT NULL) = 0, NULL, dateDiff('second', min(first_start), max(last_end))) AS wall_seconds,
+        countIf(s = 'completed' AND c IN ('failure', 'timed_out')) > 0 AS failed,
+        countIf(s IS NULL OR s != 'completed') > 0 AS pending
+    FROM (
+        SELECT
+            repo_owner, repo_name, pr_number, head_sha, workflow_name,
+            min(run_started_at) AS first_start,
+            max(if(status = 'completed', updated_at, NULL)) AS last_end,
+            argMax(status, run_started_at) AS s,
+            argMax(conclusion, run_started_at) AS c
+        FROM __RUNS_SOURCE__ AS r
+        WHERE pr_number IN {pr_numbers}
+        GROUP BY repo_owner, repo_name, pr_number, head_sha, workflow_name
+    )
+    GROUP BY repo_owner, repo_name, pr_number, head_sha
+    ORDER BY started_at
+    -- Explicit bound: HogQL otherwise applies its default 100-row limit and silently truncates.
+    LIMIT 100000
+"""
+
+
+def query_pr_push_history(
+    *, curated: CuratedGitHubSource, pr_numbers: list[int]
+) -> dict[tuple[str, str, int], list[PushCISample]]:
+    """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped to the
+    most recent ``_PUSH_HISTORY_LIMIT``. Scoped to the visible PR numbers so the scan tracks the
+    page (same shape as ``query_pr_list_costs``)."""
+    if not pr_numbers:
+        return {}
+    response = curated.run(
+        _PUSH_HISTORY_SELECT.replace("__RUNS_SOURCE__", curated.run_source()),
+        query_type="engineering_analytics.pr_push_history",
+        placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+    )
+    by_pr: dict[tuple[str, str, int], list[PushCISample]] = {}
+    for repo_owner, repo_name, pr_number, head_sha, started_at, wall_seconds, failed, pending in response.results or []:
+        by_pr.setdefault((repo_owner, repo_name, int(pr_number)), []).append(
+            PushCISample(
+                head_sha=head_sha,
+                started_at=started_at,
+                wall_seconds=int(wall_seconds) if wall_seconds is not None else None,
+                failed=bool(failed),
+                pending=bool(pending),
+            )
+        )
+    return {key: samples[-_PUSH_HISTORY_LIMIT:] for key, samples in by_pr.items()}
+
+
 def query_pull_request_list(
     *, curated: CuratedGitHubSource, date_from: datetime, author: str | None = None
 ) -> PullRequestList:
@@ -68,15 +127,20 @@ def query_pull_request_list(
     rows = response.results or []
     truncated = len(rows) > _LIMIT
     visible = rows[:_LIMIT]
-    # Scope the cost rollup to exactly the PRs we're about to show (row[0] is pr.number), so the
-    # jobs×runs join tracks the page instead of scanning the team's whole CI history.
+    # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
+    # pr.number), so the scans track the page instead of the team's whole CI history.
     pr_numbers = sorted({int(row[0]) for row in visible})
     cost_by_pr = query_pr_list_costs(curated=curated, pr_numbers=pr_numbers)
-    items = [_map_row(row, cost_by_pr) for row in visible]
+    pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
+    items = [_map_row(row, cost_by_pr, pushes_by_pr) for row in visible]
     return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)
 
 
-def _map_row(row: tuple, cost_by_pr: dict[tuple[str, str, int], PRCostAggregate]) -> PullRequestListItem:
+def _map_row(
+    row: tuple,
+    cost_by_pr: dict[tuple[str, str, int], PRCostAggregate],
+    pushes_by_pr: dict[tuple[str, str, int], list[PushCISample]],
+) -> PullRequestListItem:
     (
         number,
         title,
@@ -129,4 +193,5 @@ def _map_row(row: tuple, cost_by_pr: dict[tuple[str, str, int], PRCostAggregate]
         rerun_cycles=rerun_cycles,
         estimated_cost_usd=cost.estimated_cost_usd if cost else None,
         billable_minutes=(cost.billable_seconds / 60) if cost else None,
+        push_history=pushes_by_pr.get((repo_owner, repo_name, number), []),
     )

@@ -29,6 +29,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     PullRequestList,
     PullRequestListItem,
+    PushCISample,
     QuarantineEntry,
     QuarantineFile,
     QuarantineRequest,
@@ -437,10 +438,33 @@ class CIStatusRollupSerializer(DataclassSerializer):
         }
 
 
+class PushCISampleSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PushCISample
+        extra_kwargs = {
+            "head_sha": {"help_text": "Head commit SHA of this push (CI round)."},
+            "started_at": {"help_text": "Earliest workflow-run start on this push."},
+            "wall_seconds": {
+                "help_text": "Wall-clock CI seconds for this push: earliest run start to latest completed "
+                "run end. Null while nothing has completed.",
+                "allow_null": True,
+            },
+            "failed": {
+                "help_text": "True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'.",
+            },
+            "pending": {"help_text": "True when any latest-per-workflow run on this push hasn't completed yet."},
+        }
+
+
 class PullRequestListItemSerializer(DataclassSerializer):
     author = AuthorSerializer(help_text="The pull request author.")
     repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
     ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
+    push_history = PushCISampleSerializer(
+        many=True,
+        help_text="This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per "
+        "push for the push-history sparkline. `pushes` stays the uncapped count.",
+    )
 
     class Meta:
         dataclass = PullRequestListItem

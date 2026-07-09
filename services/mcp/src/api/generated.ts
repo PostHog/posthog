@@ -46498,6 +46498,22 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push concluded 'failure' or 'timed_out'. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
     export interface PullRequestListItem {
       /** The pull request author. */
       author: Author;
@@ -46505,6 +46521,8 @@ export namespace Schemas {
       repo: RepoRef;
       /** CI status from the latest workflow runs on the head SHA. */
       ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
       /** Pull request number within the repository. */
       number: number;
       /** Pull request title. */
