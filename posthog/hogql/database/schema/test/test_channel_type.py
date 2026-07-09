@@ -3,6 +3,8 @@ from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from parameterized import parameterized
+
 from posthog.schema import CustomChannelCondition, CustomChannelRule, FilterLogicalOperator, HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -295,6 +297,18 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
                 }
             ),
         )
+
+    @parameterized.expand(
+        [
+            (
+                "utm_source_chatgpt_with_stripped_referrer",
+                {"$initial_referring_domain": "$direct", "$initial_utm_source": "chatgpt"},
+            ),
+            ("referring_domain_chatgpt", {"$initial_referring_domain": "chatgpt.com"}),
+        ]
+    )
+    def test_organic_search_chatgpt(self, _name, properties):
+        self.assertEqual("Organic Search", self._get_person_initial_channel_type(properties))
 
     def test_direct_with_red_herring_utm_tags_is_direct(self):
         self.assertEqual(
