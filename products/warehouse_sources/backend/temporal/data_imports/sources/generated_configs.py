@@ -467,7 +467,7 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BlandAISourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
