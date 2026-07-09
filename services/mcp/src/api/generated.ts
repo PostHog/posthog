@@ -863,6 +863,7 @@ export namespace Schemas {
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
      * * `revenue_analytics` - revenue_analytics
+     * * `account_custom_property` - account_custom_property
      * * `flag` - flag
      * * `workflow_variable` - workflow_variable
      */
@@ -897,6 +898,7 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
       RevenueAnalytics: 'revenue_analytics',
+      AccountCustomProperty: 'account_custom_property',
       Flag: 'flag',
       WorkflowVariable: 'workflow_variable',
     } as const;
@@ -956,6 +958,7 @@ export namespace Schemas {
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
        * * `revenue_analytics` - revenue_analytics
+       * * `account_custom_property` - account_custom_property
        * * `flag` - flag
        * * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
@@ -1027,6 +1030,7 @@ export namespace Schemas {
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
        * * `revenue_analytics` - revenue_analytics
+       * * `account_custom_property` - account_custom_property
        * * `flag` - flag
        * * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
@@ -1094,6 +1098,7 @@ export namespace Schemas {
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
        * * `revenue_analytics` - revenue_analytics
+       * * `account_custom_property` - account_custom_property
        * * `flag` - flag
        * * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
@@ -1157,6 +1162,7 @@ export namespace Schemas {
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
        * * `revenue_analytics` - revenue_analytics
+       * * `account_custom_property` - account_custom_property
        * * `flag` - flag
        * * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
@@ -1217,6 +1223,7 @@ export namespace Schemas {
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
        * * `revenue_analytics` - revenue_analytics
+       * * `account_custom_property` - account_custom_property
        * * `flag` - flag
        * * `workflow_variable` - workflow_variable */
       type?: PropertyFilterTypeEnum;
