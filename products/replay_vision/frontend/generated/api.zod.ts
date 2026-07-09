@@ -17,6 +17,9 @@ export const visionActionsCreateBodyNameMax = 255
 export const visionActionsCreateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 
+export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
+
 export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -105,31 +108,43 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
     alert_config: zod
         .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsCreateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
             metric: zod
                 .enum(['count', 'avg_score'])
                 .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsCreateBodyAlertConfigOneMetricDefault)
                 .describe(
-                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
                 ),
             operator: zod
                 .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
                 .describe(
                     '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
                 )
+                .optional()
                 .describe(
-                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
+                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
                 ),
-            threshold: zod.number().describe('The value the metric is compared against.'),
+            threshold: zod
+                .number()
+                .optional()
+                .describe('The value the metric is compared against. Required for on_breach; ignored for every_match.'),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
                 .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
                 .optional()
                 .describe(
-                    'Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days'
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                 ),
         })
         .describe(
-            "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
         )
         .optional()
         .describe("Alert condition; required when mode is 'alert', ignored otherwise."),
@@ -159,6 +174,9 @@ export const visionActionsPartialUpdateBodyNameMax = 255
 
 export const visionActionsPartialUpdateBodyTriggerConfigOneTimezoneDefault = `UTC`
 export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 500
+
+export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
+export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -252,31 +270,43 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Synthesis options for the group summary, e.g. {prompt_guide}.'),
     alert_config: zod
         .object({
+            frequency: zod
+                .enum(['every_match', 'on_breach'])
+                .describe('\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault)
+                .describe(
+                    "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n\* `every_match` - Every new match\n\* `on_breach` - When a threshold is crossed"
+                ),
             metric: zod
                 .enum(['count', 'avg_score'])
                 .describe('\* `count` - Count of matching observations\n\* `avg_score` - Average score')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneMetricDefault)
                 .describe(
-                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
+                    "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n\* `count` - Count of matching observations\n\* `avg_score` - Average score"
                 ),
             operator: zod
                 .enum(['gt', 'gte', 'lt', 'lte', 'eq'])
                 .describe(
                     '\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal'
                 )
+                .optional()
                 .describe(
-                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
+                    "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
                 ),
-            threshold: zod.number().describe('The value the metric is compared against.'),
+            threshold: zod
+                .number()
+                .optional()
+                .describe('The value the metric is compared against. Required for on_breach; ignored for every_match.'),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
                 .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
                 .optional()
                 .describe(
-                    'Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days'
+                    "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                 ),
         })
         .describe(
-            "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."
+            "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
         )
         .optional()
         .describe("Alert condition; required when mode is 'alert', ignored otherwise."),

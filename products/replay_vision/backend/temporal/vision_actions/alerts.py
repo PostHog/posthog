@@ -24,6 +24,7 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_action import (
+    AlertFrequency,
     AlertMetric,
     AlertOperator,
     VisionActionRun,
@@ -98,12 +99,14 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
         return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
     alert_config: dict[str, Any] = action.alert_config or {}
+    frequency = alert_config.get("frequency", AlertFrequency.ON_BREACH)
     metric = alert_config.get("metric", AlertMetric.COUNT)
     op = alert_config.get("operator", AlertOperator.GTE)
     threshold = alert_config.get("threshold")
     window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
+    every_match = frequency == AlertFrequency.EVERY_MATCH
     compare = _OPERATORS.get(op)
-    if (
+    if not every_match and (
         compare is None
         or not isinstance(threshold, int | float)
         or isinstance(threshold, bool)
@@ -114,21 +117,42 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
         logger.warning("vision_action.alert.invalid_config", vision_action_id=str(action.id))
         return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
-    # The condition looks back over a rolling window ending at the run's tick — unlike summaries,
-    # which tile windows between runs — so "over the last 7 days" means the same thing on every check.
+    previous = (
+        VisionActionRun.objects.for_team(team.id)
+        .filter(vision_action_id=action.id)
+        .exclude(pk=run.pk)
+        .order_by("-created_at")
+        .first()
+    )
+
     window_end = run.scheduled_at or datetime.now(UTC)
+    if every_match:
+        # Every-match alerts tile their windows between checks (like summaries) so each new match is
+        # reported exactly once; the first check starts at the alert's creation, never dumping history.
+        window_start = (previous.scheduled_at or previous.created_at) if previous else action.created_at
+    else:
+        # Threshold conditions look back over a rolling window ending at the run's tick, so
+        # "over the last 7 days" means the same thing on every check.
+        window_start = window_end - timedelta(days=window_days)
+
     observations_qs = apply_observation_predicate(
         ReplayObservation.objects.filter(
             team_id=team.id,
             scanner_id__in=scanner_ids,
             status=ObservationStatus.SUCCEEDED,
-            created_at__gte=window_end - timedelta(days=window_days),
+            created_at__gte=window_start,
             created_at__lt=window_end,
         ),
         selection,
     )
 
     matched_count = observations_qs.count()
+    if every_match:
+        # Any new match notifies; there's no threshold state to arm or clear.
+        if matched_count == 0:
+            return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
+        return _persist_fired(run, action, alert_config, float(matched_count), matched_count, observations_qs, team)
+
     if metric == AlertMetric.AVG_SCORE:
         # Cast the JSONB score to float and average it; observations without a score (non-scorers)
         # are NULL and fall out of the average.
@@ -150,20 +174,25 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
 
     # Fire on the transition into breach only: a rolling window can stay breached across many checks,
     # and re-notifying every tick would be spam. The previous check's outcome is the state.
-    previous = (
-        VisionActionRun.objects.for_team(team.id)
-        .filter(vision_action_id=action.id)
-        .exclude(pk=run.pk)
-        .order_by("-created_at")
-        .first()
-    )
     if previous is not None and previous.status == VisionActionRunStatus.COMPLETED:
         return EvaluateAlertResult(
             status=AlertStatus.STILL_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
 
+    return _persist_fired(run, action, alert_config, metric_value, matched_count, observations_qs, team)
+
+
+def _persist_fired(
+    run: VisionActionRun,
+    action: Any,
+    alert_config: dict[str, Any],
+    metric_value: float,
+    matched_count: int,
+    observations_qs: Any,
+    team: Any,
+) -> EvaluateAlertResult:
     markdown = strip_external_links_markdown(
-        _alert_markdown(action, metric, op, threshold, metric_value, matched_count, observations_qs, window_days)
+        _alert_markdown(action, alert_config, metric_value, matched_count, observations_qs)
     )
     observation_ids = [
         str(observation_id)
@@ -187,13 +216,10 @@ def _format_number(value: float) -> str:
 
 def _alert_markdown(
     action: Any,
-    metric: str,
-    op: str,
-    threshold: float,
+    alert_config: dict[str, Any],
     metric_value: float,
     matched_count: int,
     observations_qs: Any,
-    window_days: int,
 ) -> str:
     """Deterministic alert report: what fired, the measured value vs the threshold, and a few example
     observation outcomes (verdict/score/tags via `describe_output` — outcomes only, no
@@ -202,17 +228,25 @@ def _alert_markdown(
     raw_name = action.scanner.name if action.scanner_id else ""
     scanner_name = re.sub(r"\s+", " ", re.sub(r"[*_`#]", "", raw_name)).strip() or "your scanner"
 
-    metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
-    op_label = _OPERATOR_LABELS.get(AlertOperator(op), op)
     noun = "observation" if matched_count == 1 else "observations"
-
-    window_label = "24 hours" if window_days == 1 else f"{window_days} days"
-    lines = [
-        f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
-        f"{_format_number(metric_value)}, {op_label} the threshold of {_format_number(threshold)}.",
-        "",
-        f"{matched_count} {noun} matched in this window.",
-    ]
+    if alert_config.get("frequency", AlertFrequency.ON_BREACH) == AlertFrequency.EVERY_MATCH:
+        lines = [
+            f"**Alert: {scanner_name}** — {matched_count} new matching {noun} since the last check.",
+        ]
+    else:
+        metric = alert_config.get("metric", AlertMetric.COUNT)
+        op = alert_config.get("operator", AlertOperator.GTE)
+        threshold = alert_config.get("threshold", 0)
+        window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
+        metric_label = "average score" if metric == AlertMetric.AVG_SCORE else "matching observations"
+        op_label = _OPERATOR_LABELS.get(AlertOperator(op), op)
+        window_label = "24 hours" if window_days == 1 else f"{window_days} days"
+        lines = [
+            f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
+            f"{_format_number(metric_value)}, {op_label} the threshold of {_format_number(threshold)}.",
+            "",
+            f"{matched_count} {noun} matched in this window.",
+        ]
 
     examples: list[str] = []
     for scanner_result, created_at in observations_qs.order_by("-created_at", "-id").values_list(

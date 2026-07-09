@@ -9396,6 +9396,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `every_match` - Every new match
+     * * `on_breach` - When a threshold is crossed
+     */
+    export type AlertConfigFrequencyEnum = typeof AlertConfigFrequencyEnum[keyof typeof AlertConfigFrequencyEnum];
+
+
+    export const AlertConfigFrequencyEnum = {
+      EveryMatch: 'every_match',
+      OnBreach: 'on_breach',
+    } as const;
+
+    /**
      * * `count` - Count of matching observations
      * * `avg_score` - Average score
      */
@@ -9444,26 +9456,32 @@ export namespace Schemas {
     } as const;
 
     /**
-     * The alert condition for mode='alert', evaluated over each run's observation window after
-     * `selection` targeting is applied. The action delivers only when the condition holds.
+     * The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+     * notifies about each new match since the previous check; 'on_breach' compares a metric to a
+     * threshold over a rolling window and notifies on the transition into breach.
      */
     export interface AlertConfig {
-      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only).
+      /** 'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.
+       *
+       * * `every_match` - Every new match
+       * * `on_breach` - When a threshold is crossed */
+      frequency?: AlertConfigFrequencyEnum;
+      /** What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.
        *
        * * `count` - Count of matching observations
        * * `avg_score` - Average score */
-      metric: VisionAlertMetricEnum;
-      /** Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.
+      metric?: VisionAlertMetricEnum;
+      /** Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold. Required for on_breach; ignored for every_match.
        *
        * * `gt` - Greater than
        * * `gte` - Greater than or equal
        * * `lt` - Less than
        * * `lte` - Less than or equal
        * * `eq` - Equal */
-      operator: VisionAlertOperatorEnum;
-      /** The value the metric is compared against. */
-      threshold: number;
-      /** Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.
+      operator?: VisionAlertOperatorEnum;
+      /** The value the metric is compared against. Required for on_breach; ignored for every_match. */
+      threshold?: number;
+      /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
        *
        * * `1` - 1 day
        * * `3` - 3 days

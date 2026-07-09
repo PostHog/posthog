@@ -214,6 +214,38 @@ class TestVisionActionAlerts(BaseTest):
         fourth, _ = self._evaluate(action, key="k4")
         self.assertEqual(fourth.status, AlertStatus.FIRED)
 
+    def test_every_match_fires_per_new_match_and_only_new(self) -> None:
+        # "Every time the result is YES, Slack me": each check reports only what's new since the
+        # previous check — no still-breached suppression, and no re-reporting of old matches.
+        scanner = self._scanner(name="everytime")
+        action = self._alert(scanner, {"frequency": "every_match"}, selection={"verdict": ["yes"]})
+
+        self._observation(scanner, {"verdict": "yes"})
+        first, first_run = self._evaluate(action)
+        self.assertEqual(first.status, AlertStatus.FIRED)
+        self.assertEqual(first.observation_count, 1)
+        first_run.refresh_from_db()
+        self.assertIn("1 new matching observation since the last check", first_run.synthesized_markdown)
+
+        # A second match after the first check fires again (the on_breach flavor would suppress this).
+        self._observation(scanner, {"verdict": "yes"}, session_id="s2")
+        second, _ = self._evaluate(action, key="k2")
+        self.assertEqual(second.status, AlertStatus.FIRED)
+        self.assertEqual(second.observation_count, 1)
+
+        # Nothing new since the last check → quiet.
+        third, _ = self._evaluate(action, key="k3")
+        self.assertEqual(third.status, AlertStatus.NOT_BREACHED)
+
+    def test_every_match_ignores_observations_from_before_the_alert_existed(self) -> None:
+        scanner = self._scanner(name="no-history")
+        self._observation(scanner, {"verdict": "yes"}, age_days=0.5)
+        action = self._alert(scanner, {"frequency": "every_match"}, selection={"verdict": ["yes"]})
+        VisionAction.all_teams.filter(pk=action.pk).update(created_at=timezone.now())
+
+        result, _ = self._evaluate(action)
+        self.assertEqual(result.status, AlertStatus.NOT_BREACHED)
+
     def test_malformed_config_never_fires(self) -> None:
         scanner = self._scanner(name="broken")
         self._observation(scanner, {"verdict": "yes"})

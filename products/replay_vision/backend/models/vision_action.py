@@ -26,6 +26,13 @@ class ActionMode(models.TextChoices):
     PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
 
 
+class AlertFrequency(models.TextChoices):
+    # Notify about every new match since the previous check (tiled windows, batched per check).
+    EVERY_MATCH = "every_match", "Every new match"
+    # Notify when the metric crosses the threshold over a rolling window; re-arms after it clears.
+    ON_BREACH = "on_breach", "When a threshold is crossed"
+
+
 class AlertMetric(models.TextChoices):
     COUNT = "count", "Count of matching observations"
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
@@ -99,9 +106,9 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         default=dict,
         blank=True,
         help_text=(
-            "Alert condition for mode='alert': {metric: count|avg_score, operator: gt|gte|lt|lte|eq, "
-            "threshold: number, window_days: 1|3|7|14|30}, evaluated over a rolling window ending at each "
-            "check, after `selection` targeting."
+            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, operator, "
+            "threshold, window_days}. every_match notifies about each new match since the previous check; "
+            "on_breach compares the metric to the threshold over a rolling window, after `selection` targeting."
         ),
     )
     # How many observations may feed one group summary. When the window holds more, they're sampled

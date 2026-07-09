@@ -27,6 +27,7 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
+    AlertFrequency,
     AlertMetric,
     AlertOperator,
     TriggerType,
@@ -92,28 +93,62 @@ class SelectionSerializer(serializers.Serializer):
 
 
 class AlertConfigSerializer(serializers.Serializer):
-    """The alert condition for mode='alert', evaluated over each run's observation window after
-    `selection` targeting is applied. The action delivers only when the condition holds."""
+    """The alert condition for mode='alert', applied after `selection` targeting. 'every_match'
+    notifies about each new match since the previous check; 'on_breach' compares a metric to a
+    threshold over a rolling window and notifies on the transition into breach."""
 
+    frequency = serializers.ChoiceField(
+        choices=AlertFrequency.choices,
+        required=False,
+        default=AlertFrequency.ON_BREACH,
+        help_text=(
+            "'every_match' notifies about every new matching observation (batched per check); "
+            "'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'."
+        ),
+    )
     metric = serializers.ChoiceField(
         choices=AlertMetric.choices,
+        required=False,
+        default=AlertMetric.COUNT,
         help_text=(
             "What to measure over the window: 'count' of targeted observations, or 'avg_score' "
-            "(the mean scorer score; scorer scanners only)."
+            "(the mean scorer score; scorer scanners only). every_match supports 'count' only."
         ),
     )
     operator = serializers.ChoiceField(
         choices=AlertOperator.choices,
-        help_text="Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.",
+        required=False,
+        help_text=(
+            "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= "
+            "threshold. Required for on_breach; ignored for every_match."
+        ),
     )
     threshold = serializers.FloatField(
-        help_text="The value the metric is compared against.",
+        required=False,
+        help_text="The value the metric is compared against. Required for on_breach; ignored for every_match.",
     )
     window_days = serializers.ChoiceField(
         choices=[(d, f"{d} day{'s' if d != 1 else ''}") for d in (1, 3, 7, 14, 30)],
         required=False,
-        help_text="Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.",
+        help_text=(
+            "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. "
+            "every_match ignores it (each check covers what's new since the previous one)."
+        ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        frequency = attrs.get("frequency", AlertFrequency.ON_BREACH)
+        if frequency == AlertFrequency.EVERY_MATCH:
+            if attrs.get("metric", AlertMetric.COUNT) == AlertMetric.AVG_SCORE:
+                raise serializers.ValidationError(
+                    {"metric": "every_match alerts count new matches; avg_score requires on_breach."}
+                )
+        else:
+            if attrs.get("operator") is None:
+                raise serializers.ValidationError({"operator": "on_breach alerts require an operator."})
+            if attrs.get("threshold") is None:
+                raise serializers.ValidationError({"threshold": "on_breach alerts require a threshold."})
+        return attrs
 
     def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
         # Non-alert actions store the {} default; represent it as-is rather than KeyErroring on the
