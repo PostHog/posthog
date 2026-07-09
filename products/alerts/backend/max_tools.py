@@ -4,12 +4,15 @@ from typing import Any, Literal, Union, cast
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.schema import (
     AlertCalculationInterval,
     AlertConditionType,
+    FunnelConversionMetric,
+    HogQLAlertEvaluation,
     InsightThresholdType,
     InsightVizNode,
     NodeKind,
@@ -21,9 +24,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scopes import APIScopeObject
 
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
@@ -57,7 +61,8 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - **update**: Edit an existing alert (requires alert_id, all other fields are optional)
 
     # Requirements
-    - Only works for TrendsQuery insights (not funnels, retention, etc.)
+    - Supports trends, funnel, and SQL insights (retention and other insight types are not supported)
+    - Funnel and SQL insight alerts require the account to have those alert kinds enabled
     - For create: insight_id is required
     - For update: the alert_id must be provided (find it via list_data with kind="alerts")
 
@@ -83,14 +88,30 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - **weekly**: Check once per week
     - **monthly**: Check once per month
 
-    # Series index
+    # Series index (trends insights only)
     - If the insight has multiple series (e.g., multiple event types), use series_index to specify which one to monitor
     - Default is 0 (first series) for create
+
+    # Funnel insight fields
+    - **funnel_step**: Zero-based step index to monitor. Leave unset to monitor the overall conversion (last step)
+    - **funnel_metric**: conversion_from_start (default) or conversion_from_previous
+    - Only steps funnels support absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease
+
+    # SQL insight fields
+    - **hogql_evaluation** (required for SQL insights): last_row, first_row, or any_row - how to read the result rows
+    - **hogql_column**: which result column to evaluate (defaults to the single numeric column)
+    - **hogql_label_column**: column used to label the evaluated row(s) in breach messages
+    - any_row alerts only support absolute_value conditions
+
+    # Check ongoing interval (trends and time-series funnels)
+    - **check_ongoing_interval**: when true, also evaluates the current (still in-progress) period, not just completed ones
 
     # Create examples
     - "Alert me when daily signups drop below 100": action=create, condition_type=absolute_value, lower_threshold=100
     - "Alert when pageviews increase by more than 50%": action=create, condition_type=relative_increase, upper_threshold=0.5, threshold_type=percentage
     - "Notify me if revenue drops more than 20% week over week": action=create, condition_type=relative_decrease, lower_threshold=0.2, threshold_type=percentage, calculation_interval=weekly
+    - "Alert me if signup conversion drops below 20%": action=create, condition_type=absolute_value, lower_threshold=0.2, funnel_step=2
+    - "Alert me if the total from this SQL query drops below 1000": action=create, condition_type=absolute_value, lower_threshold=1000, hogql_evaluation=last_row
 
     # Update examples
     - "Change my alert threshold to 200": action=update, alert_id=<id>, upper_threshold=200
@@ -132,7 +153,31 @@ class CreateAlertAction(BaseModel):
     )
     series_index: int = Field(
         default=0,
-        description="Which series to monitor (0-indexed). Use 0 for single-series insights.",
+        description="Trends insights only: which series to monitor (0-indexed). Use 0 for single-series insights.",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description="Trends and time-series funnel insights only: also evaluate the current (still in-progress) period.",
+    )
+    funnel_step: int | None = Field(
+        default=None,
+        description="Funnel insights only: zero-based step index to monitor. Unset monitors the overall conversion (last step).",
+    )
+    funnel_metric: FunnelConversionMetric | None = Field(
+        default=None,
+        description="Funnel insights only: conversion_from_start (default) or conversion_from_previous.",
+    )
+    hogql_column: str | None = Field(
+        default=None,
+        description="SQL insights only: name of the result column to evaluate. Defaults to the single numeric column.",
+    )
+    hogql_evaluation: HogQLAlertEvaluation | None = Field(
+        default=None,
+        description="SQL insights only, required: last_row, first_row, or any_row - how to read the result rows.",
+    )
+    hogql_label_column: str | None = Field(
+        default=None,
+        description="SQL insights only: column used to label the evaluated row(s) in breach messages.",
     )
     enabled: bool = Field(
         default=True,
@@ -156,7 +201,19 @@ class UpdateAlertAction(BaseModel):
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
     threshold_type: InsightThresholdType | None = Field(default=None, description="New threshold type")
-    series_index: int | None = Field(default=None, description="New series index to monitor")
+    series_index: int | None = Field(default=None, description="Trends insights only: new series index to monitor")
+    check_ongoing_interval: bool | None = Field(
+        default=None, description="Trends and time-series funnel insights only: new check_ongoing_interval value"
+    )
+    funnel_step: int | None = Field(default=None, description="Funnel insights only: new funnel step to monitor")
+    funnel_metric: FunnelConversionMetric | None = Field(
+        default=None, description="Funnel insights only: new conversion metric"
+    )
+    hogql_column: str | None = Field(default=None, description="SQL insights only: new result column to evaluate")
+    hogql_evaluation: HogQLAlertEvaluation | None = Field(
+        default=None, description="SQL insights only: new evaluation mode (last_row, first_row, or any_row)"
+    )
+    hogql_label_column: str | None = Field(default=None, description="SQL insights only: new label column")
     enabled: bool | None = Field(default=None, description="Enable or disable the alert")
     skip_weekend: bool | None = Field(default=None, description="Whether to skip weekend checks")
 
@@ -251,7 +308,7 @@ class UpsertAlertTool(MaxTool):
                 return real_time_msg, {"error": "plan_limit_reached"}
 
             try:
-                insight, was_auto_saved = await self._resolve_and_validate_insight(
+                insight, was_auto_saved, insight_kind = await self._resolve_and_validate_insight(
                     action.insight_id, action_description="create alert for"
                 )
             except Insight.DoesNotExist:
@@ -260,6 +317,11 @@ class UpsertAlertTool(MaxTool):
                 }
             except ValueError as e:
                 return str(e), {"error": "unsupported_insight"}
+
+            try:
+                config = self._build_create_config(insight_kind, action)
+            except ValueError as e:
+                return str(e), {"error": "validation_failed"}
 
             truncated_name = action.name[:255]
             unsaved_threshold = Threshold(
@@ -278,6 +340,21 @@ class UpsertAlertTool(MaxTool):
             except ValidationError as e:
                 return str(e), {"error": "validation_failed"}
 
+            query = await sync_to_async(self._get_upgraded_query)(insight)
+            if query is None:
+                return "Insight has no valid query.", {"error": "unsupported_insight"}
+
+            try:
+                validate_alert_config(
+                    query,
+                    {"type": action.condition_type},
+                    config,
+                    unsaved_threshold.configuration,
+                    action.calculation_interval,
+                )
+            except ValueError as e:
+                return str(e), {"error": "validation_failed"}
+
             alert = await self._persist_alert(
                 team=team,
                 user=user,
@@ -285,7 +362,7 @@ class UpsertAlertTool(MaxTool):
                 name=truncated_name,
                 threshold_to_persist=unsaved_threshold,
                 condition={"type": action.condition_type},
-                config={"type": "TrendsAlertConfig", "series_index": action.series_index},
+                config=config,
                 calculation_interval=action.calculation_interval,
                 enabled=action.enabled,
                 skip_weekend=action.skip_weekend,
@@ -357,8 +434,23 @@ class UpsertAlertTool(MaxTool):
                 alert.calculation_interval = action.calculation_interval
                 update_fields.append("calculation_interval")
 
+            config_updates: dict[str, Any] = {}
             if action.series_index is not None:
-                alert.config = {**(alert.config or {}), "series_index": action.series_index}
+                config_updates["series_index"] = action.series_index
+            if action.check_ongoing_interval is not None:
+                config_updates["check_ongoing_interval"] = action.check_ongoing_interval
+            if action.funnel_step is not None:
+                config_updates["funnel_step"] = action.funnel_step
+            if action.funnel_metric is not None:
+                config_updates["metric"] = action.funnel_metric
+            if action.hogql_column is not None:
+                config_updates["column"] = action.hogql_column
+            if action.hogql_evaluation is not None:
+                config_updates["evaluation"] = action.hogql_evaluation
+            if action.hogql_label_column is not None:
+                config_updates["label_column"] = action.hogql_label_column
+            if config_updates:
+                alert.config = {**(alert.config or {}), **config_updates}
                 update_fields.append("config")
 
             if action.enabled is not None:
@@ -384,11 +476,25 @@ class UpsertAlertTool(MaxTool):
             if not update_fields and not has_threshold_changes:
                 return "No changes provided. Specify at least one field to update.", {"error": "no_changes"}
 
+            insight = await sync_to_async(lambda: alert.insight)()
+            if config_updates or conditions_or_threshold_changed:
+                query = await sync_to_async(self._get_upgraded_query)(insight)
+                threshold_config = alert.threshold.configuration if alert.threshold else None
+                try:
+                    validate_alert_config(
+                        query,
+                        alert.condition,
+                        alert.config,
+                        threshold_config,
+                        alert.calculation_interval,
+                    )
+                except ValueError as e:
+                    return str(e), {"error": "validation_failed"}
+
             update_fields.extend(alert.mark_for_recheck(reset_state=conditions_or_threshold_changed))
             await sync_to_async(alert.save)(update_fields=update_fields)
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
-            insight = await sync_to_async(lambda: alert.insight)()
             alert_url = f"/insights/{insight.short_id}/alerts?alert_id={alert.id}"
             return (
                 f"Alert '{alert.name}' updated successfully. [View alert]({alert_url}).",
@@ -458,14 +564,66 @@ class UpsertAlertTool(MaxTool):
 
     async def _resolve_and_validate_insight(
         self, insight_id: str | int, *, action_description: str
-    ) -> tuple[Insight, bool]:
+    ) -> tuple[Insight, bool, NodeKind]:
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
-        # Max's alert tooling only builds trends configs, so it accepts only trends — narrower
-        # than the model's alertable_query_kind (which also allows SQL).
-        if await sync_to_async(lambda: insight.alertable_query_kind)() != NodeKind.TRENDS_QUERY:
-            raise ValueError("Alerts are only supported for TrendsQuery insights. This insight type is not supported.")
-        return insight, was_auto_saved
+        kind = await sync_to_async(lambda: insight.alertable_query_kind)()
+        if kind is None:
+            raise ValueError(
+                "Alerts are only supported for trends, funnel, or SQL insights. This insight type is not supported."
+            )
+        if kind == NodeKind.HOG_QL_QUERY and not await self._insight_alert_flag_enabled("hogql-insight-alerts"):
+            raise ValueError("SQL insight alerts are not enabled for your account.")
+        if kind == NodeKind.FUNNELS_QUERY and not await self._insight_alert_flag_enabled("funnel-insight-alerts"):
+            raise ValueError("Funnel insight alerts are not enabled for your account.")
+        return insight, was_auto_saved, kind
+
+    async def _insight_alert_flag_enabled(self, flag: str) -> bool:
+        team = self._team
+        user = self._user
+        org = await sync_to_async(lambda: team.organization)()
+        return await sync_to_async(
+            lambda: bool(
+                posthoganalytics.feature_enabled(
+                    flag,
+                    str(user.distinct_id),
+                    groups={"organization": str(org.id)},
+                )
+            )
+        )()
+
+    @staticmethod
+    def _get_upgraded_query(insight: Insight) -> dict | None:
+        with upgrade_query(insight):
+            return insight.query
+
+    @staticmethod
+    def _build_create_config(kind: NodeKind, action: CreateAlertAction) -> dict[str, Any]:
+        config: dict[str, Any]
+        if kind == NodeKind.TRENDS_QUERY:
+            config = {"type": "TrendsAlertConfig", "series_index": action.series_index}
+        elif kind == NodeKind.FUNNELS_QUERY:
+            config = {
+                "type": "FunnelsAlertConfig",
+                "funnel_step": action.funnel_step,
+                "metric": action.funnel_metric or FunnelConversionMetric.CONVERSION_FROM_START,
+            }
+        else:
+            if action.hogql_evaluation is None:
+                raise ValueError(
+                    "hogql_evaluation is required for SQL insight alerts (last_row, first_row, or any_row)."
+                )
+            config = {
+                "type": "HogQLAlertConfig",
+                "column": action.hogql_column,
+                "evaluation": action.hogql_evaluation,
+                "label_column": action.hogql_label_column,
+            }
+
+        if action.check_ongoing_interval is not None and kind in (NodeKind.TRENDS_QUERY, NodeKind.FUNNELS_QUERY):
+            config["check_ongoing_interval"] = action.check_ongoing_interval
+
+        return config
 
     async def _resolve_insight(self, insight_id: str | int) -> tuple[Insight, bool]:
         """Resolve an insight by numeric ID, short_id, or conversation artifact.

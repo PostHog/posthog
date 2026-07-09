@@ -43,14 +43,21 @@ class TestUpsertAlertTool(BaseTest):
     async def _create_insight(
         self, name: str = "Test Insight", team: Team | None = None, query_kind: str = "TrendsQuery"
     ) -> Insight:
+        if query_kind == "HogQLQuery":
+            query = {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            }
+        else:
+            query = {
+                "kind": "InsightVizNode",
+                "source": {"kind": query_kind, "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            }
         return await sync_to_async(Insight.objects.create)(
             team=team or self.team,
             name=name,
             created_by=self.user,
-            query={
-                "kind": "InsightVizNode",
-                "source": {"kind": query_kind, "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-            },
+            query=query,
         )
 
     async def _create_alert(
@@ -281,13 +288,13 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_rejects_non_trends_insight(self):
-        insight = await self._create_insight(query_kind="FunnelsQuery")
+    async def test_rejects_retention_insight(self):
+        insight = await self._create_insight(query_kind="RetentionQuery")
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
             action=CreateAlertAction(
-                name="Funnel alert",
+                name="Retention alert",
                 condition_type=AlertConditionType.ABSOLUTE_VALUE,
                 insight_id=insight.id,
                 lower_threshold=100.0,
@@ -296,6 +303,90 @@ class TestUpsertAlertTool(BaseTest):
 
         assert "not supported" in content.lower()
         assert artifact["error"] == "unsupported_insight"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_funnel_insight_when_flag_disabled(self):
+        insight = await self._create_insight(query_kind="FunnelsQuery")
+        tool = self._setup_tool()
+
+        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=False):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Funnel alert",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                )
+            )
+
+        assert "not enabled for your account" in content.lower()
+        assert artifact["error"] == "unsupported_insight"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_funnel_alert_when_flag_enabled(self):
+        insight = await self._create_insight(query_kind="FunnelsQuery")
+        tool = self._setup_tool()
+
+        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Funnel alert",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=0.2,
+                )
+            )
+
+        assert "created successfully" in content
+        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
+        assert alert.config == {"type": "FunnelsAlertConfig", "funnel_step": None, "metric": "conversion_from_start"}
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_hogql_alert_when_flag_enabled(self):
+        insight = await self._create_insight(query_kind="HogQLQuery")
+        tool = self._setup_tool()
+
+        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="SQL alert",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                    hogql_evaluation="last_row",
+                )
+            )
+
+        assert "created successfully" in content
+        alert = await sync_to_async(AlertConfiguration.objects.get)(id=artifact["alert_id"])
+        assert alert.config == {
+            "type": "HogQLAlertConfig",
+            "column": None,
+            "evaluation": "last_row",
+            "label_column": None,
+        }
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_hogql_alert_requires_evaluation(self):
+        insight = await self._create_insight(query_kind="HogQLQuery")
+        tool = self._setup_tool()
+
+        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="SQL alert",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                )
+            )
+
+        assert "hogql_evaluation is required" in content
+        assert artifact["error"] == "validation_failed"
 
     @parameterized.expand(
         [
