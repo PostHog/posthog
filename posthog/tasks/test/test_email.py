@@ -419,7 +419,36 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "task_id": str(task.id),
             "run_id": str(run.id),
             "site_url": settings.SITE_URL,
+            "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=wizard_pr_ready",
         }
+
+    def test_send_wizard_pr_ready_email_skips_when_creator_lost_project_access(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-former-member@posthog.com")
+        team = user.team
+        assert team is not None
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Install PostHog",
+            description="Set up PostHog",
+            origin_product=Task.OriginProduct.ONBOARDING,
+            repository="posthog/posthog-js",
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog-js/pull/1"},
+        )
+        OrganizationMembership.objects.filter(organization=team.organization, user=user).delete()
+
+        send_wizard_pr_ready_email(str(run.id))
+
+        MockEmailMessage.assert_not_called()
+        task.refresh_from_db()
+        assert task.pr_ready_email_sent_at is None
 
     def test_send_wizard_pr_ready_email_skips_when_delivery_already_recorded(self, MockEmailMessage: MagicMock) -> None:
         _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-delivered@posthog.com")

@@ -925,6 +925,12 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if user is None or not user.email or not pr_url:
         return
+    membership = OrganizationMembership.objects.filter(organization_id=run.team.organization_id, user=user).first()
+    if not user.is_active or membership is None:
+        return
+    team_permissions = UserPermissions(user).team(run.team)
+    if team_permissions.effective_membership_level_for_parent_membership(run.team.organization, membership) is None:
+        return
     if task.pr_ready_email_sent_at:
         return
 
