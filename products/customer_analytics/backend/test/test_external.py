@@ -221,6 +221,22 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["tags"], ["enterprise"])
 
+    @patch("products.customer_analytics.backend.events.capture_batch_internal")
+    def test_patch_with_workflow_header_attributes_tag_added_event(self, mock_capture):
+        workflow_id = str(uuid4())
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                self.url,
+                data={"external_id": "acme-1", "tags": ["vip"]},
+                format="json",
+                HTTP_X_POSTHOG_HOG_FLOW_ID=workflow_id,
+                **self._auth_headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        (event,) = mock_capture.call_args.kwargs["events"]
+        self.assertEqual(event["properties"]["actor_type"], "workflow")
+        self.assertEqual(event["properties"]["workflow_id"], workflow_id)
+
     def test_patch_does_not_update_other_team_account(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_team.secret_api_token = generate_random_token_secret()
