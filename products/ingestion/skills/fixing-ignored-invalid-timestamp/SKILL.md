@@ -47,4 +47,4 @@ Re-run the flow or a sample of the import, re-query `posthog:ingestion-warnings-
 ## Related
 
 - `resolving-ingestion-warnings` — the triage entry point.
-- `event_dropped_too_old` (see the triage skill) — the other timestamp-related surprise: **valid** but old timestamps (e.g. mobile offline queues flushing days later) dropped by a team-configured threshold.
+- `fixing-event-dropped-too-old` — the other timestamp-related surprise: **valid** but old timestamps (e.g. mobile offline queues flushing days later) dropped by a team-configured threshold.

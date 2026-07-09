@@ -60,4 +60,4 @@ If two persons genuinely are the same human and must be joined, that is a **manu
 ## Related
 
 - `resolving-ingestion-warnings` — the triage entry point covering every warning type.
-- `cannot_merge_with_illegal_distinct_id` (see the triage skill) — the sibling refusal, where the distinct ID is a placeholder like `undefined`; often the same broken identify callsite produces both.
+- `fixing-invalid-distinct-ids` — the sibling refusal, where the distinct ID is a placeholder like `undefined`; often the same broken identify callsite produces both.

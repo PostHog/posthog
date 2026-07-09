@@ -50,4 +50,4 @@ Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix
 
 - `resolving-ingestion-warnings` — the triage entry point.
 - `fixing-cannot-merge-already-identified` — the deterministic merge refusal; identify-per-request patterns often produce both warnings.
-- `fixing-cannot-merge-with-illegal-distinct-id` — PostHog's blocklist catches common placeholder IDs, but app-specific shared values (org slugs, tenant names) slip past it and build mega persons instead.
+- `fixing-invalid-distinct-ids` — PostHog's blocklist catches common placeholder IDs, but app-specific shared values (org slugs, tenant names) slip past it and build mega persons instead.
