@@ -3386,7 +3386,7 @@ class TeamworkSourceConfig(config.Config):
 
 @config.config
 class TempoSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
