@@ -49766,6 +49766,14 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    /**
+     * Whether the team has a Signals/responder setup that would consume scanner findings.
+     */
+    export interface SelfDrivingAvailabilityResponse {
+      /** True when the team has at least one enabled signal source, i.e. a responder setup that would act on findings handed off by a scanner's `emits_signals`. Gates the self-driving step in the scanner editor. */
+      available: boolean;
+    }
+
     export interface SendInvitesRequest {
       /**
          * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
