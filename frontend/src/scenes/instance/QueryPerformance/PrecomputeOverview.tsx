@@ -31,6 +31,8 @@ const EXCEPTION_CODE_LABELS: Record<string, string> = {
     '159': 'timeout',
     '241': 'out of memory',
     '202': 'cluster busy',
+    '164': 'readonly (AI context)',
+    '47': 'unknown identifier',
 }
 
 const formatMs = (ms: number | null): string => {
@@ -311,6 +313,23 @@ export function PrecomputeOverview(): JSX.Element {
                                     : undefined
                             }
                             tooltip="Total bytes scanned and time spent by precompute-build INSERTs. This is the investment; the read-path savings are the return."
+                        />
+                        <StatCard
+                            title="Wasted on failed builds"
+                            value={builds ? humanizeBytes(builds.failed_read_bytes ?? 0) : '–'}
+                            subtitle={
+                                builds
+                                    ? `${humanFriendlyDuration((builds.failed_duration_ms ?? 0) / 1000)} ClickHouse time on builds that failed`
+                                    : undefined
+                            }
+                            tooltip="Bytes scanned and time spent by precompute-build INSERTs that errored. Pure waste: the read then falls back to a full events scan on top. Should stay near zero."
+                            type={
+                                builds &&
+                                builds.total_read_bytes > 0 &&
+                                (builds.failed_read_bytes ?? 0) / builds.total_read_bytes > 0.05
+                                    ? 'danger'
+                                    : undefined
+                            }
                         />
                         <StatCard
                             title="Metric-events precompute"
