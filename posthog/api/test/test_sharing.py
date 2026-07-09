@@ -1756,7 +1756,13 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert not results["wh"].get("error")
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_warehouse_ac_flag))
+def _publish_gate_flags(key: str, *args, **kwargs) -> bool:
+    # data-modeling turns on useMaterializedViews, so materialized views resolve to their
+    # backing tables here - the same modifier resolution real execution uses.
+    return key in {"hogql-warehouse-access-control", "data-modeling"}
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_publish_gate_flags))
 class TestSharingPublishGate(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1871,6 +1877,61 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         config.refresh_from_db()
         assert config.enabled is True
+
+    @parameterized.expand([("non_materialized",), ("materialized",)])
+    def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        from ee.models.rbac.access_control import AccessControl
+
+        inner = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_inner",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        outer = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="safe_view",
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM restricted_inner"},
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="warehouse_view", resource_id=str(inner.id), access_level="none"
+        )
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM safe_view"},
+        }
+        self.insight.save()
+        if case == "materialized":
+            from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+            credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+            backing = DataWarehouseTable.objects.create(
+                name=outer.name,
+                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                team=self.team,
+                credential=credential,
+                url_pattern=outer.url_pattern,
+                columns={"id": "String"},
+            )
+            outer.table = backing
+            outer.is_materialized = True
+            outer.save(update_fields=["table", "is_materialized"])
+
+        response = self._enable_sharing("insight")
+
+        if case == "materialized":
+            # A granted materialized view resolves to its backing table - the recommended
+            # "grant safe views" setup stays publishable.
+            assert response.status_code == status.HTTP_200_OK, response.content
+        else:
+            # A non-materialized view re-resolves through its underlying tables, exactly like
+            # the publisher's own in-app run - so it can't be published either. This is the
+            # compile-vs-name-level distinction: a name-level check would let this through.
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "restricted_inner" in str(response.json())
 
     def test_unparseable_query_does_not_block_publishing(self):
         self._deny_warehouse()
