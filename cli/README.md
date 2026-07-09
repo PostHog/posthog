@@ -1,5 +1,25 @@
 # The Posthog CLI
 
+For full documentation, see [posthog.com/docs/cli](https://posthog.com/docs/cli).
+
+## Installation
+
+Install the PostHog CLI with our wizard by running this command:
+
+```bash
+npx -y @posthog/wizard@latest cli add
+```
+
+If you'd rather not use our wizard, you can install the CLI by running:
+
+```bash
+npm install -g @posthog/cli@latest
+```
+
+Note: if you are installing the CLI for use with a coding agent, you should follow our [setup for agents](https://posthog.com/docs/cli#setup-for-agents) instructions.
+
+## Usage
+
 ```bash
 > posthog-cli --help
 The command line interface for PostHog 🦔
@@ -7,17 +27,25 @@ The command line interface for PostHog 🦔
 Usage: posthog-cli [OPTIONS] <COMMAND>
 
 Commands:
-  login      Interactively authenticate with PostHog, storing a personal API token locally. You can also use the environment variables `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_HOST`
-  query      Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change
-  sourcemap  Upload a directory of bundled chunks to PostHog
-  exp        Contains a set of experimental commands
-  help       Print this message or the help of the given subcommand(s)
+  login        Interactively authenticate with PostHog, storing a personal API token locally. You can also use the environment variables `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID`
+  exp          Experimental commands, not quite ready for prime time
+  sourcemap    Upload a directory of bundled chunks to PostHog
+  dsym         Upload Apple dSYM debug symbol files to PostHog
+  hermes       Upload hermes sourcemaps to PostHog
+  proguard     Upload proguard mapping files to PostHog
+  symbol-sets  Upload, download, and manage symbol sets
+  api          Agent-first PostHog API tools
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
-      --host <HOST>  The PostHog host to connect to [default: https://us.posthog.com]
-      --dry-run      Skip artifact processing and upload without contacting PostHog or requiring credentials
-  -h, --help         Print help
-  -V, --version      Print version
+      --host <HOST>              The PostHog host to connect to
+      --no-fail                  Disable non-zero exit codes on errors. Use with caution
+      --skip-ssl-verification    Skip SSL certificate verification when talking to the PostHog API. Use only with self-signed certificates
+      --rate-limit <RATE_LIMIT>  Set the number of requests per minute for the Posthog API Client [env: POSTHOG_CLIENT_RATE_LIMIT=]
+      --dotenv-file <PATH>       Load PostHog credentials from this dotenv-style file when not present in the process environment. Prefer this over the `--env-file` alias: the npm package runs the binary through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling
+      --dry-run[=<DRY_RUN>]      Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but must not (or cannot) upload. Not for release builds. Pass it before the subcommand (`posthog-cli --dry-run hermes upload ...`) or set `POSTHOG_CLI_DRY_RUN`. This is distinct from the `exp endpoints` `--dry-run`, which previews endpoint changes [env: POSTHOG_CLI_DRY_RUN=] [default: false] [possible values: true, false]
+  -h, --help                     Print help
+  -V, --version                  Print version
 ```
 
 ## Env-based Authentication
