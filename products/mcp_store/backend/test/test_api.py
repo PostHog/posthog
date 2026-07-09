@@ -2008,3 +2008,117 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["scope"] == "personal"
+
+
+class TestMCPScopeAdminGateWithAccessControlFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    """Regression tests for the admin gate on shared-credential management.
+
+    With the ACCESS_CONTROL feature available and a project that has no
+    access-control rows configured, `effective_membership_level` reports
+    every org member as project admin (open-project default). The share /
+    unshare / shared-delete gate must not inherit that default: only org
+    admins and explicitly-granted project admins pass.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+    def _api_url(self, suffix: str = "") -> str:
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        return f"{base}{suffix}" if suffix else base
+
+    def _create_installation(self, user=None, scope="personal") -> MCPServerInstallation:
+        import uuid as _uuid
+
+        return MCPServerInstallation.objects.create(
+            team=self.team,
+            user=user or self.user,
+            display_name=f"Server-{_uuid.uuid4().hex[:6]}",
+            url=f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
+            auth_type="api_key",
+            is_enabled=True,
+            scope=scope,
+        )
+
+    def _other_user(self):
+        from posthog.models import User
+
+        return User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+
+    def _make_org_admin(self) -> None:
+        from posthog.models import OrganizationMembership
+
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def test_member_cannot_unshare_anothers_shared_on_open_project(self) -> None:
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        shared.refresh_from_db()
+        assert shared.scope == "shared"
+
+    def test_member_cannot_delete_anothers_shared_on_open_project(self) -> None:
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert MCPServerInstallation.objects.filter(id=shared.id).exists()
+
+    def test_member_cannot_share_own_personal_on_open_project(self) -> None:
+        personal = self._create_installation(scope="personal")
+
+        response = self.client.post(self._api_url(f"{personal.id}/share/"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        personal.refresh_from_db()
+        assert personal.scope == "personal"
+
+    def test_org_admin_can_unshare_on_open_project(self) -> None:
+        self._make_org_admin()
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+
+    def test_explicit_project_admin_can_unshare(self) -> None:
+        from ee.models.rbac.access_control import AccessControl
+
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+        shared = self._create_installation(user=self._other_user(), scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"
+
+    def test_owner_can_still_unshare_own_shared_as_member(self) -> None:
+        # The credential owner reclaims their own connection regardless of role.
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.post(self._api_url(f"{shared.id}/unshare/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        shared.refresh_from_db()
+        assert shared.scope == "personal"

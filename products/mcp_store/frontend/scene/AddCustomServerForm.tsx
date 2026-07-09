@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { McpInstallationScope } from '../mcpStoreLogic'
@@ -28,9 +28,12 @@ export function AddCustomServerForm(): JSX.Element {
     // Shared servers expose the installer's credential to every project member and all
     // autonomous agents, so creating one is admin-only (enforced again on the backend).
     // Members see shared servers in the list but can only add personal ones.
+    // Organization scope, not Project: on a project with no access controls
+    // configured every member reports as effective project admin, which must
+    // not open up shared-credential creation.
     const sharedRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
     const canAddShared = !sharedRestrictionReason
 

@@ -5,7 +5,7 @@ import { IconCheck, IconChevronLeft, IconRefresh, IconShare, IconShieldLock, Ico
 import { LemonButton, LemonDialog, LemonDivider, LemonSnack, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -221,10 +221,13 @@ export function ServerDetailPanel({ installation, template }: Props): JSX.Elemen
     })
     // Sharing carries the same admin gate as creating a shared install outright
     // (see AddCustomServerForm); admins can also unshare or remove another
-    // member's shared server.
+    // member's shared server. Organization scope, not Project: on a project
+    // with no access controls configured every member reports as effective
+    // project admin, which must not open up shared-credential management.
+    // The backend applies the same gate (plus explicitly-granted project admins).
     const adminRestrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
     const isAdmin = !adminRestrictionReason
     const isOwner = installation?.is_owner === true

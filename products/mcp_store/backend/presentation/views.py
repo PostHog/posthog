@@ -26,7 +26,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
-from posthog.models import OrganizationMembership, User
+from posthog.models import User
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -461,8 +461,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             raise PermissionDenied("Only the credential owner can modify a shared server.")
 
     def _is_project_admin(self) -> bool:
-        level = self.user_permissions.current_team.effective_membership_level
-        return level is not None and level >= OrganizationMembership.Level.ADMIN
+        """True for organization admins/owners, or users explicitly granted
+        admin on this project via access controls.
+
+        Deliberately NOT `effective_membership_level`: on a project with no
+        access controls configured, that defaults to admin for every org
+        member (open-project semantics), which would let any member share,
+        unshare, or delete team-wide MCP credentials. `explicit=True` skips
+        that default, so regular members fail closed."""
+        if self.user_access_control.is_organization_admin:
+            return True
+        return bool(self.user_access_control.check_access_level_for_object(self.team, "admin", explicit=True))
 
     def _require_admin_for_shared_scope(self, scope: str) -> None:
         """Creating a team-wide shared MCP server is admin-only.
