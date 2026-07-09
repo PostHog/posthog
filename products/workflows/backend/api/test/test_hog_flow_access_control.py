@@ -204,21 +204,44 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, getattr(response, "data", response.content))
 
-    def test_bulk_delete_only_deletes_accessible_workflows(self):
+    def test_bulk_delete_only_deletes_editable_workflows(self):
+        # Bulk delete must enforce object-level editor access, exactly like the single destroy path — not
+        # mere visibility. A resource-level editor with an object override below editor keeps the workflow.
         archived_ok = self._create_workflow(name="archived_ok", state=HogFlow.State.ARCHIVED)
         archived_denied = self._create_workflow(name="archived_denied", state=HogFlow.State.ARCHIVED)
+        archived_viewer = self._create_workflow(name="archived_viewer", state=HogFlow.State.ARCHIVED)
         self._create_access_control(self.editor_user, access_level="editor")
         self._create_access_control(self.editor_user, resource_id=str(archived_denied.id), access_level="none")
+        # Visible but not editable: an object-specific viewer override must block deletion even though the
+        # caller has resource-level editor access.
+        self._create_access_control(self.editor_user, resource_id=str(archived_viewer.id), access_level="viewer")
         self.client.force_login(self.editor_user)
 
         response = self.client.post(
             f"{self._list_url()}/bulk_delete",
-            data={"ids": [str(archived_ok.id), str(archived_denied.id)]},
+            data={"ids": [str(archived_ok.id), str(archived_denied.id), str(archived_viewer.id)]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "data", response.content))
+        self.assertEqual(response.json()["deleted"], 1)
         self.assertFalse(HogFlow.objects.filter(id=archived_ok.id).exists())
         self.assertTrue(HogFlow.objects.filter(id=archived_denied.id).exists())
+        self.assertTrue(HogFlow.objects.filter(id=archived_viewer.id).exists())
+
+    def test_user_blast_radius_requires_resource_level_access(self):
+        # user_blast_radius is detail=False, so AccessControlPermission falls back to "access to any one
+        # workflow". A viewer grant on a single workflow must not unlock the project-wide audience count:
+        # the action requires resource-level workflow access.
+        self._create_project_default(access_level="none")
+        self._create_access_control(self.no_access_user, resource_id=str(self.hog_flow.id), access_level="viewer")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.post(
+            f"{self._list_url()}/user_blast_radius",
+            data={"filters": {"properties": []}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, getattr(response, "data", response.content))
 
     def test_org_admin_bypasses_object_level_denial(self):
         # self.user is the organization owner; object-level denials never apply to org admins.

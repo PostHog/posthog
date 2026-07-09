@@ -1515,6 +1515,13 @@ class HogFlowViewSet(
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
     def user_blast_radius(self, request: Request, **kwargs):
+        # detail=False, so there's no workflow object for AccessControlPermission to check — it falls back to
+        # "has access to any one workflow" (has_any_specific_access_for_resource). That's too weak for a
+        # project-wide person/group count: require resource-level workflow access so an object-level grant on
+        # a single workflow can't be used as a project-wide audience oracle.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
+
         if "filters" not in request.data:
             raise exceptions.ValidationError("Missing filters for which to get blast radius")
 
@@ -1651,12 +1658,18 @@ class HogFlowViewSet(
         except ValueError:
             return Response({"error": "One or more IDs are not valid UUIDs"}, status=400)
 
-        # Only delete workflows the caller has object-level access to — standard destroy gets this via
-        # get_object(); the bulk path must filter explicitly so a denied workflow in the id list survives.
-        queryset = self.user_access_control.filter_queryset_by_access_level(
-            self.get_queryset().filter(id__in=validated_ids, status="archived")
-        )
-        deleted_count, _ = queryset.delete()
+        # Match the single destroy path: deleting a workflow needs object-level editor access, not just
+        # visibility. filter_queryset_by_access_level only drops effective-"none" (invisible) objects, so an
+        # object-specific viewer override would otherwise be bulk-deletable. Check each candidate explicitly.
+        candidates = list(self.get_queryset().filter(id__in=validated_ids, status="archived"))
+        self.user_access_control.preload_object_access_controls(candidates)
+        deletable_ids = [
+            flow.id
+            for flow in candidates
+            if self.user_access_control.check_access_level_for_object(flow, required_level="editor")
+        ]
+
+        deleted_count, _ = self.get_queryset().filter(id__in=deletable_ids).delete()
 
         return Response({"deleted": deleted_count})
 
