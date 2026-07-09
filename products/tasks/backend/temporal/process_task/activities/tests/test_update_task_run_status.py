@@ -63,3 +63,30 @@ class TestUpdateTaskRunStatusActivity:
             status=TaskRun.Status.IN_PROGRESS,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "extra_state,output,expected_delta",
+        [
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, None, 1.0),
+            ({"wizard_head_branch": "posthog/instrumentation-ab12cd"}, {"pr_url": "https://x/pull/1"}, 0.0),
+            ({}, None, 0.0),
+        ],
+    )
+    def test_terminal_status_counts_unbound_wizard_runs(
+        self, activity_environment, test_task_run, extra_state, output, expected_delta
+    ):
+        from prometheus_client import REGISTRY
+
+        test_task_run.state = {**(test_task_run.state or {}), **extra_state}
+        if output:
+            test_task_run.output = output
+        test_task_run.save(update_fields=["state", "output"])
+        labels = {"status": "completed"}
+        before = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
+        assert after == before + expected_delta

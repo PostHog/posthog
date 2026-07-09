@@ -279,13 +279,19 @@ def observe_agent_turn_failed(task_run: "TaskRun") -> None:
     ).inc()
 
 
+_WIZARD_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+
 def observe_wizard_run_unbound(task_run: "TaskRun") -> None:
     """Record a wizard run ending without its PR ever binding.
 
-    Call on terminal status transitions. Every binding failure mode is silent
-    (agent used a different branch, webhook undelivered, write swallowed), so
-    this counter is the only signal that the wizard PR pipeline regressed.
+    Safe to call on any status write; only terminal wizard runs without an
+    output.pr_url count. Every binding failure mode is silent (agent used a
+    different branch, webhook undelivered, write swallowed), so this counter
+    is the only signal that the wizard PR pipeline regressed.
     """
+    if task_run.status not in _WIZARD_TERMINAL_STATUSES:
+        return
     state = task_run.state if isinstance(task_run.state, dict) else {}
     if not state.get("wizard_head_branch"):
         return
