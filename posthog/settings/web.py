@@ -554,6 +554,9 @@ SPECTACULAR_SETTINGS = {
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
+        # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
+        # choice set (top-level column vs span attribute vs resource attribute).
+        "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
