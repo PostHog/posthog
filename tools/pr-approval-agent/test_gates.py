@@ -1,17 +1,22 @@
 """Tests for deny-list pattern matching in gates.py."""
 
+from pathlib import Path
+
 import pytest
 
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
     DISMISS_TIME_LOCKFILES,
+    build_ownership,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
+    detect_ownership,
     detect_title_scrutiny_flags,
     has_dependency_changes,
     is_size_exempt,
     substantive_size,
 )
+from policy import OwnershipSource
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -342,7 +347,12 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("docs/example-snippet.ts", True, id="docs-dir-artifact-extension"),
         pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
         pytest.param("frontend/__snapshots__/scene.storyshot", True, id="storyshot-extension"),
-        pytest.param("posthog/test/__snapshots__/helper.py", False, id="executable-under-snapshots-counted"),
+        # Outside a test dir, an executable under a snapshots dir still counts
+        # (extension-only snapshot exemption). Inside a test dir it is exempt
+        # like any test file: test-only PRs already gate-trust the same content
+        # via T0, and the LLM still reads it in the diff.
+        pytest.param("frontend/__snapshots__/helper.py", False, id="executable-under-snapshots-counted"),
+        pytest.param("posthog/test/__snapshots__/helper.py", True, id="snapshots-inside-test-dir-exempt"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
         pytest.param("products/tasks/frontend/generated/api.ts", True, id="product-generated-dir"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
@@ -358,6 +368,24 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("frontend/src/generated/core/evil.py", False, id="generated-dir-executable-py"),
         pytest.param("frontend/src/generated/core/build.sh", False, id="generated-dir-executable-sh"),
         pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
+        pytest.param("posthog/api/test/test_insight.py", True, id="test-dir-exempt"),
+        pytest.param("frontend/src/scenes/insights/Insight.test.tsx", True, id="dot-test-exempt"),
+        pytest.param("posthog/personhog_client/test_interceptor.py", True, id="bare-pytest-file-exempt"),
+        pytest.param(
+            "common/ingestion/acceptance_tests/test_basic_capture.py", True, id="test-file-in-loose-test-tree-exempt"
+        ),
+        pytest.param("nodejs/src/cdp/_tests/helpers.ts", True, id="underscore-tests-dir-exempt"),
+        pytest.param("posthog/tasks/protest.py", False, id="test-suffix-substring-counted"),
+        pytest.param("posthog/latest/models.py", False, id="latest-dir-counted"),
+        # Runtime packages that merely end in "_test(s)" must not classify as
+        # tests: via the shared predicate that would open the T0 auto-approve
+        # path, not just the size exemption.
+        pytest.param(
+            "products/batch_exports/backend/api/destination_tests/delta.py", False, id="runtime-dir-test-suffix-counted"
+        ),
+        pytest.param(
+            "posthog/temporal/ingestion_acceptance_test/worker.py", False, id="runtime-worker-test-suffix-counted"
+        ),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:
@@ -365,8 +393,9 @@ def test_is_size_exempt(path: str, exempt: bool) -> None:
 
 
 def test_substantive_size_counts_only_non_exempt_files() -> None:
-    # A docs-heavy PR must not be size-denied for its prose, and a code-heavy
-    # PR must not slip under the ceiling by padding with docs.
+    # A docs- or test-heavy PR must not be size-denied for its prose or its
+    # tests, and a code-heavy PR must not slip under the ceiling by padding
+    # with either.
     files = [
         {"filename": "docs/big-rewrite.md", "additions": 2000, "deletions": 500},
         {"filename": "frontend/src/generated/core/api.ts", "additions": 900, "deletions": 900},
@@ -376,8 +405,8 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
 
     lines, file_count = substantive_size(files)
 
-    assert lines == 90
-    assert file_count == 2
+    assert lines == 40
+    assert file_count == 1
 
 
 # ── Dependency manifests without a lockfile ──────────────────────
@@ -473,3 +502,57 @@ def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
     assert "go.sum" not in DISMISS_TIME_LOCKFILES
     assert "pnpm-lock.yaml" in DISMISS_TIME_LOCKFILES
     assert "npm-shrinkwrap.json" in DISMISS_TIME_LOCKFILES
+
+
+# ── Ownership sources ────────────────────────────────────────────
+
+_PH_PRODUCT = (OwnershipSource(format="ph-product", glob="products/*/product.yaml"),)
+
+
+@pytest.mark.parametrize(
+    "owners_yaml, expected_teams",
+    [
+        pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], id="plain-slug-prefixed"),
+        pytest.param("owners:\n  - '@PostHog/team-x'\n", [], id="already-prefixed-skipped"),
+        pytest.param("owners:\n  - team-CHANGEME\n", [], id="changeme-skipped"),
+        pytest.param("name: foo\n", [], id="ownerless"),
+        pytest.param("owners: value: bad\n", [], id="unparseable"),
+    ],
+)
+def test_product_yaml_owner_normalization(tmp_path: Path, owners_yaml: str, expected_teams: list[str]) -> None:
+    product_dir = tmp_path / "products" / "foo"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text(owners_yaml)
+
+    resolvers = build_ownership(tmp_path, _PH_PRODUCT)
+    ownership = detect_ownership(["products/foo/backend/models.py"], resolvers)
+
+    assert ownership["teams"] == expected_teams
+
+
+def test_ownership_unions_codeowners_and_product_yaml(tmp_path: Path) -> None:
+    codeowners = tmp_path / ".github" / "CODEOWNERS-soft"
+    codeowners.parent.mkdir(parents=True)
+    codeowners.write_text("products/foo/sub/ @PostHog/team-a\nposthog/ @PostHog/team-c\n")
+    product_dir = tmp_path / "products" / "foo"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text("owners:\n  - team-b\n")
+
+    resolvers = build_ownership(
+        tmp_path,
+        (
+            OwnershipSource(format="gh-codeowners", path=".github/CODEOWNERS-soft"),
+            OwnershipSource(format="ph-product", glob="products/*/product.yaml"),
+        ),
+    )
+
+    both = detect_ownership(["products/foo/sub/x.py"], resolvers)
+    assert both["teams"] == ["@PostHog/team-a", "@PostHog/team-b"]
+    assert both["cross_team"] is True
+
+    product_only = detect_ownership(["products/foo/y.py"], resolvers)
+    assert product_only["teams"] == ["@PostHog/team-b"]
+    assert product_only["cross_team"] is False
+
+    outside = detect_ownership(["posthog/models/x.py"], resolvers)
+    assert outside["teams"] == ["@PostHog/team-c"]

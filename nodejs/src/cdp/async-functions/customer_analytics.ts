@@ -50,9 +50,6 @@ registerAsyncFunction('postHogGetAccount', {
                 external_id: args[0]?.external_id ?? 'mock-external-id',
                 name: 'Mock Account',
                 properties: {
-                    csm: { id: 1, email: 'csm@example.com' },
-                    account_executive: { id: 2, email: 'ae@example.com' },
-                    account_owner: { id: 3, email: 'owner@example.com' },
                     stripe_customer_id: 'cus_mock',
                     hubspot_deal_id: 'deal_mock',
                     billing_id: 'bill_mock',
@@ -60,6 +57,10 @@ registerAsyncFunction('postHogGetAccount', {
                     zendesk_id: 'zd_mock',
                     slack_channel_id: 'C0MOCK',
                     usage_dashboard_link: 'https://example.com/dashboard',
+                },
+                relationships: {
+                    CSM: [{ user_id: 1, email: 'csm@example.com' }],
+                    'Account executive': [{ user_id: 2, email: 'ae@example.com' }],
                 },
             },
         }

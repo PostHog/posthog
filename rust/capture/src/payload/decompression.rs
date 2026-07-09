@@ -6,6 +6,7 @@
 use std::io::prelude::*;
 
 use bytes::Bytes;
+use common_compression::has_gzip_magic_header;
 use flate2::read::GzDecoder;
 use metrics;
 use tracing::{debug, info, instrument, warn, Span};
@@ -20,8 +21,6 @@ use crate::{
 };
 
 use super::types::Compression;
-
-pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 0x08];
 
 // Metrics constants
 const METRIC_PAYLOAD_SIZE_EXCEEDED: &str = "capture_payload_size_exceeded";
@@ -113,8 +112,7 @@ pub fn decompress_payload(
     );
     metrics::histogram!("capture_raw_payload_size").record(bytes.len() as f64);
 
-    let mut payload = if compression == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
-    {
+    let mut payload = if compression == Compression::Gzip || has_gzip_magic_header(&bytes) {
         debug!(
             payload_len = bytes.len(),
             "decompress_payload: matched GZIP compression"

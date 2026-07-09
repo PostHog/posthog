@@ -673,8 +673,8 @@ class TestBuildEmitExtra:
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
-        — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsScoutSignalInput
+        — this is the contract `emit_signal` checks via `SIGNAL_VARIANT_LOOKUP`."""
+        from products.signals.backend.contracts import SignalsScoutSignalInput
 
         extra = self._minimal()
         extra["tags"] = ["cost-spike"]

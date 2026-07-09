@@ -5,9 +5,9 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconBox } from '@posthog/icons'
-import { LemonCard, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -19,6 +19,7 @@ import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
+import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav, scrollToSection } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
@@ -116,7 +117,7 @@ function MasterFailuresSection(): JSX.Element {
 
     return (
         <Section id="now" title={`Failing on ${defaultBranch}`} note="Last 24 hours">
-            <LemonCard hoverEffect={false} className="p-0">
+            <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                 <LemonTable<MasterFailureGroupApi>
                     dataSource={masterFailures}
                     loading={masterFailuresLoading}
@@ -232,16 +233,20 @@ function MasterFailuresSection(): JSX.Element {
 export function RepoOverviewScene(): JSX.Element {
     const {
         overview,
-        masterSuccessRateQuery,
-        masterFailedRunsQuery,
+        activityRuns,
+        activityTruncated,
+        repoActivityLoading,
+        repoActivityFailed,
         attentionPrs,
         draftCount,
         costByWorkflow,
         otherCostWorkflowCount,
+        costPerMergeSeries,
         jobsAvailable,
         defaultBranch,
         notConnected,
         overviewFailed,
+        overviewLoading,
         failingWorkflowCount,
         masterFailuresLoading,
     } = useValues(repoOverviewLogic)
@@ -254,8 +259,12 @@ export function RepoOverviewScene(): JSX.Element {
         costLensEnabled,
         activeSource,
     } = useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures } = useActions(repoOverviewLogic)
+    const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+
+    // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
+    // during the initial fetch would misread as a broken setup — hold it back while loading.
+    const overviewPending = overviewLoading && !overview
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -266,6 +275,7 @@ export function RepoOverviewScene(): JSX.Element {
                 onRetry={() => {
                     loadOverview()
                     loadMasterFailures()
+                    loadRepoActivity()
                 }}
             />
         )
@@ -306,7 +316,9 @@ export function RepoOverviewScene(): JSX.Element {
                     tooltip={
                         jobsAvailable
                             ? `Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate.`
-                            : 'Available once the job-level source is synced.'
+                            : overviewPending
+                              ? undefined
+                              : 'Available once the job-level source is synced.'
                     }
                     value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
                     delta={
@@ -317,7 +329,7 @@ export function RepoOverviewScene(): JSX.Element {
                             />
                         ) : undefined
                     }
-                    sub={jobsAvailable ? undefined : 'Job-level source not synced'}
+                    sub={jobsAvailable || overviewPending ? undefined : 'Job-level source not synced'}
                 />
                 <MetricTile
                     label="Median PR open→merge"
@@ -363,23 +375,23 @@ export function RepoOverviewScene(): JSX.Element {
             />
 
             <Section id="master" title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}>
-                {masterSuccessRateQuery && masterFailedRunsQuery ? (
-                    <div className="grid gap-2.5 lg:grid-cols-2">
-                        <QueryCard
-                            title={`Success rate on ${defaultBranch}`}
-                            query={masterSuccessRateQuery}
-                            uniqueKey="engineering-analytics-master-success-rate"
-                        />
-                        <QueryCard
-                            title={`Failed runs on ${defaultBranch}`}
-                            description={`Completed runs on ${defaultBranch} whose conclusion wasn't success.`}
-                            query={masterFailedRunsQuery}
-                            uniqueKey="engineering-analytics-master-failed-runs"
-                        />
-                    </div>
+                {/* One dot per commit to the default branch: X = when its CI started, Y = wall-clock CI
+                    duration, color = the commit's overall verdict (red if any workflow failed). Replaces the
+                    old success-rate line + failed-runs bar — the scatter says time, outcome, and cost at once. */}
+                {hasEnoughRunActivity(activityRuns) ? (
+                    <RunActivityChart
+                        runs={activityRuns}
+                        truncated={activityTruncated}
+                        title={`Every ${defaultBranch} commit`}
+                        noun="commit"
+                    />
                 ) : (
                     <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                        Loading…
+                        {repoActivityLoading
+                            ? 'Loading…'
+                            : repoActivityFailed
+                              ? `Couldn't load ${defaultBranch} activity. Refresh to retry.`
+                              : `Not enough completed runs on ${defaultBranch} in the window to chart yet.`}
                     </LemonCard>
                 )}
             </Section>
@@ -407,12 +419,13 @@ export function RepoOverviewScene(): JSX.Element {
                         stuck &gt;7d
                     </span>
                 </div>
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <PullRequestTable
                         rows={attentionPrs}
                         loading={pullRequestsLoading}
                         sourceId={sourceId}
                         costLensEnabled={costLensEnabled}
+                        embedded
                         pageSize={HUB_TABLE_PAGE_SIZE}
                         emptyState="Nothing failing or stuck in the open backlog."
                         dataAttr="engineering-analytics-attention-prs"
@@ -426,12 +439,13 @@ export function RepoOverviewScene(): JSX.Element {
             </Section>
 
             <Section id="workflows" title="Workflows">
-                <LemonCard hoverEffect={false} className="p-0">
+                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <WorkflowHealthTable
                         rows={workflowHealth}
                         loading={workflowHealthLoading}
                         sourceId={sourceId}
                         showCost={jobsAvailable}
+                        embedded
                         defaultSorting={{ columnKey: 'runCount', order: -1 }}
                         pageSize={HUB_TABLE_PAGE_SIZE}
                         emptyState="No workflow runs in the window."
@@ -458,7 +472,32 @@ export function RepoOverviewScene(): JSX.Element {
             </Section>
 
             <Section id="cost" title="Cost">
-                {jobsAvailable && costByWorkflow.length > 0 ? (
+                {overviewPending ? (
+                    <LemonCard hoverEffect={false} className="p-4">
+                        <LemonSkeleton className="mb-3 h-4 w-40" />
+                        <LemonSkeleton className="h-24 w-full" />
+                    </LemonCard>
+                ) : jobsAvailable && costPerMergeSeries ? (
+                    <LemonCard hoverEffect={false} className="mb-2 p-4">
+                        <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
+                        <Sparkline
+                            data={costPerMergeSeries.values}
+                            labels={costPerMergeSeries.labels}
+                            name="Cost per merged PR"
+                            type="line"
+                            className="h-24 w-full"
+                            renderLabel={(label) => label}
+                            renderTooltipValue={(value) => compactUsd(value)}
+                        />
+                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                            Estimated Depot CI cost per PR merged. Each point divides a trailing window's CI cost by its
+                            merges (24 h, 7 d, or 4 w to match the grain), so quiet buckets don't punch holes in the
+                            trend. Cost counts by run start, merges by merge time — the same coarse split the daily
+                            depot tooling uses.
+                        </div>
+                    </LemonCard>
+                ) : null}
+                {overviewPending ? null : jobsAvailable && costByWorkflow.length > 0 ? (
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
                         {costByWorkflow.map((row, i) => (

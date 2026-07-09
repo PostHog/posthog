@@ -137,6 +137,9 @@ function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Ele
                         variant="link"
                         className="text-primary"
                         size="sm"
+                        // The render prop swaps the native <button> for a Link (<a>),
+                        // so tell Base UI not to expect native button semantics.
+                        nativeButton={false}
                         render={<Link to={viewUrl} target="_blank" className="text-xs underline" />}
                     >
                         View

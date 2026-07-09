@@ -23,6 +23,7 @@
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
+const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
@@ -30,6 +31,13 @@ const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
 // fungible across products — bin-pack products into target-sized shards, and
 // multi-shard split any single product that overflows on its own.
 const PRODUCT_TARGET_WALL_SECONDS = 10 * 60
+// Per-product per-shard wall-clock target override. A product that runs a large temporal suite in
+// its own job (warehouse_sources) is split more aggressively so the long integration tests fan out
+// across more shards. Kept modest — every extra shard pays the full docker-stack + temporal-server
+// startup, so over-splitting trades runner cost for little wall-clock once startup dominates.
+const PRODUCT_TARGET_WALL_OVERRIDE = {
+    'warehouse-sources': 6 * 60,
+}
 // Per-product cost within a runner: turbo dispatch, pytest collection, Django
 // init. First product pays ~45s, subsequent ~15s; use 60s as a conservative
 // average that also absorbs the amortized portion of runner startup.
@@ -41,10 +49,26 @@ const PRODUCT_SAFETY_FACTOR = 1.3
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
+// Products that run their OWN temporal suite inside the product test job (backend:test covers
+// backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
+// the temporal durations must count toward product sizing so the product is sharded for that load —
+// otherwise a huge suite lands in one unsharded bucket and times out.
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
 const DEDICATED_BUCKET_PRODUCTS = new Set(['batch-exports'])
+
+// --- Staleness detection for .test_durations ---
+// When a product's test files on disk significantly outnumber what .test_durations
+// covers, the duration data is stale and cost estimates are unreliable. In that
+// case, fall back to a file-count-based estimate to prevent under-sharding.
+// Threshold: if fewer than 70% of on-disk test files appear in .test_durations,
+// treat the product's duration data as stale.
+const STALENESS_COVERAGE_THRESHOLD = 0.7
+// Conservative per-file fallback duration (seconds) when stale. Accounts for
+// parametrized tests that expand a single file into many test cases.
+const STALENESS_FALLBACK_SECONDS_PER_FILE = 5
 
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
@@ -224,15 +248,74 @@ function loadTestDurations() {
     return parsed
 }
 
+// Recursively collect test files (test_*.py / *_test.py) under a directory.
+function collectTestFiles(dir) {
+    const files = []
+    let entries
+    try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+        return files
+    }
+    for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+            files.push(...collectTestFiles(full))
+        } else if (
+            entry.isFile() &&
+            entry.name.endsWith('.py') &&
+            (entry.name.startsWith('test_') || entry.name.endsWith('_test.py'))
+        ) {
+            files.push(full)
+        }
+    }
+    return files
+}
+
+function productPrefix(product) {
+    return `products/${product.replace(/-/g, '_')}/`
+}
+
+// Check if .test_durations is stale for a product by comparing on-disk test
+// file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
+function checkProductStaleness(product, durations) {
+    if (!durations) return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }
+    const dirName = product.replace(/-/g, '_')
+    const productDir = path.join('products', dirName)
+    const testFiles = collectTestFiles(productDir)
+    if (testFiles.length === 0) return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }
+
+    const prefix = productPrefix(product)
+    // Build set of file paths that have at least one entry in durations
+    const coveredFiles = new Set()
+    for (const testPath of Object.keys(durations)) {
+        if (testPath.startsWith(prefix)) {
+            // Extract file path (everything before ::)
+            const filePart = testPath.split('::')[0]
+            coveredFiles.add(filePart)
+        }
+    }
+
+    let coveredCount = 0
+    for (const file of testFiles) {
+        if (coveredFiles.has(file)) coveredCount++
+    }
+
+    const coverage = coveredCount / testFiles.length
+    return { stale: coverage < STALENESS_COVERAGE_THRESHOLD, fileCount: testFiles.length, coveredCount, coverage }
+}
+
 function getProductDuration(product, durations) {
     if (!durations) {
         return 0
     }
-    const dirName = product.replace(/-/g, '_')
-    const prefix = `products/${dirName}/`
+    const prefix = productPrefix(product)
+    // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
+    // that runs its own temporal suite in the product job must count them toward its size.
+    const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
-        if (test.startsWith(prefix) && !EXCLUDED_PATH_SEGMENTS.some((seg) => test.includes(seg))) {
+        if (test.startsWith(prefix) && !excluded.some((seg) => test.includes(seg))) {
             total += dur
         }
     }
@@ -240,7 +323,12 @@ function getProductDuration(product, durations) {
 }
 
 function productEffectiveCost(product, durations) {
-    return getProductDuration(product, durations) * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+    let base = getProductDuration(product, durations)
+    const staleness = checkProductStaleness(product, durations)
+    if (staleness.stale && staleness.fileCount > 0) {
+        base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
+    }
+    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
@@ -350,9 +438,29 @@ function buildMatrix(products, durations) {
     // can't balance well when many tests have flat-default 0.01s values),
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
-        const raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
-        if (raw > PRODUCT_TARGET_WALL_SECONDS) {
-            const shards = Math.ceil(raw / PRODUCT_TARGET_WALL_SECONDS)
+        const staleness = checkProductStaleness(product, durations)
+        let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+        const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
+
+        // Staleness guard: if .test_durations has poor coverage for this product,
+        // use a file-count-based fallback to avoid under-sharding.
+        if (staleness.stale && staleness.fileCount > 0) {
+            const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+            if (fallbackRaw > raw) {
+                console.error(
+                    `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
+                    `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
+                )
+                console.error(
+                    `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
+                    `test files covered in .test_durations. Duration estimates are unreliable — using fallback sharding.`
+                )
+                raw = fallbackRaw
+            }
+        }
+
+        if (raw > targetWall) {
+            const shards = Math.ceil(raw / targetWall)
             console.error(`  ${product}: ${(raw / 60).toFixed(1)} min raw → split across ${shards} shards`)
             const filters = `--filter=@posthog/products-${product}`
             for (let i = 1; i <= shards; i++) {
@@ -388,7 +496,11 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
+// Exported for unit tests only — not part of the public API.
+module.exports = { collectTestFiles, checkProductStaleness, productPrefix, productEffectiveCost, STALENESS_COVERAGE_THRESHOLD, STALENESS_FALLBACK_SECONDS_PER_FILE }
+
 // --- Main ---
+if (require.main === module) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
@@ -480,20 +592,6 @@ if (legacyChanged) {
     }
 }
 
-// Data-warehouse import sources are facade-isolated and covered solely by the Temporal
-// Django segment (build_django_matrix trims Django to it when data_import_sources_only).
-// No other product's tests exercise those source connectors, so when the `changes` job
-// confirmed the change is confined to non-coupled sources, run only warehouse_sources'
-// own product tests instead of the full all-products fan-out. runLegacy stays true so
-// Django (trimmed to Temporal) still provides the source coverage. Gated to NOT apply when
-// legacy or schema changed (those affect everyone); fail-open (flag defaults to false).
-const dataImportSourcesOnly = process.env.DATA_IMPORT_SOURCES_ONLY === 'true'
-if (dataImportSourcesOnly && !legacyChanged && !schemaChanged && allProducts.includes('warehouse-sources')) {
-    console.error('Only data-warehouse import sources changed — narrowing product matrix to warehouse-sources, keeping Django (Temporal)')
-    products = ['warehouse-sources']
-    runLegacy = true
-}
-
 // Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
 // separated) are dropped from the matrix without a code change — use it to stop
 // running, and blocking on, a product whose tests are temporarily too flaky.
@@ -541,3 +639,5 @@ const result = {
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
+
+} // end if (require.main === module)

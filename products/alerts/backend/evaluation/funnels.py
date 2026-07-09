@@ -23,6 +23,10 @@ def _trailing_date_range_override(interval: IntervalType | None, periods: int) -
             unit = "w"
         case IntervalType.MONTH:
             unit = "m"
+        case IntervalType.QUARTER:
+            unit = "q"
+        case IntervalType.YEAR:
+            unit = "y"
         case _:
             unit = "h"
     return {"date_from": f"-{periods}{unit}"}

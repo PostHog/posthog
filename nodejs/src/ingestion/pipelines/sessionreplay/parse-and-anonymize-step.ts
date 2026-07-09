@@ -11,10 +11,11 @@ import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/typ
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
+import { TeamForReplay } from './shared/teams/types'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
-// Lazily loaded so environments that never enable the flag don't pay the native-module load (and so a
+// Lazily loaded so deployments that never run this step don't pay the native-module load (and so a
 // missing addon only breaks the native path, not every import of this module).
 type RustAnonymizer = typeof import('@posthog/replay-anonymizer')
 let rustAnonymizer: RustAnonymizer | undefined
@@ -37,17 +38,15 @@ const DLQ_REASONS = new Set([
  * Fused parse + anonymize through the native Rust addon (`@posthog/replay-anonymizer`): the
  * decompressed Kafka payload bytes go in, scrubbed JSONL block lines plus the envelope/per-event
  * metadata come out — no per-event JS objects are ever built, and no JSON crosses the FFI boundary
- * as a string. Replaces `createParseMessageStep` + `createAnonymizeStep` on the ml-mirror pipeline
- * when `SESSION_RECORDING_ML_RUST_ANONYMIZER` is on.
+ * as a string.
  *
  * Fail-closed: any addon failure drops (or DLQs) the message — un-anonymized data never reaches the
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
-    T,
-    T & ParseMessageStepOutput
-> {
+export function createParseAndAnonymizeMessageStep<
+    T extends ParseMessageStepInput & { team: TeamForReplay },
+>(): ProcessingStep<T, T & ParseMessageStepOutput> {
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -65,7 +64,11 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const t0 = performance.now()
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
+            result = await getRustAnonymizer().anonymizeKafkaPayload(
+                message.value,
+                contentEncoding,
+                input.team.firstPartyHosts
+            )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })

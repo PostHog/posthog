@@ -51,6 +51,8 @@ export interface PullRequestTableProps {
     pageSize?: number
     emptyState?: ReactNode
     dataAttr?: string
+    /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
+    embedded?: boolean
 }
 
 export function PullRequestTable({
@@ -62,6 +64,7 @@ export function PullRequestTable({
     pageSize = 50,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
+    embedded = false,
 }: PullRequestTableProps): JSX.Element {
     const columns: LemonTableColumns<PullRequestRow> = [
         {
@@ -194,6 +197,7 @@ export function PullRequestTable({
         <LemonTable
             data-attr={dataAttr}
             size="small"
+            embedded={embedded}
             columns={columns}
             dataSource={rows}
             rowKey={prKeyOf}

@@ -277,7 +277,7 @@ function AIObservabilityTagsContent(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} noun="runs" />
+            <TrialUsageMeter showSettingsLink noun="runs" />
 
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 

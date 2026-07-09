@@ -64,9 +64,6 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
-from posthog.hogql.database.schema.conversion_goal_attributed_preaggregated import (
-    ConversionGoalAttributedPreaggregatedTable,
-)
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -99,6 +96,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
@@ -152,6 +150,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -324,10 +323,16 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
-# under posthog.hogql.* except the Workload enum, so new table/field/AST types keep working and
-# anything else fails loudly.
+# under posthog.hogql.* except the Workload enum and product-owned facade schema modules
+# (allowlisted individually, not by prefix, to keep the surface minimal), so new table/field/AST
+# types keep working and anything else fails loudly.
 _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
-_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+_CATALOG_PICKLE_MODULES = frozenset(
+    {
+        "posthog.clickhouse.workload",
+        "products.customer_analytics.backend.facade.hogql",
+    }
+)
 
 
 class _CatalogUnpickler(pickle.Unpickler):
@@ -397,10 +402,6 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
-                    "conversion_goal_attributed_preaggregated": TableNode(
-                        name="conversion_goal_attributed_preaggregated",
-                        table=ConversionGoalAttributedPreaggregatedTable(),
-                    ),
                     "marketing_touchpoints_preaggregated": TableNode(
                         name="marketing_touchpoints_preaggregated",
                         table=MarketingTouchpointsPreaggregatedTable(),
@@ -431,10 +432,32 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 },
             ),
             "system": SystemTables(),
+            # Deduplicated read interface over posthog.marketing_costs_preaggregated. Registered at root
+            # (like `sessions`) because a lazy/aggregating view only resolves cleanly from the root scope.
+            "marketing_costs_precomputed": TableNode(
+                name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
+            ),
             **children,
         }
 
     return TableNode(children=children)
+
+
+@cache
+def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
+    """(table name, access scope) for the access-controlled Postgres system tables.
+
+    Cached for the process lifetime — this result directly gates table visibility in access-control
+    decisions, so every entry here MUST remain process-static. Do NOT make a system table's
+    access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
+    serve stale scopes and bypass the restriction. Today SystemTables().children is a static
+    class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    """
+    return tuple(
+        (name, table_node.table.access_scope)
+        for name, table_node in SystemTables().children.items()
+        if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+    )
 
 
 def _compute_system_table_access_decision(
@@ -447,18 +470,12 @@ def _compute_system_table_access_decision(
     reads are query-free) and the system-node table names to remove.
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
-    system_children = SystemTables().children
+    scoped_tables = _system_table_access_scopes()
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
     if user is None or isinstance(user, SyntheticUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {
-            name
-            for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable)
-            and table_node.table.access_scope is not None
-            and table_node.table.access_scope not in readable_scopes
-        }
+        return None, {name for name, access_scope in scoped_tables if access_scope not in readable_scopes}
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -467,11 +484,8 @@ def _compute_system_table_access_decision(
         return user_access_control, set()
 
     denied: set[str] = set()
-    for name, table_node in system_children.items():
-        table = table_node.table
-        if not isinstance(table, PostgresTable) or table.access_scope is None:
-            continue  # Not access-controlled, keep it
-        access_level = user_access_control.access_level_for_resource(table.access_scope)
+    for name, access_scope in scoped_tables:
+        access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         denied.add(name)
@@ -1056,6 +1070,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        build_postgres_foreign_keys: bool = True,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1070,7 +1085,9 @@ class Database(BaseModel):
             connection_id=connection_id,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
-        return Database._build_from_sources(sources, timings=timings)
+        return Database._build_from_sources(
+            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+        )
 
     @staticmethod
     def _fetch_sources(
@@ -1324,7 +1341,11 @@ class Database(BaseModel):
         )
 
     @staticmethod
-    def _build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+    def _build_from_sources(
+        sources: HogQLDatabaseSources,
+        timings: HogQLTimings | None = None,
+        build_postgres_foreign_keys: bool = True,
+    ) -> "Database":
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
         Postgres query and feature-flag check was done up front in Database._fetch_sources."""
         if timings is None:
@@ -1761,14 +1782,15 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        with timings.measure("warehouse_foreign_keys", emit_span=True):
-            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                add_postgres_foreign_key_lazy_joins(
-                    hogql_table=hogql_table,
-                    warehouse_table=warehouse_table_model,
-                    database=database,
-                    schemas=_get_active_external_data_schemas(warehouse_table_model),
-                )
+        if build_postgres_foreign_keys:
+            with timings.measure("warehouse_foreign_keys", emit_span=True):
+                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
+                    add_postgres_foreign_key_lazy_joins(
+                        hogql_table=hogql_table,
+                        warehouse_table=warehouse_table_model,
+                        database=database,
+                        schemas=_get_active_external_data_schemas(warehouse_table_model),
+                    )
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
@@ -1988,7 +2010,12 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+            # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
+            # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
+            # the cutoff by the project's UTC offset.
+            created_at = group_mapping["created_at"]
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
@@ -1998,7 +2025,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
                             op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at_str),
+                            right=ast.Constant(value=created_at),
                         ),
                         ast.Constant(value=""),
                         ast.Field(chain=[raw_field_name]),

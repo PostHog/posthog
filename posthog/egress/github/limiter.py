@@ -1,18 +1,25 @@
 """GitHub egress — the first consumer of the outbound rate limiter.
 
-A GitHub App installation gets 5,000–15,000 REST requests/hour depending on the account's
-plan tier, shared across every PostHog consumer of that installation (warehouse sources,
-Tasks, Code, Conversations, Visual review). This module budgets each installation to its
-observed tier and registers that budget as a policy keyed per installation. The budget is
-one shared envelope across GitHub's resources (REST core, GraphQL, …) — deliberately
-conservative rather than modeling each resource's separate meter.
+A GitHub App installation gets 5,000–15,000 REST requests/hour on the ``core`` resource
+depending on the account's plan tier, shared across every PostHog consumer of that
+installation (warehouse sources, Tasks, Code, Conversations, Visual review). GitHub meters
+its other REST resources on their own separate, per-installation counters — ``search`` at a
+fixed 30/min and ``code_search`` at a fixed 10/min, regardless of plan. So each resource
+gets its own limiter domain and budget here rather than sharing one envelope: charging a
+``/search/code`` call (10/min real ceiling) against the 5,000/hour core budget let it sail
+through while GitHub itself 403/429'd it.
 
-Importing this module registers the policy as a side effect — import it (directly or via
-``acquire_github_installation``) before using a ``github:...`` limiter key.
+This module budgets ``core`` to each installation's observed tier and the two search
+resources to their fixed real ceilings, registering each as a policy keyed per installation.
+
+Importing this module registers the policies as a side effect — import it (directly or via
+``acquire_github_installation``) before using a ``github*:...`` limiter key.
 """
 
 import time
+from enum import Enum
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -24,6 +31,42 @@ from posthog.egress.limiter.outbound import get_outbound_rate_limiter
 from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
 
 GITHUB_DOMAIN = "github"
+GITHUB_SEARCH_DOMAIN = "github_search"
+GITHUB_CODE_SEARCH_DOMAIN = "github_code_search"
+
+
+class GitHubRateResource(Enum):
+    """A GitHub REST rate-limit resource — each metered on its own per-installation counter."""
+
+    CORE = "core"
+    SEARCH = "search"
+    CODE_SEARCH = "code_search"
+
+
+def classify_github_resource(url: str) -> GitHubRateResource:
+    """Map a GitHub API URL to the resource GitHub meters it against.
+
+    ``/search/code`` is the ``code_search`` resource (10/min); any other ``/search/...`` is
+    ``search`` (30/min); everything else is ``core``. GraphQL (``/graphql``) deliberately routes
+    to ``core``: GitHub meters it on its own tier-scaled *point*-based resource, and a plain
+    request counter can't model point costs — charging it to our core envelope errs conservative.
+    """
+    path = urlparse(url).path
+    if path == "/search/code" or path.startswith("/search/code/"):
+        return GitHubRateResource.CODE_SEARCH
+    if path == "/search" or path.startswith("/search/"):
+        return GitHubRateResource.SEARCH
+    return GitHubRateResource.CORE
+
+
+# Maps a resource to the limiter domain that carries its budget. New domains (not key suffixes)
+# so resolve_policy dispatches on them, installation_id_from_key's rpartition still round-trips,
+# and outbound_rate_limit_decisions_total gets a distinct metric series per resource for free.
+_RESOURCE_DOMAINS: dict[GitHubRateResource, str] = {
+    GitHubRateResource.CORE: GITHUB_DOMAIN,
+    GitHubRateResource.SEARCH: GITHUB_SEARCH_DOMAIN,
+    GitHubRateResource.CODE_SEARCH: GITHUB_CODE_SEARCH_DOMAIN,
+}
 
 # Reserved-floor ladder: BATCH calls are denied once 70% of a window is consumed, NORMAL at 90%,
 # CRITICAL can use the full budget. Active now that deferrable callers declare their lane
@@ -171,28 +214,55 @@ def _github_policy(key: str) -> RatePolicy:
 
 register_policy(GITHUB_DOMAIN, _github_policy)
 
+# Static budgets, no observed-limit persistence: GitHub's search rate limits are fixed regardless
+# of the account's plan tier (unlike core), so there is no tier to observe. Both sit just under
+# GitHub's real per-installation ceilings (10/min and 30/min) so our reactive backoff absorbs
+# drift. Same reserve ladder as core so BATCH/NORMAL callers still shed first as the window fills.
+register_policy(
+    GITHUB_CODE_SEARCH_DOMAIN,
+    RatePolicy(limits=((8, 60.0),), in_memory_divider=4, reserve=_RESERVE),
+)
+register_policy(
+    GITHUB_SEARCH_DOMAIN,
+    RatePolicy(limits=((27, 60.0),), in_memory_divider=4, reserve=_RESERVE),
+)
 
-def github_installation_key(installation_id: str | int) -> str:
-    """Limiter key for one GitHub App installation — the unit GitHub's budget is scoped to."""
-    return f"{GITHUB_DOMAIN}:installation:{installation_id}"
+
+def github_installation_key(
+    installation_id: str | int, *, resource: GitHubRateResource = GitHubRateResource.CORE
+) -> str:
+    """Limiter key for one GitHub App installation and one metered resource — the unit GitHub's
+    budget is scoped to. The resource picks the domain (its own counter); the scope stays the
+    installation."""
+    return f"{_RESOURCE_DOMAINS[resource]}:installation:{installation_id}"
 
 
 async def acquire_github_installation(
-    installation_id: str | int, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown"
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "unknown",
+    resource: GitHubRateResource = GitHubRateResource.CORE,
 ) -> bool:
-    """Reserve ``n`` requests against an installation's hourly GitHub budget. Returns False when the
+    """Reserve ``n`` requests against an installation's budget for ``resource``. Returns False when the
     budget (or this ``priority``'s reserved floor) is exhausted — back off and retry rather than
     calling GitHub."""
     return await get_outbound_rate_limiter().acquire(
-        github_installation_key(installation_id), n, priority=priority, source=source
+        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )
 
 
 def consume_github_installation_sync(
-    installation_id: str | int, n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown"
+    installation_id: str | int,
+    n: int = 1,
+    *,
+    priority: Priority = Priority.NORMAL,
+    source: str = "unknown",
+    resource: GitHubRateResource = GitHubRateResource.CORE,
 ) -> bool:
     """Sync variant of :func:`acquire_github_installation` for callers outside an event loop (e.g. the
     warehouse source iterator, which runs in a thread pool)."""
     return get_outbound_rate_limiter().consume_sync(
-        github_installation_key(installation_id), n, priority=priority, source=source
+        github_installation_key(installation_id, resource=resource), n, priority=priority, source=source
     )

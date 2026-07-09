@@ -146,6 +146,21 @@ class TaskThreadMessageDTO:
 
 
 @dataclass(frozen=True)
+class TaskMentionDTO:
+    """One @-mention of the requesting user in a task's thread, for the mentions feed."""
+
+    id: UUID
+    message_id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
@@ -166,6 +181,7 @@ class TaskSummaryDTO:
     repository: str | None
     created_at: datetime
     updated_at: datetime
+    origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
 
 
@@ -586,6 +602,33 @@ class SandboxEnvironmentDTO:
     repositories: list[str] = Field(default_factory=list)
     effective_domains: list[str] = Field(default_factory=list)
     has_environment_variables: bool = False
+    created_by: TaskUserBasicInfo | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    custom_image_id: UUID | None = None
+    custom_image_name: str | None = None
+    custom_image_status: str | None = None
+
+
+@dataclass(frozen=True)
+class SandboxCustomImageDTO:
+    """A user-defined custom base image for cloud task sandboxes (Modal VM runtime)."""
+
+    id: UUID
+    team_id: int
+    name: str
+    description: str
+    status: str
+    version: int
+    modal_image_name: str
+    error: str
+    repository: str = ""
+    private: bool = False
+    spec: dict = Field(default_factory=dict)
+    spec_yaml: str = ""
+    scan_result: dict = Field(default_factory=dict)
+    build_log: str = ""
+    builder_task_id: UUID | None = None
     created_by: TaskUserBasicInfo | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

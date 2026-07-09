@@ -1309,7 +1309,8 @@ dependencies = [
  "mockito",
  "moka",
  "natord",
- "posthog-rs",
+ "object_store",
+ "posthog-rs 0.13.3",
  "rayon",
  "rdkafka",
  "reqwest 0.12.28",
@@ -1792,6 +1793,7 @@ dependencies = [
  "capture",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-redis",
  "common-types",
@@ -1874,6 +1876,7 @@ dependencies = [
  "chrono",
  "clickhouse",
  "common-alloc",
+ "common-compression",
  "common-continuous-profiling",
  "common-metrics",
  "envconfig",
@@ -2170,15 +2173,19 @@ dependencies = [
  "common-liveness",
  "common-types",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "proptest",
  "rand 0.8.5",
  "rdkafka",
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2204,7 +2211,6 @@ dependencies = [
  "futures",
  "hogvm",
  "lifecycle",
- "lru",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
@@ -2416,7 +2422,8 @@ dependencies = [
 name = "common-posthog"
 version = "0.1.0"
 dependencies = [
- "posthog-rs",
+ "httpmock",
+ "posthog-rs 0.17.3",
  "serde_json",
  "tokio",
  "tracing",
@@ -2857,7 +2864,7 @@ dependencies = [
  "mockall",
  "moka",
  "personhog-common",
- "posthog-rs",
+ "posthog-rs 0.17.3",
  "posthog-symbol-data",
  "proguard",
  "rand 0.8.5",
@@ -2865,6 +2872,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rustls 0.23.37",
+ "semver",
  "serde",
  "serde_json",
  "sha2",
@@ -4538,7 +4546,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.105"
+version = "1.3.106"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -7420,6 +7428,7 @@ dependencies = [
  "health",
  "lifecycle",
  "metrics",
+ "personhog-common",
  "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",
@@ -7845,6 +7854,31 @@ dependencies = [
  "brotli 7.0.0",
  "chrono",
  "derive_builder",
+ "flate2",
+ "os_info",
+ "regex",
+ "reqwest 0.13.4",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
+name = "posthog-rs"
+version = "0.17.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f226e5d9495b0b870a88a53bbbd0d80acbcb66321717791a35991fcf4e890f6"
+dependencies = [
+ "backtrace",
+ "brotli 7.0.0",
+ "chrono",
+ "derive_builder",
+ "findshlibs",
  "flate2",
  "os_info",
  "regex",
@@ -11314,6 +11348,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
+ "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -11331,7 +11366,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "zstd",
 ]
 
 [[package]]
