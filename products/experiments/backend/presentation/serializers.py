@@ -156,9 +156,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Experiment parameters JSON. Supported keys include "
             "`custom_exposure_filter` and `variant_notes` "
             "(free-text notes per variant, keyed by variant key). "
-            "Flag config (variants, rollout, aggregation, payloads, experience continuity) is "
-            "not accepted here — send it via the `feature_flag` object. Reads still project the "
-            "linked flag's current config into this field for backward compatibility. "
+            "Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs "
+            "on the `feature_flag` object; send it there. For backward compatibility, config still "
+            "sent through these deprecated keys is copied onto the linked flag rather than rejected, "
+            "and reads project the flag's current config back into this field. "
             "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
@@ -505,12 +506,17 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read-only field. An object with no config keys at all (e.g. a ``{"key": ...}`` stub) is
         likewise ignored rather than rejected, so clients that have always included such stubs in
         write bodies keep working.
+
+        When no such object is present, a legacy caller may still be sending flag config through the
+        deprecated ``parameters`` keys. Rather than reject it, we copy it into the ``feature_flag``
+        object shape here so it flows through this same build/sync path (see
+        ``_deprecated_parameters_as_feature_flag_config``).
         """
         feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
-        if not isinstance(feature_flag_input, dict) or feature_flag_input.get("id") is not None:
-            return data
-        if not any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity")):
-            return data
+        if not self._is_feature_flag_config_input(feature_flag_input):
+            feature_flag_input = self._deprecated_parameters_as_feature_flag_config()
+            if feature_flag_input is None:
+                return data
         if self.instance is None:
             # The service links an existing flag as-is (it may already serve traffic), so explicit
             # config here would be applied nowhere — reject instead of silently dropping it.
@@ -555,46 +561,78 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         data["parameters"] = merged
         return data
 
-    _DEPRECATED_FLAG_CONFIG_MESSAGE = (
-        "Feature flag config (feature_flag_variants, rollout_percentage, "
-        "aggregation_group_type_index, feature_flag_payloads, ensure_experience_continuity) "
-        "is no longer accepted in parameters. Send it via the feature_flag object "
-        "(feature_flag.filters) instead."
-    )
-
     def validate_parameters(self, value):
-        value = self._reject_deprecated_flag_config(value)
+        # Flag config is no longer a persisted `parameters` key; it is sourced from the linked flag
+        # (see ExperimentBaseSerializer._project_feature_flag_config). Strip any flag-config keys sent
+        # through `parameters` so they never reach the stored column; a legacy caller sending them is
+        # copied into the `feature_flag` path in _normalize_feature_flag_input instead of rejected.
+        value = ExperimentService._strip_feature_flag_config(value)
         ExperimentService.validate_experiment_parameters(value)
         return value
 
-    def _reject_deprecated_flag_config(self, value: Any) -> Any:
-        """Close the legacy flag-config entrance on ``parameters`` — flag config belongs on the
-        ``feature_flag`` object now. On create, reject any ``FEATURE_FLAG_CONFIG_KEYS`` outright.
-        On update, tolerate a read-modify-write echo (a client that spreads a GET response back
-        sends the projected keys): strip keys whose values match the linked flag's current
-        projected config, and reject keys whose values differ — a genuine write through the
-        removed surface must fail loudly, not be silently dropped."""
-        if not isinstance(value, dict):
-            return value
-        present = [key for key in ExperimentService.FEATURE_FLAG_CONFIG_KEYS if key in value]
+    @staticmethod
+    def _is_feature_flag_config_input(feature_flag_input: Any) -> bool:
+        """Whether the request carries a genuine ``feature_flag`` config object (write intent), as
+        opposed to nothing, a read-only echo of the linked flag (non-null ``id``), or a bare stub
+        with no config keys."""
+        return (
+            isinstance(feature_flag_input, dict)
+            and feature_flag_input.get("id") is None
+            and any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity"))
+        )
+
+    def _deprecated_parameters_as_feature_flag_config(self) -> dict | None:
+        """Copy flag config still sent through the deprecated ``parameters`` keys into a
+        ``feature_flag`` config object, so legacy callers flow through the same build/sync path as
+        the ``feature_flag`` object rather than being rejected. Read from ``initial_data`` because
+        ``validate_parameters`` has already stripped these keys from the validated parameters.
+
+        Returns ``None`` when ``parameters`` carries no flag config, or when every key merely echoes
+        the linked flag's current projected config — a read-modify-write no-op that must stay a
+        no-op (not resync the flag, not trip the running-experiment guard)."""
+        raw_parameters = (getattr(self, "initial_data", None) or {}).get("parameters")
+        if not isinstance(raw_parameters, dict):
+            return None
+        present = [key for key in ExperimentService.FEATURE_FLAG_CONFIG_KEYS if key in raw_parameters]
         if not present:
-            return value
+            return None
 
         flag = self.instance.feature_flag if self.instance is not None else None
-        if flag is None:
-            raise serializers.ValidationError({"parameters": self._DEPRECATED_FLAG_CONFIG_MESSAGE})
+        projected: dict[str, Any] = {}
+        if flag is not None:
+            projection: dict[str, Any] = {}
+            self._project_feature_flag_config(projection, flag)
+            projected = projection.get("parameters") or {}
 
-        projection: dict[str, Any] = {}
-        self._project_feature_flag_config(projection, flag)
-        projected = projection.get("parameters") or {}
+        changed = {
+            key: raw_parameters[key]
+            for key in present
+            if not self._flag_config_echo_matches(key, raw_parameters[key], projected.get(key))
+        }
+        if not changed:
+            return None
+        return self._feature_flag_config_object(changed) or None
 
-        value = dict(value)
-        for key in present:
-            if self._flag_config_echo_matches(key, value[key], projected.get(key)):
-                del value[key]
-            else:
-                raise serializers.ValidationError({"parameters": self._DEPRECATED_FLAG_CONFIG_MESSAGE})
-        return value
+    @staticmethod
+    def _feature_flag_config_object(flag_config: dict[str, Any]) -> dict[str, Any]:
+        """Assemble a ``feature_flag`` config object (the flag's native write shape) from deprecated
+        ``parameters`` flag-config keys, so the shared feature_flag input path can consume them.
+        Mirrors the read projection's translation in reverse."""
+        filters: dict[str, Any] = {}
+        if "feature_flag_variants" in flag_config:
+            filters["multivariate"] = {"variants": flag_config["feature_flag_variants"]}
+        if flag_config.get("rollout_percentage") is not None:
+            filters["groups"] = [{"properties": [], "rollout_percentage": flag_config["rollout_percentage"]}]
+        if "aggregation_group_type_index" in flag_config:
+            filters["aggregation_group_type_index"] = flag_config["aggregation_group_type_index"]
+        if "feature_flag_payloads" in flag_config:
+            filters["payloads"] = flag_config["feature_flag_payloads"]
+        feature_flag_input: dict[str, Any] = {}
+        if filters:
+            feature_flag_input["filters"] = filters
+        if "ensure_experience_continuity" in flag_config:
+            feature_flag_input["ensure_experience_continuity"] = flag_config["ensure_experience_continuity"]
+        return feature_flag_input
 
     @staticmethod
     def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:

@@ -89,14 +89,15 @@ def _hoist_flag_config(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class _HoistFlagConfigClientMixin:
-    """Experiment writes now reject flag config sent through the deprecated `parameters` keys; it must
-    go through the `feature_flag` object. Many fixtures in this file still set flag config up via
-    `parameters` as a convenience. This mixin transparently relocates those keys on experiment
-    create/update requests so setup keeps working against the new write API. Requests that already
-    send a `feature_flag` object (or carry no flag config) pass through untouched.
+    """Flag config now belongs on the `feature_flag` object. The API still accepts it through the
+    deprecated `parameters` keys (copying it onto the object for backward compatibility), but many
+    fixtures in this file set it up via `parameters` as a convenience. This mixin transparently
+    relocates those keys on experiment create/update requests so setup exercises the explicit
+    `feature_flag` object path. Requests that already send a `feature_flag` object (or carry no flag
+    config) pass through untouched.
 
-    Tests that assert the rejection itself must NOT use this mixin — they send the deprecated
-    `parameters` keys directly (see TestExperimentParametersFlagConfigRejection)."""
+    Tests that assert the deprecated-`parameters` copy behavior itself must NOT use this mixin — they
+    send the deprecated keys directly (see TestExperimentParametersFlagConfigCompatibility)."""
 
     def setUp(self) -> None:
         super().setUp()  # type: ignore[misc]
@@ -5796,36 +5797,53 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestExperimentParametersFlagConfigRejection(APILicensedTest):
-    """The experiment write API no longer accepts flag config through the deprecated `parameters`
-    keys — it must go through the `feature_flag` object. This class sends the deprecated keys
-    directly (it deliberately does NOT use _HoistFlagConfigClientMixin) to lock in the rejection and
-    the read-modify-write echo tolerance."""
+class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
+    """Flag config belongs on the `feature_flag` object now, but many external clients still send it
+    through the deprecated `parameters` keys. Rather than reject those requests, the API copies that
+    config into the `feature_flag` object so legacy callers keep working. This class sends the
+    deprecated keys directly (it deliberately does NOT use _HoistFlagConfigClientMixin) to lock in
+    the copy behavior, the read-modify-write echo tolerance, and the running-experiment guard."""
 
     @parameterized.expand(
         [
-            ("variants", {"feature_flag_variants": [{"key": "control", "rollout_percentage": 100}]}),
-            ("rollout", {"rollout_percentage": 50}),
-            ("aggregation", {"aggregation_group_type_index": 0}),
-            ("payloads", {"feature_flag_payloads": {"control": '"x"'}}),
-            ("continuity", {"ensure_experience_continuity": True}),
+            (
+                "variants",
+                {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                lambda p: [v["key"] for v in p["feature_flag_variants"]] == ["control", "test"],
+            ),
+            ("rollout", {"rollout_percentage": 50}, lambda p: p["rollout_percentage"] == 50),
+            ("aggregation", {"aggregation_group_type_index": 0}, lambda p: p["aggregation_group_type_index"] == 0),
+            (
+                "payloads",
+                {"feature_flag_payloads": {"control": '"x"'}},
+                lambda p: p["feature_flag_payloads"] == {"control": '"x"'},
+            ),
+            ("continuity", {"ensure_experience_continuity": True}, lambda p: p["ensure_experience_continuity"] is True),
         ]
     )
-    def test_create_rejects_deprecated_flag_config_in_parameters(self, name: str, parameters: dict) -> None:
+    def test_create_copies_deprecated_flag_config_to_flag(self, name: str, parameters: dict, check) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
-            {"name": f"reject {name}", "feature_flag_key": f"reject-{name}", "parameters": parameters},
+            {"name": f"copy {name}", "feature_flag_key": f"copy-{name}", "parameters": parameters},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertIn("feature_flag", str(response.json()))
-        self.assertFalse(FeatureFlag.objects.filter(key=f"reject-{name}", team_id=self.team.id).exists())
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertTrue(FeatureFlag.objects.filter(key=f"copy-{name}", team_id=self.team.id).exists())
+        # The read response projects the linked flag's config back into `parameters`, so it reflects
+        # the config the deprecated keys were copied onto the flag.
+        self.assertTrue(check(response.json()["parameters"]), response.json()["parameters"])
 
-    def _create_via_flag_object(self) -> int:
+    def _create_via_flag_object(self, key: str = "echo-source", start_date: str | None = None) -> int:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
-                "name": "echo source",
-                "feature_flag_key": "echo-source",
+                "name": key,
+                "feature_flag_key": key,
+                "start_date": start_date,
                 "feature_flag": {
                     "filters": {
                         "multivariate": {
@@ -5845,7 +5863,7 @@ class TestExperimentParametersFlagConfigRejection(APILicensedTest):
         experiment_id = self._create_via_flag_object()
         # A read-modify-write client spreads the GET response's `parameters` (which carries the
         # projected flag config, split_percent and all) straight back into the save. That unchanged
-        # echo must be stripped and tolerated, not rejected — else every UI save breaks.
+        # echo must be stripped and tolerated, not resynced — else every UI save breaks.
         echoed_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
             "parameters"
         ]
@@ -5861,23 +5879,67 @@ class TestExperimentParametersFlagConfigRejection(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("variants", {"feature_flag_variants": [{"key": "control", "rollout_percentage": 60}]}),
-            ("rollout", {"rollout_percentage": 25}),
+            (
+                "variants",
+                {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 30},
+                        {"key": "test", "rollout_percentage": 70},
+                    ]
+                },
+                lambda flag: [v["rollout_percentage"] for v in flag.variants] == [30, 70],
+            ),
+            ("rollout", {"rollout_percentage": 25}, lambda flag: flag.filters["groups"][0]["rollout_percentage"] == 25),
         ]
     )
-    def test_update_rejects_differing_flag_config_in_parameters(self, name: str, override: dict) -> None:
+    def test_draft_update_copies_differing_parameters_flag_config_to_flag(
+        self, name: str, override: dict, check
+    ) -> None:
         experiment_id = self._create_via_flag_object()
         echoed_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
             "parameters"
         ]
-        # A genuine write through the removed surface (values that differ from the linked flag) must
-        # fail loudly rather than be silently ignored.
+        # A genuine change through the deprecated surface on a draft is copied into the feature_flag
+        # object and applied to the linked flag, not silently dropped.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}",
             {"parameters": {**echoed_parameters, **override}},
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag = FeatureFlag.objects.get(key="echo-source", team_id=self.team.id)
+        self.assertTrue(check(flag), flag.filters)
+
+    def test_running_update_requires_opt_in_for_differing_parameters_flag_config(self) -> None:
+        experiment_id = self._create_via_flag_object(key="running-echo-source", start_date="2021-12-01T10:23")
+        echoed_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "parameters"
+        ]
+        differing = {
+            **echoed_parameters,
+            "feature_flag_variants": [
+                {"key": "control", "rollout_percentage": 60},
+                {"key": "test", "rollout_percentage": 40},
+            ],
+        }
+        # Routing through the feature_flag path means the deprecated surface can't bypass the
+        # running-experiment guard: a differing change without the opt-in is rejected, not applied.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": differing},
+        )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-        self.assertIn("feature_flag", str(response.json()))
+        self.assertIn("update_feature_flag_params", str(response.json()))
+        flag = FeatureFlag.objects.get(key="running-echo-source", team_id=self.team.id)
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [50, 50])
+
+        # With the opt-in the change applies.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": differing, "update_feature_flag_params": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag.refresh_from_db()
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
 
 
 class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTestMixin, APILicensedTest):
