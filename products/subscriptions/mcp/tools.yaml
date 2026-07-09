@@ -174,7 +174,6 @@ tools:
             - resource_name
             - insight_short_id
             - invite_message
-            # Create-only knob, ignored on update — exposing it here would imply a PATCH can trigger a send.
             - send_test_now
     subscriptions-retrieve:
         operation: subscriptions_retrieve
