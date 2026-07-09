@@ -48,16 +48,27 @@ function SelectedColumnRow({ column }: { column: LogsColumnConfig }): JSX.Elemen
     const { id } = useValues(logsViewerLogic)
     const { editingColumnId } = useValues(logsColumnConfiguratorLogic({ id }))
     const { updateDraftColumn, removeDraftColumn, setEditingColumnId } = useActions(logsColumnConfiguratorLogic({ id }))
-    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column.id })
+    const { setNodeRef, attributes, transform, transition, listeners } = useSortable({
+        id: column.id,
+        disabled: column.type === 'message',
+    })
 
     const isEditing = editingColumnId === column.id
 
     return (
         <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} {...attributes}>
             <div className="flex items-center justify-start px-2 py-1 my-1 rounded bg-accent-highlight-secondary">
-                <span {...listeners} className="pr-2 text-secondary cursor-move">
-                    <SortableDragIcon />
-                </span>
+                {column.type === 'message' ? (
+                    <Tooltip title="Message is always the last column">
+                        <span className="pr-2 text-muted">
+                            <SortableDragIcon />
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <span {...listeners} className="pr-2 text-secondary cursor-move">
+                        <SortableDragIcon />
+                    </span>
+                )}
                 <span className="truncate">{columnLabel(column)}</span>
                 {column.type === 'custom' && column.name && column.expression && column.expression !== column.name && (
                     <span className="ml-2 text-xs text-muted font-mono truncate">{column.expression}</span>
