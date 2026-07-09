@@ -21,9 +21,9 @@ from temporalio import activity
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.max_tools import describe_scanner_outcome
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.vision_action import AlertMetric, AlertOperator, VisionActionRun
+from products.replay_vision.backend.observation_formatting import describe_output
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
     MAX_OBSERVATIONS,
@@ -163,7 +163,7 @@ def _alert_markdown(
     observations_qs: Any,
 ) -> str:
     """Deterministic alert report: what fired, the measured value vs the threshold, and a few example
-    observation outcomes (verdict/score/tags via `describe_scanner_outcome` — outcomes only, no
+    observation outcomes (verdict/score/tags via `describe_output` — outcomes only, no
     recording-derived prose, so nothing here needs an LLM or invites prompt injection)."""
     # Scanner name is free text; strip markdown/mrkdwn control chars so it can't garble the bold header.
     raw_name = action.scanner.name if action.scanner_id else ""
@@ -187,7 +187,7 @@ def _alert_markdown(
         output = scanner_result.get("model_output") if isinstance(scanner_result, dict) else None
         if not isinstance(output, dict):
             continue
-        descriptor = describe_scanner_outcome(output)
+        descriptor = describe_output(output)
         if descriptor:
             examples.append(f"- ({created_at:%Y-%m-%d}) {descriptor}")
     if examples:
