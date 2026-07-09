@@ -9,13 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    MCPActivityOverviewApi,
     MCPAnalyticsSubmissionApi,
     MCPFeedbackCreateApi,
     MCPIntentClusterSnapshotApi,
+    MCPIntentDigestApi,
     MCPMissingCapabilityCreateApi,
     MCPSessionIntentApi,
     McpAnalyticsFeedbackListParams,
     McpAnalyticsMissingCapabilitiesListParams,
+    McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsListParams,
     McpAnalyticsSessionsToolCallsParams,
     PaginatedMCPAnalyticsSubmissionListApi,
@@ -193,8 +196,24 @@ export const mcpAnalyticsSessionsList = async (
     })
 }
 
-export const getMcpAnalyticsSessionsGenerateIntentUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/`
+export const getMcpAnalyticsSessionsGenerateIntentUrl = (
+    projectId: string,
+    id: string,
+    params?: McpAnalyticsSessionsGenerateIntentParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/mcp_analytics/sessions/${id}/generate_intent/`
 }
 
 /**
@@ -203,9 +222,10 @@ export const getMcpAnalyticsSessionsGenerateIntentUrl = (projectId: string, id: 
 export const mcpAnalyticsSessionsGenerateIntent = async (
     projectId: string,
     id: string,
+    params?: McpAnalyticsSessionsGenerateIntentParams,
     options?: RequestInit
 ): Promise<MCPSessionIntentApi> => {
-    return apiMutator<MCPSessionIntentApi>(getMcpAnalyticsSessionsGenerateIntentUrl(projectId, id), {
+    return apiMutator<MCPSessionIntentApi>(getMcpAnalyticsSessionsGenerateIntentUrl(projectId, id, params), {
         ...options,
         method: 'POST',
     })
@@ -232,7 +252,7 @@ export const getMcpAnalyticsSessionsToolCallsUrl = (
 }
 
 /**
- * List all $mcp_tool_call events that belong to a given $session_id, in chronological order.
+ * List a page of the $mcp_tool_call events that belong to a given $session_id, in chronological order.
  */
 export const mcpAnalyticsSessionsToolCalls = async (
     projectId: string,
@@ -243,5 +263,39 @@ export const mcpAnalyticsSessionsToolCalls = async (
     return apiMutator<PaginatedMCPToolCallListApi>(getMcpAnalyticsSessionsToolCallsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsActivityOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/activity_overview/`
+}
+
+/**
+ * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view; always computed fresh so polling callers watch data arrive.
+ */
+export const mcpAnalyticsSessionsActivityOverview = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPActivityOverviewApi> => {
+    return apiMutator<MCPActivityOverviewApi>(getMcpAnalyticsSessionsActivityOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMcpAnalyticsSessionsIntentDigestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/mcp_analytics/sessions/intent_digest/`
+}
+
+/**
+ * Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage.
+ */
+export const mcpAnalyticsSessionsIntentDigest = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<MCPIntentDigestApi> => {
+    return apiMutator<MCPIntentDigestApi>(getMcpAnalyticsSessionsIntentDigestUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

@@ -24,11 +24,26 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_queries.ai.sentiment_evaluations import (
+    EMPTY_SENTIMENT_EVALUATION_LOOKUP,
+    SentimentEvaluationLookup,
+    get_generation_sentiment_lookup_ids,
+    get_sentiment_for_generation,
+    load_trace_sentiment_evaluations,
+)
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
+
+# Recency-ordered cap on the filtered candidate set: matches beyond it drop on deep
+# pages or when a group filter (not pushed into the subquery) discards most candidates.
+SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
+
+
+def _escape_like_pattern(term: str) -> str:
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class TracesQueryDateRange(QueryDateRange):
@@ -85,59 +100,60 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset=self.query.offset,
         )
 
+    def _build_trace_ids_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Calculate max number of events needed with current offset and limit
+        limit_value = self.paginator.limit
+        offset_value = self.paginator.offset
+        pagination_limit = limit_value + offset_value + 1
+
+        # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
+        # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
+        # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
+        # order but the main query re-sorts them differently, so OFFSET-based slicing
+        # produces overlapping or missing traces across pages.
+        order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
+
+        # The HAVING clause enforces the same overlap semantics as the post-filter
+        # in `_map_results` (a trace counts if any of its events overlap the user
+        # window). Without it, the LIMIT runs over the buffered window — so for a
+        # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
+        # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
+        # which the post-filter then drops, producing an empty page.
+        return parse_select(
+            f"""
+            SELECT
+                groupArray(trace_id) as trace_ids,
+                min(first_ts) as min_timestamp,
+                max(last_ts) as max_timestamp
+            FROM (
+                SELECT
+                    properties.$ai_trace_id as trace_id,
+                    min(timestamp) as first_ts,
+                    max(timestamp) as last_ts
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND {{conditions}}
+                GROUP BY trace_id
+                HAVING min(timestamp) <= {{unbuffered_date_to}}
+                   AND max(timestamp) >= {{unbuffered_date_from}}
+                ORDER BY {order_clause}
+                LIMIT {{limit}}
+            )
+            """,
+            placeholders={
+                "conditions": self._get_subquery_filter(),
+                "limit": ast.Constant(value=pagination_limit),
+                "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
+                "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
+            },
+        )
+
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
         with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
-            # Calculate max number of events needed with current offset and limit
-            limit_value = self.paginator.limit
-            offset_value = self.paginator.offset
-            pagination_limit = limit_value + offset_value + 1
-
-            # The subquery ordering must match the main query's ORDER BY first_timestamp DESC
-            # (where first_timestamp = min(timestamp)). Using a different ordering here (e.g.
-            # max(timestamp)) causes pagination bugs: the subquery selects trace IDs in one
-            # order but the main query re-sorts them differently, so OFFSET-based slicing
-            # produces overlapping or missing traces across pages.
-            order_clause = "rand()" if self.query.randomOrder else "min(timestamp) DESC"
-
-            # The HAVING clause enforces the same overlap semantics as the post-filter
-            # in `_map_results` (a trace counts if any of its events overlap the user
-            # window). Without it, the LIMIT runs over the buffered window — so for a
-            # high-volume team a `date_to`-anchored filter (e.g. "yesterday") can have
-            # its entire LIMIT consumed by traces in the trailing +10 min capture buffer,
-            # which the post-filter then drops, producing an empty page.
-            trace_ids_query = parse_select(
-                f"""
-                SELECT
-                    groupArray(trace_id) as trace_ids,
-                    min(first_ts) as min_timestamp,
-                    max(last_ts) as max_timestamp
-                FROM (
-                    SELECT
-                        properties.$ai_trace_id as trace_id,
-                        min(timestamp) as first_ts,
-                        max(timestamp) as last_ts
-                    FROM events
-                    WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND {{conditions}}
-                    GROUP BY trace_id
-                    HAVING min(timestamp) <= {{unbuffered_date_to}}
-                       AND max(timestamp) >= {{unbuffered_date_from}}
-                    ORDER BY {order_clause}
-                    LIMIT {{limit}}
-                )
-                """,
-            )
-
             trace_ids_result = execute_hogql_query(
                 query_type="TracesQuery_TraceIds",
-                query=trace_ids_query,
-                placeholders={
-                    "conditions": self._get_subquery_filter(),
-                    "limit": ast.Constant(value=pagination_limit),
-                    "unbuffered_date_from": self._date_range.date_from_for_filtering_as_hogql(),
-                    "unbuffered_date_to": self._date_range.date_to_for_filtering_as_hogql(),
-                },
+                query=self._build_trace_ids_query(),
                 team=self.team,
                 user=self.user,
                 timings=self.timings,
@@ -192,7 +208,23 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             )
 
         columns: list[str] = query_result.columns or []
-        results = self._map_results(columns, query_result.results)
+        sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
+        if self.query.includeSentiment and query_result.results and columns:
+            id_index = columns.index("id") if "id" in columns else -1
+            result_trace_ids = [str(row[id_index]) for row in query_result.results if id_index >= 0 and row[id_index]]
+            sentiment_lookup = SentimentEvaluationLookup(
+                by_trace_id=load_trace_sentiment_evaluations(
+                    team=self.team,
+                    trace_ids=result_trace_ids,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                    query_type="TracesQuerySentimentEvaluations",
+                ),
+                by_generation_id={},
+            )
+
+        results = self._map_results(columns, query_result.results, sentiment_lookup)
 
         return TracesQueryResponse(
             columns=columns,
@@ -350,7 +382,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 6,
+            "schema_version": 10,
         }
 
     @cached_property
@@ -377,7 +409,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
         return narrowed_range
 
-    def _map_results(self, columns: list[str], query_results: list):
+    def _map_results(
+        self, columns: list[str], query_results: list, sentiment_lookup: SentimentEvaluationLookup
+    ) -> list[LLMTrace]:
         mapped_results = [dict(zip(columns, value)) for value in query_results]
         traces = []
 
@@ -392,11 +426,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             if first_timestamp > date_to or last_timestamp < date_from:
                 continue
 
-            traces.append(self._map_trace(result, first_timestamp))
+            traces.append(self._map_trace(result, first_timestamp, sentiment_lookup))
 
         return traces
 
-    def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
+    def _map_trace(
+        self, result: dict[str, Any], created_at: datetime, sentiment_lookup: SentimentEvaluationLookup
+    ) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
             "ai_session_id": "aiSessionId",
@@ -417,17 +453,21 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "error_count": "errorCount",
             "is_support_trace": "isSupportTrace",
             "tools": "tools",
+            "sentiment": "sentiment",
         }
 
         generations = []
         for uuid, event_name, timestamp, properties in result["events"]:
-            generations.append(self._map_event(uuid, event_name, timestamp, properties))
+            generations.append(self._map_event(uuid, event_name, timestamp, properties, sentiment_lookup))
 
         trace_dict = {
             **result,
             "created_at": created_at.isoformat(),
             "events": generations,
         }
+        sentiment = sentiment_lookup.by_trace_id.get(str(result["id"]))
+        if sentiment is not None:
+            trace_dict["sentiment"] = sentiment
         for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
             raw = trace_dict.get(raw_key)
             if raw is not None:
@@ -442,14 +482,25 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return trace
 
     def _map_event(
-        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+        self,
+        event_uuid: UUID,
+        event_name: str,
+        event_timestamp: datetime,
+        event_properties: str,
+        sentiment_lookup: SentimentEvaluationLookup,
     ) -> LLMTraceEvent:
+        event_id = str(event_uuid)
+        properties = orjson.loads(event_properties)
         generation: dict[str, Any] = {
-            "id": str(event_uuid),
+            "id": event_id,
             "event": event_name,
             "createdAt": event_timestamp.isoformat(),
-            "properties": orjson.loads(event_properties),
+            "properties": properties,
         }
+        sentiment_lookup_ids = get_generation_sentiment_lookup_ids(event_id, event_name, properties)
+        sentiment = get_sentiment_for_generation(sentiment_lookup, sentiment_lookup_ids)
+        if sentiment is not None:
+            generation["sentiment"] = sentiment
         return LLMTraceEvent.model_validate(generation)
 
     def _get_subquery_filter(self) -> ast.Expr:
@@ -485,7 +536,87 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 )
             )
 
+        search_filter = self._get_search_filter()
+        if search_filter is not None:
+            exprs.append(search_filter)
+
         return ast.And(exprs=exprs)
+
+    def _get_search_filter(self) -> ast.Expr | None:
+        """Content columns live only in ai_events (a satellite cluster), so this
+        semijoins with GLOBAL IN. Person/property filters are pushed in too so the
+        recency cap is drawn from the already-filtered set, not from raw text matches
+        the outer scan later discards; group filters stay outer ($group_N isn't a
+        column here). Each condition is a trace-level countIf so a term and a filter
+        matching different events of the same trace still count.
+        """
+        search_term = (self.query.searchTerm or "").strip()
+        if not search_term:
+            return None
+
+        pattern = ast.Constant(value=f"%{_escape_like_pattern(search_term)}%")
+        search_subquery = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT trace_id
+                FROM posthog.ai_events
+                WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                GROUP BY trace_id
+                HAVING countIf(
+                    event IN ('$ai_generation', '$ai_embedding')
+                    AND (input ILIKE {pattern} OR output ILIKE {pattern} OR output_choices ILIKE {pattern})
+                ) > 0
+                ORDER BY max(timestamp) DESC
+                LIMIT {candidate_limit}
+                """,
+                placeholders={
+                    "date_from": self._date_range.date_from_as_hogql(),
+                    "date_to": self._date_range.date_to_as_hogql(),
+                    "pattern": pattern,
+                    "candidate_limit": ast.Constant(value=SEARCH_CANDIDATE_TRACE_LIMIT),
+                },
+            ),
+        )
+
+        candidate_filters = self._search_candidate_filters()
+        if candidate_filters:
+            base_having = search_subquery.having
+            assert base_having is not None, "parsed search subquery always has a HAVING clause"
+            search_subquery.having = ast.And(
+                exprs=[
+                    base_having,
+                    *(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Gt,
+                            left=ast.Call(name="countIf", args=[expr]),
+                            right=ast.Constant(value=0),
+                        )
+                        for expr in candidate_filters
+                    ),
+                ]
+            )
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.GlobalIn,
+            left=ast.Field(chain=["properties", "$ai_trace_id"]),
+            right=search_subquery,
+        )
+
+    def _search_candidate_filters(self) -> list[ast.Expr]:
+        filters: list[ast.Expr] = []
+        properties_filter = self._get_properties_filter()
+        if properties_filter is not None:
+            filters.append(properties_filter)
+        if self.query.personId:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["person_id"]),
+                    right=ast.Constant(value=self.query.personId),
+                )
+            )
+        return filters
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []

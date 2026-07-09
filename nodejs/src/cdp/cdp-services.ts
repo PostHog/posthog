@@ -2,17 +2,16 @@ import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { getRedisHost } from '~/utils/db/redis'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { getRedisHost } from '~/common/utils/db/redis'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { PostgresRouter } from '../utils/db/postgres'
-import { logger } from '../utils/logger'
-import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
 import {
-    BatchHogflowRequestsOutput,
     PrecalculatedPersonPropertiesOutput,
     PrefilteredEventsOutput,
     WarehouseSourceWebhooksOutput,
@@ -32,8 +31,10 @@ import { HogFunctionTemplateManagerService } from './services/managers/hog-funct
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
+import { MessageAssetsService } from './services/messaging/message-assets.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -51,7 +52,6 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
-    | BatchHogflowRequestsOutput
     | WarehouseSourceWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -102,6 +102,8 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
+    messageAssetsService: MessageAssetsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -146,7 +148,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
-        | 'CDP_EMAIL_QUEUE_ROUTING'
         | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -155,12 +156,12 @@ export type CdpCoreServicesConfig = Pick<
         | 'HOG_INVOCATION_RESULTS_TOPIC'
         | 'HOG_INVOCATION_RESULTS_PRODUCER'
         | 'HOG_INVOCATION_RESULTS_ENABLED'
+        | 'MESSAGE_ASSETS_TOPIC'
+        | 'MESSAGE_ASSETS_PRODUCER'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC'
-        | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER'
     >
@@ -174,6 +175,13 @@ export interface CdpCoreServicesDeps {
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
     internalCaptureService: InternalCaptureService
+    /**
+     * SES Valkey pool shared with the SES rate limiter, opened only on pods whose
+     * capabilities actually execute email actions (hogflow/email cyclotron workers).
+     * `null` on every other CDP consumer and on cdp-api so idle pods don't hold
+     * open connections against the SES Valkey instance.
+     */
+    emailValidationValkey: RedisV2 | null
 }
 
 /**
@@ -383,6 +391,8 @@ export function createCdpCoreServices(
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
+    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
+    const messageAssetsService = new MessageAssetsService(outputs)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -394,7 +404,8 @@ export function createCdpCoreServices(
         teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
         config.SITE_URL,
-        trackingCodeSigner
+        trackingCodeSigner,
+        messageAssetsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
 
@@ -405,7 +416,6 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
             selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
@@ -423,15 +433,19 @@ export function createCdpCoreServices(
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
+    // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
+    // limiter, separate pool). The pool is created by the server only on pods
+    // whose capabilities execute email actions; everywhere else this is null
+    // and EmailValidationService degrades to the local cache + DNS.
+    const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
+        emailValidationService,
         hogFlowDuplicateObserver
     )
-
-    const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
@@ -441,7 +455,8 @@ export function createCdpCoreServices(
         hogFunctionMonitoringService,
         hogInvocationResultsService,
         warehouseWebhooksService,
-        capturedEventsService
+        capturedEventsService,
+        messageAssetsService
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
@@ -471,5 +486,6 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        messageAssetsService,
     }
 }

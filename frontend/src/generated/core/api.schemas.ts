@@ -118,19 +118,25 @@ export interface OrganizationDomainApi {
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml: boolean
     /**
+     * SAML IdP entity ID (issuer).
      * @maxLength 512
      * @nullable
      */
     saml_entity_id?: string | null
     /**
+     * SAML single sign-on (ACS) URL.
      * @maxLength 512
      * @nullable
      */
     saml_acs_url?: string | null
-    /** @nullable */
+    /**
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
     saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim: boolean
+    /** Whether SCIM provisioning is enabled for this domain. */
     scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url: string | null
@@ -155,6 +161,11 @@ export interface OrganizationDomainApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+     * @nullable
+     */
+    identity_provider_config?: string | null
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -181,19 +192,25 @@ export interface PatchedOrganizationDomainApi {
     /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
     readonly has_saml?: boolean
     /**
+     * SAML IdP entity ID (issuer).
      * @maxLength 512
      * @nullable
      */
     saml_entity_id?: string | null
     /**
+     * SAML single sign-on (ACS) URL.
      * @maxLength 512
      * @nullable
      */
     saml_acs_url?: string | null
-    /** @nullable */
+    /**
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
     saml_x509_cert?: string | null
     /** Returns whether SCIM is configured and enabled for this domain. */
     readonly has_scim?: boolean
+    /** Whether SCIM provisioning is enabled for this domain. */
     scim_enabled?: boolean
     /** @nullable */
     readonly scim_base_url?: string | null
@@ -218,6 +235,143 @@ export interface PatchedOrganizationDomainApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
+     * @nullable
+     */
+    identity_provider_config?: string | null
+}
+
+export interface IdentityProviderConfigApi {
+    readonly id: string
+    /**
+     * Display name for this IdP configuration (e.g. 'Okta production').
+     * @maxLength 255
+     */
+    name?: string
+    readonly created_at: string
+    readonly updated_at: string
+    /** Whether SAML is fully configured on this config. */
+    readonly has_saml: boolean
+    /**
+     * SAML IdP entity ID (issuer).
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * SAML single sign-on (ACS) URL the IdP redirects to.
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /**
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
+    saml_x509_cert?: string | null
+    /** Whether SCIM is enabled and a bearer token is set on this config. */
+    readonly has_scim: boolean
+    /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+    scim_enabled?: boolean
+    /**
+     * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+     * @nullable
+     */
+    readonly scim_bearer_token: string | null
+    /** Whether ID-JAG (XAA) is configured on this config. */
+    readonly has_id_jag: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /**
+     * Allowed ID-JAG client IDs. Empty list allows any client_id.
+     * @items.maxLength 256
+     */
+    id_jag_allowed_clients?: string[]
+}
+
+export interface PaginatedIdentityProviderConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IdentityProviderConfigApi[]
+}
+
+export interface PatchedIdentityProviderConfigApi {
+    readonly id?: string
+    /**
+     * Display name for this IdP configuration (e.g. 'Okta production').
+     * @maxLength 255
+     */
+    name?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** Whether SAML is fully configured on this config. */
+    readonly has_saml?: boolean
+    /**
+     * SAML IdP entity ID (issuer).
+     * @maxLength 512
+     * @nullable
+     */
+    saml_entity_id?: string | null
+    /**
+     * SAML single sign-on (ACS) URL the IdP redirects to.
+     * @maxLength 512
+     * @nullable
+     */
+    saml_acs_url?: string | null
+    /**
+     * SAML IdP X.509 signing certificate (PEM).
+     * @nullable
+     */
+    saml_x509_cert?: string | null
+    /** Whether SCIM is enabled and a bearer token is set on this config. */
+    readonly has_scim?: boolean
+    /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
+    scim_enabled?: boolean
+    /**
+     * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
+     * @nullable
+     */
+    readonly scim_bearer_token?: string | null
+    /** Whether ID-JAG (XAA) is configured on this config. */
+    readonly has_id_jag?: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /**
+     * Allowed ID-JAG client IDs. Empty list allows any client_id.
+     * @items.maxLength 256
+     */
+    id_jag_allowed_clients?: string[]
+}
+
+export interface SCIMTokenResponseApi {
+    /** Whether SCIM is enabled for this config. */
+    scim_enabled: boolean
+    /** Newly generated plaintext SCIM bearer token. Only returned once. */
+    scim_bearer_token: string
 }
 
 /**
@@ -1762,6 +1916,10 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2610,14 +2768,10 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months?: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced?: boolean
 }
 
 export interface SharePasswordApi {
@@ -2855,66 +3009,6 @@ export interface FileSystemShortcutReorderApi {
 }
 
 /**
- * * `home` - Home
- * * `pinned` - Pinned
- * * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-/**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
  * * `text/csv` - text/csv
@@ -2970,6 +3064,37 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+/**
+ * * `conversations` - conversations
+ * * `error_tracking` - error_tracking
+ * * `session_replay` - session_replay
+ */
+export type ProductsEnumApi = (typeof ProductsEnumApi)[keyof typeof ProductsEnumApi]
+
+export const ProductsEnumApi = {
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    SessionReplay: 'session_replay',
+} as const
+
+export interface ProductEnablementApi {
+    /**
+     * Products to turn on for this project, each enabled with server-owned conservative defaults.
+     * @minItems 1
+     */
+    products: ProductsEnumApi[]
+}
+
+/**
+ * Per requested product: "enabled" (just turned on) or "already_enabled".
+ */
+export type ProductEnablementResultApiResults = { [key: string]: string }
+
+export interface ProductEnablementResultApi {
+    /** Per requested product: "enabled" (just turned on) or "already_enabled". */
+    results: ProductEnablementResultApiResults
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -3093,9 +3218,9 @@ export interface PatchedEnterprisePropertyDefinitionApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -3112,7 +3237,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -3628,9 +3753,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -3642,6 +3782,11 @@ export interface GitHubReposResponseApi {
 export interface GitHubReposRefreshResponseApi {
     /** The refreshed repository cache. */
     repositories: GitHubRepoApi[]
+}
+
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
 }
 
 export interface UserGitHubLinkStartRequestApi {
@@ -3840,6 +3985,17 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type IdentityProviderConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type InvitesListParams = {
     /**
      * Number of results to return per page.
@@ -3918,17 +4074,6 @@ export type DesktopFileSystemShortcutListParams = {
     offset?: number
 }
 
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3956,17 +4101,6 @@ export type FileSystemListParams = {
 }
 
 export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */

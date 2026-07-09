@@ -30,29 +30,24 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
+from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_CHOICES, SignalSourceProduct
 
 logger = logging.getLogger(__name__)
 
 
 class SignalSourceConfig(UUIDModel):
-    class SourceProduct(models.TextChoices):
-        SESSION_REPLAY = "session_replay", "Session replay"
-        LLM_ANALYTICS = "llm_analytics", "LLM analytics"
-        GITHUB = "github", "GitHub"
-        LINEAR = "linear", "Linear"
-        ZENDESK = "zendesk", "Zendesk"
-        CONVERSATIONS = "conversations", "Conversations"
-        ERROR_TRACKING = "error_tracking", "Error tracking"
-        PGANALYZE = "pganalyze", "pganalyze"
-        SIGNALS_SCOUT = "signals_scout", "Signals scout"
-        LOGS = "logs", "Logs"
-        HEALTH_CHECKS = "health_checks", "Health checks"
-        ENDPOINTS = "endpoints", "Endpoints"
-        REPLAY_VISION = "replay_vision", "Replay Vision"
+    # Source-product taxonomy is owned by products.signals.backend.enums (the same StrEnum the payload
+    # contracts and frontend codegen use). Aliased here so `SignalSourceConfig.SourceProduct.X` keeps
+    # working; choices are frozen-equivalent to the prior nested TextChoices, so no migration is needed.
+    SourceProduct = SignalSourceProduct
 
+    # Source-type choices are intentionally a *subset* of the full SignalSourceType taxonomy: only the
+    # types that carry a per-team config row live here (e.g. session_problem / evaluation_report gate via
+    # other configs and are deliberately absent).
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
+        EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
         ISSUE_CREATED = "issue_created", "Issue created"
@@ -66,7 +61,7 @@ class SignalSourceConfig(UUIDModel):
         SCANNER_FINDING = "scanner_finding", "Scanner finding"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SourceProduct)
+    source_product = models.CharField(max_length=100, choices=SIGNAL_SOURCE_PRODUCT_CHOICES)
     source_type = models.CharField(max_length=100, choices=SourceType)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
@@ -78,13 +73,11 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         Scout findings are on by default (see below). For everything else, the team must have a
-        SignalSourceConfig row with enabled=True.
+        SignalSourceConfig row with enabled=True. AI observability evaluation signals additionally
+        carry a per-evaluation allowlist in the config row, enforced upstream in the llma evals
+        workflows — the row check here is the team-level gate.
         """
-        if source_product == cls.SourceProduct.LLM_ANALYTICS:
-            return True
-
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
@@ -382,6 +375,29 @@ class SignalReport(UUIDModel):
             return S(prior)
         return S.POTENTIAL
 
+    def update_authored_content(self, *, title: str | None = None, summary: str | None = None) -> list[str]:
+        """Rewrite an agent-authored report's `title`/`summary` in place, independent of status.
+
+        The pipeline only ever sets title/summary as a side effect of the `IN_PROGRESS -> READY`
+        (or `-> PENDING_INPUT`) transition — there is no path to edit them on an already-surfaced
+        report. The scout report-authoring channel needs one: `emit_report` writes them at creation
+        (a report born READY, not transitioned there) and `edit_report` rewrites them afterwards.
+
+        Only the provided fields change; passing neither is a no-op. Returns the modified field names
+        (with `updated_at`) for a targeted `save(update_fields=...)`; does NOT call `.save()` — the
+        caller owns the write so it can batch this with other changes in one transaction.
+        """
+        updated_fields: set[str] = set()
+        if title is not None:
+            self.title = title
+            updated_fields.add("title")
+        if summary is not None:
+            self.summary = summary
+            updated_fields.add("summary")
+        if updated_fields:
+            updated_fields.add("updated_at")
+        return list(updated_fields)
+
     @staticmethod
     def _merge_task_runs(
         artefact_rows: "list[tuple[datetime, str]]",
@@ -610,6 +626,23 @@ class SignalReport(UUIDModel):
         legacy_report_ids = SignalReportTask.objects.filter(task_id=task_id).values("report_id")
         return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
 
+    @staticmethod
+    def reports_for_task_ids_filter(task_ids: Any) -> "models.Q":
+        """`reports_for_task_filter` widened to a *set* of tasks: a `Q` on `SignalReport.id` matching
+        the reports associated with any task in `task_ids` (a collection or, preferably, a `task_id`
+        subquery), unified across the `task_run` artefact log and the legacy `SignalReportTask` gate
+        rows.
+
+        Lets a per-report correlated `Exists` over `tasks.TaskRun` be *decorrelated*: drive off the
+        small task set (e.g. tasks that produced a PR) and map it to reports here via the indexed
+        `task_id` columns, instead of probing the runs once per candidate report.
+        """
+        artefact_report_ids = SignalReportArtefact.objects.filter(
+            type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
+        ).values("report_id")
+        legacy_report_ids = SignalReportTask.objects.filter(task_id__in=task_ids).values("report_id")
+        return models.Q(id__in=artefact_report_ids) | models.Q(id__in=legacy_report_ids)
+
 
 class SignalEmissionRecord(UUIDModel):
     """Tracks which source records have been emitted as signals.
@@ -691,6 +724,8 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        TITLE_CHANGE = "title_change"
+        SUMMARY_CHANGE = "summary_change"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -699,7 +734,7 @@ class SignalReportArtefact(UUIDModel):
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
     #   - log artefacts record discrete work done on a report (code references, commits,
-    #     task runs, notes). Appended via `add_log`.
+    #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
     # a new signal yields a new entry, re-researching an existing signal appends a new version
     # (latest per signal_id wins). It is intentionally in neither set.
@@ -718,6 +753,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.TITLE_CHANGE,
+            ArtefactType.SUMMARY_CHANGE,
         }
     )
 
@@ -989,7 +1026,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     emit = models.BooleanField(default=True, db_default=True)
     # Minutes between runs. The coordinator dispatches this scout when
     # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
-    # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
+    # no sampling. Floor of 30 keeps one scout from monopolising the worker pool and matches the
+    # tightest cadence the UI offers (RUN_INTERVAL_OPTIONS); default
     # 1440 = every 24 hours. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
     # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
     # Default chosen for run economics: most runs close out without a finding, so a tighter
@@ -1000,7 +1038,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     run_interval_minutes = models.PositiveIntegerField(
         default=1440,
         db_default=1440,
-        validators=[MinValueValidator(10), MaxValueValidator(43200)],
+        validators=[MinValueValidator(30), MaxValueValidator(43200)],
     )
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
@@ -1101,6 +1139,21 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # to its `Signal` rows (`source_id = run:<run_id>:finding:<finding_id>`) without a
     # ClickHouse scan. Parallel to `emitted_count` (`len(emitted_finding_ids) == emitted_count`).
     emitted_finding_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # The `SignalReport` ids a run authored directly via `emit_report` (the second emit channel),
+    # in emit order. Parallel to `emitted_finding_ids` but for the report-authoring path: a scout
+    # that opts into `emit_report` writes a full report rather than a weak signal, so its output
+    # isn't a `finding_id` -> signal but a `report_id` the run owns. Lets "which reports did this
+    # run create/edit?" be a column lookup. Nullable with a `[]` db_default so the AddField stays
+    # non-blocking on the populated table — new and historical rows both read `[]`.
+    emitted_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # The `SignalReport` ids a run *mutated* via `edit_report` (rewrote title/summary and/or appended a
+    # note) — the edit-channel counterpart to `emitted_report_ids`. Deduped (set-membership, not a
+    # multiset): a run that edits the same report twice records it once, because the queryable question
+    # is "which reports did this run touch?", not "how many edits did it make" — that detail lives in the
+    # per-report artefact log. Distinct from `emitted_report_ids` because `edit_report` targets ANY inbox
+    # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
+    # with a `[]` db_default so the AddField stays non-blocking on the populated table.
+    edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

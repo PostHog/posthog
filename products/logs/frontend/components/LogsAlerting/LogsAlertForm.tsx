@@ -18,7 +18,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFilte
 
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { ThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
@@ -139,8 +139,8 @@ export function LogsAlertForm(): JSX.Element {
                         value={alertForm.thresholdOperator}
                         onChange={(value) => setAlertFormValue('thresholdOperator', value)}
                         options={[
-                            { value: ThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: ThresholdOperatorEnumApi.Below, label: 'below' },
+                            { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
+                            { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
                         ]}
                         size="small"
                     />

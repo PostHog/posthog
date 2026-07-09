@@ -67,6 +67,9 @@ describe('liveDebuggerLogic', () => {
 
     beforeEach(() => {
         jest.useFakeTimers()
+        // lib/api is automocked, so api.get resolves undefined unless a test overrides it —
+        // give loaders a benign default so mount-time loads don't crash
+        jest.spyOn(api, 'get').mockResolvedValue({ results: [], count: 0, has_more: false })
         initKeaTests()
     })
 

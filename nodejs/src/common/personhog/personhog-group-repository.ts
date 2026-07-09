@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLastUpdatedAt, TeamId } from '~/types'
-import { logger } from '~/utils/logger'
 
 import { PersonHogClient, shouldUseGrpc, shouldUseGrpcForTeam, shouldUseGrpcForTeams } from './client'
 import { timedGrpc, timedPostgres } from './metrics'

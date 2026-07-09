@@ -7,9 +7,9 @@ import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 
-import { tasksLogic } from 'products/tasks/frontend/logics/tasksLogic'
-import { tasksLogicType } from 'products/tasks/frontend/logics/tasksLogicType'
-import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
+import { tasksLogicType } from 'products/posthog_ai/frontend/logics/tasksLogicType'
+import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { notebookNodeLogic } from './notebookNodeLogic'
 

@@ -111,6 +111,12 @@ PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", opti
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_V2_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_V2_OVERRIDE", optional=True, type_cast=str_to_bool)
 
+# Events data retention enforcement override (ops kill switch / local + test toggle). When unset (None),
+# enforcement falls back to the per-project `events-data-retention` cohort flag. When set, forces it on/off everywhere.
+EVENTS_DATA_RETENTION_ENFORCED: bool | None = get_from_env(
+    "EVENTS_DATA_RETENTION_ENFORCED", optional=True, type_cast=str_to_bool
+)
+
 # Support creating multiple organizations in a single instance. Requires a premium license.
 MULTI_ORG_ENABLED: bool = get_from_env("MULTI_ORG_ENABLED", False, type_cast=str_to_bool)
 

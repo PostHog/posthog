@@ -192,24 +192,29 @@ tools:
             - name
             - description
             - feature_flag_key
+            - feature_flag
             - parameters
             - stats_config
             - holdout_id
             - allow_unknown_events
             - exposure_criteria
         param_overrides:
-            parameters:
+            feature_flag:
                 description: >
-                    Variant split and rollout scope. If the user mentions a specific percentage, load the
-                    configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage
-                    (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants
-                    with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100%
-                    rollout.
+                    Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag,
+                    in the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). If the user mentions a
+                    specific percentage, load the configuring-experiment-rollout skill and clarify before setting these
+                    values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must
+                    sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [],
+                    "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment.
+                    Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers
+                    to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected.
 
 
-                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the
-                    literal string `control` (lowercase, no variations). It is the baseline used for analysis and the
-                    experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
+                    HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string
+                    `control` (lowercase, no variations). It is the baseline used for analysis and the experiment
+                    runtime treats it specially. If the user describes variants as "A/B", "old/new",
                     "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
@@ -345,19 +350,128 @@ tools:
         ui_app: experiment
     experiment-holdouts-create:
         operation: experiment_holdouts_create
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create experiment holdout
+        description: >
+            Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back
+            baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the
+            returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which
+            holdout an experiment points to once that experiment is running; the holdout itself stays editable (see
+            experiment-holdouts-partial-update, whose edits cascade to all linked experiments).
+        include_params:
+            - name
+            - description
+            - filters
+        param_overrides:
+            filters:
+                description: >
+                    Non-empty list of release-condition groups defining the held-out population. Each element needs a
+                    `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share
+                    of users held back from every experiment that references this holdout. `properties` optionally
+                    narrows the group by person/group properties (same shape as feature-flag release conditions); pass
+                    an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to
+                    `holdout-{id}` automatically. Only the first element's `rollout_percentage` is embedded into each
+                    linked experiment's feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].
     experiment-holdouts-destroy:
         operation: experiment_holdouts_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete experiment holdout
+        description: >
+            Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always
+            confirm by name before deleting.
+
+
+            This clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to
+            null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on
+            success.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-holdouts-list:
         operation: experiment_holdouts_list
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List experiment holdouts
+        description: >
+            List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who
+            are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a
+            held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via
+            holdout_id.
+
+
+            Each holdout has a name, optional description, and a filters array (the held-out population definition).
+            Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to
+            link an experiment to a holdout.
+        response:
+            include:
+                - id
+                - name
+                - description
+                - filters
+                - created_at
+                - updated_at
     experiment-holdouts-partial-update:
         operation: experiment_holdouts_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update experiment holdout
+        description: >
+            Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you
+            don't have the ID.
+
+
+            CAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment
+            linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently
+            re-assigning the held-out population for all of those experiments at once. Confirm with the user before
+            changing filters on a holdout that experiments depend on.
+        param_overrides:
+            id:
+                cast: string-int
+            filters:
+                description: >
+                    Non-empty list of release-condition groups defining the held-out population. Each element needs a
+                    `rollout_percentage` (0–100, may be fractional) — the EXCLUSION percentage. Do NOT set `variant`
+                    (the server manages it as `holdout-{id}`). Changing this cascades to every linked experiment's
+                    feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].
     experiment-holdouts-retrieve:
         operation: experiment_holdouts_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - experiment_holdout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get experiment holdout details
+        description: >
+            Get a single experiment holdout group by ID, including its name, description, and filters array (the
+            held-out population definition). Use experiment-holdouts-list first if you don't have the ID.
+        param_overrides:
+            id:
+                cast: string-int
     experiment-holdouts-update:
         operation: experiment_holdouts_update
         enabled: false
@@ -603,13 +717,23 @@ tools:
         title: List shared experiment metrics
         description: >
             List shared metrics in the current project. Returns paginated results with id, name, description, query,
-            created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this
-            listing to resolve by name.
+            created_at, updated_at, tags.
+
+
+            To REUSE a metric by what it measures (rather than by its name): pass ?event=<the event you're measuring> to
+            find metrics that reference it — directly or via an action — then compare each candidate's 'query'
+            (metric_type + math) against the metric you'd otherwise build. Use 'search' (name/description/tags) only
+            when the user named a specific metric to attach.
         param_overrides:
             limit:
                 cast: string-int
             offset:
                 cast: string-int
+            event:
+                description: >
+                    Filter to shared metrics whose query references this event name — matched directly (an EventsNode)
+                    or via the step events of any action the metric references. For finding a reusable metric by what it
+                    measures; then confirm the match against each row's 'query'.
         response:
             include:
                 - id
@@ -813,8 +937,9 @@ tools:
 
             4. For running experiments, set
                update_feature_flag_params=true when changing
-               parameters — without it, changes save but do NOT
-               sync to the feature flag.
+               feature_flag config — without it, the request is
+               rejected because the change would not sync to the
+               feature flag.
 
             5. Setting allow_unknown_events=true REQUIRES EXPLICIT
                USER CONFIRMATION. When the API returns
@@ -840,8 +965,10 @@ tools:
         include_params:
             - name
             - description
+            - feature_flag
             - parameters
             - running_time_calculation
+            - excluded_variants
             - metrics
             - metrics_secondary
             - saved_metrics_ids
@@ -856,14 +983,22 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            feature_flag:
+                description: >
+                    Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
+                    the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). Set
+                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100,
+                    exactly one key must be the literal string 'control') to change the variant split. Set
+                    filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
+                    overall rollout. Config this object omits is preserved from the flag's current state. On a running
+                    experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
             running_time_calculation:
                 description: >
                     Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
                     experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
                     e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
-                    recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with
-                    the legacy parameters.* keys during the deprecation window, so prefer this field over writing the
-                    calculator keys inside parameters.
+                    recommended_running_time (days), and exposure_estimate_config.
             saved_metrics_ids:
                 input_schema: SavedMetricsAttachSchema
         ui_app: experiment

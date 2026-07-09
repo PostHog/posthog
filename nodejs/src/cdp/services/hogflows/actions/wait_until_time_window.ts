@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

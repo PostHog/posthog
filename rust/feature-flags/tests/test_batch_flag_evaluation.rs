@@ -62,6 +62,7 @@ fn flag_row(team_id: i32, key: &str, filters: Value) -> FeatureFlagRow {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     }
 }
 

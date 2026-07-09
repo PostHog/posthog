@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,6 +20,7 @@ import type {
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import type { webAnalyticsAchievementsLogicType } from './webAnalyticsAchievementsLogicType'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
 
@@ -40,13 +42,21 @@ function sortByCloseness(
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsAchievementsPreferencesLogic,
+            ['achievementsOptOut', 'preferences'],
+        ],
     })),
     actions({
         openModal: true,
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         markCelebrated: (key: string) => ({ key }),
+        triggerConfetti: true,
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
@@ -71,6 +81,12 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+            },
+        ],
+        confettiNonce: [
+            0,
+            {
+                triggerConfetti: (state) => state + 1,
             },
         ],
         expandedTracks: [
@@ -130,11 +146,54 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     progressByTrack
                 ),
         ],
+        pendingTrackKeys: [
+            (s) => [s.uncelebratedPending],
+            (pending): Set<string> => new Set(pending.map((entry) => entry.track_key)),
+        ],
+        unlockedStages: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): number =>
+                definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0),
+        ],
+        totalStages: [
+            (s) => [s.definitions],
+            (definitions): number => definitions.reduce((sum, track) => sum + track.stages.length, 0),
+        ],
     }),
     listeners(({ values, actions }) => ({
         openModal: () => {
             posthog.capture('web_analytics_achievements_opened')
             actions.loadAchievements()
+        },
+        loadAchievementsSuccess: () => {
+            const pending = values.uncelebratedPending
+            if (pending.length === 0) {
+                return
+            }
+            if (pending.length === 1) {
+                const entry = pending[0]
+                const track = values.definitions.find((t) => t.key === entry.track_key)
+                lemonToast.success(
+                    `Achievement unlocked — ${track?.display_name ?? entry.track_key}: ${entry.stage_name}`,
+                    {
+                        button: {
+                            label: 'View',
+                            action: () => actions.openModal(),
+                        },
+                    }
+                )
+            } else {
+                lemonToast.success(`You've unlocked ${pending.length} web analytics achievements`, {
+                    button: {
+                        label: 'View',
+                        action: () => actions.openModal(),
+                    },
+                })
+            }
+            pending.forEach((entry) => {
+                actions.acknowledgeCelebration(entry.track_key, entry.stage)
+            })
+            actions.triggerConfetti()
         },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
             const track = values.definitions.find((t) => t.key === trackKey)
@@ -150,11 +209,18 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     track_key: trackKey,
                     stage,
                 })
-            } catch {}
+            } catch (error) {
+                posthog.captureException(error)
+            }
+        },
+        [webAnalyticsAchievementsPreferencesLogic.actionTypes.loadPreferencesSuccess]: () => {
+            if (isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                actions.loadAchievements()
+            }
         },
     })),
     afterMount(({ actions, values }) => {
-        if (isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+        if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()
         }
     }),

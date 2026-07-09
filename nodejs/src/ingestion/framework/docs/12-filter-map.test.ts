@@ -19,6 +19,7 @@
 import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
@@ -27,7 +28,6 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 
@@ -92,7 +92,7 @@ describe('Filter Map', () => {
                         const warnings: PipelineWarning[] = []
                         if (item.event.name === 'deprecated_event') {
                             warnings.push({
-                                type: 'deprecated_event',
+                                type: 'event_dropped_by_transformation',
                                 details: { eventName: item.event.name },
                             })
                         }
@@ -172,6 +172,6 @@ describe('Filter Map', () => {
         expect(mockWarningOutputs.queueMessages).toHaveBeenCalledTimes(1)
         expect(mockWarningOutputs.queueMessages.mock.calls[0][0]).toBe(INGESTION_WARNINGS_OUTPUT)
         const warningValue = mockWarningOutputs.queueMessages.mock.calls[0][1][0].value!.toString()
-        expect(warningValue).toContain('"type":"deprecated_event"')
+        expect(warningValue).toContain('"type":"event_dropped_by_transformation"')
     })
 })

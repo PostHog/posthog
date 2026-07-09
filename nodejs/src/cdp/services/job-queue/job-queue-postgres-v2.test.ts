@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { v4 as uuidv4 } from 'uuid'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import {
@@ -52,6 +52,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
             metrics: [],
             capturedPostHogEvents: [],
             warehouseWebhookPayloads: [],
+            emailAssets: [],
             ...overrides,
         }
     }

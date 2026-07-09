@@ -25,11 +25,10 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.query import HogQLQueryExecutor
 
-from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
+from posthog.models import Team
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SSL_REQUIRED_AFTER_DATE
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -85,9 +84,15 @@ class TestDirectPostgresQuery(APIBaseTest):
             "USE system",
         )
 
-    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
+    @parameterized.expand(
+        [
+            ("lowercase", "db.eu.postwh.com"),
+            ("uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
+        ]
+    )
+    def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self, _name, host):
         self.assertEqual(
-            direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
+            direct_postgres_session_setup_sql("posthog", host=host),
             "USE posthog",
         )
 
@@ -1267,11 +1272,17 @@ class TestDirectPostgresQuery(APIBaseTest):
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
         )
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
+    # DEV (not US/EU) keeps the host guard active without the internal-team allowlist, which the
+    # test team's auto-assigned id can otherwise collide with (US team_id 2 / EU team_id 1).
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_execute_direct_postgres_query_blocks_internal_host(self, mock_connect):
+        # team id 2 (US) / 1 (EU) are allowlisted to reach internal IPs, so use an explicit
+        # non-allowlisted id — otherwise this flakes when pytest-split orders the test first in
+        # its shard and self.team happens to be assigned pk 2, bypassing the SSRF block.
+        team = Team.objects.create(id=984961485, name="ssrf_test_team", organization=self.organization)
         source = ExternalDataSource.objects.create(
-            team=self.team,
+            team=team,
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
@@ -1291,7 +1302,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         DataWarehouseTable.objects.create(
             name="posthog_dashboard",
             format="Parquet",
-            team=self.team,
+            team=team,
             external_data_source=source,
             url_pattern="direct://postgres",
             columns={
@@ -1301,7 +1312,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor = HogQLQueryExecutor(
             query="SELECT id FROM posthog_dashboard LIMIT 1",
-            team=self.team,
+            team=team,
             connection_id=str(source.id),
         )
 
@@ -1674,9 +1685,16 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "prefer")
 
+    @parameterized.expand(
+        [
+            ("us", "db.us.postwh.com"),
+            ("eu", "db.eu.postwh.com"),
+            ("eu_uppercase_trailing_dot", "DB.EU.POSTWH.COM."),
+        ]
+    )
     @override_settings(DEBUG=False, TEST=False)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
-    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, mock_connect):
+    def test_execute_direct_postgres_query_adds_ssl_cert_paths_for_postwh_hosts(self, _name, host, mock_connect):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -1686,7 +1704,7 @@ class TestDirectPostgresQuery(APIBaseTest):
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             prefix="ph3",
             job_inputs={
-                "host": "db.us.postwh.com",
+                "host": host,
                 "port": 5432,
                 "database": "postgres",
                 "user": "postgres",

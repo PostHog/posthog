@@ -308,9 +308,24 @@ export interface GitHubBranchesResponseApi {
 }
 
 export interface GitHubRepoApi {
+    /** GitHub repository numeric identifier. */
     id: number
+    /** Repository short name (without the owner prefix). */
     name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
     full_name: string
+    /** Whether the repository is private. */
+    private?: boolean
+    /** The repository's default branch (e.g. 'main'). */
+    default_branch?: string
+    /** Primary programming language GitHub detected for the repository. */
+    language?: string
+    /** ISO 8601 timestamp of the most recent push, useful for sorting by recent activity. */
+    pushed_at?: string
+    /** Whether the repository is archived. */
+    archived?: boolean
+    /** Whether the PostHog GitHub App has write access — required to open pull requests. */
+    can_push?: boolean
 }
 
 export interface GitHubReposResponseApi {
@@ -349,6 +364,74 @@ export interface GoogleSearchConsoleSiteApi {
 
 export interface GoogleSearchConsoleSitesResponseApi {
     sites: GoogleSearchConsoleSiteApi[]
+}
+
+export interface JiraProjectApi {
+    /** Jira project ID. */
+    id: string
+    /** Jira project key to pass as error tracking config.project_key. */
+    key: string
+    /** Jira project display name. */
+    name: string
+}
+
+export interface JiraProjectsResponseApi {
+    /** Jira projects available to this integration. */
+    projects: JiraProjectApi[]
+}
+
+export interface LinearTeamApi {
+    /** Linear team ID to pass as error tracking config.team_id. */
+    id: string
+    /** Linear team display name. */
+    name: string
+}
+
+export interface LinearTeamsResponseApi {
+    /** Linear teams available to this integration. */
+    teams: LinearTeamApi[]
+}
+
+export interface GitHubLinkExistingRequestApi {
+    /**
+     * Sibling team in the same organization whose GitHub installation should be reused.
+     * @nullable
+     */
+    source_team_id?: number | null
+    /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+    installation_id?: string
+}
+
+/**
+ * * `posthog_code` - posthog_code
+ */
+export type ConnectFromEnumApi = (typeof ConnectFromEnumApi)[keyof typeof ConnectFromEnumApi]
+
+export const ConnectFromEnumApi = {
+    PosthogCode: 'posthog_code',
+} as const
+
+export interface GitHubOAuthAuthorizeRequestApi {
+    /** GitHub installation ID to carry through the User OAuth flow. */
+    installation_id?: string
+    /** Relative URL to redirect to after the OAuth flow completes. */
+    next?: string
+    /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+     *
+     * * `posthog_code` - posthog_code */
+    connect_from?: ConnectFromEnumApi
+}
+
+export interface GitHubOAuthAuthorizeResponseApi {
+    /** GitHub User OAuth URL the client should redirect to. */
+    oauth_url: string
+}
+
+export interface GitHubPrepareCallbackRequestApi {
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    next?: string
+    /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+    installation_id?: string
 }
 
 export interface IntegrationAccessRequestApi {

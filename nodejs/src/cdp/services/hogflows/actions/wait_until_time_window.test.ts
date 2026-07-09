@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findActionByType } from '../hogflow-utils'
 import { getWaitUntilTime, resolveTimezone } from './wait_until_time_window'

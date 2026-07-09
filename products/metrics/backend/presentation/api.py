@@ -1,7 +1,7 @@
 """DRF views for the alpha metrics product.
 
 Mirrors the shape of `products/logs/backend/api.py` so the two surfaces stay
-recognisable.
+recognizable.
 """
 
 import datetime as dt
@@ -9,8 +9,7 @@ from dataclasses import asdict
 
 from django.utils import timezone
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
@@ -21,14 +20,22 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
+    list_metric_event_samples,
     list_metric_names,
     run_metric_query,
     team_has_metrics,
 )
-from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
+from products.metrics.backend.facade.contracts import (
+    MAX_CLAUSES_PER_QUERY,
+    MetricFilter,
+    MetricGroupBy,
+    MetricQueryClause,
+    MetricQueryRequest,
+)
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 
 __all__ = ["MetricsViewSet"]
@@ -46,6 +53,7 @@ class _MetricFilterSerializer(serializers.Serializer):
     )
     value = serializers.CharField(
         allow_blank=True,
+        max_length=1024,
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
@@ -138,10 +146,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
     )
-    clauses = _MetricClauseSerializer(
+    # mypy can't see DRF's many_init routing max_length to the ListSerializer
+    clauses = _MetricClauseSerializer(  # type: ignore[call-arg]
         many=True,
         required=False,
-        help_text="Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'.",
+        max_length=MAX_CLAUSES_PER_QUERY,
+        help_text=f"Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum {MAX_CLAUSES_PER_QUERY}). Mutually exclusive with 'metricName'.",
     )
     formula = serializers.CharField(
         required=False,
@@ -201,7 +211,10 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
 
 class _MetricQueryPointSerializer(serializers.Serializer):
     time = serializers.CharField(help_text="Bucket start as ISO 8601 timestamp.")
-    value = serializers.FloatField(help_text="Aggregated value for the bucket.")
+    value = serializers.FloatField(
+        allow_null=True,
+        help_text="Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.",
+    )
 
 
 class _MetricSeriesSerializer(serializers.Serializer):
@@ -322,6 +335,27 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
     )
 
 
+class _HasMetricsResponseSerializer(serializers.Serializer):
+    hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
+class _MetricValuesParamsSerializer(serializers.Serializer):
+    value = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Substring filter (case-insensitive) applied to metric names.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Max number of names to return. Defaults to 100; maximum 1000.",
+    )
+
+
 class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
@@ -333,12 +367,82 @@ class _MetricNamesResponseSerializer(serializers.Serializer):
     results = _MetricNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
+class _MetricSamplesBodySerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name to list raw emissions for (e.g. 'http.server.duration').",
+    )
+    dateFrom = serializers.DateTimeField(
+        help_text="Lower bound (inclusive) for the sample window. ISO 8601.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the sample window. Defaults to now if omitted.",
+    )
+    traceId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Max emissions to return, newest first. Defaults to 100, capped at 1000.",
+    )
+
+
+class _MetricSamplesRequestSerializer(serializers.Serializer):
+    query = _MetricSamplesBodySerializer(help_text="The raw-emissions query to execute.")
+
+
+class _MetricEventSampleSerializer(serializers.Serializer):
+    timestamp = serializers.CharField(help_text="When the metric was emitted, ISO 8601.")
+    metric_name = serializers.CharField(help_text="Metric this emission belongs to.")
+    metric_type = serializers.CharField(
+        help_text="OTel metric type: gauge, sum, histogram, summary, or exponential_histogram."
+    )
+    value = serializers.FloatField(
+        help_text="The emitted value. For histogram/summary points this is the distribution sum; pair with count."
+    )
+    count = serializers.IntegerField(
+        help_text="Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries."
+    )
+    unit = serializers.CharField(help_text="Unit of the value, if any.")
+    aggregation_temporality = serializers.CharField(
+        help_text="For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges."
+    )
+    is_monotonic = serializers.BooleanField(help_text="True for monotonically increasing counters.")
+    service_name = serializers.CharField(help_text="Service that emitted the metric.")
+    trace_id = serializers.CharField(
+        help_text="Trace this emission belongs to; empty if none. Use it to pivot to the trace.",
+    )
+    span_id = serializers.CharField(help_text="Span this emission belongs to; empty if none.")
+    attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Per-emission attributes (high-cardinality labels on the data point).",
+    )
+    resource_attributes = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Attributes of the resource (host, pod, service version) that emitted the metric.",
+    )
+
+
+class _MetricSamplesResponseSerializer(serializers.Serializer):
+    results = _MetricEventSampleSerializer(
+        many=True,
+        help_text="Raw emissions ordered by timestamp descending.",
+    )
+
+
 @extend_schema(tags=["metrics"])
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
@@ -355,43 +459,38 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "value",
-                OpenApiTypes.STR,
-                OpenApiParameter.QUERY,
-                description="Substring filter (case-insensitive) applied to metric names.",
-            ),
-            OpenApiParameter(
-                "limit",
-                OpenApiTypes.INT,
-                OpenApiParameter.QUERY,
-                description="Max number of names to return. Defaults to 100, capped at 1000.",
-            ),
-        ],
+        parameters=[_MetricValuesParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
     )
-    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def values(self, request: Request, *args, **kwargs) -> Response:
         """Distinct metric names for the team. Backs the picker UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
-        search = request.query_params.get("value") or ""
-        limit_raw = request.query_params.get("limit") or "100"
-        try:
-            limit = int(limit_raw)
-        except ValueError:
-            raise ParseError("limit must be an integer")
+        params = _MetricValuesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
 
         try:
-            results = list_metric_names(team=self.team, search=search, limit=limit)
+            results = list_metric_names(
+                team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+            )
         except ValueError as exc:
             raise ParseError(str(exc))
 
         return Response({"results": results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricQueryRequestSerializer, responses={200: _MetricQueryResponseSerializer})
-    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def query(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
@@ -432,8 +531,46 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
+    @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    def samples(self, request: Request, *args, **kwargs) -> Response:
+        """Raw individual emissions for a metric (the events model), newest
+        first — backs the Samples view and the metric->trace pivot."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricSamplesRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        query_data = body.validated_data["query"]
+
+        try:
+            samples = list_metric_event_samples(
+                team=self.team,
+                metric_name=query_data["metricName"],
+                date_from=query_data["dateFrom"],
+                date_to=query_data.get("dateTo") or timezone.now(),
+                trace_id=query_data.get("traceId") or None,
+                limit=query_data.get("limit") or 100,
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        report_user_action(
+            request.user,
+            "metrics samples listed",
+            {"sample_count": len(samples), "has_trace_filter": bool(query_data.get("traceId"))},
+            team=self.team,
+            request=request,
+        )
+
+        return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
     def characterize(self, request: Request, *args, **kwargs) -> Response:
         """Characterize a metric anomaly: compare an anomaly window against a
         baseline, find the onset, and rank which label values moved."""

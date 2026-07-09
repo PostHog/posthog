@@ -7,6 +7,7 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getMarkdownNodeAttributeLabel,
+    getQueryTitle,
     getSerializableAttributeInputValue,
     getSerializableProps,
 } from './markdownNotebookRegistry'
@@ -74,6 +75,25 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    describe('getQueryTitle', () => {
+        it.each([
+            [
+                'ActorsQuery resolves to People, not the schema kind',
+                { kind: 'DataTableNode', source: { kind: 'ActorsQuery' } },
+                'People',
+            ],
+            ['EventsQuery resolves to Events', { kind: 'DataTableNode', source: { kind: 'EventsQuery' } }, 'Events'],
+            [
+                'HogQLQuery stays untitled — no SQL body, no generic label',
+                { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select event from events' } },
+                null,
+            ],
+            ['an unrecognized query suggests no title rather than the raw kind', { kind: 'DataTableNode' }, null],
+        ])('%s', (_label, query, expected) => {
+            expect(getQueryTitle(query)).toEqual(expected)
+        })
     })
 
     describe('getSerializableProps', () => {

@@ -38,7 +38,8 @@ export function endpointActivityDescriber(logItem: ActivityLogItem, asNotificati
             description: (
                 <>
                     <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created endpoint{' '}
-                    <EndpointLink name={endpointName} />.
+                    <EndpointLink name={endpointName} /> (<VersionLink name={endpointName} version={1} />
+                    ).
                 </>
             ),
         }

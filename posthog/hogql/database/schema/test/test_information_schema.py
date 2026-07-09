@@ -17,10 +17,19 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+    WarehouseColumnStatistics,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _field(name: str) -> ast.Field:
@@ -131,7 +140,7 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
@@ -139,7 +148,7 @@ class TestWarehouseMetadata(APIBaseTest):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _descriptions, _row_counts, view_row_counts = _warehouse_metadata(self.team.id)
+        _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
@@ -148,7 +157,7 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
 
 
@@ -201,6 +210,27 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         names = {row[0] for row in response.results or []}
         assert "system.cohorts" in names
         assert "system.feature_flags" not in names
+
+    @parameterized.expand(
+        [
+            ("person_id", "String"),
+            ("event_issue_id", "UUID"),
+            ("issue_first_seen", "DateTime"),
+            ("$virt_is_bot", "Boolean"),
+        ]
+    )
+    def test_expression_columns_resolve_to_their_value_type(self, column_name: str, expected_type: str):
+        # Expression columns must report the type they evaluate to (like hogql autocomplete), not the
+        # generic "Expression" — otherwise the catalog is useless for picking a cast/comparison.
+        response = execute_hogql_query(
+            f"SELECT data_type, field_kind FROM system.information_schema.columns "
+            f"WHERE table_name = 'events' AND column_name = '{column_name}'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][1] == "expression"
+        assert results[0][0] == expected_type
 
     def test_columns_lists_event_columns_with_types(self):
         response = execute_hogql_query(
@@ -262,6 +292,21 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             columns={column: {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
 
+    def _create_saved_query_view(
+        self, name: str = "revenue_view", *, table: DataWarehouseTable | None = None, is_materialized: bool = False
+    ) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"query": "SELECT order_id, amount FROM events"},
+            columns={
+                "order_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                "amount": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+            },
+            table=table,
+            is_materialized=is_materialized,
+        )
+
     def test_warehouse_tables_appear_with_row_count(self):
         self._create_warehouse_table()
         response = execute_hogql_query(
@@ -311,6 +356,159 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             or []
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
+
+    def test_warehouse_source_native_table_description_appears(self):
+        table = self._create_warehouse_table()
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name=table.name,
+            table=table,
+            description="Charges imported from Stripe via the Postgres sync.",
+        )
+        tables = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'stripe_charges'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert tables[0][0] == "Charges imported from Stripe via the Postgres sync."
+
+    def test_warehouse_column_statistics_are_merged(self):
+        # Per-column profiling stats are surfaced on information_schema.columns for warehouse tables,
+        # keyed by table id + column (like descriptions). A warehouse column without stats stays NULL.
+        credentials = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charges",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            row_count=42,
+            columns={
+                "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+                "amount": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True},
+            },
+        )
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnStatistics.objects.create(
+                team=self.team,
+                table=table,
+                column_name="id",
+                null_fraction=0.25,
+                min_value="ch_001",
+                max_value="ch_999",
+                has_min_max=True,
+            )
+
+        rows = (
+            execute_hogql_query(
+                """
+                SELECT column_name, null_fraction, min_value, max_value
+                FROM system.information_schema.columns
+                WHERE table_name = 'stripe_charges'
+                ORDER BY column_name
+                """,
+                team=self.team,
+            ).results
+            or []
+        )
+        by_column = {row[0]: list(row[1:]) for row in rows}
+        assert by_column["id"] == [0.25, "ch_001", "ch_999"]
+        # Profiled stats absent for this column → all NULL.
+        assert by_column["amount"] == [None, None, None]
+
+    def test_saved_query_view_appears_in_tables(self):
+        # A saved-query view must surface in the catalog as a discoverable table so PostHog AI can find
+        # it. Regression guard for the whole semantic-layer effort: if views stop being enumerated (or are
+        # misclassified as posthog/data_warehouse), descriptions wired onto them later never reach the AI.
+        self._create_saved_query_view(name="revenue_view")
+        response = execute_hogql_query(
+            "SELECT table_type, table_schema FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][0] == "view"
+        assert results[0][1] == "views"
+
+    def test_saved_query_view_columns_appear_with_types(self):
+        # The view's columns (built from the model's `columns` JSONField via `hogql_definition`) must be
+        # enumerated with their HogQL types. Guards both the field enumeration and the JSONField→HogQL
+        # type mapping for views.
+        self._create_saved_query_view(name="revenue_view")
+        response = execute_hogql_query(
+            """
+            SELECT column_name, data_type FROM system.information_schema.columns
+            WHERE table_name = 'revenue_view'
+            """,
+            team=self.team,
+        )
+        columns = {row[0]: row[1] for row in response.results or []}
+        assert columns["order_id"] == "String"
+        assert columns["amount"] == "Integer"
+
+    def test_saved_query_view_descriptions_are_merged_from_annotations(self):
+        # View- and column-level descriptions stored as DataWarehouseSavedQueryColumnAnnotation must
+        # surface in the catalog so PostHog AI can read them. Guards the metadata loader plus the
+        # `table_type == "view"` resolution branch: a regression (loader dropped, wrong key, or branch
+        # gated on the wrong table_type) makes descriptions silently vanish from information_schema.
+        view = self._create_saved_query_view(name="revenue_view")
+        with team_scope(self.team.id, canonical=True):
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=self.team,
+                saved_query=view,
+                column_name="",
+                description="Revenue per order, one row per completed order.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
+                team=self.team,
+                saved_query=view,
+                column_name="amount",
+                description="Order revenue in cents.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        table_rows = (
+            execute_hogql_query(
+                "SELECT description FROM system.information_schema.tables WHERE table_name = 'revenue_view'",
+                team=self.team,
+            ).results
+            or []
+        )
+        assert len(table_rows) == 1
+        assert table_rows[0][0] == "Revenue per order, one row per completed order."
+
+        column_rows = (
+            execute_hogql_query(
+                "SELECT column_name, description FROM system.information_schema.columns WHERE table_name = 'revenue_view'",
+                team=self.team,
+            ).results
+            or []
+        )
+        by_column = {row[0]: row[1] for row in column_rows}
+        assert by_column["amount"] == "Order revenue in cents."
+        # An unannotated column stays NULL rather than borrowing another column's description.
+        assert by_column["order_id"] is None
+
+    def test_materialized_saved_query_view_reports_backing_table_row_count(self):
+        # A materialized view stays classified as a view but carries the row count of its backing table.
+        # Exercises the `table_type == "view"` branch of row-count resolution end-to-end (the unit test on
+        # `_warehouse_metadata` stops at the metadata dict; this proves it reaches the catalog row).
+        backing = self._create_warehouse_table(name="revenue_view_backing")
+        self._create_saved_query_view(name="revenue_view_materialized", table=backing, is_materialized=True)
+        response = execute_hogql_query(
+            "SELECT table_type, row_count FROM system.information_schema.tables "
+            "WHERE table_name = 'revenue_view_materialized'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][0] == "view"
+        assert results[0][1] == 42
 
     def test_ordinal_positions_are_unique_within_a_table(self):
         # `events` exposes nested virtual-table columns (e.g. `group_0.*`); their ordinals must

@@ -27,6 +27,16 @@ fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
 }
 
+/// HogVM `RETURN` opcode, appended to stored bytecode by the catalog loader.
+const OP_RETURN: i64 = 38;
+
+/// The stored form of [`behavioral_bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+fn behavioral_bytecode_loaded() -> Vec<Value> {
+    let mut bc = behavioral_bytecode().as_array().unwrap().clone();
+    bc.push(json!(OP_RETURN));
+    bc
+}
+
 /// The conditionHash encodes the event matcher, not the `time_value` window — same hash, any window.
 fn behavioral_performed_event(time_value: i64) -> Value {
     json!({
@@ -153,7 +163,7 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
     assert_eq!(team.by_condition_to_bytecode.len(), 2);
     assert_eq!(
         team.by_condition_to_bytecode[&BEHAVIORAL_HASH].as_ref(),
-        behavioral_bytecode().as_array().unwrap(),
+        &behavioral_bytecode_loaded(),
     );
     assert!(team.by_condition_to_bytecode.contains_key(&PERSON_HASH));
 }

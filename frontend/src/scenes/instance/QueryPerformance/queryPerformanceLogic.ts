@@ -15,6 +15,80 @@ export interface PrecomputationTeam {
     experiment_precomputation_enabled: boolean
 }
 
+export type ExperimentsTab = 'slowest_queries' | 'precompute_overview' | 'cache_health'
+
+export interface PrecomputePathStats {
+    reads: number
+    failed_reads: number
+    // Reads where precompute was attempted (no skip reason). On the direct_scan path these paid
+    // for the build AND the full events scan — the failure bucket to watch.
+    attempted: number
+    skip_reasons: Record<string, number>
+    avg_duration_ms: number | null
+    p50_duration_ms: number | null
+    p90_duration_ms: number | null
+    avg_read_bytes: number | null
+    total_read_bytes: number
+}
+
+export interface PrecomputeBuildStats {
+    total: number
+    succeeded: number
+    failed: number
+    total_duration_ms: number
+    total_read_bytes: number
+    by_table: Record<string, { succeeded: number; failed: number }>
+    failures_by_code: Record<string, number>
+}
+
+export interface PrecomputeJobStats {
+    ready: number
+    failed: number
+    pending: number
+    stale_failed: number
+    stuck_pending: number
+}
+
+export interface PrecomputeOverviewResponse {
+    hours: number
+    reads: {
+        total: number
+        failed: number
+        by_exposures_path: Record<string, PrecomputePathStats>
+        metric_events: { precomputed: number; direct_scan: number; not_applicable: number }
+    }
+    builds: PrecomputeBuildStats
+    jobs: PrecomputeJobStats
+}
+
+export interface CachePartitionStats {
+    partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
+    rows: number
+    bytes_on_disk: number
+    parts: number
+}
+
+export interface CacheTableStats {
+    table: string
+    total_rows: number
+    bytes_on_disk: number
+    active_parts: number
+    partition_count: number
+    oldest_partition: string | null
+    newest_partition: string | null
+    partitions: CachePartitionStats[]
+}
+
+export interface CacheHealthResponse {
+    tables: CacheTableStats[]
+}
+
+// One row of the partition breakdown table: a single expiry day, with each cache table's stats for that day.
+export interface CachePartitionRow {
+    partition: string
+    perTable: Record<string, CachePartitionStats>
+}
+
 export interface SlowestQuery {
     query_id: string
     query: string
@@ -34,9 +108,21 @@ export interface SlowestQuery {
     experiment_metric_events_path: string
     experiment_query_surface: string
     experiment_precompute_table: string
+    experiment_precompute_skip_reason: string
+    experiment_scan_date_from: string
+    experiment_scan_date_to: string
+    precompute_window_start: string
+    precompute_window_end: string
+    experiment_query_group_id: string
     experiment_metric_type: string
     experiment_funnel_order_type: string | null
     experiment_id: number | null
+    total_duration_ms: number
+    read_bytes: number
+    read_rows: number
+    exception_code: number
+    memory_usage: number
+    sub_queries: SlowestQuery[]
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
@@ -47,7 +133,10 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setHoursBack: (hours: number) => ({ hours }),
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
-        setShowSubQueries: (show: boolean) => ({ show }),
+        setMetricTypeFilter: (metricType: string) => ({ metricType }),
+        setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
+        setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
+        setOverviewHoursBack: (hours: number) => ({ hours }),
     }),
     reducers({
         search: [
@@ -74,10 +163,28 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setExperimentIdFilter: (_, { experimentId }) => experimentId,
             },
         ],
-        showSubQueries: [
-            false,
+        metricTypeFilter: [
+            '',
             {
-                setShowSubQueries: (_, { show }) => show,
+                setMetricTypeFilter: (_, { metricType }) => metricType,
+            },
+        ],
+        exceptionCodeFilter: [
+            '',
+            {
+                setExceptionCodeFilter: (_, { exceptionCode }) => exceptionCode,
+            },
+        ],
+        experimentsTab: [
+            'slowest_queries' as ExperimentsTab,
+            {
+                setExperimentsTab: (_, { tab }) => tab,
+            },
+        ],
+        overviewHoursBack: [
+            24,
+            {
+                setOverviewHoursBack: (_, { hours }) => hours,
             },
         ],
     }),
@@ -107,6 +214,22 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 },
             },
         ],
+        cacheHealth: [
+            null as CacheHealthResponse | null,
+            {
+                loadCacheHealth: async () => {
+                    return await api.get('api/debug_ch_queries/cache_health/')
+                },
+            },
+        ],
+        precomputeOverview: [
+            null as PrecomputeOverviewResponse | null,
+            {
+                loadPrecomputeOverview: async () => {
+                    return await api.get(`api/debug_ch_queries/precompute_overview/?hours=${values.overviewHoursBack}`)
+                },
+            },
+        ],
         slowestQueries: [
             [] as SlowestQuery[],
             {
@@ -118,27 +241,38 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     if (values.experimentIdFilter) {
                         params.append('experiment_id', values.experimentIdFilter)
                     }
+                    if (values.metricTypeFilter) {
+                        // Encoded as "<metricType>" or "funnel:<orderType>" (e.g. "funnel:ordered").
+                        const [metricType, funnelOrderType] = values.metricTypeFilter.split(':')
+                        params.append('metric_type', metricType)
+                        if (funnelOrderType) {
+                            params.append('funnel_order_type', funnelOrderType)
+                        }
+                    }
+                    if (values.exceptionCodeFilter) {
+                        params.append('exception_code', values.exceptionCodeFilter)
+                    }
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
         ],
     })),
     selectors({
-        // The precompute-build INSERTs are sub-queries of a top-level read; hide them by default so the
-        // table reflects what a user actually waited for, with a toggle to surface them for debugging.
-        visibleSlowestQueries: [
-            (s) => [s.slowestQueries, s.showSubQueries],
-            (slowestQueries, showSubQueries): SlowestQuery[] =>
-                showSubQueries
-                    ? slowestQueries
-                    : slowestQueries.filter((query) => query.experiment_query_surface !== 'precompute_build'),
-        ],
-        // True when the visible table is empty only because every returned row is a hidden sub-query,
-        // so the empty state can say so instead of claiming there are no queries in the range.
-        allQueriesHiddenAsSubQueries: [
-            (s) => [s.slowestQueries, s.visibleSlowestQueries],
-            (slowestQueries, visibleSlowestQueries): boolean =>
-                slowestQueries.length > 0 && visibleSlowestQueries.length === 0,
+        cachePartitionRows: [
+            (s) => [s.cacheHealth],
+            (cacheHealth): CachePartitionRow[] => {
+                const byPartition: Record<string, CachePartitionRow> = {}
+                for (const table of cacheHealth?.tables ?? []) {
+                    for (const partition of table.partitions) {
+                        const row = (byPartition[partition.partition] ??= {
+                            partition: partition.partition,
+                            perTable: {},
+                        })
+                        row.perTable[table.table] = partition
+                    }
+                }
+                return Object.values(byPartition).sort((a, b) => a.partition.localeCompare(b.partition))
+            },
         ],
     }),
     listeners(({ actions }) => ({
@@ -157,11 +291,22 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             await breakpoint(300)
             actions.loadSlowestQueries()
         },
+        setMetricTypeFilter: () => {
+            actions.loadSlowestQueries()
+        },
+        setExceptionCodeFilter: () => {
+            actions.loadSlowestQueries()
+        },
+        setOverviewHoursBack: () => {
+            actions.loadPrecomputeOverview()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
             actions.loadSlowestQueries()
+            actions.loadCacheHealth()
+            actions.loadPrecomputeOverview()
         }
     }),
 ])

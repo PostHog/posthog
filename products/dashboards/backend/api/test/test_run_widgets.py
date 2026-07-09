@@ -14,20 +14,24 @@ from posthog.schema import RecordingOrder, RecordingOrderDirection
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.slo.types import SloOperation, SloOutcome
+from posthog.test.persons import create_person
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_LIMIT,
     DEFAULT_WIDGET_LIST_LIMIT,
+    LOGS_LIST_DEFAULT_LIMIT,
+    LOGS_LIST_MAX_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
@@ -36,6 +40,7 @@ from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, W
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
+    LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
@@ -46,8 +51,10 @@ from products.dashboards.backend.widgets.activity_events_list import (
     run_activity_events_list_widget,
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
+from products.dashboards.backend.widgets.logs_list import run_logs_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
 from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.logs.backend.models import LogsView
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -89,6 +96,42 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["orderBy"] == default_order_by
         assert "filterTestAccounts" not in validated
 
+    def test_validate_logs_list_config_defaults(self) -> None:
+        # Logs has its own larger page than other list widgets.
+        validated = validate_widget_config(LOGS_LIST_WIDGET_TYPE, {})
+        assert validated["limit"] == LOGS_LIST_DEFAULT_LIMIT
+        assert validated["orderBy"] == "latest"
+        assert validated["wrapLines"] is False
+        assert validated["timezone"] == "UTC"
+        assert "savedViewId" not in validated
+        assert "filterTestAccounts" not in validated
+
+    @parameterized.expand(
+        [
+            ("invalid_order_by", {"orderBy": "not_a_field"}),
+            ("invalid_severity_level", {"severityLevels": ["not_a_level"]}),
+            ("invalid_timezone", {"timezone": "America/New_York"}),
+            ("invalid_saved_view_id", {"savedViewId": 123}),
+        ]
+    )
+    def test_validate_logs_list_config_rejects_invalid_values(self, _label: str, config: dict) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
+
+    def test_validate_logs_list_config_accepts_severity_and_services(self) -> None:
+        validated = validate_widget_config(
+            LOGS_LIST_WIDGET_TYPE,
+            {"severityLevels": ["error", "warn"], "serviceNames": ["api", "web"], "orderBy": "earliest"},
+        )
+        assert validated["severityLevels"] == ["error", "warn"]
+        assert validated["serviceNames"] == ["api", "web"]
+        assert validated["orderBy"] == "earliest"
+
+    def test_validate_logs_list_config_rejects_test_account_filter(self) -> None:
+        # Logs queries have no test-account concept, so the field must not be accepted.
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, cast(dict[str, object], {"filterTestAccounts": True}))
+
     def test_validate_activity_events_list_config_defaults(self) -> None:
         validated = validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {})
         assert validated["limit"] == ACTIVITY_EVENTS_DEFAULT_LIMIT
@@ -128,10 +171,28 @@ class TestWidgetRegistry(APIBaseTest):
         with self.assertRaises(Exception):
             validate_widget_config(widget_type, {"limit": 100})
 
+    def test_validate_logs_list_config_accepts_limit_up_to_max(self) -> None:
+        validated = validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"limit": LOGS_LIST_MAX_LIMIT})
+        assert validated["limit"] == LOGS_LIST_MAX_LIMIT
+
+    def test_validate_logs_list_config_rejects_limit_above_max(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(LOGS_LIST_WIDGET_TYPE, {"limit": LOGS_LIST_MAX_LIMIT + 1})
+
+    def test_validate_logs_list_config_accepts_display_and_saved_view(self) -> None:
+        validated = validate_widget_config(
+            LOGS_LIST_WIDGET_TYPE,
+            {"wrapLines": True, "timezone": "local", "savedViewId": "abc123"},
+        )
+        assert validated["wrapLines"] is True
+        assert validated["timezone"] == "local"
+        assert validated["savedViewId"] == "abc123"
+
     @parameterized.expand(
         [("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
         + [("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
+        + [("logs", LOGS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
     )
     def test_validate_list_config_accepts_short_date_ranges(
         self, _label: str, widget_type: str, date_from: str
@@ -147,6 +208,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_rejects_unsupported_date_range(self, _label: str, widget_type: str) -> None:
@@ -161,6 +223,7 @@ class TestWidgetRegistry(APIBaseTest):
             ("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE),
             ("error_tracking", ERROR_TRACKING_LIST_WIDGET_TYPE),
             ("session_replay", SESSION_REPLAY_LIST_WIDGET_TYPE),
+            ("logs", LOGS_LIST_WIDGET_TYPE),
         ]
     )
     def test_validate_list_config_strips_unknown_date_range_keys(self, _label: str, widget_type: str) -> None:
@@ -210,6 +273,15 @@ class TestWidgetRegistry(APIBaseTest):
             {"orderBy": order_by},
         )
         assert validated["orderBy"] == order_by
+
+    @parameterized.expand(["savedFilterId", "collectionId"])
+    def test_validate_session_replay_list_config_normalizes_empty_source_id(self, field: str) -> None:
+        # The shared short_id validator coerces empty strings to None so they drop out of the config.
+        validated = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, {field: ""})
+        assert field not in validated
+
+        validated = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, {field: "abc123"})
+        assert validated[field] == "abc123"
 
 
 class TestDashboardRunWidgets(APIBaseTest):
@@ -342,7 +414,129 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.select, ACTIVITY_EVENTS_WIDGET_SELECT)
         self.assertEqual(query.orderBy, ["timestamp DESC"])
         self.assertEqual(query.after, "-24h")
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_for_requested_tile(self, mock_runner_cls: MagicMock) -> None:
+        log_row = {
+            "uuid": "0196e9ab-0000-0000-0000-000000000000",
+            "timestamp": "2026-05-26T08:00:00Z",
+            "severity_text": "error",
+            "level": "error",
+            "body": "Boom",
+            "trace_id": "abc123",
+        }
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [log_row], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="logs_list",
+            config={
+                "limit": 10,
+                "severityLevels": ["error"],
+                "serviceNames": ["api"],
+                "orderBy": "earliest",
+            },
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(len(body["results"]), 1)
+        self.assertEqual(body["results"][0]["tile_id"], tile_id)
+        self.assertEqual(body["results"][0]["widget_type"], LOGS_LIST_WIDGET_TYPE)
+        self.assertIsNone(body["results"][0]["error"])
+        result = body["results"][0]["result"]
+        self.assertEqual(result["limit"], 10)
+        self.assertEqual(result["results"][0], log_row)
+        self.assertEqual(result["totalCount"], 1)
+        self.assertFalse(result["totalCountCapped"])
+        mock_runner_cls.assert_called_once()
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.orderBy, "earliest")
+        self.assertEqual(query.severityLevels, ["error"])
+        self.assertEqual(query.serviceNames, ["api"])
+        self.assertTrue(query.excludeAttributes)
         self.assertEqual(query.limit, 10)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_with_saved_view(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        view = LogsView.objects.create(
+            team=self.team,
+            name="My view",
+            filters={
+                "severityLevels": ["warn"],
+                "serviceNames": ["worker"],
+                "searchTerm": "timeout",
+                "dateRange": {"date_from": "-3h", "date_to": None},
+            },
+        )
+        # Run the widget in-process: the run_widgets endpoint dispatches to a thread pool whose
+        # DB connection can't see the LogsView created in this test's (uncommitted) transaction.
+        run_logs_list_widget(
+            self.team,
+            {
+                "limit": 20,
+                "orderBy": "earliest",
+                "savedViewId": view.short_id,
+                # These are ignored once a saved view is selected — the view owns them.
+                "severityLevels": ["error"],
+                "serviceNames": ["api"],
+            },
+            user=self.user,
+        )
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["warn"])
+        self.assertEqual(query.serviceNames, ["worker"])
+        self.assertEqual(query.searchTerm, "timeout")
+        # Widget still owns sort + page size.
+        self.assertEqual(query.orderBy, "earliest")
+        self.assertEqual(query.limit, 20)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_falls_back_when_saved_view_missing(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="logs_list",
+            config={"limit": 15, "orderBy": "latest", "savedViewId": "missing", "severityLevels": ["error"]},
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        # Unknown view falls back to the widget's own config rather than erroring.
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["error"])
+        self.assertEqual(query.limit, 15)
+
+    @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")
+    def test_runs_logs_widget_falls_back_when_saved_view_filters_invalid(self, mock_runner_cls: MagicMock) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+        # `filters` has no inner schema validation on write, so a stored level outside the enum is possible.
+        view = LogsView.objects.create(team=self.team, name="Bad view", filters={"severityLevels": ["critical"]})
+
+        # In-process so the lookup sees the view (see test_runs_logs_widget_with_saved_view). A malformed
+        # view degrades to the widget's own config rather than raising.
+        run_logs_list_widget(
+            self.team,
+            {"limit": 12, "orderBy": "latest", "savedViewId": view.short_id, "severityLevels": ["warn"]},
+            user=self.user,
+        )
+
+        query = mock_runner_cls.call_args.kwargs["query"]
+        self.assertEqual(query.severityLevels, ["warn"])
+        self.assertEqual(query.limit, 12)
 
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
     def test_activity_events_widget_applies_date_range_and_widget_filters(self, mock_runner_cls: MagicMock) -> None:
@@ -374,6 +568,24 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(len(query.properties), 1)
         self.assertEqual(query.properties[0].key, "$current_url")
         self.assertEqual(query.properties[0].value, ["/checkout"])
+
+    @parameterized.expand(
+        [
+            ("with_event", {"limit": 5, "eventName": "$pageview"}, "$pageview"),
+            ("without_event", {"limit": 5}, None),
+        ]
+    )
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_activity_events_widget_event_name_filter(
+        self, _label: str, config: dict[str, Any], expected_event: str | None, mock_runner_cls: MagicMock
+    ) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+
+        run_activity_events_list_widget(self.team, config, user=self.user)
+
+        self.assertEqual(mock_runner_cls.call_args.kwargs["query"].event, expected_event)
 
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
     def test_activity_events_widget_returns_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
@@ -584,6 +796,174 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.properties is not None
         assert query.properties[0].value == ["Chrome"]
 
+    @staticmethod
+    def _collection_with_recordings(team: Team, session_ids: list[str]) -> SessionRecordingPlaylist:
+        collection = SessionRecordingPlaylist.objects.create(team=team, name="My collection", type="collection")
+        for session_id in session_ids:
+            recording = SessionRecording.objects.create(team=team, session_id=session_id)
+            SessionRecordingPlaylistItem.objects.create(playlist=collection, recording=recording)
+        return collection
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_scopes_to_collection(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "orderBy": "click_count",
+                "orderDirection": "ASC",
+                "collectionId": collection.short_id,
+                # The widget's date range still narrows within the collection scope.
+                "dateRange": {"date_from": "-7d"},
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # The collection scopes the result set to its pinned recordings...
+        assert sorted(query.session_ids) == ["session-a", "session-b"]
+        assert query.properties is None
+        assert query.date_from == "-7d"
+        # ...while the widget still layers its own sort and limit on top.
+        assert query.limit == 5
+        assert query.order == RecordingOrder.CLICK_COUNT
+        assert query.order_direction == RecordingOrderDirection.ASC
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_collection_skips_legacy_null_recording_items(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a"])
+        # Legacy items used the deprecated session_id field and have a null recording FK.
+        SessionRecordingPlaylistItem.objects.create(playlist=collection, recording=None, session_id="legacy")
+
+        run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "collectionId": collection.short_id},
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # No None leaks into session_ids — the legacy null-recording item is skipped.
+        assert query.session_ids == ["session-a"]
+
+    @patch("products.dashboards.backend.widgets.session_replay_list.UserAccessControl")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_skips_collection_without_object_access(
+        self, mock_list_recordings: MagicMock, mock_user_access_control: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        # The user lacks object-level viewer access to the collection.
+        mock_user_access_control.return_value.check_access_level_for_object.return_value = False
+        collection = self._collection_with_recordings(self.team, ["session-a"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # An unauthorized collection is treated like a missing one — no session scope, fall back to filters.
+        assert query.session_ids is None
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_filters_within_collection(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                # The widget's own property filters narrow within the collection scope.
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        assert sorted(query.session_ids) == ["session-a", "session-b"]
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_combines_collection_and_saved_filter(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
+        saved_filter = self._saved_filter_for_browser(self.team, "Firefox")
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                "savedFilterId": saved_filter.short_id,
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # The collection scopes the session ids while the saved filter owns the date range and properties.
+        assert sorted(query.session_ids) == ["session-a", "session-b"]
+        assert query.date_from == "-14d"
+        assert query.properties is not None
+        assert query.properties[0].value == ["Firefox"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_ignores_collection_from_other_team(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        collection = self._collection_with_recordings(other_team, ["session-a"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # A collection owned by another team must not be reachable; fall back to the widget's filters.
+        assert query.session_ids is None
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_falls_back_when_collection_missing(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": "does_not_exist",
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        assert query.session_ids is None
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_attaches_matching_events_query_for_widget_filters(
         self, mock_list_recordings: MagicMock
@@ -665,7 +1045,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
-        person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
+        person = create_person(team=self.team, properties={"email": "widget-test@example.com"})
         recording = SessionRecording(
             session_id="019e6a07-04fe-792c-b828-49375b8d42e8",
             team=self.team,

@@ -371,6 +371,92 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 404
 
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_follows_same_origin_mcp_redirect(self, mock_client_cls):
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+            url="https://mcp.example.com/mcp",
+        )
+        redirect_response = MagicMock()
+        redirect_response.status_code = 307
+        redirect_response.headers = {"location": "/mcp/", "content-type": "text/plain"}
+        redirect_response.close = MagicMock()
+
+        final_response = MagicMock()
+        final_response.status_code = 200
+        final_response.headers = {"content-type": "application/json"}
+        final_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.side_effect = [redirect_response, final_response]
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert mock_client.send.call_count == 2
+        assert mock_client.build_request.call_args_list[0].args[1] == "https://mcp.example.com/mcp"
+        assert mock_client.build_request.call_args_list[1].args[1] == "https://mcp.example.com/mcp/"
+        assert mock_client.build_request.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
+        redirect_response.close.assert_called_once()
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_does_not_follow_cross_origin_redirect_with_credentials(self, mock_client_cls):
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+            url="https://mcp.example.com/mcp",
+        )
+        redirect_response = MagicMock()
+        redirect_response.status_code = 307
+        redirect_response.headers = {"location": "https://attacker.example/mcp", "content-type": "text/plain"}
+        redirect_response.content = b""
+
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = redirect_response
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 307
+        mock_client.send.assert_called_once()
+        assert mock_client.build_request.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
+
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_does_not_follow_malformed_redirect_with_credentials(self, mock_client_cls):
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+            url="https://mcp.example.com/mcp",
+        )
+        redirect_response = MagicMock()
+        redirect_response.status_code = 307
+        redirect_response.headers = {"location": "https://mcp.example.com:bad/mcp/", "content-type": "text/plain"}
+        redirect_response.content = b""
+
+        mock_client = MagicMock()
+        mock_client.build_request.return_value = MagicMock()
+        mock_client.send.return_value = redirect_response
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == 307
+        mock_client.send.assert_called_once()
+        assert mock_client.build_request.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
+
     def test_proxy_returns_401_for_oauth_without_access_token(self):
         installation = self._create_oauth_installation(
             sensitive_configuration={

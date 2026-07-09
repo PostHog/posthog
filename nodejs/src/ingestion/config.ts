@@ -14,14 +14,14 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
-} from '~/ingestion/common/producers'
-import type { PostgresRouterConfig } from '~/utils/db/postgres'
-import { isDevEnv, isProdEnv } from '~/utils/env-utils'
+} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -78,10 +78,30 @@ export type KafkaConsumerBaseConfig = Pick<
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export type IngestionLane = 'main' | 'overflow' | 'turbo' | 'historical' | 'async'
+/**
+ * Real-time lanes process live events and share `main`'s processing-time SLO.
+ * Delayed lanes process backfilled or async events on their own timeline. The
+ * distinction is load-bearing for processing-time logic like dedup, so the lane
+ * type is derived from these two sets to keep the categorization in one place.
+ */
+export const REALTIME_INGESTION_LANES = ['main', 'overflow', 'turbo', 'team2'] as const
+export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
+
+export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
+
+/**
+ * How a consumer participates in overflow handling. Explicit and independent of
+ * the lane name:
+ *   - `redirect`  redirect hot partitions to the overflow topic (main lane).
+ *   - `consume`   drain the overflow topic and refresh its stateful TTLs (overflow lane).
+ *   - `disabled`  no overflow handling.
+ */
+export const INGESTION_OVERFLOW_MODES = ['redirect', 'consume', 'disabled'] as const
+export type IngestionOverflowMode = (typeof INGESTION_OVERFLOW_MODES)[number]
 
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -137,7 +157,6 @@ export type IngestionConsumerConfig = {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
@@ -165,22 +184,6 @@ export type IngestionConsumerConfig = {
     /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
-
-    // AI event splitting config
-    INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
-    INGESTION_AI_EVENT_SPLITTING_TEAMS: string
-    /**
-     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
-     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
-     */
-    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
-    /**
-     * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
-     * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
-     * Defaults to '' (no stripping → double-write the full event for everyone).
-     */
-    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: string
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -217,6 +220,7 @@ export type IngestionConsumerConfig = {
 export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
     return {
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
 
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -265,7 +269,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
-        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
 
@@ -289,12 +292,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
-
-        // AI event splitting config
-        INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
-        INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
-        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
-        INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,

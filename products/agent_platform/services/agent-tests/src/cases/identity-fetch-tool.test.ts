@@ -110,7 +110,6 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
                 identity,
                 http: new HttpClient({}),
                 posthogApiBaseUrl: '',
-                isPreview: false,
             }
             const tool = getNativeTool('@posthog/identity-fetch')
 
@@ -157,7 +156,6 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
             identity,
             http: new HttpClient({}),
             posthogApiBaseUrl: '',
-            isPreview: false,
         }
         await expect(
             getNativeTool('@posthog/identity-fetch').run({ provider: 'dogs', url: 'http://x/api' }, ctx)
@@ -204,7 +202,6 @@ maybeDescribe('@posthog/identity-fetch × dogs (real PG + HTTP)', () => {
                 identity,
                 http: new HttpClient({}),
                 posthogApiBaseUrl: '',
-                isPreview: false,
             }
             // Link first.
             const init = await registry.require('dogs').initiate({

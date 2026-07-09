@@ -229,6 +229,15 @@
         margin: 0;
     }
 
+    &--ActionsBarValue {
+        // Keep the standard height as a floor so a few-row chart still fills it (a single bar
+        // shouldn't shrink), but drop the height/max-height cap so many breakdown rows grow the
+        // container instead of being clipped.
+        height: auto;
+        min-height: var(--insight-viz-min-height);
+        max-height: none;
+    }
+
     &--BoldNumber {
         display: flex;
         align-items: center;

@@ -127,6 +127,15 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     spec = models.JSONField(default=dict)
 
+    # Draft references to versioned skills in the llma-skill store. Each entry
+    # is {from_template, alias, version?}. Freeze resolves them against the
+    # store at the pinned version, materializes the skill (SKILL.md + any
+    # companion files) into the bundle under skills/<alias>/, and stamps
+    # provenance onto the frozen spec — so a frozen revision never re-resolves a
+    # possibly-changed skill at runtime. Authoring-time only; carried forward
+    # when a new draft is forked from a parent.
+    skill_refs = models.JSONField(default=list, db_default=Value("[]"))
+
     # Encrypted JSON env block — the secret values this revision runs with.
     # Decrypted at runtime by the worker via `EncryptedFields` (see
     # services/agent-shared/src/runtime/encryption.ts). Lives on the revision
@@ -177,19 +186,17 @@ class AgentSession(ProductTeamModel, UUIDModel):
     pending_elevation_requests = models.JSONField(default=list, db_default=Value("[]"))
     claimed_at = models.DateTimeField(null=True, blank=True)
     retry_count = models.IntegerField(default=0, db_default=0)
-    # Set to true when the session was created via the preview ingress path
-    # (preview-proxy or direct ingress with a valid `aud=agent-ingress.preview`
-    # JWT). Output adapters (slack reply, webhook publish) noop on preview; the
-    # analytics sink tags `$ai_*` events so author iteration doesn't skew prod
-    # observability dashboards. Cron is implicitly safe (janitor only schedules
-    # off `live_revision_id`), so preview sessions never originate from cron.
-    is_preview = models.BooleanField(default=False, db_default=False)
     usage_total = models.JSONField(
         default=dict,
         db_default=Value(
             '{"tokens_in": 0, "tokens_out": 0, "cache_read": 0, "cache_write": 0, "cost_input": 0, "cost_output": 0, "cost_cache_read": 0, "cost_cache_write": 0, "cost_total": 0}'
         ),
     )
+    # Derived on every conversation write by the node SessionQueue so the list
+    # view + search never read the full `conversation` JSONB. search_text is a
+    # truncated user+assistant text digest; turn_count is len(conversation).
+    search_text = models.TextField(null=True, blank=True)
+    turn_count = models.IntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 
@@ -281,13 +288,6 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
     decision_reason = models.TextField(null=True, blank=True)
     decided_args = models.JSONField(null=True, blank=True)
     dispatch_outcome = models.JSONField(null=True, blank=True)
-    # Mirrors `agent_session.is_preview` for the owning session. Approval rows
-    # are emitted from the runner with the session's value copied at insert
-    # time, so the listing serializer can render a preview badge without an
-    # additional join. Same flag drives the approval-dispatch path: a preview
-    # approval that resolves still routes its outcome through the runner's
-    # preview-aware adapter set, never the live publish surface.
-    is_preview = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     expires_at = models.DateTimeField()
 

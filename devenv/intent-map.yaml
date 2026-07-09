@@ -48,6 +48,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    error_notifications:
+        description: 'Error tracking ingestion notifications consumer'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
@@ -152,11 +157,6 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
-    behavioral_cohorts:
-        description: 'Behavioral Cohorts stream rebuild (Rust cohort-event-shuffler + cohort-stream-processor)'
-        requires: [event_ingestion]
-        docker_profiles: []
-
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
@@ -249,6 +249,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                error_notifications,
                 embedding_service,
                 property_definitions,
                 property_values,
@@ -340,7 +341,6 @@ intents:
                 celery_workers,
                 celery_scheduler,
                 nodejs_realtime_cohorts,
-                behavioral_cohorts,
             ]
 
     pipelines:

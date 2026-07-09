@@ -1,1 +1,1 @@
-0008_slackthreadtaskmapping_last_forwarded_ts
+0010_slacksettings_default_integration_nullable

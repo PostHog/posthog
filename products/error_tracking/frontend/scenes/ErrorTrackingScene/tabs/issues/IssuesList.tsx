@@ -36,9 +36,6 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/front
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
-    if (!record.aggregations) {
-        throw new Error('No aggregations found')
-    }
     const sparklineKey = record.id ?? 'issue-unknown'
     const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)

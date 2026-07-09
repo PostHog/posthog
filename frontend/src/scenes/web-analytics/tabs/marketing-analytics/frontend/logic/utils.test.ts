@@ -1,5 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import {
     DatabaseSchemaDataWarehouseTable,
     MARKETING_INTEGRATION_CONFIGS,
@@ -24,49 +22,9 @@ import {
 
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
-        it.each([
-            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, 'BingAds', false],
-            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, 'BingAds', true],
-            ['filters out BingAds with empty feature flags', {}, 'BingAds', false],
-            [
-                'filters out SnapchatAds when flag is disabled',
-                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: false },
-                'SnapchatAds',
-                false,
-            ],
-            [
-                'includes SnapchatAds when flag is enabled',
-                { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: true },
-                'SnapchatAds',
-                true,
-            ],
-            ['filters out SnapchatAds with empty feature flags', {}, 'SnapchatAds', false],
-            [
-                'filters out PinterestAds when flag is disabled',
-                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: false },
-                'PinterestAds',
-                false,
-            ],
-            [
-                'includes PinterestAds when flag is enabled',
-                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: true },
-                'PinterestAds',
-                true,
-            ],
-            ['filters out PinterestAds with empty feature flags', {}, 'PinterestAds', false],
-        ])('%s', (_name, featureFlags, source, shouldInclude) => {
-            const result = getEnabledNativeMarketingSources(featureFlags ?? {})
-            expect(result.includes(source as any)).toBe(shouldInclude)
-        })
-
-        it('always includes sources without feature flag requirements', () => {
-            const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter(
-                (s) => s !== 'BingAds' && s !== 'SnapchatAds' && s !== 'PinterestAds'
-            )
+        it('returns every native source when no source is flag-gated', () => {
             const result = getEnabledNativeMarketingSources({})
-            sourcesWithoutFlags.forEach((source) => {
-                expect(result).toContain(source)
-            })
+            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
         })
     })
 

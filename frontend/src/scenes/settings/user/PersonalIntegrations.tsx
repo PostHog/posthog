@@ -160,7 +160,7 @@ function SlackLinkRow({ integration }: { integration: PersonalSlackIntegration }
 }
 
 export function PersonalGitHubIntegrations(): JSX.Element {
-    const { integrations, integrationsLoading } = useValues(personalIntegrationsLogic)
+    const { integrations, integrationsLoading, githubConnecting } = useValues(personalIntegrationsLogic)
     const { connectGitHub } = useActions(personalIntegrationsLogic)
 
     if (integrationsLoading && integrations.length === 0) {
@@ -188,7 +188,14 @@ export function PersonalGitHubIntegrations(): JSX.Element {
                 ))
             )}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-                <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={connectGitHub}>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconPlus />}
+                    onClick={connectGitHub}
+                    loading={githubConnecting}
+                    disabledReason={githubConnecting ? 'Starting GitHub installation…' : undefined}
+                >
                     {integrations.length === 0 ? 'Connect GitHub' : 'Add account/organization'}
                 </LemonButton>
                 <span className="text-xs text-secondary text-balance">

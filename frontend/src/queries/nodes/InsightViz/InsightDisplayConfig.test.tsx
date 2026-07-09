@@ -75,7 +75,7 @@ function getSectionTitles(): string[] {
 }
 
 async function openOptionsMenu(): Promise<void> {
-    const optionsButtons = screen.getAllByRole('button', { name: /Options/ })
+    const optionsButtons = screen.getAllByLabelText('Options')
     await userEvent.click(optionsButtons[0])
 }
 
@@ -243,7 +243,7 @@ describe('InsightDisplayConfig', () => {
                         'Stack bars',
                         'Show values on series',
                         'Show percentages on series',
-                        'Show legendBottom',
+                        'Show legendRight',
                     ],
                 },
             ],
@@ -350,7 +350,7 @@ describe('InsightDisplayConfig', () => {
         it('removes axis label option count after clearing a committed label', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 
-            const optionsButton = screen.getAllByRole('button', { name: /Options/ })[0]
+            const optionsButton = screen.getAllByLabelText('Options')[0]
             expect(optionsButton).toHaveTextContent(/\(1\)/)
 
             await openOptionsMenu()
@@ -378,6 +378,7 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
+            // legend is off, no saved position → shows 'Bottom' as the prospective default
             expect(legendItem).toContain('Bottom')
         })
 
@@ -393,7 +394,8 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
-            expect(legendItem).toContain('Bottom')
+            // Lifecycle sets showLegend:true (no saved position → 'Right'); others have legend off (→ 'Bottom').
+            expect(legendItem).toMatch(/Bottom|Right/)
         })
 
         it('keeps the plain "Show legend" checkbox for the aggregated bar-value chart', async () => {

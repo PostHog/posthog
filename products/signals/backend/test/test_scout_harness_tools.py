@@ -211,6 +211,20 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == 2
 
+    @parameterized.expand([("emitted_true", True), ("emitted_false", False)])
+    def test_emitted_filter_counts_report_only_runs(self, _name: str, emitted: bool) -> None:
+        # A run that only authored a report (emitted_count stays 0) must still read as "emitted",
+        # so the report channel isn't invisible to the emitted-run history/dedupe view.
+        report_run = _create_run(self.team, emitted_report_ids=["r-1"])
+        quiet = _create_run(self.team)
+
+        hits = search_recent_runs(team_id=self.team.id, emitted=emitted)
+
+        expected = report_run if emitted else quiet
+        assert [h.run_id for h in hits] == [str(expected.id)]
+        if emitted:
+            assert hits[0].emitted_report_ids == ["r-1"]
+
     def test_skill_name_filter_scopes_to_one_scout(self) -> None:
         errors = _create_run(self.team, skill_name="signals-scout-errors")
         _create_run(self.team, skill_name="signals-scout-llm")
@@ -659,8 +673,8 @@ class TestBuildEmitExtra:
 
     def test_built_extra_validates_against_schema_variant(self) -> None:
         """Round-trip: the extra we build must pass `SignalsScoutSignalInput` validation
-        — this is the contract `emit_signal` checks via `_SIGNAL_VARIANT_LOOKUP`."""
-        from posthog.schema import SignalsScoutSignalInput
+        — this is the contract `emit_signal` checks via `SIGNAL_VARIANT_LOOKUP`."""
+        from products.signals.backend.contracts import SignalsScoutSignalInput
 
         extra = self._minimal()
         extra["tags"] = ["cost-spike"]
@@ -838,6 +852,8 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
 
     assert result.emitted is False
     assert result.skipped_reason == "ai_processing_not_approved"
+    # The skip must carry an actionable next step so the scout isn't blocked with a dead end.
+    assert result.remediation and "AI data processing" in result.remediation
     mock_emit.assert_not_called()
 
 

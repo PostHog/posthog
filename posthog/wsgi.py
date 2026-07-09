@@ -17,6 +17,7 @@ import structlog
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
+from posthog.web_memory_probe import install_memory_probe_handler
 from posthog.web_memory_sampler import start_web_memory_sampler
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -99,5 +100,9 @@ def application(environ, start_response):
         # not survive into the worker — starting it on the worker's first call samples the
         # process that actually serves requests and grows toward the OOM limit.
         start_web_memory_sampler()
+        # Register the SIGUSR2 memory probe on the same post-fork path (see asgi.py). On a
+        # single-threaded Unit worker this runs on the main thread; if Unit serves the app
+        # from a worker thread the install no-ops gracefully. Inert unless the env flag is set.
+        install_memory_probe_handler()
         _prewarmed = True
     return _django_application(environ, start_response)

@@ -6,7 +6,7 @@ use symbolic::debuginfo::{Archive, FileFormat, ObjectKind};
 use tracing::{info, warn};
 
 use crate::api::symbol_sets::SymbolSetUpload;
-use crate::dsym::source_bundle;
+use crate::dsym::{source_bundle, DsymFile};
 
 pub mod upload;
 
@@ -33,7 +33,7 @@ pub struct DiscoveryReport {
     pub without_debug_info: Vec<PathBuf>,
     /// ELFs with debug info but no GNU build id (cannot be uploaded)
     pub missing_build_id: Vec<PathBuf>,
-    /// dSYM bundles spotted while scanning (handled by `dsym upload`)
+    /// Apple dSYM bundles spotted while scanning (packaged via the dsym path)
     pub dsym_bundles: Vec<PathBuf>,
     /// Split-DWARF artifacts spotted while scanning (unsupported)
     pub split_dwarf: Vec<PathBuf>,
@@ -285,6 +285,10 @@ fn parse_candidate(path: &Path) -> Result<Option<Candidate>> {
 /// Render guidance for files that couldn't be uploaded; returns an error when
 /// nothing usable was found at all.
 pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()> {
+    // ELF debug files and dSYM bundles are both uploaded by `symbol-sets upload`
+    // now, so the only genuinely empty case is when neither was found.
+    let nothing_to_upload = report.files.is_empty() && report.dsym_bundles.is_empty();
+
     if !report.split_dwarf.is_empty() {
         warn!(
             "Found {} split-DWARF file(s) (.dwp/.dwo), which aren't supported yet. \
@@ -314,39 +318,81 @@ pub fn report_problems(report: &DiscoveryReport, directory: &Path) -> Result<()>
             "The following files have debug info but no GNU build id, so they cannot be \
              matched to crash events:\n{listing}\n\
              Link with `-Wl,--build-id=sha1` (in Rust: `-C link-arg=-Wl,--build-id=sha1` \
-             via RUSTFLAGS); most toolchains add this by default."
+             via RUSTFLAGS; in Go: `-ldflags=-B=gobuildid`); most C/C++/Rust \
+             toolchains add this by default, Go does not."
         );
-        // Only fail the run when there's nothing valid to upload; otherwise a
-        // stray build-id-less helper binary would block every valid symbol.
-        if report.files.is_empty() {
+        // Only fail the run when there's nothing valid to upload at all;
+        // otherwise a stray build-id-less helper binary would block every valid
+        // symbol, including any dSYM bundles found alongside it.
+        if nothing_to_upload {
             anyhow::bail!("{guidance}");
         }
         warn!("{guidance}");
     }
 
-    if report.files.is_empty() {
-        if !report.dsym_bundles.is_empty() {
-            anyhow::bail!(
-                "No ELF debug symbols found in {}, but {} dSYM bundle(s) were. \
-                 Use `posthog-cli dsym upload` for Apple dSYMs.",
-                directory.display(),
-                report.dsym_bundles.len()
-            );
-        }
+    if nothing_to_upload {
         anyhow::bail!(
-            "No ELF files with debug info found in {}",
+            "No ELF files with debug info or dSYM bundles found in {}",
             directory.display()
         );
     }
 
-    if !report.dsym_bundles.is_empty() {
-        warn!(
-            "Skipping {} dSYM bundle(s); use `posthog-cli dsym upload` for those.",
-            report.dsym_bundles.len()
-        );
-    }
-
     Ok(())
+}
+
+/// Package any discovered Apple `.dSYM` bundles into uploads, reusing the exact
+/// same code path as `posthog-cli dsym upload` (uppercase `LC_UUID` chunk_ids,
+/// `AppleDsym` container). A bundle that fails to process — most often because
+/// `dwarfdump` is unavailable, since it ships with Xcode and is macOS-only — is
+/// logged and skipped rather than aborting the run, so a mixed ELF + dSYM
+/// directory still uploads its ELF symbols on Linux.
+///
+/// Uploads come back with no release id; the caller stamps one (if any) after it
+/// knows there is something to upload, so a fully-skipped run leaves no release.
+pub fn package_dsym_bundles(bundles: &[PathBuf], include_source: bool) -> Vec<SymbolSetUpload> {
+    let mut uploads = Vec::new();
+    for bundle in bundles {
+        match DsymFile::new(bundle, include_source) {
+            Ok(dsym_file) => {
+                info!(
+                    "Processing dSYM {} (UUIDs: {})",
+                    bundle.display(),
+                    dsym_file.uuids().join(", ")
+                );
+                uploads.extend(dsym_file.into_uploads());
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to process dSYM {}: {e} (skipping)",
+                    bundle.display()
+                );
+            }
+        }
+    }
+    uploads
+}
+
+/// Coalesce uploads that share a chunk_id, keeping the first occurrence.
+///
+/// ELF chunk_ids are lowercase (derived by `symbolic`) and Mach-O dSYM chunk_ids
+/// are uppercase (to match what the SDK and `dsym upload` emit), so the two
+/// formats never collide — this only merges the same dSYM UUID appearing in more
+/// than one bundle. Casing is preserved exactly and must never be normalized:
+/// the SDK matches chunk_ids case-sensitively, per format.
+pub fn dedup_uploads_by_chunk_id(uploads: Vec<SymbolSetUpload>) -> Vec<SymbolSetUpload> {
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::with_capacity(uploads.len());
+    for upload in uploads {
+        if seen.insert(upload.chunk_id.clone()) {
+            deduped.push(upload);
+        } else {
+            warn!(
+                "Duplicate chunk id {} across symbol sets; keeping the first",
+                upload.chunk_id
+            );
+        }
+    }
+    deduped
 }
 
 /// Extract the debug id of an ELF file, e.g. for testing parity with the SDK.

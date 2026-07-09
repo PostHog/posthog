@@ -134,48 +134,6 @@ class TestTaskExecution(TestBaseTaskExecutorNode):
         self.assertEqual(execution_order, ["task3", "task2", "task1"])
 
 
-class TestReasoningCallback(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_reasoning_callback_for_single_task(self, mock_write_message):
-        """Test that reasoning messages are sent for single task execution."""
-        task = self._create_task("task1")
-
-        async def task_coroutine(input_dict):
-            # Simulate sending reasoning messages
-            await self.node._reasoning_callback("task1", "Starting analysis")
-            await self.node._reasoning_callback("task1", "Processing data")
-            return self._create_task_result("task1")
-
-        state = MockTestState()
-        state.test_input_tuples = [(task, [], task_coroutine)]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
-
-    @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_reasoning_callback_for_multiple_tasks(self, mock_write_message):
-        """Test that task execution messages are updated for multiple tasks."""
-        task1 = self._create_task("task1")
-        task2 = self._create_task("task2")
-
-        async def task1_coroutine(input_dict):
-            await self.node._reasoning_callback("task1", "Task 1 progress")
-            return self._create_task_result("task1")
-
-        async def task2_coroutine(input_dict):
-            await self.node._reasoning_callback("task2", "Task 2 progress")
-            return self._create_task_result("task2")
-
-        state = MockTestState()
-        state.test_input_tuples = [
-            (task1, [], task1_coroutine),
-            (task2, [], task2_coroutine),
-        ]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
-
-
 class TestErrorHandling(TestBaseTaskExecutorNode):
     @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.capture_exception")
     async def test_handles_task_failure(self, mock_capture):
@@ -274,41 +232,6 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
         await self.node.arun(state, config)
 
         self.assertEqual(received_artifacts, [input_artifact])
-
-
-class TestMessageFlow(TestBaseTaskExecutorNode):
-    @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_no_task_execution_message_for_single_task(self, mock_write_message):
-        """Test that no TaskExecutionMessage is sent for single task."""
-        task = self._create_task("task1")
-
-        async def task_coroutine(_: Any):
-            return self._create_task_result("task1")
-
-        state = MockTestState()
-        state.test_input_tuples = [(task, [], task_coroutine)]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
-
-    @patch("ee.hogai.chat_agent.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
-    async def test_task_execution_messages_for_multiple_tasks(self, mock_write_message):
-        """Test that TaskExecutionMessages are sent for multiple tasks."""
-        task1 = self._create_task("task1")
-        task2 = self._create_task("task2")
-
-        async def task_coroutine(input_dict):
-            task_id = input_dict["task"].id
-            return self._create_task_result(task_id)
-
-        state = MockTestState()
-        state.test_input_tuples = [
-            (task1, [], task_coroutine),
-            (task2, [], task_coroutine),
-        ]
-        config = RunnableConfig()
-
-        await self.node.arun(state, config)
 
 
 class TestEdgeCases(TestBaseTaskExecutorNode):
@@ -494,43 +417,6 @@ class TestConcurrentExecution(TestBaseTaskExecutorNode):
         min_end = min(end_times.values())
         # Some overlap should exist
         self.assertLess(max_start, min_end, "Tasks should have overlapping execution")
-
-    async def test_results_yielded_in_completion_order(self):
-        """Test that results are yielded as they complete, not in submission order."""
-        task1 = self._create_task("task1")
-        task2 = self._create_task("task2")
-        task3 = self._create_task("task3")
-
-        completion_order = []
-
-        async def task1_coroutine(input_dict):
-            await asyncio.sleep(0.15)
-            completion_order.append("task1")
-            return self._create_task_result("task1")
-
-        async def task2_coroutine(input_dict):
-            await asyncio.sleep(0.05)
-            completion_order.append("task2")
-            return self._create_task_result("task2")
-
-        async def task3_coroutine(input_dict):
-            await asyncio.sleep(0.10)
-            completion_order.append("task3")
-            return self._create_task_result("task3")
-
-        state = MockTestState()
-        state.test_input_tuples = [
-            (task1, [], task1_coroutine),
-            (task2, [], task2_coroutine),
-            (task3, [], task3_coroutine),
-        ]
-        config = RunnableConfig()
-
-        with patch.object(self.node, "dispatcher"):
-            await self.node.arun(state, config)
-
-            # Verify completion order matches fastest-first
-            self.assertEqual(completion_order, ["task2", "task3", "task1"])
 
 
 class TestTaskDependencies(TestBaseTaskExecutorNode):

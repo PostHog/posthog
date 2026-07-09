@@ -773,7 +773,13 @@ function SchemaRowMore({
                                     size="xsmall"
                                     fullWidth
                                     onClick={() => reloadSchema(schema)}
-                                    disabledReason={!schema.sync_type ? 'Set up the sync method first' : undefined}
+                                    disabledReason={
+                                        !schema.sync_type
+                                            ? 'Set up the sync method first'
+                                            : schema.status === 'Running'
+                                              ? 'A sync is already running'
+                                              : undefined
+                                    }
                                 >
                                     {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
                                 </LemonButton>

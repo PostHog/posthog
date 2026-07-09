@@ -33,6 +33,7 @@ RUN_FIELDS = (
     "id",
     "name",
     "head_sha",
+    "head_branch",
     "status",
     "conclusion",
     "created_at",

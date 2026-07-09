@@ -50,6 +50,8 @@ export const smoothingOptions: Record<IntervalType, { label: string; value: Smoo
     ],
     week: [],
     month: [],
+    quarter: [],
+    year: [],
 }
 
 export type SmoothingKeyType = keyof typeof smoothingOptions

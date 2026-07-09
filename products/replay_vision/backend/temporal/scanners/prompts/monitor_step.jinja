@@ -1,0 +1,5 @@
+{% from "_macros.jinja" import cite_in %}Decide whether the following condition occurred during the session: {{ user_prompt }}
+
+In `reasoning`, weigh the evidence for and against; then set `verdict` to {% if allow_inconclusive %}`yes` if there's direct visual or event-level evidence the condition occurred, `no` if there's direct evidence it did not, or `inconclusive` only when the session genuinely doesn't provide enough signal to decide.{% else %}`yes` only if there's direct visual or event-level evidence the condition occurred, otherwise `no` — never `inconclusive`.{% endif %}
+
+{{ cite_in('reasoning') }}

@@ -1,18 +1,18 @@
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { logger } from '~/utils/logger'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { logger } from '~/common/utils/logger'
 
 import { Hub, ProjectId, Team } from '../../../types'
-import { closeHub, createHub } from '../../../utils/db/hub'
 import { createExampleInvocation, createHogFunction } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../../types'
 import { createInvocationResult } from '../../utils/invocation-utils'
 import { BASE_REDIS_KEY, HogWatcherConfig, HogWatcherService, HogWatcherState } from './hog-watcher.service'
 
-jest.mock('~/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
+jest.mock('~/common/utils/posthog', () => ({ captureTeamEvent: jest.fn() }))
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
-const mockCaptureTeamEvent: jest.Mock = require('~/utils/posthog').captureTeamEvent as any
+const mockCaptureTeamEvent: jest.Mock = require('~/common/utils/posthog').captureTeamEvent as any
 
 const DEFAULT_WATCHER_CONFIG: HogWatcherConfig = {
     hogCostTimingLowerMs: 50,

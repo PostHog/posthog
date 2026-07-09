@@ -12,6 +12,8 @@ import { NotebookNodeType } from '../types'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
+    convertDroppedPostHogUrlToMarkdownNode,
+    convertDroppedRichContentNodeToMarkdownNode,
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
@@ -87,6 +89,13 @@ describe('markdownNotebookV2', () => {
                     },
                 },
                 {
+                    type: NotebookNodeType.Recording,
+                    attrs: {
+                        id: '018b4205-f670-7fa8-928a-040abaaf596d',
+                        title: 'Session replay',
+                    },
+                },
+                {
                     type: NotebookNodeType.Image,
                     attrs: {
                         src: 'https://res.cloudinary.com/demo/image/upload/posthog.png',
@@ -100,9 +109,117 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+
+<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
+    })
+
+    it('preserves explicitly open legacy widget filters', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: 'SavedInsightNode',
+                            shortId: 'open',
+                        },
+                        edit: true,
+                    },
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(
+            '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />'
+        )
+    })
+
+    it('converts raw legacy content arrays without dropping top-level text nodes', () => {
+        const content: JSONContent[] = [
+            {
+                type: 'heading',
+                attrs: { level: 1 },
+                content: [{ type: 'text', text: 'Array notebook' }],
+            },
+            { type: 'text', text: 'Loose top-level text', marks: [{ type: 'italic' }] },
+            { type: 'paragraph', content: [{ type: 'text', text: 'Wrapped paragraph' }] },
+        ]
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`# Array notebook
+
+*Loose top-level text*
+
+Wrapped paragraph`)
+    })
+
+    it('converts string content without dropping data', () => {
+        const legacyDocString = JSON.stringify({
+            type: 'doc',
+            content: [
+                {
+                    type: 'heading',
+                    attrs: { level: 1 },
+                    content: [{ type: 'text', text: 'JSON string notebook' }],
+                },
+            ],
+        })
+
+        expect(convertNotebookContentToMarkdown(legacyDocString)).toEqual('# JSON string notebook')
+        expect(convertNotebookContentToMarkdown('# Already Markdown\n\nPlain body')).toEqual(
+            '# Already Markdown\n\nPlain body'
+        )
+        expect(convertNotebookContentToMarkdown('Plain text body')).toEqual('Plain text body')
+    })
+
+    it('converts legacy ph-insight nodes to saved insight query tags', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: 'ph-insight', attrs: { id: 'abc123' } },
+                { type: 'ph-insight', attrs: { id: 123, short_id: 'def456' } },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content))
+            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+
+<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+    })
+
+    it('converts remaining legacy production node shapes without unknown nodes', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                { type: 'ph-text', attrs: { body: '# Markdown body' } },
+                { type: 'ph-dashboard', attrs: { id: 123 } },
+                {
+                    type: 'query',
+                    attrs: {
+                        query: {
+                            kind: 'HogQLQuery',
+                            query: 'select event from events limit 1',
+                        },
+                    },
+                },
+            ],
+        }
+
+        expect(convertNotebookContentToMarkdown(content)).toEqual(`# Markdown body
+
+Dashboard 123
+
+<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+    })
+
+    it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
+        const markdown =
+            '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"after":"-24h","limit":1}}} />'
+
+        expect(parseMarkdownNotebook(markdown).nodes[0]?.id).toEqual('mdn-197jp5a-0')
     })
 
     it('keeps a query attr whose object carries nested undefined optional fields', () => {
@@ -129,7 +246,7 @@ A **bold** paragraph.
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -304,6 +421,85 @@ after`)
 | line1 line2 |`)
     })
 
+    it('converts legacy markdown ast alias nodes without losing structure', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'bullet_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'first' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'ordered_list',
+                    content: [
+                        {
+                            type: 'list_item',
+                            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'step' }] }],
+                        },
+                    ],
+                },
+                {
+                    type: 'code_block',
+                    attrs: { language: 'sql' },
+                    content: [
+                        { type: 'text', text: 'select 1' },
+                        { type: 'hardBreak' },
+                        { type: 'text', text: 'select 2' },
+                    ],
+                },
+                {
+                    type: 'table',
+                    content: [
+                        {
+                            type: 'table_row',
+                            content: [
+                                {
+                                    type: 'table_header',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Metric' }] }],
+                                },
+                                {
+                                    type: 'table_cell',
+                                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        {
+                            type: 'paragraph',
+                            content: [
+                                { type: 'text', text: 'Heads', marks: [{ type: 'strong' }] },
+                                { type: 'text', text: ' and ' },
+                                { type: 'text', text: 'note', marks: [{ type: 'em' }] },
+                            ],
+                        },
+                    ],
+                },
+                { type: 'ph-link', attrs: { href: 'https://app.posthog.com/cohorts/37958' } },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('- first')
+        expect(markdown).toContain('1. step')
+        expect(markdown).toContain('```sql\nselect 1\nselect 2\n```')
+        expect(markdown).toContain('| Metric | Value |')
+        expect(markdown).toContain('| --- | --- |')
+        expect(markdown).toContain('> ! **Heads** and *note*')
+        expect(markdown).toContain('[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
     it('produces markdown that parses without errors in the markdown notebook model', () => {
         const content: JSONContent = {
             type: 'doc',
@@ -333,6 +529,82 @@ after`)
         expect(parsed.nodes.map((node) => node.type)).toEqual(['heading', 'list', 'component', 'blockquote'])
     })
 
+    it('splits embedded cards and headings out of blockquotes instead of quoting their tags', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'blockquote',
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Quoted context' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                        {
+                            type: 'blockquote',
+                            content: [
+                                {
+                                    type: 'heading',
+                                    attrs: { level: 2 },
+                                    content: [{ type: 'text', text: 'Where to improve' }],
+                                },
+                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> Quoted context')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).toContain('\n\n## Where to improve')
+        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).not.toContain('> <')
+
+        const parsed = parseMarkdownNotebook(markdown)
+        expect(parsed.errors).toEqual([])
+        expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
+            'Query',
+            'Python',
+        ])
+    })
+
+    it('splits embedded cards out of callouts while keeping the emoji and text quoted', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'callout',
+                    attrs: { emoji: '!' },
+                    content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'Watch this' }] },
+                        {
+                            type: NotebookNodeType.Query,
+                            attrs: {
+                                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc123' },
+                                hideFilters: true,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+
+        expect(markdown).toContain('> ! Watch this')
+        expect(markdown).toContain('\n\n<Query ')
+        expect(markdown).not.toContain('> <')
+        expect(parseMarkdownNotebook(markdown).errors).toEqual([])
+    })
+
     it('converts notebook artifacts to markdown notebook content', () => {
         const content: NotebookArtifactContent = {
             content_type: ArtifactContentType.Notebook,
@@ -360,7 +632,7 @@ after`)
 
 Users activated faster.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -381,7 +653,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -408,7 +680,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 
@@ -533,5 +805,90 @@ Users activated faster.
         expect(notebookArtifactContentToMarkdown(content)).toEqual(`# Existing title
 
 Body`)
+    })
+
+    describe('convertDroppedPostHogUrlToMarkdownNode', () => {
+        // Entity links drag with only their href; this mapping is what turns a dropped link
+        // into the resource's component node instead of a plain link.
+        it.each<[string, string, { tagName: string; props: Record<string, unknown> } | null]>([
+            ['feature flag', '/feature_flags/123', { tagName: 'FeatureFlag', props: { id: 123 } }],
+            [
+                'feature flag with project prefix',
+                '/project/1/feature_flags/123',
+                { tagName: 'FeatureFlag', props: { id: 123 } },
+            ],
+            ['experiment', '/experiments/42', { tagName: 'Experiment', props: { id: 42 } }],
+            ['cohort', '/cohorts/7', { tagName: 'Cohort', props: { id: 7 } }],
+            [
+                'saved insight',
+                '/insights/AbC123',
+                {
+                    tagName: 'Query',
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' }, hideFilters: true },
+                },
+            ],
+            [
+                'survey',
+                '/surveys/018f6a2b-0000-0000-0000-000000000000',
+                { tagName: 'Survey', props: { id: '018f6a2b-0000-0000-0000-000000000000' } },
+            ],
+            [
+                'recording',
+                '/replay/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Recording', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by uuid',
+                '/persons/018f6a2b-1111-2222-3333-444444444444',
+                { tagName: 'Person', props: { id: '018f6a2b-1111-2222-3333-444444444444' } },
+            ],
+            [
+                'person by distinct id',
+                '/person/user%40example.com',
+                { tagName: 'Person', props: { distinctId: 'user@example.com' } },
+            ],
+            ['new flag form (no entity yet)', '/feature_flags/new', null],
+            ['new insight form (no entity yet)', '/insights/new', null],
+            ['unrecognized path', '/settings/project', null],
+        ])('%s', (_name, path, expected) => {
+            const node = convertDroppedPostHogUrlToMarkdownNode(`${window.location.origin}${path}`)
+
+            if (expected === null) {
+                expect(node).toBeNull()
+            } else {
+                expect(node).toMatchObject({ type: 'component', ...expected })
+            }
+        })
+
+        it('ignores URLs from other origins', () => {
+            expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
+    })
+
+    describe('convertDroppedRichContentNodeToMarkdownNode', () => {
+        it('maps a dragged recording payload to its markdown component', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Recording, {
+                id: 'session-1',
+                noInspector: false,
+            })
+
+            expect(node).toMatchObject({
+                type: 'component',
+                tagName: 'Recording',
+                props: { id: 'session-1', noInspector: false },
+            })
+        })
+
+        it('defaults dropped queries to hidden filters', () => {
+            const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
+                query: { kind: NodeKind.EventsQuery, select: ['event'] },
+            })
+
+            expect(node).toMatchObject({ tagName: 'Query', props: { hideFilters: true } })
+        })
+
+        it('returns null for node types without a markdown counterpart', () => {
+            expect(convertDroppedRichContentNodeToMarkdownNode('ph-not-a-real-node', { id: 1 })).toBeNull()
+        })
     })
 })

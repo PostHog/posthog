@@ -1,32 +1,45 @@
 #!/bin/bash
-# POST to local agent-ingress /run and tail SSE events from /listen/:id.
-# Exercises the full ingress → queue → runner → bus → SSE path against the
-# canned dev revision in services/agent-ingress/dev/revisions.json.
+# POST to local agent-ingress and tail SSE events.
+# Exercises the full ingress → queue → runner → bus → SSE path against an
+# agent the caller has already authored + promoted to `live`.
 #
 # Usage:
-#   bin/run-agent                            # default app (slug=demo)
-#   bin/run-agent --app=00000000-0000-...    # explicit applicationId
-#   bin/run-agent --input='{"foo":"bar"}'    # input payload
-#   bin/run-agent --no-listen                # skip SSE tail
+#   bin/run-agent --slug=<slug>                              # required
+#   bin/run-agent --slug=demo --message='hi'                 # chat shape
+#   bin/run-agent --slug=demo --input='{"hello":"world"}'    # raw JSON body
+#   bin/run-agent --slug=demo --bearer=phx_...               # auth.modes: posthog
+#   bin/run-agent --slug=demo --internal-secret=...          # auth.modes: posthog_internal
+#   bin/run-agent --slug=demo --no-listen                    # skip SSE tail
 #
-# Requires the agent stack to be running (`hogli start` with the `agents`
-# intent selected, or run agent-ingress + agent-runner directly).
+# `--message=` is a convenience for chat triggers: it expands to
+# `{"message":"<msg>"}` for `/run`. Use `--input=` if you need a different
+# body shape. Default in dev: `internal-secret` is set to the
+# DEV_INTERNAL_SIGNING_KEY value baked into platform.ts.
+#
+# Requires the agent stack to be running (`hogli start` with the
+# `agent_runtime` capability, or run agent-ingress + agent-runner directly).
 
 set -euo pipefail
 
 INGRESS_URL="${AGENT_INGRESS_URL:-http://localhost:3030}"
-APPLICATION_ID="00000000-0000-4000-8000-000000000001"
-INPUT='{"hello":"world"}'
+SLUG=""
+MESSAGE=""
+INPUT=""
 LISTEN=1
+BEARER=""
+INTERNAL_SECRET="${AGENT_INTERNAL_SIGNING_KEY:-dev-internal-signing-key-do-not-use-in-prod}"
 
 for arg in "$@"; do
     case "$arg" in
-        --app=*)       APPLICATION_ID="${arg#*=}" ;;
-        --input=*)     INPUT="${arg#*=}" ;;
-        --no-listen)   LISTEN=0 ;;
-        --url=*)       INGRESS_URL="${arg#*=}" ;;
+        --slug=*)             SLUG="${arg#*=}" ;;
+        --message=*)          MESSAGE="${arg#*=}" ;;
+        --input=*)            INPUT="${arg#*=}" ;;
+        --no-listen)          LISTEN=0 ;;
+        --url=*)              INGRESS_URL="${arg#*=}" ;;
+        --bearer=*)           BEARER="${arg#*=}" ;;
+        --internal-secret=*)  INTERNAL_SECRET="${arg#*=}" ;;
         -h|--help)
-            sed -n '2,13p' "$0"
+            sed -n '2,20p' "$0"
             exit 0
             ;;
         *)
@@ -36,20 +49,47 @@ for arg in "$@"; do
     esac
 done
 
+if [ -z "$SLUG" ]; then
+    echo "ERROR: --slug=<slug> is required" >&2
+    exit 1
+fi
+
+if [ -n "$MESSAGE" ] && [ -n "$INPUT" ]; then
+    echo "ERROR: --message= and --input= are mutually exclusive" >&2
+    exit 1
+fi
+
+if [ -z "$INPUT" ]; then
+    if [ -n "$MESSAGE" ]; then
+        INPUT=$(printf '{"message":%s}' "$(printf '%s' "$MESSAGE" | jq -Rs .)")
+    else
+        INPUT='{"message":"hi"}'
+    fi
+fi
+
 # Pretty-print JSON if jq is around, otherwise raw.
 if command -v jq >/dev/null 2>&1; then PRETTY="jq ."; else PRETTY="cat"; fi
 
-echo "POST $INGRESS_URL/run  (applicationId=$APPLICATION_ID)"
+AUTH_HEADER_ARGS=()
+if [ -n "$BEARER" ]; then
+    AUTH_HEADER_ARGS+=(-H "authorization: Bearer $BEARER")
+else
+    AUTH_HEADER_ARGS+=(-H "x-posthog-internal: $INTERNAL_SECRET")
+fi
+
+RUN_URL="$INGRESS_URL/agents/$SLUG/run"
+echo "POST $RUN_URL"
 RUN_RESPONSE=$(curl -sS -w '\n%{http_code}' \
-    -X POST "$INGRESS_URL/run" \
+    -X POST "$RUN_URL" \
     -H 'content-type: application/json' \
-    -d "$(printf '{"applicationId":"%s","input":%s}' "$APPLICATION_ID" "$INPUT")")
+    "${AUTH_HEADER_ARGS[@]}" \
+    -d "$INPUT")
 
 # curl -w writes the status code on the last line, separated from the body.
 HTTP_CODE=$(echo "$RUN_RESPONSE" | tail -n1)
 BODY=$(echo "$RUN_RESPONSE" | sed '$d')
 
-if [ "$HTTP_CODE" != "202" ]; then
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "202" ]; then
     echo "ERROR: /run returned HTTP $HTTP_CODE" >&2
     echo "$BODY" | $PRETTY >&2
     exit 1
@@ -57,9 +97,10 @@ fi
 
 echo "$BODY" | $PRETTY
 
-SESSION_ID=$(echo "$BODY" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+# Ingress responds with `session_id` (snake_case) per ChatRunBodySchema.
+SESSION_ID=$(echo "$BODY" | grep -o '"session_id":"[^"]*"' | cut -d'"' -f4)
 if [ -z "$SESSION_ID" ]; then
-    echo "ERROR: could not parse sessionId from response" >&2
+    echo "ERROR: could not parse session_id from response" >&2
     exit 1
 fi
 
@@ -67,6 +108,10 @@ if [ "$LISTEN" = "0" ]; then
     exit 0
 fi
 
+LISTEN_URL="$INGRESS_URL/agents/$SLUG/listen?session_id=$SESSION_ID"
 echo
-echo "GET $INGRESS_URL/listen/$SESSION_ID  (Ctrl-C to stop)"
-exec curl -sS -N -H 'accept: text/event-stream' "$INGRESS_URL/listen/$SESSION_ID"
+echo "GET $LISTEN_URL  (Ctrl-C to stop)"
+exec curl -sS -N \
+    -H 'accept: text/event-stream' \
+    "${AUTH_HEADER_ARGS[@]}" \
+    "$LISTEN_URL"

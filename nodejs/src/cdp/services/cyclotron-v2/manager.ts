@@ -2,8 +2,9 @@ import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { isTransientPgError } from '../../../utils/db/postgres'
-import { logger } from '../../../utils/logger'
+import { isTransientPgError } from '~/common/utils/db/postgres'
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronV2JobInit, CyclotronV2JobInitSchema, CyclotronV2ManagerConfig } from './types'
 
 /**

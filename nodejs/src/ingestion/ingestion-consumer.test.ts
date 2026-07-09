@@ -11,6 +11,10 @@ import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoi
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { UUIDT } from '~/common/utils/utils'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
@@ -23,18 +27,14 @@ import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
-import { PostgresUse } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { UUIDT } from '~/utils/utils'
 
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -47,10 +47,10 @@ jest.mock('~/ingestion/common/steps/event-processing/prepare-event-step', () => 
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/utils/token-bucket'),
+        ...jest.requireActual('~/common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -281,9 +281,13 @@ describe('IngestionConsumer', () => {
 
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
-            beforeEach(() => {
+            beforeEach(async () => {
                 // Just to make it easy to see what is configured
                 expect(infra.config.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+                // Overflow is now gated on explicit mode; the main lane redirects.
+                infra.config.INGESTION_OVERFLOW_MODE = 'redirect'
+                await ingester.stop()
+                ingester = await createIngestionConsumer(infra)
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
@@ -308,7 +312,8 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                // Create a new consumer that consumes from the overflow topic
+                // Overflow lane consumes the overflow topic; it never redirects back.
+                infra.config.INGESTION_OVERFLOW_MODE = 'consume'
                 const overflowIngester = await createIngestionConsumer(infra, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
@@ -332,10 +337,9 @@ describe('IngestionConsumer', () => {
 
             describe('stateful overflow redirect', () => {
                 it('refreshes Redis TTL when processing events in overflow lane', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -376,10 +380,9 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('does not create keys when refreshing TTL for non-existent keys', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -917,11 +920,8 @@ describe('IngestionConsumer', () => {
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
         })
 
-        it('should split AI events with large properties when splitting is enabled', async () => {
+        it('should split AI events with large properties into events + ai_events', async () => {
             await ingester.stop()
-            infra.config.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
-            infra.config.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
-            infra.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS = '*'
             ingester = await createIngestionConsumer(infra)
 
             const events = [

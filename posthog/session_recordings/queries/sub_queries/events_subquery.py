@@ -21,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query, tracer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
@@ -120,7 +121,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # with a bad experience filtering out 60% of results incorrectly
         # We use a feature flag to control this behavior for safe rollout.
 
-        remove_order_by = posthoganalytics.feature_enabled(
+        remove_order_by = feature_enabled_or_false(
             "remove-order-by-for-event-subquery",
             str(self._team.organization.id),
             send_feature_flag_events=False,
@@ -151,7 +152,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
         """
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "enable-hybrid-poe-replay-filtering",
             str(self._team.id),
             send_feature_flag_events=False,
