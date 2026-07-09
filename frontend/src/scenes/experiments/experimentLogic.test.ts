@@ -1279,6 +1279,53 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('freezeExposure', () => {
+        it('calls freeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const frozenResponse = { ...experiment, status: 'exposure_frozen' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(frozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.freezeExposure()
+            })
+                .toDispatchActions(['freezeExposure', 'setFreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/freeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('exposure_frozen')
+            // Loading guard is reset after the request settles.
+            expect(keyed.values.freezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+
+        it('shows error toast and resets the loading guard on failure', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue({
+                detail: 'Experiment exposure is already frozen.',
+            })
+            const errorMock = lemonToast.error as jest.Mock
+            errorMock.mockClear()
+
+            logic.actions.setExperiment(experiment)
+
+            await expectLogic(logic, () => {
+                logic.actions.freezeExposure()
+            }).toFinishAllListeners()
+
+            expect(errorMock).toHaveBeenCalledWith('Experiment exposure is already frozen.')
+            expect(logic.values.freezeExposureLoading).toBe(false)
+            createSpy.mockRestore()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {
@@ -1657,19 +1704,24 @@ describe('experimentLogic', () => {
             expect(api.update).toHaveBeenCalledWith(
                 expect.stringContaining('/experiments/'),
                 expect.objectContaining({
-                    parameters: expect.objectContaining({
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 75 },
-                            { key: 'test', rollout_percentage: 25 },
-                        ],
-                    }),
+                    feature_flag: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 75 },
+                                    { key: 'test', rollout_percentage: 25 },
+                                ],
+                            },
+                        },
+                    },
                     holdout_id: experiment.holdout_id,
                     update_feature_flag_params: true,
                 })
             )
-            // Should not send rollout_percentage — it's not editable in the distribution modal
-            const sentParams = (api.update.mock.calls[0][1] as Record<string, any>).parameters
-            expect(sentParams).not.toHaveProperty('rollout_percentage')
+            // No rollout group when the caller omits rolloutPercentage (the modal itself always
+            // passes one; this covers the omit branch)
+            const sentFlagFilters = (api.update.mock.calls[0][1] as Record<string, any>).feature_flag.filters
+            expect(sentFlagFilters).not.toHaveProperty('groups')
         })
 
         it('does not call feature flag API directly', async () => {

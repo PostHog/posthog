@@ -674,6 +674,7 @@ export const ExperimentsListWidgetConfigApiStatus = {
     Draft: 'draft',
     Running: 'running',
     Paused: 'paused',
+    ExposureFrozen: 'exposure_frozen',
     Stopped: 'stopped',
     All: 'all',
 } as const

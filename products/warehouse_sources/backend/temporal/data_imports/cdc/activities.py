@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSchemaMergeError,
     classify_cdc_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
@@ -906,21 +907,8 @@ class CDCExtractActivity:
         )
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
-        """Resolve a CDC schema row to its source-qualified `schema.table` name.
-
-        Prefers stored schema_metadata, then a dotted display name, then the source's
-        default schema — so a row stored bare (`orders`) still resolves to its real
-        source location (`public.orders`).
-        """
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
-        metadata = schema.sync_type_config.get("schema_metadata") or {}
-        src_schema = metadata.get("source_schema")
-        src_table = metadata.get("source_table_name")
-        if isinstance(src_schema, str) and isinstance(src_table, str):
-            return f"{src_schema}.{src_table}"
-        if "." in schema.name:
-            return schema.name
-        return f"{default_schema or 'public'}.{schema.name}"
+        return cdc_qualified_table_name(schema, default_schema)
 
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.

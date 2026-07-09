@@ -190,6 +190,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     scopes = scopes.filter((scope) => scope.key !== 'agents')
                 }
 
+                // Hide engineering analytics scope unless the product's rollout flag is enabled
+                if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')
+                }
+
                 // Hide approvals scope unless the org has the APPROVALS feature
                 if (!hasAvailableFeature(AvailableFeature.APPROVALS)) {
                     scopes = scopes.filter((scope) => scope.key !== 'approvals')

@@ -8,7 +8,25 @@ name: Build and deploy agent platform container images
 
 on:
     workflow_dispatch:
+    # paths mirror the changes job's dorny filter, which still gates push and
+    # merge_group events (merge_group triggers don't support paths).
     pull_request:
+        paths:
+            - 'products/agent_platform/services/**'
+            - 'products/agent_platform/packages/**'
+            # Transitional: in-flight branches still have these at the
+            # old paths. Drop once they've rebased onto the move.
+            - 'services/agent-ingress/**'
+            - 'services/agent-runner/**'
+            - 'services/agent-janitor/**'
+            - 'services/agent-shared/**'
+            - 'services/agent-tools/**'
+            - 'services/agent-sandbox-host/**'
+            - 'services/agents/**'
+            - 'packages/quill/**'
+            - '.github/workflows/ci-agent-container.yml'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
     merge_group:
     push:
         branches:
@@ -43,6 +61,7 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       agent_files:
                         - 'products/agent_platform/services/**'

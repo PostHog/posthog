@@ -28,6 +28,11 @@ const shimmedModules = {
     // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
     // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
     'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
+    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
+    // Toolbar code imports it directly; this entry covers lib/ components shared with the
+    // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
+    // every product manifest into the bundle.
+    'scenes/urls': 'src/toolbar/urls.ts',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -86,13 +91,32 @@ const deniedPatterns = [
  * - Denied modules get replaced with an inert proxy
  */
 function createToolbarModulePlugin(dirname) {
+    // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
+    // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
+    // Map each shimmed module's extensionless absolute path to its shim.
+    const shimsByAbsolutePath = new Map(
+        Object.entries(shimmedModules).map(([alias, shimFile]) => [
+            path.resolve(dirname, 'src', alias),
+            path.resolve(dirname, shimFile),
+        ])
+    )
     return {
         name: 'toolbar-module-replacements',
         setup(build) {
             build.onResolve({ filter: /.*/ }, (args) => {
-                const shimFile = shimmedModules[args.path]
+                const shimFile = shimmedModules[args.path] ?? shimmedModules[args.path.replace(/^~\//, '')]
                 if (shimFile) {
                     return { path: path.resolve(dirname, shimFile) }
+                }
+
+                if (args.path.startsWith('.') && args.importer) {
+                    const absolute = path
+                        .resolve(path.dirname(args.importer), args.path)
+                        .replace(/\.(tsx|ts|jsx|js)$/, '')
+                    const shimPath = shimsByAbsolutePath.get(absolute)
+                    if (shimPath) {
+                        return { path: shimPath }
+                    }
                 }
 
                 const shouldDeny =

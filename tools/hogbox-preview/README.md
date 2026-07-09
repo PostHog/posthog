@@ -36,10 +36,15 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    the golden (8 vCPU / 16 GiB / 100 GiB).
 2. **Mount the PR's backend** (`posthog`, `ee`, `products`) over the image's
    `/code` — so the backend runs the PR code with **no per-PR image build**.
-3. **Frontend** (only when the PR touches `frontend/**`): CI builds the PR's
-   `frontend/dist`, ships it into the box, and `swap_frontend` re-runs
-   `collectstatic` before the web recreate. Non-FE PRs keep the golden's
-   `:master` SPA and stay ~1 min.
+3. **Frontend** (only when the PR touches `frontend/**`): the untrusted
+   `build-frontend` CI job compiles the PR's `frontend/dist` on the runner **in
+   parallel** with the bring-up. Once the box is healthy, the `swap-frontend`
+   subcommand ships the dist in (chunked past hogplane's 64 MiB write cap),
+   re-runs `collectstatic`, and recreates web — so the box comes up on the
+   golden's `:master` SPA first, then swaps to the PR frontend before "ready" is
+   posted. Non-FE PRs skip the swap and keep the `:master` SPA. Running the swap
+   after bring-up (not inside the single `up`) is what lets the FE build hide
+   under the longer bring-up instead of serializing before it.
 4. **Delta-migrate** — only the PR's _unapplied_ migrations on top of the seeded
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
 5. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
@@ -123,9 +128,16 @@ Pure stdlib + the SDK; run with `uv run` or plain `python`. Subcommands mirror
 ```bash
 cd tools/hogbox-preview
 
-# one-shot: provision (pen + box) + bring PostHog up, print the URL
+# one-shot: provision (pen + box) + bring PostHog up, print the URL. The CI flow
+# omits --frontend-dist and swaps the frontend in afterwards (below) so the FE
+# build runs in parallel; the flag stays for a single-shot local build.
 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" up \
   --branch "pull/$PR/head" [--frontend-dist /path/to/frontend-dist.tgz] [--no-seed]
+
+# deferred frontend swap onto the already-up box (what CI runs once the parallel
+# build-frontend job finishes): resolves the live box by pen name, no restore.
+python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" \
+  swap-frontend --frontend-dist /path/to/frontend-dist.tgz
 
 # granular / staged (reuse a box):
 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-$PR" create

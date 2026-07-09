@@ -238,13 +238,15 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
                 results.map((series, index) => ({
                     name: formatSeriesName(series, metricName),
-                    values: series.points.map((p) => p.value),
+                    // A null value is a gap (non-representable aggregate); Sparkline
+                    // takes plain numbers, so gaps chart as 0 for now.
+                    values: series.points.map((p) => p.value ?? 0),
                     color: seriesColor(index),
                 })),
         ],
         sparklineValues: [
             (s) => [s.currentSeries],
-            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),
+            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value ?? 0),
         ],
         sparklineLabels: [
             (s) => [s.currentSeries],
