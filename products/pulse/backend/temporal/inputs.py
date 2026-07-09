@@ -18,8 +18,8 @@ class GenerateBriefWorkflowInputs:
     brief_id: str
     brief_config_id: str | None = None
     period_days: int = 7
-    # "synthesize" (single LLM call) or "agent" (sandbox mission). The generate endpoint
-    # decides via the pulse-agent-engine flag; workflows never check flags themselves.
+    # "synthesize" (single LLM call) or "agent" (sandbox mission). User-facing generation
+    # is agent-only; synthesize remains for the eval command and internal callers.
     engine: str = "synthesize"
 
 

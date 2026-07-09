@@ -7,7 +7,6 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -39,7 +38,6 @@ from products.pulse.backend.temporal.inputs import (
 )
 
 PULSE_FEATURE_FLAG = "pulse"
-AGENT_ENGINE_FLAG = "pulse-agent-engine"
 # Soft rolling-24h cap on sandbox agent runs per team: the count is deliberately cheap and
 # unlocked, so concurrent requests can slip slightly past it. Single-flight per team+config
 # plus the 30-min run_agent activity timeout bound the worst case.
@@ -282,13 +280,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             if config is None:
                 raise ValidationError("Brief config not found.")
 
-        engine = "synthesize"
-        if posthoganalytics.feature_enabled(AGENT_ENGINE_FLAG, str(cast(User, request.user).distinct_id)):
-            engine = "agent"
-            window_start = timezone.now() - dt.timedelta(hours=24)
-            runs_today = ProductBrief.objects.for_team(self.team_id).filter(created_at__gte=window_start).count()
-            if runs_today >= AGENT_DAILY_RUN_CAP:
-                return Response({"detail": "Daily agent brief limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # The agent engine is the only engine; the product-level `pulse` flag is the
+        # internal-only gate. The synthesize path survives for the quiet-week cheap
+        # path and the eval command, not as a user-selectable engine.
+        engine = "agent"
+        window_start = timezone.now() - dt.timedelta(hours=24)
+        runs_today = ProductBrief.objects.for_team(self.team_id).filter(created_at__gte=window_start).count()
+        if runs_today >= AGENT_DAILY_RUN_CAP:
+            return Response({"detail": "Daily agent brief limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,

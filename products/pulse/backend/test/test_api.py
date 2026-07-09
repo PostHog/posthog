@@ -158,7 +158,7 @@ class TestPulseAPI(APIBaseTest):
             row["id"] for row in self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/").json()["results"]
         ] == [config_id]
 
-    def test_generate_uses_agent_engine_when_flag_enabled(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+    def test_generate_uses_agent_engine(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         client = _temporal_client()
         mock_connect.return_value = client
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
@@ -175,20 +175,6 @@ class TestPulseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert response.json()["detail"] == "Daily agent brief limit reached"
         mock_connect.assert_not_called()
-
-    def test_generate_keeps_synthesize_engine_when_agent_flag_off(
-        self, mock_connect: MagicMock, mock_flag: MagicMock
-    ) -> None:
-        mock_flag.side_effect = lambda flag, *args, **kwargs: flag == "pulse"
-        client = _temporal_client()
-        mock_connect.return_value = client
-        # The cap is agent-only: a team past it can still generate synthesize briefs.
-        with team_scope(self.team.pk, canonical=True):
-            for _ in range(AGENT_DAILY_RUN_CAP):
-                ProductBrief.objects.create(team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND, period_days=7)
-        response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert client.start_workflow.call_args.args[1].engine == "synthesize"
 
     def test_generate_with_soft_deleted_config_returns_400(
         self, mock_connect: MagicMock, _mock_flag: MagicMock
