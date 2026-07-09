@@ -60,3 +60,22 @@ def test_compare_regions_prints_diff_and_skips_resolution_with_explicit_db_ids(m
     assert "US flags: 1  EU flags: 1  Common: 1" in result.output
     assert "us-only" in result.output
     resolve.assert_not_called()
+
+
+def test_compare_regions_reports_each_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    us_flags = {"us-only": _summary("us-only"), "shared": _summary("shared", active=True)}
+    eu_flags = {"eu-only": _summary("eu-only"), "shared": _summary("shared", active=False)}
+    monkeypatch.setattr(
+        flags, "_fetch_flags", lambda region, team_id, database_id: us_flags if region == "us" else eu_flags
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["flags:compare-regions", "--us-database-id", "34", "--eu-database-id", "34"],
+    )
+
+    assert result.exit_code == 0, result.output
+    eu_idx = result.output.index("Flags only in EU")
+    assert result.output.index("us-only") < eu_idx
+    assert eu_idx < result.output.index("eu-only")

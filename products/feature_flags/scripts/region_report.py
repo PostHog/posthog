@@ -103,7 +103,7 @@ def print_section(title: str, count: int, header: str, rows: list[str]) -> None:
 
 
 def _format_columns(values: list[str], widths: list[int]) -> str:
-    return " ".join(f"{value:<{width}}" for value, width in zip(values, widths))
+    return " ".join(f"{value[:width]:<{width}}" for value, width in zip(values, widths))
 
 
 _FLAG_ONLY_COLUMNS = [("key", 45), ("name", 30), ("active", 7), ("rollout", 8)]
@@ -114,7 +114,7 @@ def print_flag_only_section(title: str, flags: dict[str, FlagSummary]) -> None:
     widths = [width for _, width in _FLAG_ONLY_COLUMNS]
     rows = [
         _format_columns(
-            [summary.key, summary.name[:30], str(summary.active), format_pct(summary.max_rollout_percentage)],
+            [summary.key, summary.name, str(summary.active), format_pct(summary.max_rollout_percentage)],
             widths,
         )
         for summary in _sorted_by_key(flags)
