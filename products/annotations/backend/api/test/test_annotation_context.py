@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import Organization, Team
 
 from products.annotations.backend.api.annotation_context import (
@@ -15,6 +16,7 @@ from products.annotations.backend.api.annotation_context import (
 )
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -116,6 +118,46 @@ class TestAnnotationContext(APIBaseTest):
         )
 
         assert [a["content"] for a in result] == ["kept"]
+
+    def test_includes_only_tag_scoped_annotations_sharing_a_target_tag(self) -> None:
+        in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
+        dashboard = Dashboard.objects.create(team=self.team, name="product a dashboard")
+        set_tags_on_object(["product-a"], dashboard)
+
+        matching = self._make_annotation("product a release", in_window, scope=Annotation.Scope.TAG)
+        set_tags_on_object(["product-a"], matching)
+        other = self._make_annotation("product b release", in_window, scope=Annotation.Scope.TAG)
+        set_tags_on_object(["product-b"], other)
+
+        result = get_annotations_for_ai_context(
+            self.team,
+            datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
+            dashboard_id=dashboard.id,
+        )
+
+        assert [a["content"] for a in result] == ["product a release"]
+
+    def test_insight_inherits_tag_scoped_annotations_from_tiled_dashboards(self) -> None:
+        in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
+        dashboard = Dashboard.objects.create(team=self.team, name="product a dashboard")
+        set_tags_on_object(["product-a"], dashboard)
+        untagged_insight = Insight.objects.create(team=self.team, name="untagged insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=untagged_insight)
+
+        matching = self._make_annotation("product a release", in_window, scope=Annotation.Scope.TAG)
+        set_tags_on_object(["product-a"], matching)
+        other = self._make_annotation("product b release", in_window, scope=Annotation.Scope.TAG)
+        set_tags_on_object(["product-b"], other)
+
+        result = get_annotations_for_ai_context(
+            self.team,
+            datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
+            insight_ids=[untagged_insight.id],
+        )
+
+        assert [a["content"] for a in result] == ["product a release"]
 
     def test_includes_org_scoped_annotation_from_sibling_team_in_same_org(self) -> None:
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))

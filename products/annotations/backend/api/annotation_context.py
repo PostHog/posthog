@@ -5,7 +5,7 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.models import Team
+from posthog.models import TaggedItem, Team
 from posthog.utils import relative_date_parse
 
 from products.annotations.backend.models.annotation import Annotation
@@ -27,7 +27,7 @@ def get_annotations_for_ai_context(
     """Fetch annotations relevant to an AI summary for the given window and target.
 
     Always includes project- and organization-scoped annotations visible to the team.
-    Also includes dashboard- or insight-scoped annotations attached to the given target.
+    Also includes dashboard-, insight-, or tag-scoped annotations attached to the given target.
     """
     visibility = Q(team_id=team.id) | Q(
         scope=Annotation.Scope.ORGANIZATION,
@@ -40,6 +40,30 @@ def get_annotations_for_ai_context(
     if insight_ids:
         scopes |= Q(scope=Annotation.Scope.INSIGHT, dashboard_item_id__in=insight_ids)
 
+    # Tag-scoped annotations show on any surface sharing one of their tags, so include those whose
+    # tags intersect the target dashboard's / insights' tags.
+    target_tags: set[str] = set()
+    if dashboard_id is not None:
+        target_tags.update(
+            TaggedItem.objects.filter(dashboard_id=dashboard_id, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
+    if insight_ids:
+        target_tags.update(
+            TaggedItem.objects.filter(insight_id__in=insight_ids, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
+        # Insights also inherit the tags of dashboards they're tiled on, mirroring the chart overlay.
+        target_tags.update(
+            TaggedItem.objects.filter(dashboard__tiles__insight_id__in=insight_ids, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
+    if target_tags:
+        scopes |= Q(scope=Annotation.Scope.TAG, tagged_items__tag__name__in=target_tags)
+
     most_recent: list[dict[str, Any]] = [
         dict(row)
         for row in Annotation.objects.filter(
@@ -50,7 +74,9 @@ def get_annotations_for_ai_context(
             date_marker__lte=date_to,
         )
         .order_by("-date_marker")
-        .values("date_marker", "content", "scope")[:MAX_ANNOTATIONS_FOR_AI_CONTEXT]
+        .values("date_marker", "content", "scope")
+        # The tagged_items join fans one annotation out to one row per matching tag; distinct collapses that.
+        .distinct()[:MAX_ANNOTATIONS_FOR_AI_CONTEXT]
     ]
     most_recent.reverse()
     return most_recent

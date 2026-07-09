@@ -6,11 +6,13 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils/arrays'
 import { parseDateInTimezone } from 'lib/utils/datetime'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import {
     AnnotationScope,
@@ -84,6 +86,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             ['interval', 'properties', 'breakdownFilter'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
+            dashboardsModel,
+            ['rawDashboards'],
             teamLogic,
             ['timezone'],
             featureFlagLogic,
@@ -166,6 +170,13 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.savedInsight,
                 s.properties,
                 s.breakdownFilter,
+                s.rawDashboards,
+                // Read as a selector input (not in the compute body) so tag matching recomputes
+                // when the dashboard - which loads asynchronously - arrives or its tags change.
+                (_, props: AnnotationsOverlayLogicProps) =>
+                    props.dashboardId
+                        ? (dashboardLogic.findMounted({ id: props.dashboardId })?.values.dashboard?.tags ?? null)
+                        : null,
             ],
             (
                 annotations,
@@ -176,12 +187,24 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 dashboardId,
                 savedInsight,
                 properties,
-                breakdownFilter
+                breakdownFilter,
+                rawDashboards,
+                dashboardTags
             ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
                 // pagination class's default_limit of 100. As of June 2023, this is not true on Cloud US,
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
+
+                // A tag-scoped annotation shows on any surface sharing one of its tags: the insight's own tags,
+                // plus - mirroring how Dashboard scope behaves - the current dashboard's tags when on a dashboard,
+                // or the tags of every dashboard the insight is tiled on when viewed standalone.
+                const tiledDashboardTags = !dashboardId
+                    ? (savedInsight?.dashboard_tiles ?? []).flatMap(
+                          ({ dashboard_id }) => rawDashboards[dashboard_id]?.tags ?? []
+                      )
+                    : (dashboardTags ?? [])
+                const surfaceTags = new Set<string>([...(savedInsight?.tags ?? []), ...tiledDashboardTags])
 
                 const filteredAnnotations = dateRange
                     ? annotations.filter(
@@ -197,6 +220,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                                         savedInsight?.dashboard_tiles?.find(
                                             ({ dashboard_id }) => dashboard_id === annotation.dashboard_id
                                         ))) &&
+                              (annotation.scope !== AnnotationScope.Tag ||
+                                  (annotation.tags ?? []).some((tag) => surfaceTags.has(tag))) &&
                               annotation.date_marker &&
                               annotation.date_marker >= dateRange[0] &&
                               annotation.date_marker < dateRange[1]

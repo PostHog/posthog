@@ -2,10 +2,13 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { AnnotationScope, AnnotationType, InsightShortId, IntervalType, RawAnnotationType } from '~/types'
 
@@ -391,6 +394,180 @@ describe('annotationsOverlayLogic', () => {
                     // This is the only September annotation
                     MOCK_ANNOTATION_PROJECT_SCOPED_FROM_INSIGHT_3,
                 ].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
+            })
+        })
+
+        it('shows a tag-scoped annotation only when the insight shares one of its tags', async () => {
+            const insightWithTag = {
+                result: {},
+                id: MOCK_INSIGHT_NUMERIC_ID,
+                short_id: MOCK_INSIGHT_SHORT_ID,
+                filters: { insight: 'TRENDS', interval: 'day' },
+                timezone: 'UTC',
+                tags: ['product-a'],
+            }
+            const matchingTagAnnotation: RawAnnotationType = {
+                id: 50,
+                content: 'TAG_SCOPED_MATCHING',
+                date_marker: '2022-08-10T04:00:00.000Z',
+                dashboard_item: null,
+                insight_short_id: null,
+                insight_name: null,
+                insight_derived_name: null,
+                scope: AnnotationScope.Tag,
+                tags: ['product-a'],
+                ...BASE_MOCK_ANNOTATION,
+            }
+            const nonMatchingTagAnnotation: RawAnnotationType = {
+                ...matchingTagAnnotation,
+                id: 51,
+                content: 'TAG_SCOPED_NON_MATCHING',
+                tags: ['product-b'],
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [insightWithTag] }],
+                    [`/api/environments/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => [200, insightWithTag],
+                    '/api/projects/:team_id/annotations/': {
+                        results: [matchingTagAnnotation, nonMatchingTagAnnotation],
+                    },
+                    '/api/users/@me/': [200, {}],
+                },
+            })
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+            await expectLogic(logic).toMatchValues({
+                // Only the annotation whose tag matches the insight's tag is shown
+                relevantAnnotations: [matchingTagAnnotation].map((annotation) =>
+                    deserializeAnnotation(annotation, 'UTC')
+                ),
+            })
+        })
+
+        it('picks up a tag-scoped annotation when the dashboard carrying the tag loads after the overlay', async () => {
+            const dashboardTagAnnotation: RawAnnotationType = {
+                id: 52,
+                content: 'TAG_SCOPED_DASHBOARD_MATCHING',
+                date_marker: '2022-08-10T04:00:00.000Z',
+                dashboard_item: null,
+                insight_short_id: null,
+                insight_name: null,
+                insight_derived_name: null,
+                scope: AnnotationScope.Tag,
+                tags: ['product-dash'],
+                ...BASE_MOCK_ANNOTATION,
+            }
+            useInsightMocks() // the insight itself carries no tags
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/annotations/': { results: [dashboardTagAnnotation] },
+                    [`/api/environments/:team_id/dashboards/${MOCK_DASHBOARD_ID}/`]: {
+                        ...dashboardResult(MOCK_DASHBOARD_ID, []),
+                        tags: ['product-dash'],
+                    },
+                    '/api/users/@me/': [200, {}],
+                },
+            })
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: MOCK_DASHBOARD_ID,
+            })
+            logic.mount()
+            await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
+            await expectLogic(
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+            ).toDispatchActions(['loadInsightSuccess'])
+            // Dashboard not loaded yet, so the annotation matches no surface tags
+            await expectLogic(logic).toMatchValues({ relevantAnnotations: [] })
+
+            // Once the dashboard (and its tags) loads, the annotation must appear without any other input changing
+            const dashLogic = dashboardLogic({ id: MOCK_DASHBOARD_ID })
+            dashLogic.mount()
+            await expectLogic(dashLogic).toDispatchActions(['loadDashboardSuccess'])
+            await expectLogic(logic).toMatchValues({
+                relevantAnnotations: [dashboardTagAnnotation].map((annotation) =>
+                    deserializeAnnotation(annotation, 'UTC')
+                ),
+            })
+            dashLogic.unmount()
+        })
+
+        it('shows a tag-scoped annotation on a standalone insight tiled on a dashboard carrying the tag', async () => {
+            const insightWithTile = {
+                result: {},
+                id: MOCK_INSIGHT_NUMERIC_ID,
+                short_id: MOCK_INSIGHT_SHORT_ID,
+                filters: { insight: 'TRENDS', interval: 'day' },
+                timezone: 'UTC',
+                dashboard_tiles: [{ id: 900, dashboard_id: MOCK_DASHBOARD_ID }],
+            }
+            const tiledTagAnnotation: RawAnnotationType = {
+                id: 53,
+                content: 'TAG_SCOPED_TILED_MATCHING',
+                date_marker: '2022-08-10T04:00:00.000Z',
+                dashboard_item: null,
+                insight_short_id: null,
+                insight_name: null,
+                insight_derived_name: null,
+                scope: AnnotationScope.Tag,
+                tags: ['product-tiled'],
+                ...BASE_MOCK_ANNOTATION,
+            }
+            const nonMatchingTagAnnotation: RawAnnotationType = {
+                ...tiledTagAnnotation,
+                id: 54,
+                content: 'TAG_SCOPED_TILED_NON_MATCHING',
+                tags: ['product-other'],
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { results: [insightWithTile] }],
+                    [`/api/environments/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => [200, insightWithTile],
+                    '/api/environments/:team_id/dashboards/': {
+                        count: 1,
+                        next: null,
+                        results: [{ id: MOCK_DASHBOARD_ID, name: 'Product dashboard', tags: ['product-tiled'] }],
+                    },
+                    '/api/projects/:team_id/annotations/': {
+                        results: [tiledTagAnnotation, nonMatchingTagAnnotation],
+                    },
+                    '/api/users/@me/': [200, {}],
+                },
+            })
+
+            logic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+                dashboardId: undefined,
+            })
+            logic.mount()
+            // One in-any-order wait: the three loads race, and sequential waits would skip
+            // past whichever success lands first in the recorded history
+            await expectLogic(logic).toDispatchActionsInAnyOrder([
+                annotationsModel.actionTypes.loadAnnotationsSuccess,
+                dashboardsModel.actionTypes.loadDashboardsSuccess,
+                insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID }).actionTypes.loadInsightSuccess,
+            ])
+            await expectLogic(logic).toMatchValues({
+                // The insight has no tags of its own, but inherits `product-tiled` from the dashboard it's tiled on
+                relevantAnnotations: [tiledTagAnnotation].map((annotation) => deserializeAnnotation(annotation, 'UTC')),
             })
         })
     })
