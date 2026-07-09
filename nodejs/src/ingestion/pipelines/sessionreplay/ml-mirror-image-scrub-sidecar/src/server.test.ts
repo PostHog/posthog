@@ -66,4 +66,10 @@ describe('image-scrub sidecar server', () => {
         const res = await fetch(`${metricsBase}/scrub`, { method: 'POST', body: PNG })
         expect(res.status).toBe(404)
     })
+
+    it('does not serve health or metrics on the scrub listener', async () => {
+        expect((await fetch(`${base}/_health`)).status).toBe(404)
+        expect((await fetch(`${base}/_ready`)).status).toBe(404)
+        expect((await fetch(`${base}/metrics`)).status).toBe(404)
+    })
 })
