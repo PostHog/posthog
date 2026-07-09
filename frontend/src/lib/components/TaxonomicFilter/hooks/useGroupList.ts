@@ -212,8 +212,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // The cache is shared across pickers, and two pickers can build the same endpoint with
     // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
     // Event properties only when present) — those are fetch-time params, so key on them too.
-    const excludedPropertiesKey = JSON.stringify(group.excludedProperties ?? [])
-    const propertyAllowListKey = JSON.stringify(group.propertyAllowList ?? [])
+    // Sorted so content-equal sets in a different order share an entry.
+    const excludedPropertiesKey = JSON.stringify([...(group.excludedProperties ?? [])].sort())
+    const propertyAllowListKey = JSON.stringify([...(group.propertyAllowList ?? [])].sort())
 
     const remoteKey = useMemo(
         () => [

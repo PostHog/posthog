@@ -305,32 +305,38 @@ describe('useTaxonomicFilter', () => {
         // skipped while the logic is unmounted, but would land once we mount it.
         await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
         recentTaxonomicFiltersLogic.mount()
-        const { result } = renderHook(
-            () =>
-                useTaxonomicFilter({
-                    // Only the curated tab — its canonical EventProperties group isn't a
-                    // visible tab, so the remap must resolve against ALL group definitions.
-                    taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties],
-                    eventNames: ['$mcp_tool_call'],
-                }),
-            { wrapper }
-        )
-        const mcpGroup = result.current.groups.find((g) => g.type === TaxonomicFilterGroupType.MCPProperties)!
-        const option = {
-            name: '$mcp_tool_name',
-            value: '$mcp_tool_name',
-            group: TaxonomicFilterGroupType.EventProperties,
+        try {
+            const { result } = renderHook(
+                () =>
+                    useTaxonomicFilter({
+                        // Only the curated tab — its canonical EventProperties group isn't a
+                        // visible tab, so the remap must resolve against ALL group definitions.
+                        taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties],
+                        eventNames: ['$mcp_tool_call'],
+                    }),
+                { wrapper }
+            )
+            const mcpGroup = result.current.groups.find((g) => g.type === TaxonomicFilterGroupType.MCPProperties)!
+            const option = {
+                name: '$mcp_tool_name',
+                value: '$mcp_tool_name',
+                group: TaxonomicFilterGroupType.EventProperties,
+            }
+            act(() => result.current.selectItem(mcpGroup, '$mcp_tool_name', option))
+            // The recents write is deferred one tick — flush the macrotask queue.
+            await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+            expect(recentTaxonomicFiltersLogic.values.recentFilters).toContainEqual(
+                expect.objectContaining({
+                    groupType: TaxonomicFilterGroupType.EventProperties,
+                    value: '$mcp_tool_name',
+                })
+            )
+            expect(
+                recentTaxonomicFiltersLogic.values.recentFilters.map((f: { groupType: string }) => f.groupType)
+            ).not.toContain(TaxonomicFilterGroupType.MCPProperties)
+        } finally {
+            recentTaxonomicFiltersLogic.unmount()
         }
-        act(() => result.current.selectItem(mcpGroup, '$mcp_tool_name', option))
-        // The recents write is deferred one tick — flush the macrotask queue.
-        await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
-        expect(recentTaxonomicFiltersLogic.values.recentFilters).toContainEqual(
-            expect.objectContaining({ groupType: TaxonomicFilterGroupType.EventProperties, value: '$mcp_tool_name' })
-        )
-        expect(
-            recentTaxonomicFiltersLogic.values.recentFilters.map((f: { groupType: string }) => f.groupType)
-        ).not.toContain(TaxonomicFilterGroupType.MCPProperties)
-        recentTaxonomicFiltersLogic.unmount()
     })
 
     it('Escape key clears search', () => {

@@ -134,8 +134,12 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         eventMetadataPropertyDefinitions,
         personMetadataPropertyDefinitions,
         featureFlags,
-        input.eventNames,
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- content-keyed: consumers pass fresh array literals per render
+        // Content-keyed: consumers pass fresh array literals per render. The legacy logic
+        // stabilizes the same props differently — reference-equality inputs with objectsEqual
+        // on the selector result (see eventNamesWithPrimaryProperties) — same end effect.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        JSON.stringify(input.eventNames),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         JSON.stringify(input.taxonomicGroupTypes),
         input.schemaColumns,
         input.schemaColumnsLoading,

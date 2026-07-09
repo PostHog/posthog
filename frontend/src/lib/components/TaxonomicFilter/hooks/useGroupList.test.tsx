@@ -105,6 +105,27 @@ describe('useGroupList', () => {
             expect(result.current.isLoading).toBe(false)
         })
 
+        it('does not share a cache entry between same-endpoint groups with different exclusions', async () => {
+            // Exclusions are fetch-time params: dropping them from the cache key would let
+            // one picker silently serve another's list for the whole staleTime window.
+            apiGet.mockResolvedValue({ results: [], count: 0 })
+            const withExclusion = makeGroup({
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+                excludedProperties: ['$mcp_tool_name'],
+            })
+            const without = makeGroup({
+                type: TaxonomicFilterGroupType.EventProperties,
+                endpoint: 'api/projects/1/property_definitions',
+                excludedProperties: [],
+            })
+            renderHook(() => useGroupList({ group: withExclusion, searchQuery: '' }))
+            renderHook(() => useGroupList({ group: without, searchQuery: '' }))
+            await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2))
+            const [firstUrl, secondUrl] = apiGet.mock.calls.map(([url]) => url)
+            expect(firstUrl).not.toEqual(secondUrl)
+        })
+
         it('respects minSearchQueryLength gating', () => {
             const group = makeGroup({
                 endpoint: 'api/projects/1/whatever',

@@ -368,7 +368,8 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                     : []),
                 // The known MCP schema lives only in its own group when that tab is
-                // present — exclusive, like the TRAFFIC_TYPE_VIRTUAL_PROPERTIES exclusion above.
+                // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
                 ...getMCPExcludedEventProperties(eventNames, ctx.taxonomicGroupTypes),
             ],
             propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),

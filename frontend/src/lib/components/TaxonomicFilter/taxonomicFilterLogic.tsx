@@ -846,7 +846,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
                                 : []),
                             // The known MCP schema lives only in its own group when that tab is
-                            // present — exclusive, like the TRAFFIC_TYPE_VIRTUAL_PROPERTIES exclusion above.
+                            // present — excluded via the same mechanism as TRAFFIC_TYPE_VIRTUAL_PROPERTIES
+                            // above; the exclusivity intent is documented on getMCPExcludedEventProperties.
                             ...mcpExcludedEventProperties,
                         ],
                         propertyAllowList:
