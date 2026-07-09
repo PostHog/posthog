@@ -1366,6 +1366,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -1420,6 +1428,7 @@ export interface PropertyGroupFilterValueApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -1796,6 +1805,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1844,6 +1854,7 @@ export interface EventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1879,6 +1890,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1925,6 +1937,7 @@ export interface ActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -1962,6 +1975,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2009,6 +2023,7 @@ export interface DataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2046,6 +2061,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2098,6 +2114,7 @@ export interface GroupNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2369,6 +2386,7 @@ export interface TrendsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2424,6 +2442,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2474,6 +2493,7 @@ export interface FunnelExclusionEventsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2509,6 +2529,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2557,6 +2578,7 @@ export interface FunnelExclusionActionsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2702,6 +2724,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2749,6 +2772,7 @@ export interface FunnelsDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2802,6 +2826,7 @@ export interface FunnelsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -2956,6 +2981,7 @@ export interface RetentionEntityApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3045,6 +3071,7 @@ export interface RetentionQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3177,6 +3204,7 @@ export interface PathsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3297,6 +3325,7 @@ export interface StickinessQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3385,6 +3414,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3431,6 +3461,7 @@ export interface LifecycleDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -3482,6 +3513,7 @@ export interface LifecycleQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -4820,6 +4852,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Logs: 'logs',
     LogAttributes: 'log_attributes',
     LogResourceAttributes: 'log_resource_attributes',
+    MetricAttributes: 'metric_attributes',
     Spans: 'spans',
     SpanAttributes: 'span_attributes',
     SpanResourceAttributes: 'span_resource_attributes',
@@ -4885,6 +4918,7 @@ export interface EventsQueryActionStepApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5023,6 +5057,7 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5060,6 +5095,7 @@ export interface EventsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5103,6 +5139,7 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5134,6 +5171,7 @@ export interface PersonsNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5266,6 +5304,7 @@ export interface FunnelCorrelationActorsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5306,6 +5345,7 @@ export interface ExperimentEventExposureConfigApi {
         | DataWarehousePersonPropertyFilterApi
         | ErrorTrackingIssueFilterApi
         | LogPropertyFilterApi
+        | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
@@ -5356,6 +5396,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5401,6 +5442,7 @@ export interface ExperimentDataWarehouseNodeApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -5725,6 +5767,7 @@ export interface HogQLFiltersApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6256,6 +6299,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6286,6 +6330,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6323,6 +6368,7 @@ export interface SessionsQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6634,6 +6680,7 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6682,6 +6729,7 @@ export interface ConversionGoalFilter1Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6722,6 +6770,7 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6768,6 +6817,7 @@ export interface ConversionGoalFilter2Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6810,6 +6860,7 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -6857,6 +6908,7 @@ export interface ConversionGoalFilter3Api {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -7368,6 +7420,7 @@ export interface TracesQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi
@@ -7435,6 +7488,7 @@ export interface TraceQueryApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi

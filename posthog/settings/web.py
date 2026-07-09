@@ -646,6 +646,7 @@ SPECTACULAR_SETTINGS = {
             "log",
             "log_attribute",
             "log_resource_attribute",
+            "metric_attribute",
             "span",
             "span_attribute",
             "span_resource_attribute",

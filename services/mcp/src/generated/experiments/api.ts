@@ -769,8 +769,9 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -2044,6 +2045,62 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -2099,7 +2156,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -2155,7 +2212,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -4277,8 +4334,9 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -5549,6 +5607,62 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -5604,7 +5718,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -5660,7 +5774,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -7796,11 +7910,11 @@ export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsDuplicateCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -7837,8 +7951,9 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnefiveTypeDefault = `data_warehouse`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesixTypeDefault = `data_warehouse_person_property`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault = `revenue_analytics`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `workflow_variable`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -9030,6 +9145,62 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     'icontains_multi',
                                                     'not_icontains_multi',
                                                 ]),
+                                                type: zod
+                                                    .literal('metric_attribute')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
                                                 type: zod.enum(['span', 'span_attribute', 'span_resource_attribute']),
                                                 value: zod
                                                     .union([
@@ -9085,7 +9256,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('revenue_analytics')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwozeroTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -9141,7 +9312,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -11426,11 +11597,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -11578,11 +11749,11 @@ export const ExperimentsCalculateRunningTimeCreateBody = /* @__PURE__ */ zod
     .describe('Inputs for estimating the recommended sample size and running time of an experiment.')
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
  *
- * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
- * on serializer methods and converts them into proper HTTP 409 Conflict responses with
- * change request details.
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsStatsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
