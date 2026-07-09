@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Q
+from django.dispatch import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -39,6 +40,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -82,8 +85,6 @@ def _decode_jwt_payload(token: str) -> dict | None:
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
-
-GITHUB_API_VERSION = "2022-11-28"
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
@@ -778,6 +779,7 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
             )
         # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
         elif kind == "pinterest-ads":
@@ -789,6 +791,7 @@ class OauthIntegration:
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
@@ -800,6 +803,7 @@ class OauthIntegration:
                     "auth_code": params["code"],
                 },
                 headers={"Content-Type": "application/json"},
+                timeout=10,
             )
         elif kind == "stripe":
             # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
@@ -812,6 +816,7 @@ class OauthIntegration:
                     "code": params["code"],
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
@@ -824,6 +829,7 @@ class OauthIntegration:
                     "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
+                timeout=10,
             )
 
         try:
@@ -853,6 +859,7 @@ class OauthIntegration:
                         "redirect_uri": OauthIntegration.redirect_uri(kind),
                         "grant_type": "authorization_code",
                     },
+                    timeout=10,
                 )
 
                 try:
@@ -887,11 +894,13 @@ class OauthIntegration:
                     oauth_config.token_info_url,
                     headers={"Authorization": f"Bearer {config['access_token']}"},
                     json={"query": oauth_config.token_info_graphql_query},
+                    timeout=10,
                 )
             else:
                 token_info_res = requests.get(
                     oauth_config.token_info_url.replace(":access_token", config["access_token"]),
                     headers={"Authorization": f"Bearer {config['access_token']}"},
+                    timeout=10,
                 )
 
             if token_info_res.status_code == 200:
@@ -1110,6 +1119,7 @@ class OauthIntegration:
                 },
                 # If I use a standard User-Agent, it will throw a 429 too many requests error
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                timeout=10,
             )
         # Pinterest uses HTTP Basic Auth for token refresh
         elif self.integration.kind == "pinterest-ads":
@@ -1120,6 +1130,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
         elif self.integration.kind == "tiktok-ads":
             res = requests.post(
@@ -1131,6 +1142,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+                timeout=10,
             )
         elif self.integration.kind == "bing-ads":
             # Microsoft Azure AD requires scope parameter on token refresh
@@ -1143,6 +1155,7 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
                 },
+                timeout=10,
             )
         elif self.integration.kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
@@ -1153,6 +1166,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
         else:
             res = requests.post(
@@ -1163,6 +1177,7 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                 },
+                timeout=10,
             )
 
         config: dict = res.json()
@@ -1401,6 +1416,7 @@ class GoogleAdsIntegration:
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                 **({"login-customer-id": parent_id} if parent_id else {}),
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1441,6 +1457,7 @@ class GoogleAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
             },
+            timeout=10,
         )
 
         if response.status_code == 401:
@@ -1484,6 +1501,7 @@ class GoogleAdsIntegration:
                     "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
                     **({"login-customer-id": parent_id} if parent_id else {}),
                 },
+                timeout=10,
             )
 
             if response.status_code != 200:
@@ -1940,6 +1958,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing conversion rules")
@@ -1954,6 +1973,7 @@ class LinkedInAdsIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "LinkedIn-Version": "202508",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing ad accounts")
@@ -1996,6 +2016,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing spaces")
@@ -2013,6 +2034,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing lists")
@@ -2030,6 +2052,7 @@ class ClickUpIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
             },
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing folders")
@@ -2044,6 +2067,7 @@ class ClickUpIntegration:
             "GET",
             "https://api.clickup.com/api/v2/team",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            timeout=10,
         )
 
         self._check_auth_error(response, "listing workspaces")
@@ -2247,6 +2271,7 @@ class LinearIntegration:
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
             json={"query": query, "variables": variables or {}},
+            timeout=10,
         )
         return response.json()
 
@@ -2316,6 +2341,7 @@ class JiraIntegration:
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
             },
+            timeout=10,
         )
         body = response.json()
         projects = body.get("values", [])
@@ -2360,6 +2386,7 @@ class JiraIntegration:
                 "Content-Type": "application/json",
             },
             json=payload,
+            timeout=10,
         )
 
         issue = response.json()
@@ -2383,62 +2410,6 @@ class GitHubUserAuthorization:
     refresh_token: str | None
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
-
-
-class GitHubRateLimitError(GitHubIntegrationError):
-    """GitHub API rate limit exhausted for this installation."""
-
-    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
-        # `exc.retry_after_seconds` continue to work for instances of this subclass.
-        super().__init__(
-            message,
-            is_rate_limit=True,
-            retry_after_seconds=float(retry_after) if retry_after is not None else None,
-        )
-        self.reset_at = reset_at
-        self.retry_after = retry_after
-
-
-def raise_if_github_rate_limited(response: requests.Response) -> None:
-    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
-
-    Handles both primary (403 + body) and secondary (429) rate limit formats.
-    Safe to call unconditionally after every GitHub API response.
-    """
-    if response.status_code == 429:
-        is_rate_limited = True
-    elif response.status_code == 403:
-        try:
-            body = response.text
-        except Exception:
-            body = ""
-        is_rate_limited = "rate limit" in body.lower()
-    else:
-        return
-
-    if not is_rate_limited:
-        return
-
-    def _int_header(name: str) -> int | None:
-        val = response.headers.get(name)
-        if not val:
-            return None
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            return None
-
-    reset_at = _int_header("x-ratelimit-reset")
-    retry_after = _int_header("retry-after")
-    if retry_after is None and reset_at is not None:
-        retry_after = max(1, reset_at - int(time.time()))
-
-    raise GitHubRateLimitError(
-        f"GitHub API rate limit exceeded (resets at {reset_at})",
-        reset_at=reset_at,
-        retry_after=retry_after,
-    )
 
 
 @dataclass(frozen=True)
@@ -2586,13 +2557,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             )
             return None
 
-        user_response = requests.get(
+        # Identity-blind: a fresh user OAuth token with no installation budget behind it.
+        user_response = github_request(
+            "GET",
             "https://api.github.com/user",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source="integration",
+            headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )
         if user_response.status_code != 200:
@@ -2616,7 +2586,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         )
 
     @classmethod
-    def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
+    def first_for_team_repository(
+        cls, team_id: int, repository: str, *, source: str | None = None
+    ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
         ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
@@ -2627,19 +2599,28 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration)
+            github = cls(integration, source=source)
             if github.installation_can_access_repository(repository):
                 return github
         return None
 
-    def __init__(self, integration: Integration) -> None:
+    def __init__(
+        self, integration: Integration, *, source: str | None = None, priority: Priority | None = None
+    ) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        if source is not None:
+            self.source = source
+        if priority is not None:
+            self.priority = priority
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)
         self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        # A permanently-gone installation (uninstalled/suspended) drops expires_in/refreshed_at so the
+        # every-minute beat loop stops re-minting it; the errors + config change persist in one save.
+        self._disarm_proactive_refresh_if_installation_gone(response)
         oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         self.integration.save()
 
@@ -2655,25 +2636,28 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> tuple[list[dict], bool]:
         return self.list_cached_repositories(search=search, limit=limit, offset=offset)
 
-    def create_issue(self, config: dict[str, str]):
+    def create_issue(self, config: dict[str, Any]):
         title: str = config.pop("title")
         body: str = config.pop("body")
         repository: str = config.pop("repository")
+        labels = config.pop("labels", None)
 
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        json_body: dict[str, Any] = {"title": title, "body": body}
+        if labels:
+            json_body["labels"] = labels
 
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/issues",
+        response = self.api_request(
+            "POST",
+            f"/repos/{repo_path}/issues",
             endpoint="/repos/{owner}/{repo}/issues",
-            json_body={"title": title, "body": body},
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
+            json_body=json_body,
         )
-
+        if response.status_code != 201:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: failed to create issue in {repo_path}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
@@ -2681,21 +2665,16 @@ class GitHubIntegration(GitHubIntegrationBase):
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         # Get the SHA of the base branch (default to repository's default branch)
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
         # Get the SHA of the base branch
-        ref_response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+        ref_response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/git/ref/heads/{base_branch}",
             endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if ref_response.status_code != 200:
@@ -2707,17 +2686,13 @@ class GitHubIntegration(GitHubIntegrationBase):
         base_sha = ref_response.json()["object"]["sha"]
 
         # Create the new branch
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/git/refs",
+        response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/git/refs",
             endpoint="/repos/{owner}/{repo}/git/refs",
             json_body={
                 "ref": f"refs/heads/{branch_name}",
                 "sha": base_sha,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2773,20 +2748,15 @@ class GitHubIntegration(GitHubIntegrationBase):
         # validated values, so the compare path can't be steered off-endpoint.
         base_ref = base_sha or base_branch
         target_ref = target_sha or target_branch
-        access_token = self.integration.sensitive_config["access_token"]
 
         try:
-            response = self._github_api_get(
-                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/compare/{base_ref}...{target_ref}",
                 endpoint="/repos/{owner}/{repo}/compare/{basehead}",
-                headers={
-                    "Accept": "application/vnd.github.diff",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
+                headers={"Accept": "application/vnd.github.diff"},
             )
-        except requests.RequestException:
+        except GitHubIntegrationError:
             # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
             return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
         if response.status_code != 200:
@@ -2805,19 +2775,14 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> dict[str, Any]:
         """Create or update a file in the repository."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         # If no SHA provided, try to get existing file's SHA
         if not sha:
-            get_response = self._github_api_get(
-                f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+            get_response = self.api_request(
+                "GET",
+                f"/repos/{org}/{repository}/contents/{file_path}",
                 endpoint="/repos/{owner}/{repo}/contents/{path}",
                 params={"ref": branch},
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
             )
             if get_response.status_code == 200:
                 sha = get_response.json()["sha"]
@@ -2833,15 +2798,11 @@ class GitHubIntegration(GitHubIntegrationBase):
         if sha:
             data["sha"] = sha
 
-        response = self._github_api_put(
-            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+        response = self.api_request(
+            "PUT",
+            f"/repos/{org}/{repository}/contents/{file_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             json_body=data,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code in [200, 201]:
@@ -2867,18 +2828,13 @@ class GitHubIntegration(GitHubIntegrationBase):
         pass it straight to ``update_file`` for a conflict-safe write. Counterpart to
         ``update_file``, kept here so URL and token handling stay inside the client.
         """
-        org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+        response = self.api_request(
+            "GET",
+            f"/repos/{repo_path}/contents/{file_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": ref} if ref else None,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
         if response.status_code == 404:
             return None
@@ -2895,24 +2851,19 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
-        response = self._github_api_post(
-            f"https://api.github.com/repos/{org}/{repository}/pulls",
+        response = self.api_request(
+            "POST",
+            f"/repos/{org}/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             json_body={
                 "title": title,
                 "body": body,
                 "head": head_branch,
                 "base": base_branch,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2935,16 +2886,11 @@ class GitHubIntegration(GitHubIntegrationBase):
     def get_branch_info(self, repository: str, branch_name: str) -> dict[str, Any]:
         """Get information about a specific branch."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+        response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/branches/{branch_name}",
             endpoint="/repos/{owner}/{repo}/branches/{branch}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code == 200:
@@ -2972,18 +2918,13 @@ class GitHubIntegration(GitHubIntegrationBase):
     def list_pull_requests(self, repository: str, state: str = "open") -> dict[str, Any]:
         """List pull requests for a repository."""
         org = self.organization()
-        access_token = self.integration.sensitive_config["access_token"]
 
         params: dict[str, str | int] = {"state": state, "per_page": 100}
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{org}/{repository}/pulls",
+        response = self.api_request(
+            "GET",
+            f"/repos/{org}/{repository}/pulls",
             endpoint="/repos/{owner}/{repo}/pulls",
             params=params,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
         )
 
         if response.status_code == 200:
@@ -3031,6 +2972,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -3048,6 +2990,7 @@ class GitLabIntegration:
             headers={"PRIVATE-TOKEN": project_access_token},
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
+            timeout=10,
         )
 
         return response.json()
@@ -3135,6 +3078,7 @@ class MetaAdsIntegration:
                 "grant_type": "fb_exchange_token",
                 "set_token_expires_in_60_days": True,
             },
+            timeout=10,
         )
 
         config: dict = res.json()
@@ -4013,3 +3957,22 @@ class PostgreSQLIntegration:
         else:
             # Preserve the default ssl_root_cert if one was not provided
             return TLS(ssl_mode=self.integration.config["ssl_mode"])
+
+
+@receiver(models.signals.post_delete, sender=Integration)
+def cleanup_ses_identity_on_integration_delete(sender: Any, instance: Integration, **kwargs: Any) -> None:
+    # A post_delete signal (rather than viewset perform_destroy) so SES identities are
+    # also cleaned up when integrations die via cascade, e.g. project or org deletion.
+    # Leaving the identity behind permanently blocks the domain for every other
+    # organization via the foreign-tenant guard in SESProvider.create_email_domain.
+    if instance.kind != "email" or instance.config.get("provider") != "ses":
+        return
+    domain = instance.config.get("domain")
+    if not domain:
+        return
+
+    from posthog.tasks.integrations import (
+        delete_ses_identity_if_unused,  # noqa: PLC0415 - breaks circular import with the tasks module
+    )
+
+    transaction.on_commit(lambda: delete_ses_identity_if_unused.delay(domain))

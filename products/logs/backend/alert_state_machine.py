@@ -6,7 +6,7 @@ control-plane path goes through one of the `apply_*` helpers, and every caller a
 the resulting outcome via `apply_outcome`, which is the only function in the codebase
 that mutates those two fields.
 
-The semgrep rule at `.semgrep/rules/logs-alert-state-must-go-through-state-machine.yaml`
+The semgrep rule at `.semgrep/rules/security/logs-alert-state-must-go-through-state-machine.yaml`
 enforces this invariant in CI.
 """
 
@@ -123,22 +123,28 @@ def evaluate_alert_check(
         effective_state = snapshot.state
 
     if check.error_message is not None:
-        consecutive_failures = (
-            snapshot.consecutive_failures if check.is_transient_error else snapshot.consecutive_failures + 1
-        )
-        new_state = AlertState.BROKEN if consecutive_failures >= MAX_CONSECUTIVE_FAILURES else AlertState.ERRORED
-        first_error = (
-            effective_state != AlertState.ERRORED
-            and snapshot.state != AlertState.ERRORED  # prevents re-notification after snooze auto-expiry
-            and new_state == AlertState.ERRORED
-        )
-        first_broken = new_state == AlertState.BROKEN
-        if first_broken:
+        # Errors never move firing state — only threshold checks do (CloudWatch's
+        # INSUFFICIENT_DATA doesn't clear ALARM). A FIRING alert rides through a
+        # failed check, so recovery continues the episode instead of re-firing it.
+        if check.is_transient_error:
+            # Transient errors (cluster blips, `unknown`) hit whole cohorts at
+            # once; notifying would broadcast noise to every destination. Skip
+            # the cycle entirely — the next check retries naturally.
+            return AlertCheckOutcome(
+                new_state=snapshot.state,
+                notification=NotificationAction.NONE,
+                consecutive_failures=snapshot.consecutive_failures,
+                update_last_notified_at=False,
+                error_message=check.error_message,
+            )
+        consecutive_failures = snapshot.consecutive_failures + 1
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            new_state = AlertState.BROKEN
             notification = NotificationAction.BROKEN
-        elif first_error:
-            notification = NotificationAction.ERROR
         else:
-            notification = NotificationAction.NONE
+            new_state = snapshot.state
+            # Notify once per error streak (0 → 1), not on every failed check.
+            notification = NotificationAction.ERROR if snapshot.consecutive_failures == 0 else NotificationAction.NONE
         return AlertCheckOutcome(
             new_state=new_state,
             notification=notification,

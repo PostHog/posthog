@@ -76,6 +76,8 @@ export interface Task {
     origin_product: OriginProduct
     repository: string | null
     github_integration: number | null
+    /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */
+    signal_report: string | null
     json_schema: Record<string, any> | null
     internal: boolean
     latest_run: TaskRun | null
@@ -101,9 +103,13 @@ export interface TaskListParams {
     organization?: string
     stage?: string
     origin_product?: string
-    internal?: boolean
+    /** `all` includes internal tasks (shown-by-default flag, not an access gate); `true` narrows to only-internal tasks. */
+    internal?: 'true' | 'false' | 'all'
     search?: string
     status?: TaskRunStatus
+    /** Page size (LimitOffset pagination); the viewset caps it at 100. */
+    limit?: number
+    offset?: number
 }
 
 export interface KanbanColumn {

@@ -1,0 +1,69 @@
+name: Hogbox Preview Cleanup
+
+# Daily backstop sweep: destroy hogbox previews (box + pen) whose PR has closed
+# but whose fast-path teardown didn't fire or failed — that fast path is
+# pr-closed.yml (on close) and the label-removal job in hogbox-preview-env.yml.
+#
+# Why its own file and not a job in pr-cleanup.yml (where hobby's stale-sweep
+# lives): pr-cleanup.yml is a *reusable* workflow — pr-closed.yml calls it with
+# only `deployments: write`. A job that mints a hogland OIDC token needs
+# `id-token: write`, which exceeds that capped call and fails the caller's run at
+# startup. So the hogbox sweep lives here, on its own triggers, where it can hold
+# the permission it needs.
+
+on:
+    schedule:
+        # Daily at 03:15 UTC (staggered just after pr-cleanup.yml's 03:00 sweep).
+        - cron: '15 3 * * *'
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Dry run (list closed-PR previews, destroy nothing)'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+    id-token: write # OIDC for the tailnet join + hogplane token
+
+env:
+    HOG_HOST: https://hogland.hedgehog-kitefin.ts.net
+    HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
+
+jobs:
+    cleanup-hogbox-preview:
+        name: Reap stale hogbox previews
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            # Pin to the default branch: the sweep runs the tool with the hogland
+            # token, and a workflow_dispatch from a non-master ref would otherwise
+            # run that ref's tool code in credential scope — same rule as every
+            # other credentialed job in this family.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+            - name: Connect to Tailscale (tag:hogland-ci)
+              uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+              with:
+                  oauth-client-id: ${{ vars.TS_HOGLAND_CI_CLIENT_ID }}
+                  audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
+                  tags: tag:hogland-ci
+            - name: Mint hogland OIDC token
+              run: |
+                  token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                    "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
+                  echo "::add-mask::$token"
+                  echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
+            # uv (repo convention): --no-project skips the monorepo sync, --with
+            # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+            - name: Reap previews for closed PRs
+              working-directory: tools/hogbox-preview
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+              run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" cleanup-stale

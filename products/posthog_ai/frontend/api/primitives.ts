@@ -19,6 +19,15 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
+// Self-sizing textarea (native field-sizing with a react-textarea-autosize fallback) — the input
+// element behind Composer.Textarea, for surfaces that need the bare control (e.g. message editing).
+export { AutosizeTextArea } from '../components/AutosizeTextArea'
+export type { AutosizeTextAreaProps } from '../components/AutosizeTextArea'
+
+// Controlled model + reasoning-effort pickers for a composer footer.
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
+export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
+
 // Welcome header (logomark + headline + subheadline) and its overridable default headlines.
 export { Welcome } from '../components/welcome/Welcome'
 export type { WelcomeProps } from '../components/welcome/Welcome'
@@ -60,6 +69,9 @@ export {
 export type { ActivityStatus } from '../components/ActivityPrimitives'
 export { RunActivity } from '../components/RunActivity'
 export { RunAlertActivity } from '../components/RunAlertActivity'
+
+export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
+export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'

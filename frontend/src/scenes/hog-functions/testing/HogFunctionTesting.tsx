@@ -484,7 +484,7 @@ function TestingEventsList(): JSX.Element | null {
                     },
                 },
             ]}
-            emptyState={<InsightEmptyState />}
+            emptyState={<InsightEmptyState sampleDataVariant="table" />}
         />
     )
 }

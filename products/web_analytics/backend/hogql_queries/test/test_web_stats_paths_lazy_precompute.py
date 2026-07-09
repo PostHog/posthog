@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 import unittest
 from freezegun import freeze_time
@@ -462,6 +463,47 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "capped insert top-level columns must all be aliased for _build_manual_insert_sql"
         )
 
+    def test_capped_insert_caps_per_day_not_per_window(self):
+        # The cap must be computed PER DAY, not over the whole job window. The read path
+        # decomposes a request into daily windows and can serve one of them from a wider
+        # covering job (`filter_overlapping_jobs`), so a path in a single day's top-K must
+        # be stored even if it falls outside the job window's overall top-K — a per-window
+        # cap silently drops it. Guards against a revert to per-window capping.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        placeholders: dict = {
+            "events_session_id": _events_session_id_expr(runner),
+            "breakdown_value_expr": _breakdown_value_expr(runner),
+            "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+            "test_account_filter": _test_account_filter_expr(
+                test_account_filters=runner._test_account_filters, team=runner.team
+            ),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            "top_k_metric": _top_k_ranking_expr(runner),
+            "time_window_min": ast.Constant(value="__MIN__"),
+            "time_window_max": ast.Constant(value="__MAX__"),
+        }
+        parsed = parse_select(INSERT_QUERY_TEMPLATE_CAPPED, placeholders=placeholders)
+
+        rank_windows: list[ast.WindowExpr] = []
+
+        def walk(node: object) -> None:
+            if isinstance(node, ast.WindowFunction) and node.name == "dense_rank" and node.over_expr:
+                rank_windows.append(node.over_expr)
+            if dataclasses.is_dataclass(node) and not isinstance(node, type):
+                for field in dataclasses.fields(node):
+                    walk(getattr(node, field.name, None))
+            elif isinstance(node, list | tuple):
+                for item in node:
+                    walk(item)
+
+        walk(parsed)
+        assert rank_windows, "capped insert must rank breakdowns with a windowed dense_rank()"
+        assert all(w.partition_by and "day_bucket" in str(w.partition_by) for w in rank_windows), (
+            f"the top-K rank must partition by the day bucket, got: {[w.partition_by for w in rank_windows]}"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
         query = self._build_query()
@@ -723,64 +765,3 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_pathkey_mirror_runs_only_for_allowlisted_teams(self, _name: str, allowlisted: bool) -> None:
-        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
-
-        job_id = uuid.uuid4()
-        mirror_team_ids = [self.team.pk] if allowlisted else []
-        with (
-            self._enable_lazy(),
-            override_settings(WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS=mirror_team_ids),
-            patch.object(
-                mod,
-                "ensure_web_stats_paths_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
-            ),
-            patch.object(mod, "execute_read_query", return_value=[]),
-            patch.object(mod, "mirror_jobs_to_pathkey") as mock_mirror,
-        ):
-            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
-            mod.execute_lazy_precomputed_read(runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0)
-
-        if allowlisted:
-            mock_mirror.assert_called_once_with(team_id=self.team.pk, job_ids=[str(job_id)])
-        else:
-            mock_mirror.assert_not_called()
-
-    def test_mirror_jobs_to_pathkey_copies_rows_between_tables(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
-
-        job_id = uuid.uuid4()
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
-        ) as mock_exec:
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(job_id)])
-
-        mock_exec.assert_called_once()
-        sql, params = mock_exec.call_args.args
-        assert "INSERT INTO web_stats_paths_preaggregated_pathkey" in sql
-        assert "FROM web_stats_paths_preaggregated" in sql
-        assert params["team_id"] == self.team.pk
-        assert params["job_ids"] == [job_id]  # coerced from str back to UUID
-
-    def test_mirror_jobs_to_pathkey_swallows_errors(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
-
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute",
-            side_effect=ValueError("boom"),
-        ):
-            # Must not raise — a failed mirror cannot affect the primary read.
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(uuid.uuid4())])
-
-    def test_mirror_jobs_to_pathkey_noop_on_empty(self) -> None:
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
-
-        with patch(
-            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
-        ) as mock_exec:
-            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
-        mock_exec.assert_not_called()

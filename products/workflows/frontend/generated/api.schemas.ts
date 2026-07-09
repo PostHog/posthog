@@ -586,6 +586,33 @@ export interface PatchedHogFlowApi {
     readonly user_access_level?: string | null
 }
 
+export interface MessageAssetApi {
+    /** The workflow run this email was sent in. */
+    invocation_id: string
+    /** The email step (action node) within the workflow that sent this email. */
+    action_id: string
+    /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
+    function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
+    /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
+    parent_run_id: string
+    /** Asset kind. Currently always 'email'. */
+    kind: string
+    /** The recipient's distinct_id. */
+    distinct_id: string
+    /** The recipient's person UUID, if resolved. */
+    person_id: string
+    /** The recipient email address. */
+    recipient: string
+    /** The email subject line. */
+    subject: string
+    /** Delivery status at capture time. Currently always 'sent'. */
+    status: string
+    /** When the email was sent. */
+    sent_at: string
+}
+
 /**
  * * `waiting` - Waiting
  * * `queued` - Queued
@@ -950,6 +977,66 @@ export const HogFlowsListStatus = {
     Archived: 'archived',
     Draft: 'draft',
 } as const
+
+export type HogFlowsAssetsRetrieveParams = {
+    /**
+     * Only return assets sent by this email step (action node id) — used to drill in from a step's metric.
+     * @minLength 1
+     */
+    action_id?: string
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Only return assets sent to this distinct_id.
+     * @minLength 1
+     */
+    distinct_id?: string
+    /**
+     * Only return the asset for this specific workflow run — used to deep-link from a single log entry to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, or standalone email).
+     * @minLength 1
+     */
+    invocation_id?: string
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only event-triggered (non-batch) assets; omit to return all.
+     */
+    parent_run_id?: string
+    /**
+     * Case-insensitive substring match on recipient email or subject.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type HogFlowsAssetContentRetrieveParams = {
+    /**
+     * The email step (action node) that sent the email. Defaults to empty for standalone email sends.
+     */
+    action_id?: string
+    /**
+     * The workflow run the email was sent in.
+     * @minLength 1
+     */
+    invocation_id: string
+}
 
 export type HogFlowsInvocationResultsRetrieveParams = {
     /**

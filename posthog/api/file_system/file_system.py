@@ -14,6 +14,7 @@ from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -69,7 +70,7 @@ DELETE_PREVIEW_ENTRY_LIMIT = 200
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
-class FileSystemSerializer(serializers.ModelSerializer):
+class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
     last_viewed_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
@@ -85,6 +86,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "shortcut",
             "created_at",
             "last_viewed_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -92,6 +94,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "created_at",
             "team_id",
             "last_viewed_at",
+            "user_access_level",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
@@ -517,6 +520,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
         )
 
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        """Whether a registered-type row with no ref may be deleted as a bare row.
+
+        On the web surface every registered row references a real object, so a
+        ref-less row is a data-integrity error we refuse to delete. Surfaces where
+        registered types can legitimately be ref-less (desktop canvases store their
+        source in `meta`, not a backing Dashboard) override this to allow it.
+        """
+        return False
+
     def _ensure_can_delete(self, entry: FileSystem) -> None:
         stack: list[FileSystem] = [entry]
         seen: set[str] = set()
@@ -557,7 +570,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not is_file_system_type_registered(current.type):
                 continue
 
-            if remaining == 0 and not current.ref:
+            if remaining == 0 and not current.ref and not self._allow_delete_without_ref(current):
                 raise serializers.ValidationError(
                     {"detail": f"Cannot delete type '{current.type}' without a reference."}
                 )
@@ -595,6 +608,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return deleted_objects
 
         if not entry.ref:
+            if self._allow_delete_without_ref(entry):
+                entry.delete()
+                return deleted_objects
             raise serializers.ValidationError({"detail": f"Cannot delete type '{entry.type}' without a reference."})
 
         entry_path = entry.path
@@ -1026,6 +1042,14 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     """
 
     file_system_surface = "desktop"
+
+    def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
+        # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
+        # not a backing Dashboard, so they legitimately have no ref. Delete the bare
+        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
+        # only — any other registered type with no ref is still a data-integrity
+        # error we refuse to delete, even on the desktop surface.
+        return entry.type == "dashboard"
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         super().perform_create(serializer)

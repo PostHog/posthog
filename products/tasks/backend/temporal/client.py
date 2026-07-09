@@ -18,6 +18,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.metrics import observe_task_run_workflow_start
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -326,7 +327,8 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
 
     Returns an outcome for metrics/logs: ``recovered`` (workflow started), ``already_running``
     (a workflow already exists), ``left_queue`` (row is no longer QUEUED), ``skipped_prewarmed``
-    (owned by the prewarmed reaper), ``error`` (transient).
+    (owned by the prewarmed reaper), ``skipped_local`` (desktop-driven run, nothing to recover),
+    ``error`` (transient).
     """
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415 — keep temporalio off the import path
 
@@ -337,6 +339,13 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
     )
     if task_run is None:
         return "left_queue"
+
+    # Local (desktop) runs idle in QUEUED while the user's local agent drives them — there is no
+    # lost dispatch to recover. Starting a cloud workflow here would hijack the live session: the
+    # sandbox boots without the repo ever being cloned, burns its retries, and marks the user's
+    # run FAILED. The sweep already filters these out (cloud_only); this guards direct callers.
+    if task_run.environment == TaskRun.Environment.LOCAL:
+        return "skipped_local"
 
     # Prewarmed runs idle in QUEUED awaiting the user's first message; the dedicated prewarmed
     # reaper *kills* them if never activated. Recovering one would boot an agent with no prompt
@@ -406,10 +415,57 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
+def execute_build_sandbox_image_workflow(image_id: str, team_id: int) -> None:
+    """Start (or restart) the scan → build → publish workflow for a custom sandbox image."""
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "build-sandbox-image",
+            BuildSandboxImageInput(image_id=image_id, team_id=team_id),
+            id=f"build-sandbox-image-{image_id}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
 def signal_task_followup_message(workflow_id: str, message: str | None, artifact_ids: list[str]) -> None:
     client = sync_connect()
     handle = client.get_workflow_handle(workflow_id)
     asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
+
+
+def signal_agent_text_delta(workflow_id: str, text: str) -> None:
+    """Push text into the live agent-design plan-block stream for a running task."""
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    asyncio.run(handle.signal("agent_text_delta", text))
+
+
+def signal_task_permission_response(
+    workflow_id: str,
+    *,
+    request_id: str,
+    option_id: str,
+    actor_user_id: int,
+    actor_slack_user_id: str | None = None,
+    is_denial: bool = False,
+    denial_message: str | None = None,
+    broker_reason: str | None = None,
+) -> None:
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    payload: dict[str, Any] = {
+        "request_id": request_id,
+        "option_id": option_id,
+        "actor_user_id": actor_user_id,
+        "actor_slack_user_id": actor_slack_user_id,
+        "is_denial": is_denial,
+        "denial_message": denial_message,
+        "broker_reason": broker_reason,
+    }
+    asyncio.run(handle.signal("send_permission_response", arg=payload))
 
 
 def execute_posthog_code_agent_relay_workflow(

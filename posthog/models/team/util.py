@@ -2,6 +2,8 @@ import time
 from datetime import timedelta
 from typing import Any
 
+from django.apps import apps
+
 import structlog
 
 from posthog.cache_utils import cache_for
@@ -57,8 +59,9 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
     from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+
+    error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
     # Data modeling Edge/Node must be deleted before the Team row: Team cascades to
     # DataWarehouseSavedQuery, which has PROTECT on delete.
@@ -66,10 +69,27 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))
+    _delete_llm_evaluations_for_teams(team_ids)
+
+
+def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
+    """Delete LLM-analytics Evaluation rows before the Team cascade reaches them.
+
+    The Evaluation model recurses infinitely when materialized with `enabled`/`status` loaded
+    deferred (an upstream model bug): reading a deferred one re-fetches the row, which builds a new
+    partially-deferred instance, which reads the other deferred field, and so on. The Team cascade's
+    SET_NULL on `Evaluation.model_configuration` materializes the rows exactly that way, so team
+    deletion hits a RecursionError. Deleting the rows here through the ORM avoids it: a plain
+    queryset delete fetches full rows (no deferred read) and cascades the children (e.g.
+    EvaluationReport), so nothing is left for the Team cascade to materialize.
+    """
+    from products.ai_observability.backend.models.evaluations import Evaluation
+
+    Evaluation.objects.filter(team_id__in=team_ids).delete()
 
 
 def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:

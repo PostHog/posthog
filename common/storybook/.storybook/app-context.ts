@@ -13,6 +13,7 @@ export const getStorybookAppContext = (): AppContext => ({
     default_event_name: '$pageview',
     has_pageview: true,
     has_screen: true,
+    has_person_email: false,
     persisted_feature_flags: [],
     commit_sha: undefined,
     preflight: null as any, // `null` triggers a fetch and lets us mock the data

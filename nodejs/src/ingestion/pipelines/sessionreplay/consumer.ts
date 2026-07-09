@@ -14,7 +14,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import {
     SessionReplayPipelineConfig,
@@ -38,7 +38,7 @@ import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/te
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
 
-import { SessionRecordingApiConfig, SessionRecordingConfig, SessionReplayOutputsConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -55,20 +55,19 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
-    // The consumer reads its overflow output topic to decide whether overflow is enabled.
-    Pick<SessionReplayOutputsConfig, 'INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC'> &
     Pick<
         IngestionConsumerConfig,
-        // For TopHog metrics
-        'INGESTION_PIPELINE' | 'INGESTION_LANE'
+        // INGESTION_OVERFLOW_MODE drives force-overflow routing; the rest are for TopHog metrics.
+        'INGESTION_OVERFLOW_MODE' | 'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
 export type SessionReplayPipelineFactory = (
     config: SessionReplayPipelineConfig
-) => BatchPipelineUnwrapper<
+) => BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 >
@@ -82,6 +81,12 @@ export interface SessionRecordingIngesterCollaborators {
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
     createPipeline?: SessionReplayPipelineFactory
+    /**
+     * Namespaces this ingester's session tracker/filter Redis keys. Leave unset for the main lane; a
+     * secondary lane (the ML mirror) must set it so it doesn't share seen/block state with the main lane
+     * (which would let it mark a session seen without the main key and cause a cleartext recording).
+     */
+    redisKeyNamespace?: string
 }
 
 export class SessionRecordingIngester {
@@ -97,13 +102,15 @@ export class SessionRecordingIngester {
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
+    private readonly retentionService: RetentionService
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipelineUnwrapper<
+    private sessionReplayPipeline!: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >
@@ -117,6 +124,8 @@ export class SessionRecordingIngester {
         | SessionFeaturesOutput
     >
     private readonly topHog: TopHog
+    private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
     private readonly createPipeline: SessionReplayPipelineFactory
@@ -171,7 +180,7 @@ export class SessionRecordingIngester {
             { pipeline: 'session_recordings' }
         )
 
-        const retentionService = new RetentionService(this.redisPool, this.teamService)
+        this.retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         this.createPipeline = collaborators.createPipeline ?? createSessionReplayPipeline
@@ -191,29 +200,31 @@ export class SessionRecordingIngester {
                       s3Client,
                       this.config.SESSION_RECORDING_V2_S3_BUCKET,
                       this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
-                      retentionService
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                   )
                 : new BlackholeSessionBatchFileStorage())
 
-        const sessionTracker = new SessionTracker(
+        this.sessionTracker = new SessionTracker(
             this.redisPool,
-            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS,
+            undefined,
+            collaborators.redisKeyNamespace
         )
-        const sessionFilter = new SessionFilter({
+        this.sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
             bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
             blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
             filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
             localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+            keyNamespace: collaborators.redisKeyNamespace,
         })
 
         const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
         this.keyStore =
             collaborators.keyStore ??
             new MemoryCachedKeyStore(
-                getKeyStore(retentionService, region, {
+                getKeyStore(region, {
                     kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
                     dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
                 })
@@ -230,9 +241,6 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             featureStore,
-            sessionTracker,
-            sessionFilter,
-            keyStore: this.keyStore,
             encryptor: this.encryptor,
         })
     }
@@ -276,13 +284,21 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
-        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+        // and track the highest offset reached per partition — the single place Kafka progress is tracked.
+        const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
             runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
+        this.sessionBatchManager.trackProcessedOffsets(offsets)
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
+            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
+            // the promise scheduler. Drain them before flushing so we never commit a message's offset
+            // before its produce is durable — otherwise a crash in that window would lose it.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+                await this.promiseScheduler.waitForAllSettled()
+            })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )
@@ -304,9 +320,14 @@ export class SessionRecordingIngester {
         this.sessionReplayPipeline = this.createPipeline({
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
+            retentionService: this.retentionService,
+            sessionTracker: this.sessionTracker,
+            sessionFilter: this.sessionFilter,
+            keyStore: this.keyStore,
+            sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
@@ -411,12 +432,5 @@ export class SessionRecordingIngester {
             this.kafkaConsumer.offsetsStore(offsets)
             return Promise.resolve()
         })
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC &&
-            this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }

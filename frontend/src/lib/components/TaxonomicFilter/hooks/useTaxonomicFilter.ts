@@ -136,6 +136,7 @@ export interface TaxonomicFilterApi {
     value?: TaxonomicFilterValue
     selectingKeyOnly?: SelectingKeyOnly
     excludedOperators?: ExcludedOperators
+    excludedProperties?: ExcludedProperties
 
     // headless-component prop bags
     rootProps: { onKeyDown: (e: React.KeyboardEvent<any>) => void }
@@ -210,9 +211,18 @@ function resolveTaxonomicGroupTypes(
 
     // 2a. The rebuilt menu always surfaces the SuggestedFilters ("All") tab as the
     // default cross-group landing spot when there's more than one substantive group
-    // to aggregate.
+    // to aggregate. With a single substantive group there's nothing for "All" to
+    // aggregate, so drop it (a call site may have prepended SuggestedFilters); Recent/Pinned
+    // then follow the group instead of leading, and the group's own list floats recent/pinned
+    // items to the top.
     const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
-    if (
+    const singleSubstantiveGroup = substantiveGroupCount === 1
+    if (singleSubstantiveGroup) {
+        const suggestedIdx = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+        if (suggestedIdx !== -1) {
+            filtered.splice(suggestedIdx, 1)
+        }
+    } else if (
         available.has(TaxonomicFilterGroupType.SuggestedFilters) &&
         !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         substantiveGroupCount >= 2
@@ -220,28 +230,33 @@ function resolveTaxonomicGroupTypes(
         filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
     }
 
-    // 2b. Auto-inject Recent/Pinned meta tabs when available and not already present.
+    // 2b. Auto-inject Recent/Pinned meta tabs when available and not already present. For a
+    // single substantive group they follow the group; otherwise they lead, after the meta block.
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
-            filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)
+            const insertAt = singleSubstantiveGroup ? filtered.length : indexAfterLastMetaGroup(filtered)
+            filtered.splice(insertAt, 0, metaType)
         }
     }
 
-    // 3. Promote shortcut groups to right after the meta block
-    const shortcutGroups: TaxonomicFilterGroupType[] = [
-        ...SHORTCUT_GROUPS_BASE,
-        ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
-    ]
-    const toInsert: TaxonomicFilterGroupType[] = []
-    for (const groupType of shortcutGroups) {
-        const idx = filtered.indexOf(groupType)
-        if (idx !== -1) {
-            filtered.splice(idx, 1)
-            toInsert.push(groupType)
+    // 3. Promote shortcut groups to right after the meta block. Skipped for a single group,
+    // where there's nothing to reorder above and it would push the group below its meta tabs.
+    if (!singleSubstantiveGroup) {
+        const shortcutGroups: TaxonomicFilterGroupType[] = [
+            ...SHORTCUT_GROUPS_BASE,
+            ...(eventNames.includes('$autocapture') ? [TaxonomicFilterGroupType.Elements] : []),
+        ]
+        const toInsert: TaxonomicFilterGroupType[] = []
+        for (const groupType of shortcutGroups) {
+            const idx = filtered.indexOf(groupType)
+            if (idx !== -1) {
+                filtered.splice(idx, 1)
+                toInsert.push(groupType)
+            }
         }
-    }
-    if (toInsert.length > 0) {
-        filtered.splice(indexAfterLastMetaGroup(filtered), 0, ...toInsert)
+        if (toInsert.length > 0) {
+            filtered.splice(indexAfterLastMetaGroup(filtered), 0, ...toInsert)
+        }
     }
 
     return filtered
@@ -309,6 +324,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         taxonomicGroupTypes: groupTypes,
         excludedOperators,
         selectingKeyOnly,
+        excludedProperties,
     })
 
     const groups = useMemo(() => {
@@ -320,6 +336,14 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         () => new Set(groups.filter((g) => g.isMetaGroup || META_GROUP_TYPES.has(g.type)).map((g) => g.type)),
         [groups]
     )
+
+    // The filter's only substantive (non-meta) group, if there is exactly one. That group's
+    // list floats its own recent/pinned items to the top, since there are no leading
+    // Recent/Pinned tabs (see resolveTaxonomicGroupTypes and useGroupList).
+    const soleSubstantiveGroupType = useMemo<TaxonomicFilterGroupType | null>(() => {
+        const substantive = groupTypes.filter((t) => !META_GROUP_TYPES.has(t))
+        return substantive.length === 1 ? substantive[0] : null
+    }, [groupTypes])
 
     // ---- search query (controlled / uncontrolled) ---------------------------
     const [internalSearchQuery, setInternalSearchQuery] = useState(initialSearchQuery ?? '')
@@ -486,6 +510,13 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // undefined for groups whose data is `group.options` / endpoint /
             // optionsFromProp — useGroupList handles those internally.
             localOverride: getLocalOverride(group.type),
+            // The sole substantive group carries recents/pinned inline (no leading tabs).
+            ...(group.type === soleSubstantiveGroupType
+                ? {
+                      promoteRecentItemsToTop: getLocalOverride(TaxonomicFilterGroupType.RecentFilters),
+                      promotePinnedItemsToTop: getLocalOverride(TaxonomicFilterGroupType.PinnedFilters),
+                  }
+                : {}),
         }),
         [
             searchQuery,
@@ -498,6 +529,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             selectFirstItem,
             autoSelectItem,
             getLocalOverride,
+            soleSubstantiveGroupType,
         ]
     )
 
@@ -550,6 +582,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         value,
         selectingKeyOnly,
         excludedOperators,
+        excludedProperties,
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,

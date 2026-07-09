@@ -65,6 +65,9 @@ DEFAULT_LIMIT = 100
 # genuinely transient cuts.
 SUBSCRIPTION_PAGE_LIMIT = 20
 
+# Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
+STRIPE_CHUNK_SIZE = 1000
+
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
 _CLOSE_BRACE = ord("}")
@@ -82,6 +85,38 @@ def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool
     return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
 
 
+def _trimmed_body_bounds(body: Any) -> Optional[tuple[bytes, int, int]]:
+    """Return ``body`` as bytes plus the indices of its first and last non-whitespace byte, or
+    None when ``body`` isn't str/bytes or is empty/all-whitespace.
+
+    `_should_retry` runs on every successful list page during a sync, so the callers scan the head
+    and tail in place rather than `raw.strip()`-ing a full-body copy; this shares that decode-and-
+    trim step so each shape check differs only in the byte comparison that matters."""
+    if isinstance(body, str):
+        raw: bytes = body.encode("utf-8", "ignore")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        return None
+    start = 0
+    end = len(raw) - 1
+    while start <= end and raw[start] in _JSON_WHITESPACE:
+        start += 1
+    while end >= start and raw[end] in _JSON_WHITESPACE:
+        end -= 1
+    if start > end:
+        return None
+    return raw, start, end
+
+
+def _head_mentions_list_object(raw: bytes, start: int) -> bool:
+    """Whether the object's head declares ``"object": "list"``. Matches the specific field, not
+    just the tokens "object" and "list" appearing anywhere — otherwise a single-object response
+    with "list" in a URL or type (e.g. `"type": "list.updated"`) would look like a list read."""
+    head = raw[start : start + 64]
+    return b'"object": "list"' in head or b'"object":"list"' in head
+
+
 def _is_truncated_stripe_list_response(body: Any) -> bool:
     """True when ``body`` is a Stripe ``list`` response cut off before its closing brace.
 
@@ -94,27 +129,38 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     Scoped to list responses — every bulk read we make is an idempotent ``.list()`` call — so the
     retry never re-issues a non-idempotent webhook write, whose responses are single objects.
     """
-    if isinstance(body, str):
-        raw: bytes = body.encode("utf-8", "ignore")
-    elif isinstance(body, bytes):
-        raw = body
-    else:
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
         return False
-    # `_should_retry` runs on every successful list page during a sync, so we scan for the first
-    # and last non-whitespace bytes in place rather than `raw.strip()`-ing a full-body copy.
-    start = 0
-    end = len(raw) - 1
-    while start <= end and raw[start] in _JSON_WHITESPACE:
-        start += 1
-    while end >= start and raw[end] in _JSON_WHITESPACE:
-        end -= 1
-    if start > end or raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
+    raw, start, end = bounds
+    if raw[start] != _OPEN_BRACE or raw[end] == _CLOSE_BRACE:
         return False
-    head = raw[start : start + 64]
-    # Match the specific `"object": "list"` field, not just the tokens "object" and "list"
-    # appearing anywhere in the head — otherwise a truncated single-object response with "list"
-    # in a URL or type (e.g. `"type": "list.updated"`) would be retried as if it were a list read.
-    return b'"object": "list"' in head or b'"object":"list"' in head
+    return _head_mentions_list_object(raw, start)
+
+
+def _is_non_list_stripe_response(body: Any) -> bool:
+    """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
+
+    Every bulk read we make is an idempotent ``.list()`` call, whose body is always
+    ``{"object": "list", ...}``. A 2xx whose body parses cleanly but omits that marker is a
+    corrupted/misrouted response (e.g. a proxy returning a different object). Stripe's SDK doesn't
+    validate the shape — it builds a plain ``StripeObject`` and ``auto_paging_iter`` then blows up
+    on the missing ``is_empty`` property (``KeyError: 'is_empty'``) straight out of ``get_rows``,
+    failing the whole import instead of surfacing a retryable error.
+
+    Distinct from ``_is_truncated_stripe_list_response`` (an unclosed list body): here the object
+    is closed, so we require a trailing ``}``. Callers must gate this on GET requests so a
+    single-object write response is never mistaken for a corrupt list read.
+    """
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
+        return False
+    raw, start, end = bounds
+    # A complete JSON object opens with `{` and closes with `}`; anything else is a truncation
+    # (handled above) or a non-object body (which fails JSON decode in the SDK, not here).
+    if raw[start] != _OPEN_BRACE or raw[end] != _CLOSE_BRACE:
+        return False
+    return not _head_mentions_list_object(raw, start)
 
 
 class _RateLimitRetryingRequestsClient(RequestsClient):
@@ -126,10 +172,25 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
     run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
-    see ``_is_retryable_connection_reset``) and a 2xx whose list body was truncated mid-stream —
-    Stripe surfaces the latter as a JSON decode failure (``Invalid response body from API``) only
-    after the SDK's retry loop, too late for it to recover on its own. Our Stripe reads are
+    see ``_is_retryable_connection_reset``), a 2xx whose list body was truncated mid-stream (Stripe
+    surfaces the latter as a JSON decode failure only after the SDK's retry loop), and a 2xx GET
+    whose body parses cleanly but isn't a Stripe list — the SDK builds a plain ``StripeObject`` and
+    ``auto_paging_iter`` then crashes on the missing ``is_empty`` property. Our Stripe reads are
     list/GET calls, so retrying them is idempotent."""
+
+    # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
+    # scope the non-list-body retry to reads, never a single-object write response.
+    _last_request_method: str = ""
+
+    def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Mapping[str, str]],
+        post_data: Any = None,
+    ) -> tuple[bytes, int, Mapping[str, str]]:
+        self._last_request_method = (method or "").lower()
+        return super().request(method, url, headers, post_data)
 
     def _should_retry(
         self,
@@ -141,9 +202,10 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
         # The base logic already enforced the retry budget and declined; the cases it leaves on the
-        # table are a 429 (the SDK omits it), a 2xx with a truncated list body (the SDK only fails
-        # on it later, while parsing), and a connection reset that drops the response mid-body —
-        # all safe to retry on our idempotent list/GET calls.
+        # table are a 429 (the SDK omits it), a 2xx with a truncated or non-list body (the SDK only
+        # fails on either later — while parsing, or on `.is_empty` during pagination), and a
+        # connection reset that drops the response mid-body — all safe to retry on our idempotent
+        # list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
         if response is None:
@@ -151,7 +213,13 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if status_code == 429:
             return True
-        return 200 <= status_code < 300 and _is_truncated_stripe_list_response(body)
+        if not (200 <= status_code < 300):
+            return False
+        if _is_truncated_stripe_list_response(body):
+            return True
+        # A complete but non-list body identifies a corrupt list read only for a GET — a write
+        # (webhook create/update/delete) legitimately returns a single object, so gate on method.
+        return self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
@@ -266,6 +334,27 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _batch_and_yield(
+    objects: Any,
+    batcher: Batcher,
+    incremental_field_name: Optional[str] = None,
+    stop_at_or_before: Optional[int] = None,
+):
+    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
+    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
+    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+    for obj in objects:
+        if stop_at_or_before is not None and incremental_field_name is not None:
+            if obj[incremental_field_name] <= stop_at_or_before:
+                break
+        batcher.batch(obj)
+        while batcher.should_yield():
+            yield batcher.get_table()
+
+    while batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def _build_resources(
     client: StripeClient, logger: Optional[FilteringBoundLogger] = None
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
@@ -352,7 +441,7 @@ def get_rows(
     default_params = {"limit": DEFAULT_LIMIT}
     resources = _build_resources(client, logger=logger)
 
-    batcher = Batcher(logger=logger)
+    batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
     if endpoint in WEBHOOK_ONLY_ENDPOINTS:
         # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
@@ -474,7 +563,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from stripe_objects.auto_paging_iter()
+        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -488,12 +577,12 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
-        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
-        for obj in stripe_objects.auto_paging_iter():
-            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
-                break
-
-            yield obj
+        yield from _batch_and_yield(
+            stripe_objects.auto_paging_iter(),
+            batcher,
+            incremental_field_name=incremental_field_name,
+            stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
+        )
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:

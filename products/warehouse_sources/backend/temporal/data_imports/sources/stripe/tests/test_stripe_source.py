@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeResource,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
+    _is_non_list_stripe_response,
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     get_rows,
@@ -45,6 +46,9 @@ _TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\
 _TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
     b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
 )
+# A complete 2xx body returned where a list read expected `{"object": "list", ...}` — the SDK
+# builds a plain StripeObject and auto_paging_iter crashes on the missing `is_empty` property.
+_COMPLETE_NON_LIST_BODY = b'{\n  "object": "customer",\n  "id": "cus_1"\n}'
 
 
 def _list_object(items):
@@ -93,7 +97,7 @@ class TestStripeGetRowsIncrementalCursor:
             "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe._build_resources",
             return_value={"charge": resource},
         ):
-            rows = list(
+            tables = list(
                 get_rows(
                     api_key="sk_test_123",
                     endpoint="charge",
@@ -106,7 +110,39 @@ class TestStripeGetRowsIncrementalCursor:
                 )
             )
 
-        assert [obj["id"] for obj in rows] == ["ch_2"]
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["ch_2"]
+
+    def test_backfill_branch_yields_all_earlier_objects_in_bounded_chunks(self):
+        # The created[lt] backfill must yield every earlier object AND batch them into bounded chunks:
+        # each yielded chunk is what makes the pipeline persist the `earliest` watermark, so a large
+        # backfill checkpoints progress mid-attempt instead of restarting the whole scan on a
+        # heartbeat timeout. A single giant batch (the previous behaviour) never checkpoints.
+        objects = [{"id": f"ch_{i}", "created": 1700000000 - i} for i in range(5)]
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+
+        with (
+            mock.patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            mock.patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=1700000100,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    should_use_incremental_field=True,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
+        assert len(tables) > 1
 
 
 class TestStripeSource:
@@ -226,6 +262,45 @@ class TestStripeSource:
     def test_rate_limit_client_should_retry(self, response, num_retries, expected):
         client = _RateLimitRetryingRequestsClient()
         assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (_COMPLETE_NON_LIST_BODY, True),
+            (_COMPLETE_NON_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
+            (b"{}", True),  # a bare object with no marker is still not a list
+            (_COMPLETE_LIST_BODY, False),  # a genuine list carries "object": "list"
+            (_TRUNCATED_LIST_BODY, False),  # unclosed — handled by the truncation check instead
+            (_TRUNCATED_WEBHOOK_BODY, False),  # unclosed single object, not a complete body
+            (b"", False),
+            (None, False),
+        ],
+    )
+    def test_is_non_list_stripe_response(self, body, expected):
+        assert _is_non_list_stripe_response(body) is expected
+
+    @pytest.mark.parametrize(
+        "method,num_retries,expected",
+        [
+            # A GET (list read) that returns a complete non-list body is retried while budget remains.
+            ("get", 0, True),
+            # ...but not once the network-retry budget is exhausted.
+            ("get", 2, False),
+            # A write's single-object response must never be retried on shape alone.
+            ("post", 0, False),
+        ],
+    )
+    def test_rate_limit_client_retries_non_list_read_only_for_gets(self, method, num_retries, expected):
+        client = _RateLimitRetryingRequestsClient()
+        client._last_request_method = method
+        response: tuple[bytes, int, dict[str, str]] = (_COMPLETE_NON_LIST_BODY, 200, {})
+        assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    def test_request_records_method_for_scoping(self):
+        client = _RateLimitRetryingRequestsClient()
+        with patch.object(stripe_lib.RequestsClient, "request", return_value=(b"{}", 200, {})):
+            client.request("GET", "https://api.stripe.com/v1/customers", {})
+        assert client._last_request_method == "get"
 
 
 def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
@@ -361,12 +436,11 @@ class TestStripeBatcherDrainsSplitChunks:
         resumable_source_manager.can_resume.return_value = False
 
         # Tiny caps force every 2-row buffer flush to split into single-row chunks.
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
         with (
             patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
             patch.object(stripe_module, "Batcher", splitting_batcher),
             patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
         ):
@@ -390,11 +464,12 @@ class TestStripeBatcherDrainsSplitChunks:
         def nested_method(customer=None, params=None):
             return _list_object(nested_objects)
 
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=2, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
-        with patch.object(stripe_module, "Batcher", splitting_batcher):
+        with (
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
+            patch.object(stripe_module, "Batcher", splitting_batcher),
+        ):
             rows = _run_nested_get_rows(nested_method, parent_objects=[{"id": "cus_1"}])
 
         assert [row["id"] for row in rows] == [f"cbt_{i}" for i in range(6)]
@@ -409,12 +484,11 @@ class TestStripeBatcherDrainsSplitChunks:
         resumable_source_manager = MagicMock()
         resumable_source_manager.can_resume.return_value = False
 
-        splitting_batcher = functools.partial(
-            stripe_module.Batcher, chunk_size=100, max_table_bytes=1, max_column_offset_bytes=1
-        )
+        splitting_batcher = functools.partial(stripe_module.Batcher, max_table_bytes=1, max_column_offset_bytes=1)
 
         with (
             patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 100),
             patch.object(stripe_module, "Batcher", splitting_batcher),
             patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
         ):

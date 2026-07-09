@@ -9,7 +9,7 @@ import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { workflowSceneLogicType } from './workflowSceneLogicType'
 
-export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'history'] as const
+export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'assets', 'history'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {

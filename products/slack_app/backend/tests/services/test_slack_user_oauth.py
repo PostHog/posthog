@@ -166,7 +166,7 @@ class TestResolveSlackUserWithLink:
     """
 
     @patch("posthog.models.integration.WebClient")
-    @patch("products.slack_app.backend.api.slack_oauth_link_enabled")
+    @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_falls_through_to_email_path_unchanged(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
     ):
@@ -188,7 +188,7 @@ class TestResolveSlackUserWithLink:
         assert result.slack_email == "dev@example.com"
 
     @patch("posthog.models.integration.WebClient")
-    @patch("products.slack_app.backend.api.slack_oauth_link_enabled")
+    @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_link_short_circuits_email_lookup(
         self, mock_flag, mock_webclient_class, org_team_user, workspace_integration, link_user
     ):
@@ -215,7 +215,7 @@ class TestResolveSlackUserWithLink:
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
-    @patch("products.slack_app.backend.api.slack_oauth_link_enabled")
+    @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_on_with_no_link_and_no_membership_posts_invite(
         self,
         mock_flag,
@@ -253,7 +253,7 @@ class TestResolveSlackUserWithLink:
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.post_link_invite_message")
-    @patch("products.slack_app.backend.api.slack_oauth_link_enabled")
+    @patch("products.slack_app.backend.api.is_slack_app_oauth_enabled")
     def test_flag_off_with_no_membership_does_not_post_invite(
         self,
         mock_flag,

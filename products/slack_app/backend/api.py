@@ -11,6 +11,7 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -26,6 +27,7 @@ from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
+    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -33,7 +35,6 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.slack_app import (
@@ -52,9 +53,20 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_assistant_enabled,
+    is_slack_app_bot_prs_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_untagged_thread_followups_enabled,
+)
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
+from products.slack_app.backend.services.agent_permissions import (
+    SLACK_PERMISSION_ACTION_APPROVE,
+    SLACK_PERMISSION_ACTION_DENY,
+    SLACK_PERMISSION_ACTION_SELECT,
+    SLACK_PERMISSION_CONTEXT_KIND,
+)
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -95,6 +107,7 @@ from products.slack_app.backend.services.slack_user_oauth import (
     post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -111,6 +124,7 @@ HANDLED_EVENT_TYPES = [
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
+LOCAL_DEV_SLACK_EMAIL = "test@posthog.com"
 
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
@@ -314,7 +328,7 @@ def resolve_slack_user(
             candidate_org_ids={integration.team.organization_id},
         )
 
-        if linked_user is not None and slack_oauth_link_enabled(integration, slack_team_id):
+        if linked_user is not None and is_slack_app_oauth_enabled(integration, slack_team_id):
             user_permissions = UserPermissions(user=linked_user, team=integration.team)
             if user_permissions.current_team.effective_membership_level is None:
                 logger.warning(
@@ -344,7 +358,7 @@ def resolve_slack_user(
             # other callers (e.g. `resolve_posthog_user_from_event` from the
             # channel-approval path) can still drive the helper with stubbed
             # Slack responses in tests.
-            slack_email = "test@posthog.com"
+            slack_email = LOCAL_DEV_SLACK_EMAIL
 
         if not slack_email:
             logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
@@ -397,7 +411,7 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
-                if slack_oauth_link_enabled(integration, slack_team_id):
+                if is_slack_app_oauth_enabled(integration, slack_team_id):
                     invite_url = build_invite_url(
                         slack_user_id=slack_user_id,
                         slack_team_id=slack_team_id,
@@ -479,7 +493,7 @@ WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
-def _cross_region_routing_enabled() -> bool:
+def cross_region_routing_enabled() -> bool:
     # Cross-region routing only makes sense between PostHog Cloud US and EU — they share the
     # Slack app's signing secret and split workspace ownership between them. The hosted dev
     # environment (CLOUD_DEPLOYMENT="DEV"), local dev, E2E, and self-hosted deployments all run
@@ -505,15 +519,15 @@ def _eu_region_domain() -> str:
     return "eu.posthog.com"
 
 
-def _is_us_host(host: str) -> bool:
+def is_us_host(host: str) -> bool:
     return host == _us_region_domain()
 
 
-def _other_region_domain(incoming_host: str) -> str:
-    return _eu_region_domain() if _is_us_host(incoming_host) else _us_region_domain()
+def other_region_domain(incoming_host: str) -> str:
+    return _eu_region_domain() if is_us_host(incoming_host) else _us_region_domain()
 
 
-def _was_proxied(request: HttpRequest) -> bool:
+def was_proxied(request: HttpRequest) -> bool:
     # Match the literal value the sender sets (`"1"`) rather than coercing the header value to
     # bool — semgrep flags the latter as nan-injection and we control the sender anyway.
     return request.headers.get(REGION_PROXY_HEADER) == "1"
@@ -585,7 +599,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         )
         return cached
 
-    target_domain = _other_region_domain(incoming_host)
+    target_domain = other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
@@ -686,7 +700,7 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
-def _parse_rules_command(text: str) -> RulesCommand | None:
+def parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
         return None
@@ -846,13 +860,16 @@ def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
-    """Return canonical org/repo names from the mentioning user's GitHub install, or [] if unavailable.
+    """Repo names available to the mentioner: their personal install, plus the team install when bot PRs are on."""
+    user_repos = _get_user_repo_names(integration, user_id=user_id)
+    if not is_slack_app_bot_prs_enabled(integration.team):
+        return user_repos
+    combined = set(user_repos) | set(_get_team_repo_names(integration))
+    return sorted(combined)[:_MAX_GITHUB_REPOS]
 
-    Repos are scoped to the user's personal GitHub integration so the picker matches the
-    identity that will author the resulting pull request. Users without a personal install
-    see an empty list; the downstream personal-GitHub gate posts the connect-GitHub prompt.
-    A `None` user_id (e.g. a workflow replay predating per-user scoping) also returns [].
-    """
+
+def _get_user_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
+    """Repo names from the mentioner's personal GitHub install, or []. Cached per user."""
     if user_id is None:
         return []
     cache_key = _user_repo_list_cache_key(user_id)
@@ -890,6 +907,17 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
     if result:
         cache.set(cache_key, result, timeout=REPO_LIST_CACHE_TTL_SECONDS)
     return result
+
+
+def _get_team_repo_names(integration: Integration) -> list[str]:
+    """Repo names from the team's org-owned GitHub install (cached JSONField read), or []."""
+    team_integration = Integration.objects.filter(
+        team=integration.team, kind=Integration.IntegrationKind.GITHUB
+    ).first()
+    if team_integration is None:
+        return []
+    github = GitHubIntegration(team_integration)
+    return [repo["full_name"] for repo in github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)]
 
 
 def _replace_repo_picker_message_with_selection(
@@ -1075,6 +1103,11 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
+    files = event.get("files")
+    return isinstance(files, list) and len(files) > 0
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1086,7 +1119,10 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if not event.get("user"):
         return "no_user"
-    if not event.get("text"):
+    # A file-only reply has empty text and the ``file_share`` subtype — both
+    # must be admitted here or the attachment silently never reaches the agent.
+    has_files = _thread_message_event_has_files(event)
+    if not event.get("text") and not has_files:
         return "no_text"
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
@@ -1104,17 +1140,10 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     # etc.) is system noise from this gate's perspective. ``thread_broadcast``
     # is the only one a human types, but it's typically an announcement to the
     # parent channel, not agent-directed work.
-    if event.get("subtype"):
-        return f"subtype:{event.get('subtype')}"
+    subtype = event.get("subtype")
+    if subtype and not (subtype == "file_share" and has_files):
+        return f"subtype:{subtype}"
     return None
-
-
-# Feature flag that gates the untagged-thread followup path per org. Off by
-# default until rollout; turning it on for an org makes every message in a
-# tagged thread eligible for classification + forward, instead of requiring a
-# fresh ``@PostHog`` mention. Naming follows the ``posthog-slack-app-*`` prefix
-# the team uses for the Slack App's product flags.
-UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
 
 
 def _resolve_untagged_followup_mapping(
@@ -1147,7 +1176,7 @@ def _resolve_untagged_followup_mapping(
     )
     if mapping is None:
         return None
-    if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
+    if not is_slack_app_untagged_thread_followups_enabled(mapping.integration, slack_team_id):
         logger.info(
             "slack_app_thread_message_feature_flag_off",
             slack_team_id=slack_team_id,
@@ -1157,30 +1186,6 @@ def _resolve_untagged_followup_mapping(
         )
         return None
     return mapping
-
-
-def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
-    """Return True if the integration's org has the untagged-thread followup
-    flag enabled. Fail-closed on any error — a transient PostHog API outage
-    must not silently enable the feature for everyone.
-    """
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            UNTAGGED_THREAD_FOLLOWUPS_FLAG,
-            f"slack_workspace:{slack_team_id}",
-            groups={"organization": str(integration.team.organization_id)},
-            person_properties={"region": get_instance_region() or "unknown"},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        return bool(enabled)
-    except Exception:
-        logger.exception(
-            "slack_app_thread_message_feature_flag_check_failed",
-            slack_team_id=slack_team_id,
-            integration_id=integration.id,
-        )
-        return False
 
 
 def _notify_missing_slack_scopes(
@@ -1321,7 +1326,7 @@ def resolve_posthog_user_from_event(
         slack_team_id=slack_team_id,
         candidate_org_ids=org_ids,
     )
-    if linked_user is not None and slack_oauth_link_enabled(probe_integration, slack_team_id):
+    if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
         return linked_user
 
     if slack_email is None:
@@ -1403,7 +1408,7 @@ def _post_user_resolution_failure_reply(
     # neither is redundant. Only `user_not_found` is link-recoverable;
     # `no_team_access` means the user *is* known but lacks project access.
     _post_slack_user_feedback(slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
-    if failure_reason == "user_not_found" and slack_oauth_link_enabled(probe, probe.integration_id):
+    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe, probe.integration_id):
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,
@@ -1447,7 +1452,6 @@ def _start_posthog_code_workflow(
     )
 
 
-_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
 _ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
 _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
@@ -1466,25 +1470,6 @@ _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
 )
-
-
-def _assistant_enabled(team: Team) -> bool:
-    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
-    # check before resolving the DMing user — i.e. the feature stays dark when off.
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                _ASSISTANT_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-                person_properties={"region": get_instance_region() or "unknown"},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
-        return False
 
 
 def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
@@ -1555,7 +1540,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def send_assistant_install_welcome(integration: Integration) -> None:
     """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not _assistant_enabled(integration.team):
+    if not is_slack_app_assistant_enabled(integration.team):
         return
     slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not slack_user_id:
@@ -1633,7 +1618,7 @@ def _route_assistant_event(
         channel=channel_id,
         thread_ts=thread_ts,
     )
-    region_route = _resolve_region_or_terminal_route(
+    region_route = resolve_region_or_terminal_route(
         request,
         slack_team_id,
         candidates_present=bool(result.candidates),
@@ -1649,7 +1634,7 @@ def _route_assistant_event(
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
-    if not _assistant_enabled(probe.team):
+    if not is_slack_app_assistant_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
@@ -1694,17 +1679,17 @@ def route_posthog_code_event_to_relevant_region(
 ) -> str:
     event_type = event.get("type")
     incoming_host = request.get_host()
-    proxied = _was_proxied(request)
-    other_domain = _other_region_domain(incoming_host)
+    proxied = was_proxied(request)
+    other_domain = other_region_domain(incoming_host)
     # In local dev we run a single instance, so cross-region routing is meaningless: the only
     # consumer is this process. Disable both the probe and the proxy hop and always handle
     # locally.
-    can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
+    can_defer_to_other_region = cross_region_routing_enabled() and not is_us_host(incoming_host) and not proxied
 
     logger.info(
         "slack_app_route_enter",
         incoming_host=incoming_host,
-        is_us=_is_us_host(incoming_host),
+        is_us=is_us_host(incoming_host),
         proxied=proxied,
         other_domain=other_domain,
         can_defer=can_defer_to_other_region,
@@ -1787,7 +1772,7 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
-        region_route = _resolve_region_or_terminal_route(
+        region_route = resolve_region_or_terminal_route(
             request,
             slack_team_id,
             candidates_present=bool(workspace_result.candidates),
@@ -1860,7 +1845,7 @@ def route_posthog_code_event_to_relevant_region(
 
         # Rules command is meaningful only when the user actually typed
         # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and _parse_rules_command(event.get("text", "")) is not None:
+        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
@@ -1919,6 +1904,7 @@ def route_posthog_code_event_to_relevant_region(
             event_id,
             posthog_user=posthog_user,
             untagged_followup=untagged_followup_mapping is not None,
+            is_ext_shared_channel=is_ext_shared_channel,
         )
 
     if event_type == "member_joined_channel":
@@ -1942,6 +1928,16 @@ def route_posthog_code_event_to_relevant_region(
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
+            # Mirror the app_mention gate: don't unfurl project data into an unapproved externally
+            # shared channel. A paste isn't an explicit invocation, so suppress without prompting.
+            channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+            if (
+                is_ext_shared_channel
+                and channel_id
+                and not _channel_is_approved(local_match.integration_id, channel_id)
+            ):
+                logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
+                return ROUTE_HANDLED_LOCALLY
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
@@ -1979,7 +1975,7 @@ def _route_to_other_region_or_drop(
     Single-region deployments (local dev, hosted dev, E2E, self-hosted) have no other region
     to forward to, so we just record the miss and stop.
     """
-    if proxied or not _cross_region_routing_enabled():
+    if proxied or not cross_region_routing_enabled():
         logger.warning(
             "slack_app_no_integration_found",
             slack_team_id=slack_team_id,
@@ -1989,7 +1985,7 @@ def _route_to_other_region_or_drop(
     return _proxy_event_and_return_route(request, other_domain)
 
 
-def _resolve_region_or_terminal_route(
+def resolve_region_or_terminal_route(
     request: HttpRequest,
     slack_team_id: str,
     *,
@@ -2019,8 +2015,11 @@ def _start_command_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    user_id: int,
+    user_id: int | None,
+    command_prefix: str = "@PostHog",
 ) -> str:
+    # ``user_id=None`` defers user resolution into the workflow — the slash entry
+    # point uses it to keep its ack under Slack's 3s budget.
     _start_posthog_code_workflow(
         PostHogCodeSlackMentionCommandWorkflow,
         PostHogCodeSlackMentionCommandWorkflowInputs(
@@ -2028,6 +2027,7 @@ def _start_command_workflow(
             integration_ids=[i.id for i in integrations],
             slack_team_id=slack_team_id,
             user_id=user_id,
+            command_prefix=command_prefix,
         ),
         id_prefix="posthog-code-mention-command",
         slack_team_id=slack_team_id,
@@ -2413,6 +2413,7 @@ def _start_mention_workflow(
     *,
     posthog_user: User | None,
     untagged_followup: bool = False,
+    is_ext_shared_channel: bool = False,
 ) -> str:
     """Start the mention workflow for either an explicit ``app_mention`` or an
     untagged thread reply.
@@ -2441,6 +2442,7 @@ def _start_mention_workflow(
         slack_event_id=event_id,
         user_id=posthog_user.id if posthog_user else None,
         untagged_followup=untagged_followup,
+        is_ext_shared_channel=is_ext_shared_channel,
     )
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
@@ -2573,6 +2575,12 @@ def _extract_context_token(payload: dict) -> str:
         if token:
             return token
 
+    for action in payload.get("actions", []):
+        if action.get("action_id") in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}:
+            action_value = action.get("value")
+            if isinstance(action_value, str) and action_value:
+                return action_value
+
     # fallback: message metadata
     return payload.get("message", {}).get("metadata", {}).get("event_payload", {}).get("context_token", "")
 
@@ -2640,9 +2648,10 @@ def _extract_picker_hints(payload: dict) -> tuple[int | None, str | None]:
     return integration_id, mentioning_slack_user_id
 
 
-def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
+def _extract_action_value_hints(payload: dict, action_id: str) -> tuple[int | None, str | None]:
+    """Pull (integration_id, mentioning_slack_user_id) from a block action's JSON value, or (None, None)."""
     actions = payload.get("actions", [])
-    action = next((a for a in actions if a.get("action_id") == "posthog_code_terminate_task"), None)
+    action = next((a for a in actions if a.get("action_id") == action_id), None)
     if not action:
         return None, None
 
@@ -2662,6 +2671,10 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
     if mentioning_user_id is not None and not isinstance(mentioning_user_id, str):
         mentioning_user_id = None
     return integration_id, mentioning_user_id
+
+
+def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
+    return _extract_action_value_hints(payload, "posthog_code_terminate_task")
 
 
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
@@ -2913,6 +2926,73 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
 
+def _handle_continue_as_bot(payload: dict) -> HttpResponse:
+    action = next(
+        (a for a in payload.get("actions", []) if a.get("action_id") == "posthog_code_continue_as_bot"),
+        None,
+    )
+    if not action:
+        return HttpResponse(status=200)
+
+    try:
+        value = json.loads(action.get("value") or "{}")
+    except (TypeError, ValueError):
+        value = {}
+
+    workflow_id = value.get("workflow_id")
+    integration_id = value.get("integration_id")
+    expected_user_id = value.get("mentioning_slack_user_id")
+
+    if not workflow_id:
+        logger.info("slack_app_continue_as_bot_missing_workflow_id")
+        return HttpResponse(status=200)
+
+    clicker_id = payload.get("user", {}).get("id")
+    if not expected_user_id or clicker_id != expected_user_id:
+        logger.info(
+            "slack_app_continue_as_bot_user_mismatch",
+            workflow_id=workflow_id,
+            expected_user_id=expected_user_id,
+            clicker_id=clicker_id,
+        )
+        return HttpResponse(status=200)
+
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(workflow_id)
+        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.authorship_confirmed))
+    except Exception as e:
+        logger.warning("slack_app_continue_as_bot_signal_failed", workflow_id=workflow_id, error=str(e))
+        return HttpResponse(status=200)
+
+    # Best-effort: replace the prompt so it can't be clicked twice.
+    slack_team_id = payload.get("team", {}).get("id")
+    channel = payload.get("channel", {}).get("id")
+    message_ts = payload.get("message", {}).get("ts")
+    if integration_id and slack_team_id and channel and message_ts:
+        try:
+            # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
+            integration = Integration.objects.get(
+                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+            )
+            text = "Continuing as PostHog — the PR will be authored by the PostHog bot."
+            SlackIntegration(integration).client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text=text,
+                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+            )
+        except Exception:
+            logger.warning(
+                "slack_app_continue_as_bot_picker_update_failed",
+                workflow_id=workflow_id,
+                channel=channel,
+                message_ts=message_ts,
+            )
+
+    return HttpResponse(status=200)
+
+
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
     """Remove the original ephemeral prompt via the interactivity ``response_url`` once its public
     threaded outcome has been posted."""
@@ -3104,6 +3184,344 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _permission_options_by_id(context: dict[str, Any]) -> dict[str, dict[str, str]]:
+    options = context.get("options")
+    if not isinstance(options, list):
+        return {}
+
+    by_id: dict[str, dict[str, str]] = {}
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        option_id = option.get("optionId")
+        if not isinstance(option_id, str) or not option_id:
+            continue
+        kind = option.get("kind")
+        label = option.get("label")
+        by_id[option_id] = {
+            "kind": kind if isinstance(kind, str) else "",
+            "label": label if isinstance(label, str) else option_id,
+        }
+    return by_id
+
+
+def _default_permission_option_id(context: dict[str, Any], options_by_id: dict[str, dict[str, str]]) -> str:
+    default_option_id = context.get("default_option_id")
+    if (
+        isinstance(default_option_id, str)
+        and default_option_id in options_by_id
+        and not options_by_id[default_option_id]["kind"].startswith("reject")
+    ):
+        return default_option_id
+
+    for option_id, option in options_by_id.items():
+        if not option["kind"].startswith("reject"):
+            return option_id
+
+    return next(iter(options_by_id))
+
+
+def _is_permission_interaction(payload: dict) -> bool:
+    permission_action_ids = {
+        SLACK_PERMISSION_ACTION_APPROVE,
+        SLACK_PERMISSION_ACTION_DENY,
+        SLACK_PERMISSION_ACTION_SELECT,
+    }
+    return any(action.get("action_id") in permission_action_ids for action in payload.get("actions", []))
+
+
+def _build_permission_denial_followup_message(context: dict[str, Any], denied_option_label: str) -> str:
+    tool_label = context.get("tool_label")
+    tool_detail = context.get("tool_detail")
+
+    subject = tool_label if isinstance(tool_label, str) and tool_label.strip() else "the requested action"
+    message = (
+        f"The Slack user denied your approval request for {subject!r} "
+        f"using the option {denied_option_label!r}.\n\n"
+        "Treat this denial as a constraint, not as a reason to stop working. "
+        "Do not retry the same denied action unchanged. Try a different safe approach that avoids the denied "
+        "permission. If the denied action is truly required to complete the task, ask the user why they denied it "
+        "or what constraint they want you to follow, then wait for their answer."
+    )
+    if isinstance(tool_detail, str) and tool_detail.strip():
+        message = f"{message}\n\nDenied action detail:\n{tool_detail.strip()}"
+    return message
+
+
+def _post_permission_ephemeral_feedback(payload: dict, text: str) -> None:
+    response_url = payload.get("response_url", "")
+    if not response_url:
+        return
+    try:
+        requests.post(
+            response_url, json={"response_type": "ephemeral", "replace_original": False, "text": text}, timeout=3
+        )
+    except Exception:
+        logger.warning("slack_app_permission_feedback_failed", exc_info=True)
+
+
+def _resolve_permission_interaction(payload: dict) -> tuple[str, dict[str, Any], Integration, str] | None:
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != SLACK_PERMISSION_CONTEXT_KIND:
+        return None
+
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+    expected_slack_user_id = context.get("expected_slack_user_id")
+    if not isinstance(expected_slack_user_id, str) or clicker_slack_user_id != expected_slack_user_id:
+        _post_permission_ephemeral_feedback(
+            payload,
+            "Only the person this approval was sent to can respond to it.",
+        )
+        return None
+
+    integration_id = context.get("integration_id")
+    slack_team_id = payload.get("team", {}).get("id", "")
+    if not integration_id or not slack_team_id:
+        return None
+
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team")
+        .first()
+    )
+    if integration is None:
+        return None
+
+    return context_token, context, integration, clicker_slack_user_id
+
+
+def _replace_permission_prompt(payload: dict, text: str) -> None:
+    response_url = payload.get("response_url", "")
+    if not response_url:
+        return
+    try:
+        requests.post(
+            response_url,
+            json={
+                "replace_original": True,
+                "text": text,
+                "blocks": [
+                    {
+                        "type": "card",
+                        "slack_icon": {"type": "icon", "name": "rocket"},
+                        "title": {
+                            "type": "mrkdwn",
+                            "text": "Approval recorded",
+                            "verbatim": False,
+                        },
+                        "subtitle": {
+                            "type": "mrkdwn",
+                            "text": "No further action is needed.",
+                            "verbatim": False,
+                        },
+                        "body": {"type": "mrkdwn", "text": text, "verbatim": False},
+                    }
+                ],
+            },
+            timeout=3,
+        )
+    except Exception:
+        logger.warning("slack_app_permission_replace_failed", exc_info=True)
+
+
+def _selected_permission_mode(payload: dict) -> str | None:
+    action = next(
+        (a for a in payload.get("actions", []) if a.get("action_id") == SLACK_PERMISSION_ACTION_SELECT),
+        None,
+    )
+    if not action:
+        return None
+
+    selected_option = action.get("selected_option")
+    if not isinstance(selected_option, dict):
+        return None
+
+    value = selected_option.get("value")
+    return value if isinstance(value, str) else None
+
+
+def _sync_permission_mode_to_task_run(context: dict[str, Any], integration: Integration, selected_mode: str) -> None:
+    run_id = context.get("run_id")
+    task_id = context.get("task_id")
+    if not isinstance(run_id, str) or not isinstance(task_id, str):
+        return
+
+    try:
+        task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    except (ValidationError, ValueError):
+        return
+    if task_run is None or str(task_run.task_id) != task_id or task_run.is_terminal:
+        return
+
+    tasks_facade.update_task_run_state(task_run.id, updates={"slack_permission_mode": selected_mode})
+
+
+def _handle_permission_config_select(payload: dict) -> HttpResponse:
+    resolved = _resolve_permission_interaction(payload)
+    if resolved is None:
+        return HttpResponse(status=200)
+
+    _context_token, context, integration, clicker_slack_user_id = resolved
+    selected_mode = _selected_permission_mode(payload)
+
+    from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
+
+    if selected_mode not in SlackPermissionMode.values:
+        return HttpResponse(status=200)
+
+    slack_workspace_id = context.get("slack_workspace_id") or integration.integration_id
+    if not isinstance(slack_workspace_id, str) or not slack_workspace_id:
+        return HttpResponse(status=200)
+
+    # `default_integration` is deliberately not written: the card interaction is about the
+    # permission mode, and writing routing here would silently repoint the user's mentions at
+    # this task's project (see `_write_row` in services/slack_app_home.py for the same rule).
+    # The mode is stored per integration so a grant made in this project never applies to
+    # runs the workspace routes to other projects.
+    settings_row, _created = SlackSettings.objects.get_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=clicker_slack_user_id,
+    )
+    permission_modes = dict(settings_row.permission_modes or {})
+    permission_modes[str(integration.id)] = selected_mode
+    settings_row.permission_modes = permission_modes
+    settings_row.save(update_fields=["permission_modes", "updated_at"])
+    _sync_permission_mode_to_task_run(context, integration, selected_mode)
+
+    selected_label = SlackPermissionMode(selected_mode).label
+    _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
+    logger.info(
+        "slack_app_permission_mode_saved",
+        integration_id=integration.id,
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=clicker_slack_user_id,
+        permission_mode=selected_mode,
+    )
+    return HttpResponse(status=200)
+
+
+def _handle_permission_submit(payload: dict) -> HttpResponse:
+    action = next(
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}
+        ),
+        None,
+    )
+    if action is None:
+        return HttpResponse(status=200)
+
+    resolved = _resolve_permission_interaction(payload)
+    if resolved is None:
+        return HttpResponse(status=200)
+    context_token, context, integration, clicker_slack_user_id = resolved
+
+    options_by_id = _permission_options_by_id(context)
+    if not options_by_id:
+        return HttpResponse(status=200)
+
+    request_id = context.get("request_id")
+    run_id = context.get("run_id")
+    task_id = context.get("task_id")
+    if not isinstance(request_id, str) or not isinstance(run_id, str) or not isinstance(task_id, str):
+        return HttpResponse(status=200)
+
+    action_id = action.get("action_id")
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        option_id = context.get("reject_option_id")
+        action_label = "Denied"
+    else:
+        option_id = _default_permission_option_id(context, options_by_id)
+        action_label = "Approved"
+
+    if not isinstance(option_id, str) or option_id not in options_by_id:
+        return HttpResponse(status=200)
+
+    task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
+    if task_run is None or str(task_run.task_id) != task_id:
+        return HttpResponse(status=200)
+
+    if task_run.is_terminal:
+        _replace_permission_prompt(payload, f"This run is already `{task_run.status}`. There is nothing to approve.")
+        cache.delete(_picker_context_cache_key(context_token))
+        return HttpResponse(status=200)
+
+    channel = context.get("channel")
+    thread_ts = context.get("thread_ts")
+    if not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return HttpResponse(status=200)
+
+    actor_context = resolve_slack_user(
+        SlackIntegration(integration),
+        integration,
+        clicker_slack_user_id,
+        channel,
+        thread_ts,
+        post_feedback=False,
+    )
+    if actor_context is None:
+        _post_permission_ephemeral_feedback(
+            payload,
+            "I couldn't resolve your PostHog account for this approval. Please try again from the Task UI.",
+        )
+        return HttpResponse(status=200)
+
+    option_label = options_by_id[option_id]["label"]
+    denial_message = None
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        denial_message = _build_permission_denial_followup_message(context, option_label)
+
+    signaled = tasks_facade.signal_task_run_permission_response(
+        task_run.id,
+        task_run.task_id,
+        integration.team_id,
+        request_id=request_id,
+        option_id=option_id,
+        actor_user_id=actor_context.user.id,
+        actor_slack_user_id=clicker_slack_user_id,
+        is_denial=action_id == SLACK_PERMISSION_ACTION_DENY,
+        denial_message=denial_message,
+        broker_reason="slack_human_response",
+    )
+    if signaled is not True:
+        logger.warning(
+            "slack_app_permission_response_signal_failed",
+            run_id=run_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_context.user.id,
+        )
+        _post_permission_ephemeral_feedback(
+            payload,
+            "I couldn't queue that response for the agent. Please try again from the Task UI.",
+        )
+        return HttpResponse(status=200)
+
+    cache.delete(_picker_context_cache_key(context_token))
+    if action_id == SLACK_PERMISSION_ACTION_DENY:
+        _replace_permission_prompt(
+            payload,
+            f"{action_label} `{option_label}` for the agent. I told it to find another path or ask for context.",
+        )
+    else:
+        _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
+    logger.info(
+        "slack_app_permission_response_signaled",
+        run_id=run_id,
+        request_id=request_id,
+        option_id=option_id,
+        action=action.get("action_id"),
+        actor_user_id=actor_context.user.id,
+    )
+    return HttpResponse(status=200)
+
+
 # Wire contract with products/signals/backend/slack_inbox_notifications.py (SIGNALS_DISMISS_REPORT_ACTION_ID).
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
@@ -3267,6 +3685,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
+    authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
@@ -3290,6 +3709,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and authorship_integration_id:
+        # Mentioner check lives in the handler, so routing only confirms we own the integration.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=authorship_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3321,7 +3747,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             integration_id=slack_team_id,
         ).exists()
 
-    proxied = _was_proxied(request)
+    proxied = was_proxied(request)
     incoming_host = request.get_host()
     logger.info(
         "slack_app_interactivity_resolution",
@@ -3337,12 +3763,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied and _cross_region_routing_enabled():
+    if not local and not proxied and cross_region_routing_enabled():
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
         # Skipped in single-region deployments (local dev, hosted dev, E2E, self-hosted) where
         # there is no other region to talk to.
-        target = _other_region_domain(incoming_host)
+        target = other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
             logger.info(
@@ -3379,6 +3805,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         )
         if payload_type == "block_suggestion":
             return JsonResponse({"options": []})
+        if payload_type == "block_actions" and _is_permission_interaction(payload):
+            # An unresolvable permission click means the cached context expired (or was
+            # evicted) in every region — tell the clicker instead of silently doing nothing.
+            _post_permission_ephemeral_feedback(
+                payload,
+                "This approval prompt has expired. Mention me again in the thread, or respond from the Task UI.",
+            )
         return HttpResponse(status=200)
 
     logger.info(
@@ -3403,12 +3836,18 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_repo_picker_submit(payload)
             if action_id == "posthog_code_repo_none":
                 return _handle_no_repo_needed_submit(payload)
+            if action_id == "posthog_code_continue_as_bot":
+                return _handle_continue_as_bot(payload)
             if action_id == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
                 return _handle_channel_approval_submit(payload)
             if action_id == CHANNEL_APPROVAL_ACTION_DENY:
                 return _handle_channel_approval_deny(payload)
+            if action_id in {SLACK_PERMISSION_ACTION_APPROVE, SLACK_PERMISSION_ACTION_DENY}:
+                return _handle_permission_submit(payload)
+            if action_id == SLACK_PERMISSION_ACTION_SELECT:
+                return _handle_permission_config_select(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:

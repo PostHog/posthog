@@ -1,12 +1,13 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
+    AxisLinesConfig,
     BarChartConfig,
     BarFillStyle,
     ChartLegendConfig,
     ChartTheme,
+    DateRangeZoomData,
     PointClickData,
     Series,
     TooltipConfig,
@@ -15,24 +16,17 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
-import {
-    useXTickFormatter,
-    useYTickFormatter,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { GoalLineConfig } from '../../utils/goal-lines'
+import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
-import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
-import {
-    resolveValueLabelsConfig,
-    useSeriesWithValueLabelAllowlist,
-    type ValueLabelsConfig,
-} from '../utils/use-value-labels'
+import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesBarChartConfig {
     xAxis?: XAxisConfig
-    yAxis?: YAxisConfig
+    /** Single object for a standard left axis; array for dual left+right axes (pass `id` and `position` on each). */
+    yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     /** Defaults to `stacked`. */
@@ -43,8 +37,13 @@ export interface TimeSeriesBarChartConfig {
     barCornerRadius?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
+     *  `yAxis` config, when set, wins. */
+    showGrid?: boolean
     /** Draw L-shaped axis baselines without grid lines (ignored when `yAxis.showGrid` is true). */
-    showAxisLines?: boolean
+    showAxisLines?: AxisLinesConfig
+    /** Draw short tick marks next to each visible axis label. Pairs with `showAxisLines`. */
+    showTickMarks?: boolean
     /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
     tooltip?: TooltipConfig
     /** Stacked layout only — stack negatives below the zero baseline (d3.stackOffsetDiverging). */
@@ -66,6 +65,8 @@ export interface TimeSeriesBarChartProps<Meta = unknown> {
     config?: TimeSeriesBarChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Enables x-axis drag-to-zoom. See `BarChartProps.onDateRangeZoom`. */
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -79,6 +80,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -93,7 +95,9 @@ export function TimeSeriesBarChart<Meta = unknown>({
         axisOrientation,
         barCornerRadius,
         showCrosshair,
+        showGrid,
         showAxisLines,
+        showTickMarks,
         tooltip: tooltipConfig,
         divergingStack,
         fillStyle,
@@ -101,58 +105,44 @@ export function TimeSeriesBarChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(yAxis)
-
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
-
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
-
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
+    const {
+        xTickFormatter,
+        yTickFormatter,
+        legendProps,
+        visibleSeries,
+        chartSeries,
+        valueLabelsConfig,
+        valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis)
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
-    const referenceLines = useMemo(
-        () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
-        [goalLines, seriesAfterValueLabels]
-    )
+    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 
-    // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
-    // line off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
-    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
-    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
-
-    const trendSeries = useMemo(() => {
-        if (!trendLines?.length) {
-            return []
-        }
-        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
-        return trendLines.flatMap((tl) => {
-            const source = byKey.get(tl.seriesKey)
-            return source
-                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
-                : []
-        })
-    }, [trendLines, visibleSeries])
+    const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const barChartConfig: BarChartConfig = {
-        yScaleType: yAxis?.scale,
+        yScaleType: primaryYAxis?.scale,
         xTickFormatter,
         yTickFormatter,
         hideXAxis: xAxis?.hide,
-        hideYAxis: yAxis?.hide,
+        hideYAxis: yAxes ? yAxes.length > 0 && yAxes.every((a) => a.hide) : primaryYAxis?.hide,
         xAxisLabel: xAxis?.label,
-        yAxisLabel: yAxis?.label,
-        showGrid: yAxis?.showGrid,
+        yAxisLabel: primaryYAxis?.label,
+        showGrid: primaryYAxis?.showGrid ?? showGrid,
         showAxisLines,
+        showTickMarks,
         barLayout,
         axisOrientation,
         showCrosshair,
-        tooltip: tooltipConfig,
+        tooltip: timeSeriesTooltipConfig,
         animateHover,
+        yAxes,
+        barCornerRadius,
         bars: {
-            cornerRadius: barCornerRadius,
             divergingStack,
             valueDomain,
             fillStyle,
@@ -162,12 +152,13 @@ export function TimeSeriesBarChart<Meta = unknown>({
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-bar-legend">
             <BarChart
-                series={seriesAfterValueLabels}
+                series={chartSeries}
                 labels={labels}
                 config={barChartConfig}
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
                 onError={onError}
