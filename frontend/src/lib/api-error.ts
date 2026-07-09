@@ -50,3 +50,17 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+// A `fetch()` that fails at the network level (dropped connection, ad blocker, CORS,
+// user navigating away mid-request) rejects with a generic `TypeError` — "Load failed"
+// in Safari, "Failed to fetch" in Chrome. These are benign client-side noise, not real
+// bugs, so `handleFetch` throws this dedicated type. Callers keep treating it like any
+// failed request (it `instanceof ApiError`), but the central `before_send` filter drops
+// its `$exception` events so it never reaches error tracking. The distinctive `name`
+// is what that filter matches on in `$exception_list`.
+export class ApiNetworkError extends ApiError {
+    constructor(message?: string, status?: number, headers?: Headers, data?: any) {
+        super(message, status, headers, data)
+        this.name = 'ApiNetworkError'
+    }
+}

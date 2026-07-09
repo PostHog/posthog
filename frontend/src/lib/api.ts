@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, ApiNetworkError } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -326,7 +326,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError }
+export { ApiError, ApiNetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -7535,7 +7535,15 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
-        throw new ApiError(error as any, response?.status)
+        // A network-level fetch failure (dropped connection, ad blocker, CORS, user
+        // navigating away mid-request) rejects with a generic TypeError. These are benign
+        // client-side noise — throw a dedicated ApiNetworkError so the central before_send
+        // filter can keep them out of error tracking. Pass the browser's message (e.g.
+        // "Load failed") as a plain string so the exception title isn't doubled up.
+        if (error && (error as any).name === 'TypeError') {
+            throw new ApiNetworkError((error as Error).message, response?.status)
+        }
+        throw new ApiError(error instanceof Error ? error.message : undefined, response?.status)
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
