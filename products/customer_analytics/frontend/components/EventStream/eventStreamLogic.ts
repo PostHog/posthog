@@ -59,8 +59,9 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
             null as EventStreamApi | null,
             {
                 loadEventStream: async (): Promise<EventStreamApi | null> => {
-                    const response = await eventStreamsList(String(values.currentTeamId))
-                    return response.results[0] ?? null
+                    // At most one stream exists per team, so the list is the 0-or-1 streams.
+                    const streams = await eventStreamsList(String(values.currentTeamId))
+                    return streams[0] ?? null
                 },
                 // Creates the team's stream on first save, updates it afterwards.
                 saveEventStream: async (): Promise<EventStreamApi | null> => {

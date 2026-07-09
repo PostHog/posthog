@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
@@ -22,7 +22,6 @@ function ConnectSlackPrompt(): JSX.Element {
 }
 
 export function CustomerAnalyticsEventStream(): JSX.Element {
-    useMountedLogic(integrationsLogic)
     const { eventStream, eventStreamLoading, draft, hasChanges, testMessageLoading } = useValues(eventStreamLogic)
     const { setDraft, resetDraft, saveEventStream, sendTestMessage } = useActions(eventStreamLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)

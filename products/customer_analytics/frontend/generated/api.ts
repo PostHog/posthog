@@ -35,7 +35,6 @@ import type {
     EventStreamApi,
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
-    EventStreamsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
@@ -46,7 +45,6 @@ import type {
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
-    PaginatedEventStreamListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
@@ -979,20 +977,8 @@ export const customerProfileConfigsDestroy = async (
     })
 }
 
-export const getEventStreamsListUrl = (projectId: string, params?: EventStreamsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/event_streams/?${stringifiedParams}`
-        : `/api/projects/${projectId}/event_streams/`
+export const getEventStreamsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_streams/`
 }
 
 /**
@@ -1000,12 +986,8 @@ export const getEventStreamsListUrl = (projectId: string, params?: EventStreamsL
  * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
  * the same transaction as every write, so config and delivery can't drift apart.
  */
-export const eventStreamsList = async (
-    projectId: string,
-    params?: EventStreamsListParams,
-    options?: RequestInit
-): Promise<PaginatedEventStreamListApi> => {
-    return apiMutator<PaginatedEventStreamListApi>(getEventStreamsListUrl(projectId, params), {
+export const eventStreamsList = async (projectId: string, options?: RequestInit): Promise<EventStreamApi[]> => {
+    return apiMutator<EventStreamApi[]>(getEventStreamsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

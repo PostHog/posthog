@@ -1985,12 +1985,9 @@ def _normalize_event_names(event_names: Iterable[str]) -> list[str]:
     return [name for name in dict.fromkeys(event_names) if name and name.strip()]
 
 
-def list_event_streams(team_id: int, offset: int, limit: int) -> tuple[list[contracts.EventStreamView], int]:
-    """The team's event streams (at most one exists). Returns ``(page, total_count)``."""
-    queryset = EventStream.objects.for_team(team_id).order_by("created_at")
-    total_count = queryset.count()
-    page = queryset[offset : offset + limit]
-    return [_to_event_stream_view(s) for s in page], total_count
+def list_event_streams(team_id: int) -> list[contracts.EventStreamView]:
+    """The team's event streams — at most one exists (the team FK is one-to-one)."""
+    return [_to_event_stream_view(s) for s in EventStream.objects.for_team(team_id).order_by("created_at")]
 
 
 def get_event_stream(team_id: int, stream_id: str | UUID) -> contracts.EventStreamView | None:

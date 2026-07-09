@@ -236,5 +236,4 @@ class TestEventStreamViewSet(APIBaseTest):
         response = self.client.get(self.base_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        results = response.json()["results"]
-        self.assertEqual([row["id"] for row in results], [stream["id"]])
+        self.assertEqual([row["id"] for row in response.json()], [stream["id"]])

@@ -34089,15 +34089,6 @@ export namespace Schemas {
       results: EventSchema[];
     }
 
-    export interface PaginatedEventStreamList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: EventStream[];
-    }
-
     export interface PaginatedExperimentBasicList {
       count: number;
       /** @nullable */
@@ -67601,17 +67592,6 @@ export namespace Schemas {
     };
 
     export type EventSchemasListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EventStreamsListParams = {
     /**
      * Number of results to return per page.
      */

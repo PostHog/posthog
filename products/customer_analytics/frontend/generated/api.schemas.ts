@@ -816,15 +816,6 @@ export interface EventStreamApi {
     readonly updated_at: string | null
 }
 
-export interface PaginatedEventStreamListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: EventStreamApi[]
-}
-
 /**
  * The team's event stream — a live feed of selected accounts' events posted to a
  * Slack channel. One stream per team.
@@ -1164,17 +1155,6 @@ export type CustomerJourneysListParams = {
 }
 
 export type CustomerProfileConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type EventStreamsListParams = {
     /**
      * Number of results to return per page.
      */

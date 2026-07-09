@@ -149,6 +149,15 @@ def sync_event_stream_destination(stream: EventStream, *, team: "Team", user: "U
         serializer = HogFunctionSerializer(data=config, context=context)
     serializer.is_valid(raise_exception=True)
     hog_function = serializer.save()
+    logger.info(
+        "customer_analytics_event_stream_destination_synced",
+        team_id=team.id,
+        stream_id=str(stream.id),
+        hog_function_id=str(hog_function.id),
+        created=instance is None,
+        enabled=hog_function.enabled,
+        member_count=len(group_keys),
+    )
 
     if stream.hog_function_id != hog_function.id:
         stream.hog_function_id = hog_function.id
@@ -187,6 +196,12 @@ def send_test_slack_message(*, team_id: int, stream_id: str) -> str | None:
         )
     except SlackApiError as e:
         error = e.response.get("error", "unknown_error") if e.response else "unknown_error"
+        logger.warning(
+            "customer_analytics_event_stream_test_message_failed",
+            team_id=team_id,
+            stream_id=str(stream_id),
+            error=error,
+        )
         hint = " Invite the PostHog bot to the channel and try again." if error == "not_in_channel" else ""
         raise EventStreamTestMessageError(f"Slack rejected the test message: {error}.{hint}")
     return stream.slack_channel_id
@@ -208,6 +223,12 @@ def archive_event_stream_destination(stream: EventStream) -> None:
     function.deleted = True
     # .save() (not .update()) so the post_save signal deregisters the function from the workers.
     function.save()
+    logger.info(
+        "customer_analytics_event_stream_destination_archived",
+        team_id=stream.team_id,
+        stream_id=str(stream.id),
+        hog_function_id=str(function.id),
+    )
 
 
 def _managed_hog_function(stream: EventStream) -> HogFunction | None:

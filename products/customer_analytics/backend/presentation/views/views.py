@@ -1184,7 +1184,6 @@ _EVENT_STREAM_ID_PARAM = OpenApiParameter(
 class EventStreamViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -1198,14 +1197,11 @@ class EventStreamViewSet(
 
     scope_object = "account"
     serializer_class = EventStreamSerializer
+    pagination_class = None  # at most one stream exists per team (one-to-one) — nothing to paginate
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_event_streams(self.team_id, offset=offset, limit=limit),
-            EventStreamSerializer,
-        )
+        return Response(EventStreamSerializer(instance=api.list_event_streams(self.team_id), many=True).data)
 
     @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
@@ -1335,18 +1331,17 @@ class EventStreamViewSet(
         return Response(EventStreamSerializer(instance=stream).data)
 
 
+# Request field -> model column, for translating a write body into facade update fields.
+_EVENT_STREAM_WRITE_FIELDS = {
+    "enabled": "enabled",
+    "event_names": "event_names",
+    "slack_integration": "slack_integration_id",
+    "slack_channel_id": "slack_channel_id",
+    "slack_channel_name": "slack_channel_name",
+}
+
+
 def _event_stream_write_fields(validated, raw_data: dict) -> dict:
     """The event-stream columns the caller actually sent, so a PATCH that omits a field
     leaves it untouched (the serializer fields carry defaults for create)."""
-    fields: dict = {}
-    if "enabled" in raw_data:
-        fields["enabled"] = validated.enabled
-    if "event_names" in raw_data:
-        fields["event_names"] = validated.event_names
-    if "slack_integration" in raw_data:
-        fields["slack_integration_id"] = validated.slack_integration
-    if "slack_channel_id" in raw_data:
-        fields["slack_channel_id"] = validated.slack_channel_id
-    if "slack_channel_name" in raw_data:
-        fields["slack_channel_name"] = validated.slack_channel_name
-    return fields
+    return {column: getattr(validated, key) for key, column in _EVENT_STREAM_WRITE_FIELDS.items() if key in raw_data}
