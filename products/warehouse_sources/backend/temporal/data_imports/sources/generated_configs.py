@@ -3315,7 +3315,8 @@ class SurveyMonkeySourceConfig(config.Config):
 
 @config.config
 class SurveySparrowSourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ap", "me", "uk", "ap-sy", "ca"] = config.value(default="us")
 
 
 @config.config
