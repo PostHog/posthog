@@ -32,8 +32,10 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOM_PROPERTY_OPTION_COLORS,
 )
 from products.customer_analytics.backend.facade.contracts import (
+    AccountAssignment,
     AccountNotebookView,
     AccountNoteView,
+    AccountRelationship,
     AccountRelationshipDefinition,
     AccountView,
     CustomerJourneyView,
@@ -538,3 +540,45 @@ class AccountRelationshipDefinitionSerializer(DataclassSerializer):
         dataclass = AccountRelationshipDefinition
         ref_name = "AccountRelationshipDefinition"
         fields = ["id", "name", "description", "is_single_holder"]
+
+
+class AccountAssignmentSerializer(DataclassSerializer):
+    """A user assigned to an account relationship (read shape)."""
+
+    id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assignee.")
+    email = serializers.EmailField(read_only=True, help_text="Email of the assignee.")
+
+    class Meta:
+        dataclass = AccountAssignment
+        ref_name = "AccountAssignment"
+        fields = ["id", "email"]
+
+
+class AccountRelationshipSerializer(DataclassSerializer):
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this assignment row.")
+    definition = AccountRelationshipDefinitionSerializer(
+        read_only=True, help_text="The relationship type this assignment belongs to."
+    )
+    user = AccountAssignmentSerializer(
+        read_only=True, allow_null=True, help_text="The assigned user; null when their account was deleted."
+    )
+    started_at = serializers.DateTimeField(read_only=True, help_text="When this assignment became effective.")
+    ended_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this assignment ended; null while it is active."
+    )
+
+    class Meta:
+        dataclass = AccountRelationship
+        ref_name = "AccountRelationship"
+        fields = ["id", "definition", "user", "started_at", "ended_at"]
+
+
+class AccountRelationshipWriteSerializer(serializers.Serializer):
+    """Input for assigning a user to an account relationship."""
+
+    definition = serializers.UUIDField(help_text="Id of the relationship definition to assign.")
+    user = serializers.IntegerField(
+        help_text="PostHog user id of the assignee. Must be a member of the account's organization."
+    )

@@ -9,8 +9,21 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { visionActionsRetrieve, visionActionsRunsRetrieve } from '../generated/api'
-import type { VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
+import type { RunObservationApi, VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
 import type { visionActionRunSceneLogicType } from './visionActionRunSceneLogicType'
+
+/**
+ * Resolve the `[obs N]` citation markers the synthesizer leaves in a group summary into `[N]` links to
+ * each observation. `N` is the observation's stable `index` (its position in the summary), so a deleted
+ * observation drops its citation rather than misdirecting to a renumbered neighbor.
+ */
+export function resolveObservationCitations(markdown: string, observations: readonly RunObservationApi[]): string {
+    const byIndex = new Map(observations.map((obs) => [obs.index, obs]))
+    return markdown.replace(/\[obs (\d+)\]/g, (_match, n: string) => {
+        const obs = byIndex.get(Number(n))
+        return obs ? `[[${n}]](${urls.replayVisionObservation(obs.id)})` : ''
+    })
+}
 
 export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionActionRunSceneLogic']),
@@ -54,6 +67,15 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
     }),
 
     selectors({
+        // The synthesized report keeps the raw `[obs N]` citation markers the summarizer emitted; resolve each
+        // to a link to that observation so the reader can jump straight to the recording behind a theme.
+        summaryMarkdown: [
+            (s) => [s.run],
+            (run: VisionActionRunApi | null): string =>
+                run?.synthesized_markdown
+                    ? resolveObservationCitations(run.synthesized_markdown, run.observations)
+                    : '',
+        ],
         breadcrumbs: [
             (s) => [s.actionId, s.runId, s.action, s.run],
             (
@@ -79,7 +101,7 @@ export const visionActionRunSceneLogic = kea<visionActionRunSceneLogicType>([
                 }
                 breadcrumbs.push({
                     key: actionId ? `action-${actionId}` : 'action',
-                    name: action?.name || 'Action',
+                    name: action?.name || 'Summary',
                     path: urls.replayVisionAction(actionId),
                 })
                 breadcrumbs.push({

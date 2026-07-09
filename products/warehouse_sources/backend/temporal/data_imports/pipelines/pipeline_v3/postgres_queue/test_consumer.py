@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -107,7 +108,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock()
@@ -125,7 +126,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
@@ -379,6 +380,7 @@ class TestRecoverySweep:
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
+            batch_created_at=stale_batch.created_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
@@ -631,31 +633,33 @@ class TestStatementTimeoutBackstop:
     @pytest.mark.parametrize(
         "client_timeout,expected",
         [
-            (180.0, "-c statement_timeout=210000"),  # 180s + 30s margin, in ms
+            (180.0, 210000),  # 180s + 30s margin, in ms
             (None, None),  # disabled client ceiling disables the backstop too
             (0, None),
         ],
     )
-    def test_option_string_tracks_client_timeout(self, client_timeout, expected):
+    def test_timeout_ms_tracks_client_timeout(self, client_timeout, expected):
         consumer = _make_consumer(statement_timeout_margin_seconds=30.0)
-        assert consumer._statement_timeout_options(client_timeout) == expected
+        assert consumer._statement_timeout_ms(client_timeout) == expected
 
     @pytest.mark.asyncio
     async def test_poll_reconnect_applies_statement_timeout(self):
         # A reconnect that drops the backstop lets an abandoned query keep
         # burning queue-DB CPU — the exact failure the timeout guards against.
+        # The timeout must arrive as a SET statement after connect, never as a
+        # libpq startup option: PgBouncer rejects the latter and the whole
+        # loader crash-loops at startup.
         consumer = _make_consumer(poll_timeout_seconds=180.0, statement_timeout_margin_seconds=30.0)
         consumer._poll_conn = _make_healthy_conn(closed=True)  # force the reconnect branch
-        captured: dict[str, Any] = {}
+        fresh = _make_healthy_conn()
 
-        async def fake_connect(*, statement_timeout_options: str | None = None) -> AsyncMock:
-            captured["options"] = statement_timeout_options
-            return _make_healthy_conn()
-
-        with patch.object(consumer, "_connect", side_effect=fake_connect):
+        with patch.object(
+            psycopg.AsyncConnection, "connect", new_callable=AsyncMock, return_value=fresh
+        ) as mock_connect:
             await consumer._ensure_poll_conn()
 
-        assert captured["options"] == "-c statement_timeout=210000"
+        assert "options" not in mock_connect.call_args.kwargs
+        fresh.execute.assert_awaited_once_with("SET statement_timeout = 210000")
 
 
 class TestPollBackoff:
@@ -1476,3 +1480,20 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+class TestClaimPathWiring:
+    def test_claim_path_config_reaches_the_adapter(self):
+        # A flag that parses but never reaches the adapter would leave the
+        # fleet silently on the legacy path after the flip.
+        state = BatchConsumer(
+            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", claim_path="state"),
+            process_batch=AsyncMock(),
+        )
+        legacy = BatchConsumer(
+            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
+            process_batch=AsyncMock(),
+        )
+
+        assert cast(DeltaBatchConsumerAdapter, state._adapter)._use_state is True
+        assert cast(DeltaBatchConsumerAdapter, legacy._adapter)._use_state is False

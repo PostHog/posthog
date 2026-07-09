@@ -17,6 +17,9 @@ from products.replay_vision.backend.temporal.activities.advance_scanner_watermar
 )
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
+from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
+    refresh_prompt_suggestion_activity,
+)
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     build_process_vision_action_workflow_id,
@@ -278,12 +281,18 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
     fake_logger = type(
         "Logger",
         (),
-        {"info": staticmethod(lambda *_a, **_kw: None), "exception": staticmethod(lambda *_a, **_kw: None)},
+        {
+            "info": staticmethod(lambda *_a, **_kw: None),
+            "warning": staticmethod(lambda *_a, **_kw: None),
+            "exception": staticmethod(lambda *_a, **_kw: None),
+        },
     )()
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
+        # `workflow.patched` also needs the runtime; new executions take the patched branch.
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -300,6 +309,7 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
 
     assert [fn for fn, _ in mocks.activity_calls] == [
         evaluate_due_vision_actions_activity,
+        refresh_prompt_suggestion_activity,
         count_in_flight_applies_activity,
         find_scanner_candidates_activity,
     ]
@@ -413,6 +423,7 @@ async def test_inflight_cap_gates_the_sweep(in_flight: int, expected_candidate_l
         # Throttled: vision-action eval still runs (it rides every sweep), but no find, no apply dispatch.
         assert [fn for fn, _ in mocks.activity_calls] == [
             evaluate_due_vision_actions_activity,
+            refresh_prompt_suggestion_activity,
             count_in_flight_applies_activity,
         ]
         assert mocks.child_calls == []

@@ -758,6 +758,7 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'agent-platform',
                 'logs-alerting',
+                'logs-patterns-view',
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
@@ -776,9 +777,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'metrics',
                 'mcp-sql-schema-discovery',
                 'endpoints-ai-materialization-fix',
+                'engineering-analytics',
             ])
         )
-        expect(flags).toHaveLength(20)
+        expect(flags).toHaveLength(22)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

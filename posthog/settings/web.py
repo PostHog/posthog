@@ -170,6 +170,7 @@ MIDDLEWARE = [
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.session.middleware.UserAuthSessionActivityMiddleware",
+    "posthog.session.middleware.SessionRiskMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -327,6 +328,22 @@ CAN_LOGIN_AS = lambda request, target_user: (
 LOGINAS_LOGIN_REASON_REQUIRED = True
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
+# Master kill-switch for the session-risk middleware (posthog/session/middleware.py). On by default,
+# off in the test suite (like AXES_ENABLED) so its per-request feature-flag check doesn't run during
+# tests that assert posthoganalytics.feature_enabled call counts.
+SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
+# Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
+# one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
+SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
+SESSION_LAST_REAUTH_AT_KEY = get_from_env("SESSION_LAST_REAUTH_AT_KEY", "last_reauth_at")
+
+# Impossible-travel risk thresholds (see posthog/session/risk.py). Tunable without a code change.
+RISK_DISTANCE_FLOOR_KM = get_from_env("RISK_DISTANCE_FLOOR_KM", 500.0, type_cast=float)
+RISK_ELAPSED_FLOOR_S = get_from_env("RISK_ELAPSED_FLOOR_S", 300.0, type_cast=float)
+RISK_VELOCITY_MAX_KMH = get_from_env("RISK_VELOCITY_MAX_KMH", 1000.0, type_cast=float)
+# How often a low-risk request refreshes the known-good baseline snapshot (geo/UA + baseline_at).
+# Throttles the per-request write; the baseline geo lags by at most this interval, fine for scoring.
+RISK_BASELINE_REFRESH_S = get_from_env("RISK_BASELINE_REFRESH_S", 300.0, type_cast=float)
 
 PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
 
@@ -500,9 +517,13 @@ SPECTACULAR_SETTINGS = {
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
+        "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
+        "EvaluationReportFrequencyEnum": (
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
+        ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
@@ -522,10 +543,17 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        # bulk_update_tags exposes an identical add/remove/set `action` ChoiceField on both
+        # BulkUpdateTagsRequest and its UUID subclass, so the shared enum can't be component-prefixed
+        # unambiguously and auto-resolves to a hash name. Pin it to a stable name.
+        "BulkUpdateTagsActionEnum": ["add", "remove", "set"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
         "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
+        # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
+        # bundle-edit 409 body) share one choice set — pin them to a single named enum.
+        "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -686,6 +714,10 @@ SPECTACULAR_SETTINGS = {
         "RuntimeAdapterEnum": ["claude", "codex"],
         "ClaudeRuntimeAdapterEnum": ["claude"],
         "CodexRuntimeAdapterEnum": ["codex"],
+        # StaffCacheEntryResponse.source and StaffCacheEntryStatus.source share the same
+        # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
+        # to a hash name.
+        "StaffCacheSourceEnum": ["redis", "miss"],
     },
 }
 

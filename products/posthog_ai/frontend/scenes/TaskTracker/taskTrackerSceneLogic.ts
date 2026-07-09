@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -139,14 +139,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             {
                 setHeadline: (_, { headline }) => headline,
             },
-        ],
-    }),
-
-    selectors({
-        sendDisabledReason: [
-            (s) => [s.newTaskData],
-            (newTaskData): string | undefined =>
-                !newTaskData.description.trim() ? 'Describe the task first' : undefined,
         ],
     }),
 

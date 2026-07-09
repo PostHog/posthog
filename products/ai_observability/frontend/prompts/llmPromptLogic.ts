@@ -125,6 +125,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     return {
         id: prompt.id,
         version: prompt.version,
+        version_description: prompt.version_description ?? null,
         created_by: prompt.created_by,
         created_at: prompt.created_at,
         is_latest: isLatest,
@@ -163,6 +164,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleOutlineExpanded: true,
         cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
+        requestPublish: true,
+        openPublishReview: true,
+        closePublishReview: true,
+        setVersionDescription: (versionDescription: string) => ({ versionDescription }),
     }),
 
     reducers(({ props }) => ({
@@ -234,6 +239,26 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 loadPromptSuccess: () => null,
             },
         ],
+        isPublishReviewOpen: [
+            false,
+            {
+                openPublishReview: () => true,
+                closePublishReview: () => false,
+                submitPromptFormSuccess: () => false,
+                // A publish conflict (409) needs the editor visible again to show the banner
+                setPublishConflict: () => false,
+                setMode: () => false,
+            },
+        ],
+        versionDescription: [
+            '',
+            {
+                setVersionDescription: (_, { versionDescription }) => versionDescription,
+                submitPromptFormSuccess: () => '',
+                closePublishReview: () => '',
+                setMode: () => '',
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -289,9 +314,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             throw new Error('Cannot publish prompt version: prompt data not loaded')
                         }
 
+                        const versionDescription = values.versionDescription.trim()
                         savedPrompt = await api.llmPrompts.update(props.promptName, {
                             prompt: formValues.prompt,
                             base_version: currentPrompt.latest_version,
+                            ...(versionDescription ? { version_description: versionDescription } : {}),
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success(`Published v${savedPrompt.version}`)
@@ -672,6 +699,16 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        requestPublish: () => {
+            // New prompts publish directly (v1, nothing to diff against); an empty form
+            // goes through submit so kea-forms surfaces the validation errors.
+            if (values.isNewPrompt || !values.promptForm.prompt?.trim()) {
+                actions.submitPromptForm()
+                return
+            }
+            actions.openPublishReview()
+        },
+
         cancelEditing: () => {
             const exitEditMode = (): void => {
                 if (values.isNewPrompt) {

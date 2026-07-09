@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -92,6 +92,12 @@ export function PromptViewDetails(): JSX.Element {
                 </span>
             </div>
 
+            {prompt.version_description ? (
+                <p className="text-secondary m-0 text-sm italic" data-attr="llma-prompt-version-description">
+                    {prompt.version_description}
+                </p>
+            ) : null}
+
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Name</label>
                 <p className="font-mono">{prompt.name}</p>
@@ -167,6 +173,89 @@ export function PromptViewDetails(): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+export function PublishReviewModal(): JSX.Element | null {
+    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
+        useValues(llmPromptLogic)
+    const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
+
+    if (!isPrompt(prompt)) {
+        return null
+    }
+
+    const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+
+    return (
+        <LemonModal
+            isOpen={isPublishReviewOpen}
+            onClose={closePublishReview}
+            title="Review changes"
+            description={`Comparing v${prompt.version} with your edits. Publishing creates ${
+                nextVersion ? `v${nextVersion}` : 'a new version'
+            } — previous versions stay unchanged.`}
+            width={880}
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closePublishReview}
+                        disabledReason={isPromptFormSubmitting ? 'Publishing…' : undefined}
+                        data-attr="llma-prompt-review-back-button"
+                    >
+                        Back to editing
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitPromptForm}
+                        loading={isPromptFormSubmitting}
+                        data-attr="llma-prompt-review-publish-button"
+                    >
+                        {publishLabel}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="space-y-3">
+                <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 p-4">
+                                <LemonSkeleton active className="h-4 w-full" />
+                                <LemonSkeleton active className="h-4 w-3/4" />
+                            </div>
+                        }
+                    >
+                        <MonacoDiffEditor
+                            original={prompt.prompt}
+                            value={promptForm.prompt}
+                            modified={promptForm.prompt}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                hideUnchangedRegions: { enabled: true },
+                            }}
+                        />
+                    </Suspense>
+                </div>
+                <LemonField.Pure label="What changed?" help="Optional — shown in the version history.">
+                    <LemonInput
+                        value={versionDescription}
+                        onChange={setVersionDescription}
+                        placeholder="e.g. Tightened the refusal criteria"
+                        maxLength={400}
+                        data-attr="llma-prompt-version-description-input"
+                    />
+                </LemonField.Pure>
+            </div>
+        </LemonModal>
     )
 }
 
@@ -639,6 +728,14 @@ export function PromptVersionSidebar({
                                         />
                                     )}
                                 </div>
+                                {versionPrompt.version_description ? (
+                                    <div
+                                        className="mb-1 line-clamp-2 text-xs"
+                                        title={versionPrompt.version_description}
+                                    >
+                                        {versionPrompt.version_description}
+                                    </div>
+                                ) : null}
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionPrompt.created_at).format('MMM D, YYYY h:mm A')}
                                 </div>

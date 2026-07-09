@@ -17,8 +17,10 @@ const LEVEL_STYLES: Record<string, string> = {
 }
 
 /**
- * Staff-only inline console line rendered from `_posthog/console` wire frames. Not a chat bubble —
- * a muted, monospace debug row visually distinct from assistant failures (`AssistantFailureMessage`).
+ * Inline console line rendered from `_posthog/console` wire frames. Not a chat bubble — a muted,
+ * monospace debug row visually distinct from assistant failures (`AssistantFailureMessage`). Whether
+ * these rows surface at all is gated upstream by `debugLogsLogic.showDebugLogs` (staff/dev toggle,
+ * always on when impersonating).
  */
 export const DebugMessage = memo(function DebugMessage({ text, level }: DebugMessageProps): JSX.Element {
     const levelStyle = LEVEL_STYLES[level] ?? LEVEL_STYLES.info

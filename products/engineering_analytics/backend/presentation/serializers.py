@@ -17,6 +17,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     CostPerMergeBucket,
+    FlakyTestItem,
+    FlakyTestList,
     GitHubSource,
     MasterFailureGroup,
     PRCostSummary,
@@ -363,6 +365,59 @@ class PRCostSummarySerializer(DataclassSerializer):
         }
 
 
+class FlakyTestItemSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = FlakyTestItem
+        extra_kwargs = {
+            "nodeid": {
+                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
+                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
+                "selector — use `selector` to run or quarantine the test.",
+            },
+            "selector": {
+                "help_text": "Runnable pytest selector, e.g. "
+                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
+                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+            },
+            "rerun_passed_count": {
+                "help_text": "Times the test failed, then passed on an automatic retry — the strongest flaky "
+                "signal. Only CI lanes running with reruns enabled emit it; a flake in a no-rerun lane "
+                "shows up in failed_count instead.",
+            },
+            "failed_count": {
+                "help_text": "Spans whose final outcome was 'failed' or 'error' in the window. An absolute "
+                "count, not a rate — fast passing runs are not emitted, so denominators are biased.",
+            },
+            "failed_pr_count": {
+                "help_text": "Distinct pull requests among the failed/error spans. Failures on master or "
+                "unattributed branches carry no PR number and are excluded here (still in failed_count).",
+            },
+            "branch_count": {
+                "help_text": "Distinct git branches across all of the test's flaky-signal spans in the window.",
+            },
+            "xfailed_count": {
+                "help_text": "Runs where the test failed while quarantined (xfail) — already masked in CI "
+                "but still flaky.",
+            },
+            "last_seen_at": {"help_text": "Most recent flaky-signal span for this test in the window."},
+        }
+
+
+class FlakyTestListSerializer(DataclassSerializer):
+    items = FlakyTestItemSerializer(
+        many=True, help_text="Qualifying tests ranked by flakiness signal, strongest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = FlakyTestList
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more tests qualified than the cap; `items` is the strongest `limit` rows.",
+            },
+            "limit": {"help_text": "Maximum number of tests returned in `items`."},
+        }
+
+
 class CIStatusRollupSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
@@ -600,11 +655,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -784,11 +842,13 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {

@@ -51,6 +51,7 @@ import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
@@ -72,7 +73,7 @@ export interface AiIngestionPipelineConfig {
     // Read-only person/group access — the AI pipeline never writes persons or groups.
     personRepository: PersonReadRepository
     groupTypeManager: ReadOnlyGroupTypeManager
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
     overflowRedirectService: OverflowRedirectService
     overflowLaneTTLRefreshService: OverflowRedirectService
@@ -119,7 +120,7 @@ export function createAiIngestionPipeline<
         hogTransformer,
         personRepository,
         groupTypeManager,
-        overflowEnabled,
+        overflowMode,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -155,7 +156,7 @@ export function createAiIngestionPipeline<
                                 .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowEnabled,
+                                        overflowMode,
                                         preservePartitionLocality,
                                     })
                                 )
