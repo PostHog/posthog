@@ -1,6 +1,7 @@
 # Monorepo Layout
 
 High-level structure of the PostHog monorepo.
+For what actually runs and how data flows between services, see the [architecture overview](architecture-overview.md).
 
 ## Directory structure
 
