@@ -2,8 +2,14 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
 
+from django.contrib.admin.sites import AdminSite
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.backends.db import SessionStore
+from django.test import RequestFactory
+
 from parameterized import parameterized
 
+from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
 from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 
@@ -358,6 +364,49 @@ class TestBatchImportConfigBuilder(BaseTest):
             "generate_group_identify_events": True,
         }
         self.assertEqual(self.batch_import.import_config, expected_config)
+
+
+class TestBatchImportAdminActions(BaseTest):
+    def _request_with_messages(self):
+        request = RequestFactory().post("/")
+        request.session = SessionStore()
+        request._messages = FallbackStorage(request)
+        request.user = self.user
+        return request
+
+    def _make_import(self, status: BatchImport.Status) -> BatchImport:
+        return BatchImport.objects.create(
+            team=self.team,
+            created_by_id=self.user.id,
+            import_config={"test": "config"},
+            secrets={},
+            status=status,
+            lease_id="worker-lease" if status == BatchImport.Status.PAUSED else None,
+            state={"parts": [{"key": "day-1", "current_offset": 42, "total_size": None}]},
+        )
+
+    @parameterized.expand([("resume",), ("resume_with_inflight_part_reset",)])
+    def test_action_processes_batch_row_by_row(self, action_name):
+        paused = self._make_import(BatchImport.Status.PAUSED)
+        running = self._make_import(BatchImport.Status.RUNNING)
+        model_admin = BatchImportAdmin(BatchImport, AdminSite())
+        request = self._request_with_messages()
+
+        action = getattr(model_admin, action_name)
+        action(request, BatchImport.objects.filter(id__in=[paused.id, running.id]))
+
+        paused.refresh_from_db()
+        running.refresh_from_db()
+        self.assertEqual(paused.status, BatchImport.Status.RUNNING)
+        self.assertIsNone(paused.lease_id)
+        if action_name == "resume_with_inflight_part_reset":
+            self.assertEqual(paused.state["parts"][0]["current_offset"], 0)
+        else:
+            self.assertEqual(paused.state["parts"][0]["current_offset"], 42)
+        self.assertEqual(running.state["parts"][0]["current_offset"], 42)
+
+        levels = sorted(m.level_tag for m in request._messages)
+        self.assertEqual(levels, ["success", "warning"])
 
 
 class TestBatchImportAPI(APIBaseTest):
