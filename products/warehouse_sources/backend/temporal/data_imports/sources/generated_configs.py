@@ -285,7 +285,7 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class AnthropicSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
