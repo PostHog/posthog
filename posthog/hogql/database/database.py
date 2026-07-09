@@ -365,6 +365,56 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
     def clone_root_tables() -> dict[str, TableNode]:
         return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
 
+    def curated_tables() -> dict[str, TableNode]:
+        # Curated tables live under the `posthog.` namespace, but are also spread at root so they
+        # resolve unqualified (like the raw/standard root tables) — otherwise `FROM session_replay_features`
+        # fails at root resolution while `FROM posthog.session_replay_features` works, a papercut that
+        # trips up AI/MCP-generated HogQL. A fresh copy is returned per call so the root and namespaced
+        # trees never share node instances.
+        # Add new tables here
+        return {
+            "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+            "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+            "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+            "session_replay_features": TableNode(name="session_replay_features", table=SessionReplayFeaturesTable()),
+            "hog_invocation_results": TableNode(name="hog_invocation_results", table=HogInvocationResultsTable()),
+            "metrics": TableNode(name="metrics", table=MetricsTable()),
+            "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
+            "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
+            "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+            "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+            "error_tracking_fingerprint_issue_state": TableNode(
+                name="error_tracking_fingerprint_issue_state",
+                table=ErrorTrackingFingerprintIssueStateTable(),
+            ),
+            "web_overview_preaggregated": TableNode(
+                name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
+            ),
+            "marketing_touchpoints_preaggregated": TableNode(
+                name="marketing_touchpoints_preaggregated",
+                table=MarketingTouchpointsPreaggregatedTable(),
+            ),
+            "marketing_conversions_preaggregated": TableNode(
+                name="marketing_conversions_preaggregated",
+                table=MarketingConversionsPreaggregatedTable(),
+            ),
+            "marketing_costs_preaggregated": TableNode(
+                name="marketing_costs_preaggregated",
+                table=MarketingCostsPreaggregatedTable(),
+            ),
+            "web_stats_paths_preaggregated": TableNode(
+                name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+            ),
+            "web_stats_preaggregated": TableNode(name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()),
+            "web_vitals_paths_preaggregated": TableNode(
+                name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+            ),
+            "web_stats_frustration_preaggregated": TableNode(
+                name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+            ),
+            "web_goals_preaggregated": TableNode(name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()),
+        }
+
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
@@ -375,59 +425,12 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
         root_tables = clone_root_tables()
         children = {
             **root_tables,
+            **curated_tables(),
             "posthog": TableNode(
                 name="posthog",
                 children={
                     **clone_root_tables(),
-                    # Add new tables here
-                    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
-                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
-                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
-                    "session_replay_features": TableNode(
-                        name="session_replay_features", table=SessionReplayFeaturesTable()
-                    ),
-                    "hog_invocation_results": TableNode(
-                        name="hog_invocation_results", table=HogInvocationResultsTable()
-                    ),
-                    "metrics": TableNode(name="metrics", table=MetricsTable()),
-                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
-                    "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
-                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
-                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
-                    "error_tracking_fingerprint_issue_state": TableNode(
-                        name="error_tracking_fingerprint_issue_state",
-                        table=ErrorTrackingFingerprintIssueStateTable(),
-                    ),
-                    "web_overview_preaggregated": TableNode(
-                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
-                    ),
-                    "marketing_touchpoints_preaggregated": TableNode(
-                        name="marketing_touchpoints_preaggregated",
-                        table=MarketingTouchpointsPreaggregatedTable(),
-                    ),
-                    "marketing_conversions_preaggregated": TableNode(
-                        name="marketing_conversions_preaggregated",
-                        table=MarketingConversionsPreaggregatedTable(),
-                    ),
-                    "marketing_costs_preaggregated": TableNode(
-                        name="marketing_costs_preaggregated",
-                        table=MarketingCostsPreaggregatedTable(),
-                    ),
-                    "web_stats_paths_preaggregated": TableNode(
-                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_preaggregated": TableNode(
-                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
-                    ),
-                    "web_vitals_paths_preaggregated": TableNode(
-                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_frustration_preaggregated": TableNode(
-                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
-                    ),
-                    "web_goals_preaggregated": TableNode(
-                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
-                    ),
+                    **curated_tables(),
                 },
             ),
             "system": SystemTables(),
