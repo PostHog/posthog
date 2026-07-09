@@ -124,6 +124,7 @@ async def test_turn_failure_fails_the_activity_so_temporal_retries() -> None:
     assert mock_persist.call_args.kwargs["issue"].id == ok_issue.id
     # The teardown after a failed turn must not record the session's TaskRun as completed.
     mock_end.assert_awaited_once()
+    assert mock_end.await_args is not None
     assert mock_end.await_args.args == (session,)
     assert mock_end.await_args.kwargs["status"] == "failed"
     # The session's Temporal workflow id is branded with the review's workflow id + step, lowercased.
