@@ -159,6 +159,50 @@ describe('BatchWritingGroupStore', () => {
         expect(cacheMetrics.cacheMisses).toBe(0)
     })
 
+    it('keeps groups with the same key but different type indexes as independent cache entries', async () => {
+        // The DB unique key is (team_id, group_key, group_type_index) — a cache keyed without the
+        // type index would serve type-1's upsert from type-0's entry and flush one group's
+        // properties and version onto the other.
+        jest.spyOn(groupRepository, 'fetchGroup').mockImplementation((_teamId, groupTypeIndex) =>
+            Promise.resolve({
+                ...group,
+                group_type_index: groupTypeIndex,
+                group_properties: { existing: `type-${groupTypeIndex}` },
+                version: groupTypeIndex === 0 ? 3 : 7,
+            })
+        )
+
+        await groupStore.upsertGroup(teamId, projectId, 0, 'test', { a: '1' }, DateTime.now())
+        await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now())
+
+        // Each tuple pays its own fetch — the second must not be served by the first's entry.
+        expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(2)
+
+        await groupStore.flush()
+
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(2)
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            0,
+            'test',
+            3,
+            { existing: 'type-0', a: '1' },
+            group.created_at,
+            {},
+            {}
+        )
+        expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+            teamId,
+            1,
+            'test',
+            7,
+            { existing: 'type-1', b: '2' },
+            group.created_at,
+            {},
+            {}
+        )
+    })
+
     it('should immediately write to db if new group', async () => {
         jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
         await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: 'test' }, DateTime.now())
@@ -317,7 +361,7 @@ describe('BatchWritingGroupStore', () => {
             details: {
                 groupTypeIndex: 1,
                 groupKey: 'test',
-                distinctId: `${teamId}:test`,
+                distinctId: `${teamId}:1:test`,
             },
             pipelineStep: 'group-store',
         })
@@ -370,7 +414,7 @@ describe('BatchWritingGroupStore', () => {
         expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1) // Once for initial insert, once for retry (new group)
         expect((groupRepository as any).lastTransactionMock.insertGroup).toHaveBeenCalledTimes(1)
 
-        expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 'test')
+        expect(cacheDeleteSpy).toHaveBeenCalledWith(teamId, 1, 'test')
 
         // Final call should succeed
         expect(groupRepository.updateGroupOptimistically).toHaveBeenLastCalledWith(
@@ -471,7 +515,7 @@ describe('BatchWritingGroupStore', () => {
 
             // Re-dirty the entry during the async DB write after the linearization point.
             jest.spyOn(groupRepository, 'updateGroupOptimistically').mockImplementationOnce(() => {
-                const entry = groupStore.getGroupCache().get(teamId, 'test')
+                const entry = groupStore.getGroupCache().get(teamId, 1, 'test')
                 if (entry) {
                     entry.needsWrite = true
                 }
@@ -481,7 +525,7 @@ describe('BatchWritingGroupStore', () => {
             await groupStore.flush()
 
             expect(groupStore.getGroupCache().getSize()).toBe(1)
-            expect(groupStore.getGroupCache().get(teamId, 'test')?.needsWrite).toBe(true)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'test')?.needsWrite).toBe(true)
         })
 
         it('defers eviction of dirty entries until after flush', async () => {
@@ -576,6 +620,79 @@ describe('BatchWritingGroupStore', () => {
             expect(groupRepository.fetchGroup).not.toHaveBeenCalled()
             // Confirmed miss routes to the create transaction rather than a per-key fetch.
             expect(groupRepository.inTransaction).toHaveBeenCalledTimes(1)
+        })
+
+        it('fetches and caches the same key under different type indexes separately', async () => {
+            const groupIdx0: Group = {
+                ...group,
+                group_type_index: 0,
+                group_properties: { existing: 'type-0' },
+                version: 3,
+            }
+            const groupIdx1: Group = {
+                ...group,
+                group_type_index: 1,
+                group_properties: { existing: 'type-1' },
+                version: 7,
+            }
+            jest.spyOn(groupRepository, 'fetchGroups').mockResolvedValue([groupIdx0, groupIdx1])
+
+            await groupStore.prefetchGroups([
+                { teamId, groupTypeIndex: 0, groupKey: 'test', batchId: 0 },
+                { teamId, groupTypeIndex: 1, groupKey: 'test', batchId: 0 },
+            ])
+
+            // Same key, two type indexes: both tuples are fetched, not collapsed into one.
+            expect(groupRepository.fetchGroups).toHaveBeenCalledWith(
+                [
+                    { teamId, groupTypeIndex: 0, groupKey: 'test' },
+                    { teamId, groupTypeIndex: 1, groupKey: 'test' },
+                ],
+                'ingestion/group-prefetch'
+            )
+
+            await groupStore.upsertGroup(teamId, projectId, 0, 'test', { a: '1' }, DateTime.now(), 0)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { b: '2' }, DateTime.now(), 0)
+            expect(groupRepository.fetchGroup).not.toHaveBeenCalled()
+
+            await groupStore.flush()
+
+            // Each upsert merged into its own group's entry, not the other's.
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+                teamId,
+                0,
+                'test',
+                3,
+                { existing: 'type-0', a: '1' },
+                group.created_at,
+                {},
+                {}
+            )
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+                teamId,
+                1,
+                'test',
+                7,
+                { existing: 'type-1', b: '2' },
+                group.created_at,
+                {},
+                {}
+            )
+        })
+
+        it('collapses duplicate tuples within one call into a single fetch entry', async () => {
+            jest.spyOn(groupRepository, 'fetchGroups').mockResolvedValue([])
+
+            await groupStore.prefetchGroups([
+                { teamId, groupTypeIndex: 1, groupKey: 'dup', batchId: 0 },
+                { teamId, groupTypeIndex: 1, groupKey: 'dup', batchId: 0 },
+            ])
+
+            expect(groupRepository.fetchGroups).toHaveBeenCalledTimes(1)
+            expect(groupRepository.fetchGroups).toHaveBeenCalledWith(
+                [{ teamId, groupTypeIndex: 1, groupKey: 'dup' }],
+                'ingestion/group-prefetch'
+            )
         })
 
         it('dedupes an in-flight prefetch so concurrent calls issue one query', async () => {

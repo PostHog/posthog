@@ -55,19 +55,24 @@ class GroupCache {
         return new BatchBoundGroupCache(this, batchId)
     }
 
-    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
-        return this.cache.get(this.getCacheKey(teamId, groupKey))
+    get(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): GroupUpdate | null | undefined {
+        return this.cache.get(this.getCacheKey(teamId, groupTypeIndex, groupKey))
     }
 
-    hasForBatch(batchId: number, teamId: TeamId, groupKey: string): boolean {
-        this.trackBatchEntry(batchId, teamId, groupKey)
-        const key = this.getCacheKey(teamId, groupKey)
+    hasForBatch(batchId: number, teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): boolean {
+        this.trackBatchEntry(batchId, teamId, groupTypeIndex, groupKey)
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         return this.cache.has(key)
     }
 
-    getForBatch(batchId: number, teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
-        this.trackBatchEntry(batchId, teamId, groupKey)
-        const key = this.getCacheKey(teamId, groupKey)
+    getForBatch(
+        batchId: number,
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string
+    ): GroupUpdate | null | undefined {
+        this.trackBatchEntry(batchId, teamId, groupTypeIndex, groupKey)
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         const result = this.cache.get(key)
         if (result !== undefined) {
             this.metrics.cacheHits++
@@ -77,29 +82,44 @@ class GroupCache {
         return result
     }
 
-    setForBatch(batchId: number, teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
-        this.trackBatchEntry(batchId, teamId, groupKey)
-        const key = this.getCacheKey(teamId, groupKey)
+    setForBatch(
+        batchId: number,
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        group: GroupUpdate | null
+    ): void {
+        this.trackBatchEntry(batchId, teamId, groupTypeIndex, groupKey)
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         this.cache.set(key, group)
     }
 
-    delete(teamId: TeamId, groupKey: string): void {
-        const key = this.getCacheKey(teamId, groupKey)
+    delete(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         this.cache.delete(key)
     }
 
-    getFetchPromise(teamId: TeamId, groupKey: string): Promise<GroupUpdate | null> | undefined {
-        const key = this.getCacheKey(teamId, groupKey)
+    getFetchPromise(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string
+    ): Promise<GroupUpdate | null> | undefined {
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         return this.fetchPromises.get(key)
     }
 
-    setFetchPromise(teamId: TeamId, groupKey: string, promise: Promise<GroupUpdate | null>): void {
-        const key = this.getCacheKey(teamId, groupKey)
+    setFetchPromise(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        promise: Promise<GroupUpdate | null>
+    ): void {
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         this.fetchPromises.set(key, promise)
     }
 
-    deleteFetchPromise(teamId: TeamId, groupKey: string): void {
-        const key = this.getCacheKey(teamId, groupKey)
+    deleteFetchPromise(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         this.fetchPromises.delete(key)
     }
 
@@ -207,12 +227,15 @@ class GroupCache {
         }
     }
 
-    private getCacheKey(teamId: TeamId, groupKey: string): string {
-        return `${teamId}:${groupKey}`
+    // The DB unique key is (team_id, group_key, group_type_index) — the cache key must carry
+    // all three, or two groups sharing a key across type indexes would alias one entry and a
+    // flush could write one group's properties onto the other.
+    private getCacheKey(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): string {
+        return `${teamId}:${groupTypeIndex}:${groupKey}`
     }
 
-    private trackBatchEntry(batchId: number, teamId: TeamId, groupKey: string): void {
-        const key = this.getCacheKey(teamId, groupKey)
+    private trackBatchEntry(batchId: number, teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): void {
+        const key = this.getCacheKey(teamId, groupTypeIndex, groupKey)
         let keys = this.batchGroupKeys.get(batchId)
         if (!keys) {
             keys = new Set()
@@ -241,28 +264,37 @@ class BatchBoundGroupCache {
         private readonly batchId: number
     ) {}
 
-    has(teamId: TeamId, groupKey: string): boolean {
-        return this.cache.hasForBatch(this.batchId, teamId, groupKey)
+    has(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): boolean {
+        return this.cache.hasForBatch(this.batchId, teamId, groupTypeIndex, groupKey)
     }
 
-    get(teamId: TeamId, groupKey: string): GroupUpdate | null | undefined {
-        return this.cache.getForBatch(this.batchId, teamId, groupKey)
+    get(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): GroupUpdate | null | undefined {
+        return this.cache.getForBatch(this.batchId, teamId, groupTypeIndex, groupKey)
     }
 
-    set(teamId: TeamId, groupKey: string, group: GroupUpdate | null): void {
-        this.cache.setForBatch(this.batchId, teamId, groupKey, group)
+    set(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string, group: GroupUpdate | null): void {
+        this.cache.setForBatch(this.batchId, teamId, groupTypeIndex, groupKey, group)
     }
 
-    getFetchPromise(teamId: TeamId, groupKey: string): Promise<GroupUpdate | null> | undefined {
-        return this.cache.getFetchPromise(teamId, groupKey)
+    getFetchPromise(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string
+    ): Promise<GroupUpdate | null> | undefined {
+        return this.cache.getFetchPromise(teamId, groupTypeIndex, groupKey)
     }
 
-    setFetchPromise(teamId: TeamId, groupKey: string, promise: Promise<GroupUpdate | null>): void {
-        this.cache.setFetchPromise(teamId, groupKey, promise)
+    setFetchPromise(
+        teamId: TeamId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        promise: Promise<GroupUpdate | null>
+    ): void {
+        this.cache.setFetchPromise(teamId, groupTypeIndex, groupKey, promise)
     }
 
-    deleteFetchPromise(teamId: TeamId, groupKey: string): void {
-        this.cache.deleteFetchPromise(teamId, groupKey)
+    deleteFetchPromise(teamId: TeamId, groupTypeIndex: GroupTypeIndex, groupKey: string): void {
+        this.cache.deleteFetchPromise(teamId, groupTypeIndex, groupKey)
     }
 }
 
@@ -428,7 +460,7 @@ export class BatchWritingGroupStore implements GroupStore {
         })
 
         // Remove from cache to prevent retry
-        this.groupCache.delete(update.team_id, update.group_key)
+        this.groupCache.delete(update.team_id, update.group_type_index, update.group_key)
 
         try {
             await this.executeGroupUpsert(
@@ -495,7 +527,10 @@ export class BatchWritingGroupStore implements GroupStore {
             return
         }
 
-        // Skip keys already cached (hit or negative) or with an in-flight fetch.
+        // Skip tuples already cached (hit or negative), with an in-flight fetch, or repeated
+        // within this call. Dedup is by the full (team, type index, key) tuple — the same key
+        // under two type indexes is two distinct groups and both must be fetched.
+        const seen = new Set<string>()
         const uncachedEntries: {
             teamId: TeamId
             groupTypeIndex: GroupTypeIndex
@@ -504,14 +539,19 @@ export class BatchWritingGroupStore implements GroupStore {
             cacheKey: string
         }[] = []
         for (const { teamId, groupTypeIndex, groupKey, batchId } of entries) {
+            const cacheKey = `${teamId}:${groupTypeIndex}:${groupKey}`
+            if (seen.has(cacheKey)) {
+                continue
+            }
+            seen.add(cacheKey)
             const cache = this.groupCache.obtainForBatchId(batchId)
-            if (cache.has(teamId, groupKey)) {
+            if (cache.has(teamId, groupTypeIndex, groupKey)) {
                 continue
             }
-            if (cache.getFetchPromise(teamId, groupKey)) {
+            if (cache.getFetchPromise(teamId, groupTypeIndex, groupKey)) {
                 continue
             }
-            uncachedEntries.push({ teamId, groupTypeIndex, groupKey, batchId, cacheKey: `${teamId}:${groupKey}` })
+            uncachedEntries.push({ teamId, groupTypeIndex, groupKey, batchId, cacheKey })
         }
 
         if (uncachedEntries.length === 0) {
@@ -530,24 +570,24 @@ export class BatchWritingGroupStore implements GroupStore {
             .then((groups) => {
                 const groupsByKey = new Map<string, GroupUpdate>()
                 for (const group of groups) {
-                    groupsByKey.set(`${group.team_id}:${group.group_key}`, fromGroup(group))
+                    groupsByKey.set(`${group.team_id}:${group.group_type_index}:${group.group_key}`, fromGroup(group))
                 }
 
                 // Cache all results: found groups and negative (null) entries for misses.
-                for (const { teamId, groupKey, batchId, cacheKey } of uncachedEntries) {
+                for (const { teamId, groupTypeIndex, groupKey, batchId, cacheKey } of uncachedEntries) {
                     if (this.groupCache.isBatchReleasedWithPendingPrefetch(batchId)) {
                         continue
                     }
                     const cache = this.groupCache.obtainForBatchId(batchId)
                     const groupUpdate = groupsByKey.get(cacheKey)
-                    cache.set(teamId, groupKey, groupUpdate ? { ...groupUpdate } : null)
+                    cache.set(teamId, groupTypeIndex, groupKey, groupUpdate ? { ...groupUpdate } : null)
                 }
 
                 return groupsByKey
             })
             .finally(() => {
-                for (const { teamId, groupKey } of uncachedEntries) {
-                    this.groupCache.deleteFetchPromise(teamId, groupKey)
+                for (const { teamId, groupTypeIndex, groupKey } of uncachedEntries) {
+                    this.groupCache.deleteFetchPromise(teamId, groupTypeIndex, groupKey)
                 }
                 this.groupCache.finishPendingPrefetch(prefetchBatchIds)
             })
@@ -558,10 +598,10 @@ export class BatchWritingGroupStore implements GroupStore {
         // misleading "group absent" null. The throwaway catch only marks the promise handled so an
         // unconsumed key (its event may be dropped before the fetch) can't become an unhandled
         // rejection — it does not change what awaiting consumers observe.
-        for (const { teamId, groupKey, cacheKey } of uncachedEntries) {
+        for (const { teamId, groupTypeIndex, groupKey, cacheKey } of uncachedEntries) {
             const keyPromise = batchFetchPromise.then((groupsByKey) => groupsByKey.get(cacheKey) ?? null)
             keyPromise.catch(() => {})
-            this.groupCache.setFetchPromise(teamId, groupKey, keyPromise)
+            this.groupCache.setFetchPromise(teamId, groupTypeIndex, groupKey, keyPromise)
         }
 
         // Recover from a retriable failure (e.g. transient persons-Postgres unavailability) so this
@@ -607,7 +647,7 @@ export class BatchWritingGroupStore implements GroupStore {
 
         const propertiesUpdate = calculateUpdate(group.group_properties || {}, properties)
         if (propertiesUpdate.updated) {
-            groupCache.set(teamId, groupKey, {
+            groupCache.set(teamId, groupTypeIndex, groupKey, {
                 team_id: teamId,
                 group_type_index: groupTypeIndex,
                 group_key: groupKey,
@@ -724,7 +764,7 @@ export class BatchWritingGroupStore implements GroupStore {
                     expectedVersion,
                     tx
                 )
-                groupCache?.set(teamId, groupKey, {
+                groupCache?.set(teamId, groupTypeIndex, groupKey, {
                     team_id: teamId,
                     group_type_index: groupTypeIndex,
                     group_key: groupKey,
@@ -843,14 +883,14 @@ export class BatchWritingGroupStore implements GroupStore {
         groupCache: BatchBoundGroupCache | undefined,
         tx?: GroupRepositoryTransaction
     ): Promise<GroupUpdate | null> {
-        if (groupCache?.has(teamId, groupKey) && !forUpdate) {
-            const cachedGroup = groupCache.get(teamId, groupKey)
+        if (groupCache?.has(teamId, groupTypeIndex, groupKey) && !forUpdate) {
+            const cachedGroup = groupCache.get(teamId, groupTypeIndex, groupKey)
             if (cachedGroup !== undefined) {
                 return cachedGroup
             }
         }
 
-        let fetchPromise = groupCache?.getFetchPromise(teamId, groupKey)
+        let fetchPromise = groupCache?.getFetchPromise(teamId, groupTypeIndex, groupKey)
         if (!fetchPromise) {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'miss' })
             fetchPromise = (async () => {
@@ -860,20 +900,20 @@ export class BatchWritingGroupStore implements GroupStore {
                     const existingGroup = await repository.fetchGroup(teamId, groupTypeIndex, groupKey, { forUpdate })
                     if (existingGroup) {
                         const groupUpdate = fromGroup(existingGroup)
-                        groupCache?.set(teamId, groupKey, {
+                        groupCache?.set(teamId, groupTypeIndex, groupKey, {
                             ...groupUpdate,
                             needsWrite: false,
                         })
                         return groupUpdate
                     } else {
-                        groupCache?.set(teamId, groupKey, null)
+                        groupCache?.set(teamId, groupTypeIndex, groupKey, null)
                         return null
                     }
                 } finally {
-                    groupCache?.deleteFetchPromise(teamId, groupKey)
+                    groupCache?.deleteFetchPromise(teamId, groupTypeIndex, groupKey)
                 }
             })()
-            groupCache?.setFetchPromise(teamId, groupKey, fetchPromise)
+            groupCache?.setFetchPromise(teamId, groupTypeIndex, groupKey, fetchPromise)
         } else {
             groupFetchPromisesCacheOperationsCounter.inc({ operation: 'hit' })
         }
@@ -903,7 +943,7 @@ export class BatchWritingGroupStore implements GroupStore {
         }
         if (error instanceof RaceConditionError) {
             // Remove from cache to prevent retry, the group was already created by another thread
-            this.groupCache.delete(teamId, groupKey)
+            this.groupCache.delete(teamId, groupTypeIndex, groupKey)
             return this.upsertGroup(teamId, projectId, groupTypeIndex, groupKey, properties, timestamp, batchId)
         }
         throw error
