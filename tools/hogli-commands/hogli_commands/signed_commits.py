@@ -32,7 +32,7 @@ from pathlib import Path
 
 import click
 
-from hogli_commands.db_schema import _github_token
+from hogli_commands.github_auth import github_token
 
 # createCommitOnBranch has no documented payload cap, but large payloads time
 # out or hit the REST blob ceiling (~40 MiB); refuse well before that.
@@ -180,7 +180,7 @@ def _default_branch() -> str:
 
 
 def _require_gh_auth() -> None:
-    if _github_token() is None:
+    if github_token() is None:
         raise PublishError("No GitHub token available. Run `gh auth login` first.")
 
 
