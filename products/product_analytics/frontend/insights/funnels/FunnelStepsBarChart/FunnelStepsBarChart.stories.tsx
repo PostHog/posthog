@@ -1,14 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
-import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
+    expandFirstPropertyFilter,
     insightSceneMswDecorator,
     insightSceneStoryParameters,
+    waitForFunnelToStabilize,
 } from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -98,21 +98,6 @@ export const BreakdownAndCompare: Story = {
 // Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline
 const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini']
 
-const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
-    let lastHeight = 0
-    await waitFor(
-        () => {
-            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
-            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
-            if (currentHeight === 0 || currentHeight !== lastHeight) {
-                lastHeight = currentHeight
-                throw new Error('funnel height not yet stable')
-            }
-        },
-        { timeout: 3000, interval: 200 }
-    )
-}
-
 export const EditScene: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
 EditScene.decorators = [insightSceneMswDecorator]
 EditScene.parameters = {
@@ -129,19 +114,7 @@ EditSceneWithInlineEvents.parameters = {
     ...insightSceneStoryParameters,
     testOptions: { ...insightSceneStoryParameters.testOptions, waitForSelector: sceneEditWaitForSelector },
 }
-EditSceneWithInlineEvents.play = async ({ canvasElement }) => {
-    const expandFiltersButton = await waitFor(
-        () => {
-            const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
-            if (!filtersButton) {
-                throw new Error('Filters button not yet rendered')
-            }
-            return filtersButton
-        },
-        { timeout: 2000 }
-    )
-    await userEvent.click(expandFiltersButton)
-}
+EditSceneWithInlineEvents.play = expandFirstPropertyFilter
 
 export const EditSceneViewports: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
 EditSceneViewports.decorators = [insightSceneMswDecorator]

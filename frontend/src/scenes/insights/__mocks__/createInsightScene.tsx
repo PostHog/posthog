@@ -1,6 +1,8 @@
 import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
 
 import { StoryFn } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
@@ -39,6 +41,45 @@ export const insightSceneMswDecorator = mswDecorator({
         '/api/projects/:team_id/cohorts/': { id: 1 },
     },
 })
+
+/** Play fn: holds the snapshot until the funnel steps chart height stops changing. */
+export const waitForFunnelToStabilize = async ({
+    canvasElement,
+}: {
+    canvasElement: HTMLElement
+}): Promise<void> => {
+    let lastHeight = 0
+    await waitFor(
+        () => {
+            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-steps-bar-chart]')
+            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
+            if (currentHeight === 0 || currentHeight !== lastHeight) {
+                lastHeight = currentHeight
+                throw new Error('funnel height not yet stable')
+            }
+        },
+        { timeout: 3000, interval: 200 }
+    )
+}
+
+/** Play fn: expands the first funnel step's inline property filters. */
+export const expandFirstPropertyFilter = async ({
+    canvasElement,
+}: {
+    canvasElement: HTMLElement
+}): Promise<void> => {
+    const expandFiltersButton = await waitFor(
+        () => {
+            const filtersButton = canvasElement.querySelector<HTMLElement>('[data-attr="show-prop-filter-0"]')
+            if (!filtersButton) {
+                throw new Error('Filters button not yet rendered')
+            }
+            return filtersButton
+        },
+        { timeout: 2000 }
+    )
+    await userEvent.click(expandFiltersButton)
+}
 
 function setLegendFilter(query: Node | null | undefined, showLegend: boolean): Node | null | undefined {
     if (!isInsightVizNode(query)) {
