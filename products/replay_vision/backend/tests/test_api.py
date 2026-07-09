@@ -802,29 +802,6 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         assert not self._has_source_config()
 
-    def test_self_driving_availability_false_without_a_responder_setup(self) -> None:
-        resp = self.client.get(f"{self.scanners_url}self_driving_availability/")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        assert resp.json() == {"available": False}
-
-    def test_self_driving_availability_true_with_an_enabled_signal_source(self) -> None:
-        # Any enabled source means there's a responder that would consume scanner findings.
-        SignalSourceConfig.objects.create(
-            team=self.team, source_product="error_tracking", source_type="issue", enabled=True
-        )
-        resp = self.client.get(f"{self.scanners_url}self_driving_availability/")
-        self.assertEqual(resp.status_code, 200, resp.json())
-        assert resp.json() == {"available": True}
-
-    def test_self_driving_availability_scoped_to_the_requesting_team(self) -> None:
-        # Another team's enabled source must not leak availability to this team.
-        other = Team.objects.create(organization=self.organization, name="other")
-        SignalSourceConfig.objects.create(
-            team=other, source_product="error_tracking", source_type="issue", enabled=True
-        )
-        resp = self.client.get(f"{self.scanners_url}self_driving_availability/")
-        self.assertEqual(resp.json(), {"available": False})
-
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property

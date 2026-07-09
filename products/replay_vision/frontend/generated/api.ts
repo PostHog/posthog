@@ -29,7 +29,6 @@ import type {
     RetryResponseApi,
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
-    SelfDrivingAvailabilityResponseApi,
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionActionApi,
@@ -785,26 +784,6 @@ export const visionScannersEstimateCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
     })
-}
-
-export const getVisionScannersSelfDrivingAvailabilityRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/self_driving_availability/`
-}
-
-/**
- * Whether to offer the self-driving (responder handoff) step for this team, from the signals facade.
- */
-export const visionScannersSelfDrivingAvailabilityRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<SelfDrivingAvailabilityResponseApi> => {
-    return apiMutator<SelfDrivingAvailabilityResponseApi>(
-        getVisionScannersSelfDrivingAvailabilityRetrieveUrl(projectId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {

@@ -58,7 +58,6 @@ from products.replay_vision.backend.tag_suggestions import SuggestionError, sugg
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
-from products.signals.backend.facade.api import has_enabled_source as signals_has_enabled_source
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
@@ -606,17 +605,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-class SelfDrivingAvailabilityResponseSerializer(serializers.Serializer):
-    """Whether the team has a Signals/responder setup that would consume scanner findings."""
-
-    available = serializers.BooleanField(
-        help_text=(
-            "True when the team has at least one enabled signal source, i.e. a responder setup that would act on "
-            "findings handed off by a scanner's `emits_signals`. Gates the self-driving step in the scanner editor."
-        ),
-    )
-
-
 class SuggestTagsRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
 
@@ -797,19 +785,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
-        )
-
-    @extend_schema(responses={200: SelfDrivingAvailabilityResponseSerializer})
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="self_driving_availability",
-        required_scopes=["replay_scanner:read"],
-    )
-    def self_driving_availability(self, request: Request, **kwargs: Any) -> Response:
-        """Whether to offer the self-driving (responder handoff) step for this team, from the signals facade."""
-        return Response(
-            SelfDrivingAvailabilityResponseSerializer({"available": signals_has_enabled_source(self.team_id)}).data
         )
 
     @extend_schema(

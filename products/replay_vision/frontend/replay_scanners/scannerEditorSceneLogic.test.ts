@@ -3,20 +3,15 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
-
-const AVAILABILITY_URL = '/api/projects/:team_id/vision/scanners/self_driving_availability/'
 
 describe('scannerEditorSceneLogic', () => {
     let logic: ReturnType<typeof scannerEditorSceneLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        // Default: team has no responder setup, so the self-driving step stays hidden.
-        useMocks({ get: { [AVAILABILITY_URL]: () => [200, { available: false }] } })
         logic = scannerEditorSceneLogic()
         logic.mount()
     })
@@ -65,25 +60,15 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('visibleSteps', () => {
-        it('shows template through triggers for a new scanner without self-driving', async () => {
+        it('shows all four steps for a new scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('new'))
             await expectLogic(logic).toMatchValues({
-                visibleSteps: ['template', 'configure', 'triggers'],
+                visibleSteps: ['template', 'configure', 'triggers', 'self_driving'],
             })
         })
 
-        it('hides the template step for an existing scanner', async () => {
+        it('hides only the template step for an existing scanner', async () => {
             router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
-            await expectLogic(logic).toMatchValues({
-                visibleSteps: ['configure', 'triggers'],
-            })
-        })
-
-        it('appends the self-driving step as the last step when the team has a responder setup', async () => {
-            router.actions.push(urls.replayVisionScannerConfigure('abc-123'))
-            // Let the afterMount availability check (mocked false) settle, then flip to available.
-            await expectLogic(logic).toDispatchActions(['loadSelfDrivingAvailableSuccess'])
-            logic.actions.loadSelfDrivingAvailableSuccess(true)
             await expectLogic(logic).toMatchValues({
                 visibleSteps: ['configure', 'triggers', 'self_driving'],
             })

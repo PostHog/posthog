@@ -1,13 +1,10 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { visionScannersSelfDrivingAvailabilityRetrieve } from '../generated/api'
 import type { scannerEditorSceneLogicType } from './scannerEditorSceneLogicType'
 
 export type ScannerEditorStep = 'template' | 'configure' | 'triggers' | 'self_driving'
@@ -55,32 +52,13 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
         ],
     }),
 
-    loaders({
-        // Whether the team has a Signals/responder setup that would consume scanner findings, gating the
-        // self-driving step. Defaults false so the step stays hidden until the check confirms availability.
-        selfDrivingAvailable: [
-            false,
-            {
-                loadSelfDrivingAvailable: async () => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return false
-                    }
-                    const response = await visionScannersSelfDrivingAvailabilityRetrieve(String(teamId))
-                    return response.available
-                },
-            },
-        ],
-    }),
-
     selectors({
         isNew: [(s) => [s.scannerId], (scannerId: string): boolean => scannerId === 'new'],
         visibleSteps: [
-            (s) => [s.isNew, s.selfDrivingAvailable],
-            (isNew: boolean, selfDrivingAvailable: boolean): readonly ScannerEditorStep[] =>
-                SCANNER_EDITOR_STEPS.filter(
-                    (step) => (isNew || step !== 'template') && (selfDrivingAvailable || step !== 'self_driving')
-                ),
+            (s) => [s.isNew],
+            (isNew: boolean): readonly ScannerEditorStep[] =>
+                // The template picker only exists for a new scanner; every other step, self-driving included, always shows.
+                SCANNER_EDITOR_STEPS.filter((step) => isNew || step !== 'template'),
         ],
         breadcrumbs: [
             (s) => [s.scannerId, s.isNew],
@@ -158,8 +136,4 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadSelfDrivingAvailable()
-    }),
 ])

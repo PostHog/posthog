@@ -8344,7 +8344,7 @@
         "feature_flag": "replay-vision"
     },
     "vision-quota-retrieve": {
-        "description": "Get the organization's monthly Replay Vision observation budget. Returns `monthly_quota`, `usage_this_month` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over quota are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
+        "description": "Get the organization's monthly Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session` — observations requested over budget are silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining budget.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Get replay vision quota",

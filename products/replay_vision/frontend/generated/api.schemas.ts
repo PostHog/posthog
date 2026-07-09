@@ -1039,14 +1039,6 @@ export interface EstimateResponseApi {
 }
 
 /**
- * Whether the team has a Signals/responder setup that would consume scanner findings.
- */
-export interface SelfDrivingAvailabilityResponseApi {
-    /** True when the team has at least one enabled signal source, i.e. a responder setup that would act on findings handed off by a scanner's `emits_signals`. Gates the self-driving step in the scanner editor. */
-    available: boolean
-}
-
-/**
  * Per-scanner-type count of enabled vs total scanners.
  */
 export interface ScannerTypeStatsApi {
