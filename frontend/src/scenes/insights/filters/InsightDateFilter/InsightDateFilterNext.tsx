@@ -150,7 +150,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                 render={
                     <Button
                         variant="outline"
-                        size="sm"
+                        size="default"
                         data-attr="insight-date-filter-next"
                         data-quill
                         data-lemon-skin

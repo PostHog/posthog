@@ -20,7 +20,8 @@
  * Select, Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton,
  * Label, Kbd, Item, MenuLabel, Empty, Tooltip,
  * Popover/DropdownMenu/ContextMenu surfaces, Tabs (line + pill variants),
- * Dialog (→ LemonModal), Progress — plus a core-token rebind that turns
+ * Dialog (→ LemonModal), Progress, ToggleGroup (→ Lemon day chips) — plus a
+ * core-token rebind that turns
  * bespoke Tailwind in quill-based features lemony wholesale. First real
  * consumer: the taxonomic filter rebuild
  * (lib/components/TaxonomicFilter/menu/).
@@ -34,7 +35,7 @@
  *
  * Known gaps, acceptable for a prototype:
  * icon-* button sizes, Accordion/Collapsible, Card, Avatar, Table, Toast,
- * Drawer, Slider, Toggle, NumberField keep quill styling; no
+ * Drawer, Slider, standalone Toggle, NumberField keep quill styling; no
  * hover-raise/press-sink travel on buttons.
  */
 
@@ -817,4 +818,35 @@
 [data-lemon-skin] .quill-dialog__footer {
     background-color: transparent;
     border-top-color: var(--lemon-skin-border);
+}
+
+/* ═══ ToggleGroup → Lemon day chips ════════════════════════════════════ */
+
+/* Items render as outline Buttons but carry quill's toggle classes, whose
+   grey pressed styling leaks through. Give each a pressable white face with
+   an accent bottom edge (unselected), sinking onto it when pressed on. */
+
+[data-lemon-skin] .quill-toggle-group__item {
+    color: var(--text-3000);
+    background-color: var(--lemon-skin-surface);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+    box-shadow: 0 0.1875rem 0 -1px var(--lemon-skin-accent);
+    translate: none;
+}
+
+[data-lemon-skin] .quill-toggle-group__item:not(:disabled, [aria-disabled='true']):hover {
+    color: var(--text-3000);
+    background-color: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-border-hover);
+}
+
+/* Selected → pressed: sink onto the accent edge and tint the face */
+
+[data-lemon-skin] .quill-toggle-group__item:is([aria-pressed='true'], [data-pressed], [data-state='on']) {
+    color: var(--lemon-skin-accent);
+    background-color: color-mix(in oklab, var(--lemon-skin-accent) 12%, var(--lemon-skin-surface));
+    border-color: var(--lemon-skin-accent);
+    box-shadow: none;
+    translate: 0 0.1875rem;
 }
