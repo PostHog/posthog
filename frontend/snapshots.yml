@@ -4899,9 +4899,9 @@ snapshots:
     scenes-app-ai-observability-conversation-display--tools--light:
         hash: v1.k794b7964.8cef3e2b4016ddd7acd4573fc58711be40ebe7d669371df7b7d4a35324dfce8a.exvwcwzA0A82p-3LqqXM3F04g3shIirvtOlCd3H7Z8c
     scenes-app-ai-observability-prompts--empty-state--dark:
-        hash: v1.k794b7964.1f2503ad0152203e984367634002c47a551389565abab706312f07e07c81855c.eYgqyAER3vhnb5ppvZR_T_qqS8QdQfAKpfpX7_RVPTY
+        hash: v1.k794b7964.c8d83f25e82f659e199c0514b7eab4a0b1dab1e7a6a1c4e1de97a162a007b9f0.iR50GK7W2Ghw5_0tV7K5HMTfGuVyUSWQfYO-waZI_SA
     scenes-app-ai-observability-prompts--empty-state--light:
-        hash: v1.k794b7964.fcb49d1187406a0406d4fe642c27f72c7e8e1ed834cec879fca4a691b1887e5a.CK-BAy4rVR4uqiERyNzhF5-aLCWKblFSELggQJXftOg
+        hash: v1.k794b7964.83bb6355d1386b5957fb43acb45e48d351e3adea9c71f47a67eeedb0ce1949a1.T0OWcSem5zhD85QUMGVmdYHwJPtpYOZV3Epg8teUqlc
     scenes-app-ai-observability-prompts--prompts-list--dark:
         hash: v1.k794b7964.d04f5f25d543c7427fbfc2678fd8ef2828cec6d8c0107162204bbae9ec6e1c14.N6Zj2RLZ108T1ZC1w2KCCoMD7oaqaWSYBi_tChhGISM
     scenes-app-ai-observability-prompts--prompts-list--light:
@@ -5863,7 +5863,7 @@ snapshots:
     scenes-app-inbox-pullrequestdiffview--truncated--light:
         hash: v1.k794b7964.c8211a05cd4404a003460d2c4abe79fb078edd5c7801422dbb3a5c55cc50f6a1.R85Q2EEe3EteBgaslGBlB4Vp7AdPgMstb0whb50OXyc
     scenes-app-inbox-scene--empty--dark:
-        hash: v1.k794b7964.59cfa41575869858a73b2a7ce71fd5a95d5185d418ac0b755ff2e45c6fdf20b5.nNFglXwlzwm71vGR0-QAnNDIYdInXgSzT_k2pie3NT8
+        hash: v1.k794b7964.0aafc7b733bbc111b069cec4a54d0aefb3178d313438f1ead34e674c90b25e3e.-QT6yl-ujsJL_nvqzzk-gZTwKMv0AREbT4tHngwBB-Q
     scenes-app-inbox-scene--empty--light:
         hash: v1.k794b7964.9ac628482107f92f19d4440301e8dad66f38a9df250d5321f6544733a697e2b6.XhpQBR1sBJS3CaCwS02LNxOUFfI6NqlI6BG3vvWWIp8
     scenes-app-inbox-scene--inbox--dark:
@@ -5982,6 +5982,10 @@ snapshots:
         hash: v1.k794b7964.d4921e1d896775d1f98056f5bc1c57c9b7ca0be8951e14a0f3229e7b77dc2472.W3I3GvNATojXlZJp04S-XFH3DfLBUNb7lJ1-lr-rW9g
     scenes-app-insights-side-panel-actions--unsaved-insight--light:
         hash: v1.k794b7964.1509a0b35b8b28d5a721d77a7f1ae7e166057624f7db16331216264e581e2f6e.V-NDMPceHNP8iL5m7RVrATBNmdh4zjdetX_KW6UQg5g
+    scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--dark:
+        hash: v1.k794b7964.52d791fc7eb98cf6dcd1a5bee6b116b602ac0a12eb00ce9e91bff37507f287ee.97PQFvm6wL2rjbzNZ-7-ie9sXB6RUpuS7j_aqEeCmCE
+    scenes-app-insights-sqllinechart--sql-bar-chart-value-labels-quill--light:
+        hash: v1.k794b7964.7b8d49b9b0520e77193d4daa6ac01ab65a68b2317ce647bbdf1d68a8765da8ad.IvWMtHjUu9iH5XiCPh77GgiSYJGtT5ERO_opo82cDe0
     scenes-app-insights-sqllinechart--sql-line-chart--dark:
         hash: v1.k794b7964.de80c9b4dac120fbbaca7e49026f65cdb77e19c4a53f734a3840c53a5573218c.CWJMQGhmxj5sAShfvws2pIRo9cBU8K7GILzcPsmkXhI
     scenes-app-insights-sqllinechart--sql-line-chart--light:
@@ -5994,6 +5998,10 @@ snapshots:
         hash: v1.k794b7964.cc00450e03b730779f839814262f45aeb016075628e7b2e0fa3e49aec6f1fc7f.TF1Ss23Q9i7h6r3Lw4bezladG79Kyif_CYHRGhWsOmg
     scenes-app-insights-sqllinechart--sql-line-chart-trend-line-quill--light:
         hash: v1.k794b7964.c446ceed66b1a6056048603e17712a321d2689665867604245510d335c5fc547.aEjCQVGwfNkQ49GMID3RZuoXhA8T_hAD2xalr1WcXIE
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-dark--dark:
+        hash: v1.k794b7964.6a09bd0fd015c4e072926c1ae2c7aa6e63245d8a202f2115894ad9294966a827.dHUY30WwiPjsAuOOqE5STWSsx4s1yBR_3KVczyNzR6M
+    scenes-app-insights-sqltableconditionalformatting--conditional-formatting-light--light:
+        hash: v1.k794b7964.d36479c0918232c1699974423947f5e4275220dd73407bb43b61aa5d1db72ce2.wHTxjjrO1gIW4D1_-JQ9Dby_EnWKug6pdte84r-Nvq8
     scenes-app-legal-documents--legal-documents-list--dark:
         hash: v1.k794b7964.9cb90971cdadb1eadf912754aeb2a82d4fcaf5d91aa716a39bed7b324e8f03be.M6963VTBjXD11KLz9OLd6vbdx2IBcrzUYEli26SO2as
     scenes-app-legal-documents--legal-documents-list--light:

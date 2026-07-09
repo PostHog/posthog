@@ -1108,6 +1108,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/MetricPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SpanPropertyFilter"
                 },
                 {
@@ -3986,6 +3989,7 @@
                 "diagnose_proxy",
                 "web_analytics_doctor",
                 "assess_heatmap",
+                "summarize_website_interactions",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -12937,6 +12941,18 @@
                     "type": "string"
                 },
                 "suffix": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "ChartStyle": {
+            "additionalProperties": false,
+            "description": "Per-insight chart rendering style. Pure presentation — no field changes the computed values. Every field is optional; unset fields fall through to the app-level chart defaults.",
+            "properties": {
+                "curve": {
+                    "description": "Line interpolation: straight segments or a smoothed curve through the points.",
+                    "enum": ["linear", "smooth"],
                     "type": "string"
                 }
             },
@@ -22258,7 +22274,32 @@
                 "Teachable",
                 "PeecAI",
                 "Healthchecks",
-                "Impact"
+                "Impact",
+                "AikidoSecurity",
+                "Alguna",
+                "Anthropic",
+                "Appwrite",
+                "BlandAI",
+                "BrowseAI",
+                "BrowserUse",
+                "ChartHop",
+                "Cody",
+                "Cursor",
+                "Decagon",
+                "Deepgram",
+                "ElevenLabs",
+                "Harvey",
+                "Hyperspell",
+                "Langfuse",
+                "LingoDev",
+                "M3ter",
+                "Maxio",
+                "Metorial",
+                "OpenRouter",
+                "TogetherAI",
+                "Vapi",
+                "Vespa",
+                "Writesonic"
             ],
             "type": "string"
         },
@@ -22318,6 +22359,14 @@
                 },
                 "description": {
                     "type": ["string", "null"]
+                },
+                "exposure_frozen": {
+                    "description": "Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition.",
+                    "type": "boolean"
+                },
+                "exposure_frozen_cohort": {
+                    "description": "Snapshot cohort the exposure freeze AND'd into this group's properties.",
+                    "type": "number"
                 },
                 "properties": {
                     "items": {
@@ -23390,6 +23439,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to historical-trends funnels."
                 },
                 "customAggregationTarget": {
                     "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
@@ -30494,6 +30547,29 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "MetricPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "metric_attribute",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -32097,6 +32173,7 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "metric_attribute",
                 "span",
                 "span_attribute",
                 "span_resource_attribute",
@@ -39747,6 +39824,10 @@
                     "enum": ["count", "sum", "avg"],
                     "type": "string"
                 },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "cohortLabelStartIndex": {
                     "$ref": "#/definitions/integer",
                     "default": 0,
@@ -42987,6 +43068,10 @@
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "computedAs": {
                     "$ref": "#/definitions/StickinessComputationMode"
                 },
@@ -43974,6 +44059,7 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "metric_attributes",
                 "spans",
                 "span_attributes",
                 "span_resource_attributes",
@@ -44546,7 +44632,7 @@
             "type": "string"
         },
         "TraceSpanBreakdownType": {
-            "enum": ["span_attribute", "span_resource_attribute"],
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
         "TraceSpansAggregationQuery": {
@@ -44652,12 +44738,12 @@
             "additionalProperties": false,
             "properties": {
                 "breakdownKey": {
-                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`). For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).",
                     "type": "string"
                 },
                 "breakdownType": {
                     "$ref": "#/definitions/TraceSpanBreakdownType",
-                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                    "description": "Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes."
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -44665,6 +44751,10 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "excludeBreakdownFilter": {
+                    "description": "Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected.",
+                    "type": "boolean"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -45154,6 +45244,9 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
+                "searchTerm": {
+                    "type": "string"
+                },
                 "showColumnConfigurator": {
                     "type": "boolean"
                 },
@@ -45271,6 +45364,10 @@
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
                 },
                 "confidenceLevel": {
                     "type": "number"

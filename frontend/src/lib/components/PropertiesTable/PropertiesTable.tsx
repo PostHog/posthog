@@ -276,6 +276,7 @@ export function PropertiesTable({
             [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.Logs,
             [PropertyDefinitionType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
             [PropertyDefinitionType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+            [PropertyDefinitionType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
             [PropertyDefinitionType.Span]: TaxonomicFilterGroupType.Spans,
             [PropertyDefinitionType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
             [PropertyDefinitionType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
