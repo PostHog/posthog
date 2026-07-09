@@ -495,11 +495,7 @@ class TestDateFromAll(APIBaseTest):
 class TestDaysOfWeek(APIBaseTest):
     def _make_qdr(self, days_of_week):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        date_range = (
-            DateRange(date_from="-7d", daysOfWeek=days_of_week)
-            if days_of_week is not None
-            else DateRange(date_from="-7d")
-        )
+        date_range = DateRange(date_from="-7d", daysOfWeek=days_of_week)
         return QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
 
     @parameterized.expand(
