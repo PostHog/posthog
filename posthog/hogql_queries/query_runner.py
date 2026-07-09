@@ -6,7 +6,6 @@ from time import perf_counter
 from types import UnionType
 from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
-import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
@@ -132,8 +131,6 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
-logger = structlog.get_logger(__name__)
-
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
     "Query executions by category",
@@ -225,7 +222,7 @@ def execution_mode_from_refresh(refresh_requested: bool | str | None) -> Executi
 # blocking-if-stale with this cache age, so the cached result's own `last_refresh` is the
 # throttle clock. Sourced from the same generated schema as the frontend's auto-refresh
 # interval so the two cannot drift. Best-effort throttle, not a hard rate limit.
-SHARED_FORCE_BLOCKING_MIN_AGE = timedelta(seconds=DashboardAutoRefreshInterval().root)
+SHARED_FORCE_BLOCKING_STALENESS_WINDOW = timedelta(seconds=DashboardAutoRefreshInterval().root)
 
 
 _SHARED_MODE_WHITELIST = {
@@ -268,7 +265,7 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> tuple[Execu
     """Map a requested execution mode to the one allowed on shared/embedded resources.
 
     Returns the mode plus an optional `cache_age_seconds` override for the query runner.
-    force_blocking runs as blocking-if-stale with `SHARED_FORCE_BLOCKING_MIN_AGE` as the
+    force_blocking runs as blocking-if-stale with `SHARED_FORCE_BLOCKING_STALENESS_WINDOW` as the
     staleness threshold: a cached result younger than the window is served as-is, anything
     older (or missing) recomputes synchronously — throttling forced recomputes without a
     separate clock.
@@ -276,7 +273,7 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> tuple[Execu
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         return (
             ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-            int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+            int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
         )
     return _SHARED_MODE_WHITELIST.get(execution_mode, ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE), None
 

@@ -50,7 +50,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
-    SHARED_FORCE_BLOCKING_MIN_AGE,
+    SHARED_FORCE_BLOCKING_STALENESS_WINDOW,
     AnalyticsQueryRunner,
     ExecutionMode,
     QueryRunner,
@@ -1199,7 +1199,7 @@ class TestSharedInsightsExecutionMode(BaseTest):
                 "force_blocking_downgrades_with_min_age_threshold",
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-                int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+                int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
             ),
             (
                 "cache_only_remaps_to_extended_async",

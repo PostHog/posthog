@@ -50,7 +50,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_MIN_AGE, ExecutionMode
+from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
@@ -540,7 +540,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 mock.ANY,
                 dashboard=mock.ANY,
                 # Shared force_blocking runs as blocking-if-stale with the throttle window as
-                # the staleness threshold: a cache younger than `SHARED_FORCE_BLOCKING_MIN_AGE`
+                # the staleness threshold: a cache younger than `SHARED_FORCE_BLOCKING_STALENESS_WINDOW`
                 # is served as-is, anything older (or missing) recomputes synchronously.
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
@@ -549,7 +549,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
-                cache_age_seconds=int(SHARED_FORCE_BLOCKING_MIN_AGE.total_seconds()),
+                cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
             )
 
