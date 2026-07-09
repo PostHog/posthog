@@ -3,7 +3,7 @@ from typing import Any, cast
 from django.core.cache import cache
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import status, viewsets
 from rest_framework.request import Request
@@ -54,7 +54,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=CreateAppInputSerializer,
         summary="Create a streamlit app",
-        responses={201: StreamlitAppSerializer},
+        responses={201: OpenApiResponse(response=StreamlitAppSerializer)},
     )
     def create(self, request: TypedRequest[CreateAppInput], **kwargs: Any) -> Response:
         try:
@@ -94,7 +94,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=UpdateAppInputSerializer,
         summary="Update a streamlit app",
-        responses={200: StreamlitAppSerializer},
+        responses={200: OpenApiResponse(response=StreamlitAppSerializer)},
     )
     def update(self, request: TypedRequest[UpdateAppInput], short_id: str, **kwargs: Any) -> Response:
         return self._update(request, short_id)
@@ -102,7 +102,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(
         request_serializer=UpdateAppInputSerializer,
         summary="Partially update a streamlit app",
-        responses={200: StreamlitAppSerializer},
+        responses={200: OpenApiResponse(response=StreamlitAppSerializer)},
     )
     def partial_update(self, request: TypedRequest[UpdateAppInput], short_id: str, **kwargs: Any) -> Response:
         return self._update(request, short_id)
