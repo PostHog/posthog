@@ -30,6 +30,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import {
     buildUrlContainsShortcut,
@@ -992,6 +993,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 })
             },
         ],
+        // The list's own group plus the committed selection, bundled into one input so
+        // `items` stays within kea's 16-entry `SelectorTuple` cap (every extra input on
+        // `items` also lengthens typegen for downstream logics, per the note on
+        // `dedupedTopMatches`).
+        selectionPromotionContext: [
+            (s) => [s.group, s.groupType, s.value],
+            (
+                group,
+                groupType,
+                value
+            ): {
+                group: TaxonomicFilterGroup | undefined
+                groupType: TaxonomicFilterGroupType | undefined
+                value: TaxonomicFilterValue | undefined
+            } => ({ group, groupType, value }),
+        ],
         items: [
             (s) => [
                 s.remoteItems,
@@ -1007,9 +1024,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.isSoleSubstantiveGroup,
                 s.soleGroupHasGetValue,
                 s.taxonomicGroups,
-                s.group,
-                s.groupType,
-                s.value,
+                s.selectionPromotionContext,
                 (_, props: InfiniteListLogicProps) => props.collapseUrlsToContainsRow,
             ],
             (
@@ -1026,11 +1041,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 isSoleSubstantiveGroup,
                 soleGroupHasGetValue,
                 taxonomicGroups,
-                group,
-                groupType,
-                value,
+                selectionPromotionContext,
                 collapseUrlsToContainsRow
             ) => {
+                const { group, groupType, value } = selectionPromotionContext
                 // Collapse URL groups to a single "URL contains <query>" shortcut row
                 // (mirrors the rebuild menu's `COLLAPSED_TO_CONTAINS_ROW`). Only once
                 // the remote fetch for the *current* query has returned at least one
@@ -1176,7 +1190,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             }
                             const itemGroup = getItemGroup(item, taxonomicGroups, group)
                             return (
-                                groupItemKey(itemGroup?.type ?? listGroupType, itemGroup?.getValue?.(item)) ===
+                                groupItemKey(itemGroup?.type ?? listGroupType, itemGroup?.getValue?.(item) ?? null) ===
                                 selectionKey
                             )
                         })
