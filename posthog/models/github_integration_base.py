@@ -1019,7 +1019,9 @@ class GitHubIntegrationBase:
                 return None
             user = raw.get("user") or {}
             return {
-                "id": str(raw.get("id")),
+                # Direct access on the primary key: a GitHub comment always carries an `id`, and
+                # coercing a missing one to the string "None" would collide as a React key downstream.
+                "id": str(raw["id"]),
                 "author": user.get("login"),
                 "author_avatar_url": user.get("avatar_url"),
                 "body": raw.get("body") or "",

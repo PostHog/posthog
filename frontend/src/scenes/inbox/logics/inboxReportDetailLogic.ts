@@ -735,9 +735,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             } else {
                 cache.disposables.dispose('reportTasksPoll')
             }
-            // Load the PR checks/comments once the report has a shipped PR, and keep the checks fresh
-            // while the detail is open (a build the report opened can still be running). The keyed
-            // disposable auto-tears down on unmount / hidden tab and replaces any prior interval.
+            // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
+            // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
+            // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
             if (values.hasImplementationPr) {
                 if (values.prChecks === null && !values.prChecksLoading) {
                     actions.loadPrChecks()
@@ -745,12 +745,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 if (values.prComments === null && !values.prCommentsLoading) {
                     actions.loadPrComments()
                 }
-                cache.disposables.add(() => {
-                    const interval = setInterval(() => actions.loadPrChecks(), PR_CHECKS_POLL_INTERVAL_MS)
-                    return () => clearInterval(interval)
-                }, 'prChecksPoll')
-            } else {
-                cache.disposables.dispose('prChecksPoll')
             }
         },
     })),
@@ -762,12 +756,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values, cache }) => {
         // `loadReportTasks` is cascaded from `loadReportArtefactsSuccess`, so it isn't called here.
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
+        // Register the PR-checks poll once for the lifetime of the mount — the tick re-checks whether
+        // the report has a PR, so it stays correct as the report prop churns without the interval ever
+        // being torn down and restarted (which would keep resetting the 15s cadence). Auto-disposed on
+        // unmount / hidden tab.
+        cache.disposables.add(() => {
+            const interval = setInterval(() => {
+                if (values.hasImplementationPr) {
+                    actions.loadPrChecks()
+                }
+            }, PR_CHECKS_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'prChecksPoll')
     }),
 ])
