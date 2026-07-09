@@ -1,11 +1,12 @@
 /*
- * PROTOTYPE — Lemon skin for quill (Button only, for now).
+ * PROTOTYPE — Lemon skin for quill.
  *
- * The mirror of quill-skin.scss: restyles quill's Button to LemonUI's current
- * visual language, so quill components can be adopted inside Lemon scenes with
- * zero visible change. Under this strategy the code migrates Lemon → quill
- * invisibly (migration PRs are snapshot-identical), and the new design ships
- * in one final flip: removing this skin reveals quill's native look app-wide.
+ * The mirror of quill-skin.scss: restyles quill primitives to LemonUI's
+ * current visual language, so quill components can be adopted inside Lemon
+ * scenes with zero visible change. Under this strategy the code migrates
+ * Lemon → quill invisibly (migration PRs are snapshot-identical), and the new
+ * design ships in one final flip: removing this skin reveals quill's native
+ * look app-wide.
  *
  * Opt in with a wrapper attribute (alongside `data-quill`, which quill
  * components need for their tokens anyway):
@@ -13,38 +14,72 @@
  *     <div data-quill data-lemon-skin>…</div>
  *
  * Quill's own rules live in `@layer components`, so these unlayered overrides
- * win the cascade without specificity hacks — the reverse skin doesn't need
- * the doubled selectors and !important that quill-skin.scss does.
+ * win the cascade without specificity hacks.
  *
- * Mapping (quill Button variant → Lemon type):
- *   primary     → primary    (white face, brown border, amber 3D frame below)
- *   outline     → secondary  (off-white face, grey border, grey frame)
- *   default     → tertiary   (ghost: transparent, grey fill on hover)
- *   destructive → secondary + status="danger" (orange text/border, orange frame)
+ * Covered: Button, Input, Textarea, Checkbox, Switch, RadioGroup, Select,
+ * Badge (→ LemonTag), Chip (→ LemonSnack), Separator, Skeleton, Label, Kbd,
+ * Tooltip, Popover/DropdownMenu/ContextMenu surfaces, Tabs (line variant),
+ * Dialog (→ LemonModal), Progress.
  *
- * Lemon's 3D chrome (a bordered frame extending below the button face) is
- * approximated on quill's single-element markup with two hard box-shadows:
- * the frame band, plus a 1px spread ring for the border around it.
+ * PORTAL CAVEAT: overlay content (tooltip, menus, select popup, dialog)
+ * renders in portals at <body>, outside any scoped wrapper. Those rules only
+ * take effect when the attributes sit on <body>/<html> — which is exactly the
+ * eventual app-wide flip deployment. In scoped demos, overlays keep quill's
+ * native look.
  *
- * Known gaps, acceptable for a prototype:
- *   - link / link-muted variants and icon-* sizes keep quill's styling
- *   - no hover-raise / press-sink travel (Lemon moves ±0.5px; static here)
- *   - focus rings keep quill's style
+ * Known gaps, acceptable for a prototype: link/link-muted button variants,
+ * icon-* button sizes, Accordion/Collapsible, Card, Avatar, Table, Toast,
+ * Drawer, Slider, Toggle, NumberField, and quill's `sm` control sizes keep
+ * quill styling; no hover-raise/press-sink travel on buttons.
  */
 
+/*
+ * Lemon token aliases. quill-bridge.scss rebinds several Lemon var names
+ * (`--color-border-primary`, `--color-accent`, `--color-bg-surface-primary`,
+ * `--color-text-secondary`, `--color-bg-primary`, …) to QUILL tokens inside
+ * `[data-quill]`, so referencing those names here would resolve to quill
+ * values. These aliases restore the Lemon values (mirroring base.scss) under
+ * skin-local names. `--radius`/`--radius-lg` are likewise shadowed by quill's
+ * scoped tokens, hence the literals.
+ */
+[data-lemon-skin] {
+    --lemon-skin-accent: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --lemon-skin-accent-hover: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 10%)
+    );
+    --lemon-skin-border: var(--color-posthog-3000-200);
+    --lemon-skin-border-hover: var(--color-posthog-3000-400);
+    --lemon-skin-surface: var(--color-white);
+    --lemon-skin-bg-page: var(--color-posthog-3000-50);
+    --lemon-skin-radius: 0.375rem;
+    --lemon-skin-radius-lg: 0.625rem;
+}
+
+[theme='dark'] [data-lemon-skin] {
+    --lemon-skin-border: var(--color-neutral-cool-800);
+    --lemon-skin-border-hover: var(--color-neutral-cool-600);
+    --lemon-skin-surface: var(--color-neutral-cool-850);
+    --lemon-skin-bg-page: var(--color-neutral-cool-950);
+}
+
+/* ═══ Button → LemonButton ═════════════════════════════════════════════ */
+
 [data-lemon-skin] .quill-button {
-    /* Lemon's scale: 6px corners, 14px text, 37px medium height.
-       0.375rem is Lemon's --radius literal — quill's scoped tokens shadow
-       `--radius` (0.58rem) inside [data-quill], so the var can't be used here */
     font-family: var(--font-button);
     font-size: 0.875rem;
     font-weight: 500;
     line-height: 1.5rem;
     color: var(--text-3000);
-    border-radius: 0.375rem;
+    border-radius: var(--lemon-skin-radius);
 }
 
-/* ── primary → Lemon primary ──────────────────────────────────────────── */
+/* primary → Lemon primary (white face, brown border, amber 3D frame below) */
 
 [data-lemon-skin] .quill-button--variant-primary {
     color: var(--text-3000-light);
@@ -66,7 +101,7 @@
     translate: 0 0.1875rem;
 }
 
-/* ── outline → Lemon secondary ────────────────────────────────────────── */
+/* outline → Lemon secondary */
 
 [data-lemon-skin] .quill-button--variant-outline {
     background-color: var(--secondary-3000-button-bg);
@@ -87,7 +122,7 @@
     translate: 0 0.1875rem;
 }
 
-/* ── default (ghost) → Lemon tertiary ─────────────────────────────────── */
+/* default (ghost) → Lemon tertiary */
 
 [data-lemon-skin] .quill-button--variant-default {
     background-color: transparent;
@@ -104,7 +139,7 @@
     background-color: var(--color-bg-fill-button-tertiary-active);
 }
 
-/* ── destructive → Lemon secondary + status="danger" ──────────────────── */
+/* destructive → Lemon secondary + status="danger" */
 
 [data-lemon-skin] .quill-button--variant-destructive {
     color: var(--danger-3000-button-border-hover);
@@ -125,7 +160,7 @@
     translate: 0 0.1875rem;
 }
 
-/* ── Sizes → Lemon's xsmall / small / medium / large scale ────────────── */
+/* Sizes → Lemon's xsmall / small / medium / large scale */
 
 [data-lemon-skin] .quill-button--size-default {
     gap: 0.5rem;
@@ -144,7 +179,7 @@
     height: 1.625rem;
     padding-inline: 0.375rem;
     font-size: 0.75rem;
-    border-radius: 0.375rem;
+    border-radius: var(--lemon-skin-radius);
 }
 
 [data-lemon-skin] .quill-button--size-xs svg:not([class*='size-']) {
@@ -174,4 +209,380 @@
 [data-lemon-skin] .quill-button--size-lg svg:not([class*='size-']) {
     width: 1.75rem;
     height: 1.75rem;
+}
+
+/* ═══ Input → LemonInput ═══════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-input {
+    height: calc(2.125rem + 3px);
+    padding: 0.25rem 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    color: var(--text-3000);
+    background-color: var(--color-bg-fill-input);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-input:hover:not(:disabled),
+[data-lemon-skin] .quill-input:focus-visible {
+    /* Lemon inputs signal focus with a border-color change, not a ring */
+    border-color: var(--lemon-skin-border-hover);
+    box-shadow: none;
+}
+
+/* ═══ Textarea → LemonTextArea ═════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-textarea {
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--text-3000);
+    background-color: var(--color-bg-fill-input);
+    border: 1px solid var(--lemon-skin-border);
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-textarea:hover:not(:disabled),
+[data-lemon-skin] .quill-textarea:focus-visible {
+    border-color: var(--lemon-skin-border-hover);
+    box-shadow: none;
+}
+
+/* ═══ Checkbox → LemonCheckbox ═════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-checkbox,
+[data-lemon-skin] .quill-checkbox-indicator {
+    /* Lemon has a single 1rem box size */
+    width: 1rem;
+    height: 1rem;
+    background-color: var(--lemon-skin-surface);
+    border: 1.5px solid var(--lemon-skin-border);
+    border-radius: 0.25rem;
+}
+
+[data-lemon-skin] .quill-checkbox:hover:not(:disabled) {
+    border-color: var(--lemon-skin-accent-hover);
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-checkbox:focus-visible {
+    border-color: var(--lemon-skin-accent-hover);
+    box-shadow: none;
+    outline: -webkit-focus-ring-color auto 1px;
+}
+
+[data-lemon-skin] .quill-checkbox[data-checked],
+[data-lemon-skin] .quill-checkbox-indicator--checked {
+    color: var(--lemon-skin-surface);
+    background-color: var(--lemon-skin-accent);
+    border-color: var(--lemon-skin-accent);
+}
+
+[data-lemon-skin] .quill-checkbox[data-checked]:hover:not(:disabled) {
+    background-color: var(--lemon-skin-accent-hover);
+    border-color: var(--lemon-skin-accent-hover);
+}
+
+/* ═══ Switch → LemonSwitch ═════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-switch {
+    border: none;
+    outline: 1px solid var(--lemon-skin-border);
+}
+
+/* Lemon medium: 13px handle in a 28×15 pill track */
+
+[data-lemon-skin] .quill-switch[data-size='default'] {
+    width: 28px;
+    height: 15px;
+}
+
+[data-lemon-skin] .quill-switch[data-size='default'] .quill-switch__thumb {
+    width: 13px;
+    height: 13px;
+}
+
+[data-lemon-skin] .quill-switch[data-unchecked] {
+    background-color: var(--color-bg-fill-switch);
+}
+
+[data-lemon-skin] .quill-switch[data-checked] {
+    background-color: var(--lemon-skin-accent);
+}
+
+[data-lemon-skin] .quill-switch__thumb {
+    /* Lemon hardcodes a white handle in the off state */
+    background-color: #fff;
+}
+
+[data-lemon-skin] .quill-switch[data-checked] .quill-switch__thumb {
+    background-color: var(--lemon-skin-surface);
+    transform: translateX(100%);
+}
+
+/* ═══ RadioGroup — Lemon uses native radios; accent-tint is the analog ═ */
+
+[data-lemon-skin] .quill-radio {
+    background-color: var(--lemon-skin-surface);
+    border-color: var(--lemon-skin-border);
+}
+
+[data-lemon-skin] .quill-radio:focus-visible {
+    border-color: var(--lemon-skin-accent-hover);
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-radio[data-checked] {
+    color: var(--lemon-skin-surface);
+    background-color: var(--lemon-skin-accent);
+    border-color: var(--lemon-skin-accent);
+}
+
+/* ═══ Badge → LemonTag ═════════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-badge {
+    height: auto;
+    padding: 0.125rem 0.25rem;
+    font-family: var(--font-sans);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1rem;
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-badge--variant-default {
+    color: var(--text-3000);
+    background-color: transparent;
+    border-color: var(--lemon-skin-border);
+}
+
+[data-lemon-skin] .quill-badge--variant-info {
+    /* Lemon has no blue tag; its "primary" (accent outline) is the analog */
+    color: var(--lemon-skin-accent);
+    background-color: transparent;
+    border-color: var(--lemon-skin-accent);
+}
+
+[data-lemon-skin] .quill-badge--variant-success {
+    color: var(--success);
+    background-color: transparent;
+    border-color: var(--success);
+}
+
+[data-lemon-skin] .quill-badge--variant-warning {
+    color: var(--warning);
+    background-color: transparent;
+    border-color: var(--warning);
+}
+
+[data-lemon-skin] .quill-badge--variant-destructive {
+    color: var(--danger);
+    background-color: transparent;
+    border-color: var(--danger);
+}
+
+/* ═══ Chip → LemonSnack ════════════════════════════════════════════════ */
+
+/*
+ * Chip composes Button (variant=outline), so this must out-order the button
+ * outline rules above to strip the secondary-button chrome.
+ */
+[data-lemon-skin] .quill-chip {
+    padding-block: 0.25rem;
+    padding-inline: 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--text-3000);
+    background-color: var(--color-accent-highlight-secondary);
+    border: 1px solid transparent;
+    border-radius: 0.25rem;
+    box-shadow: none;
+}
+
+[data-lemon-skin] .quill-chip:not(:disabled, [aria-disabled='true']):hover {
+    background-color: var(--color-accent-highlight-secondary);
+    border-color: transparent;
+}
+
+/* ═══ Separator → LemonDivider ═════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-separator {
+    background-color: var(--lemon-skin-border);
+}
+
+/* ═══ Skeleton → LemonSkeleton (shimmer, not pulse) ════════════════════ */
+
+[data-lemon-skin] .quill-skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--color-skeleton-light) 25%,
+        var(--color-skeleton-dark) 45%,
+        var(--color-skeleton-light) 65%
+    );
+    background-size: 400% 100%;
+    border-radius: var(--lemon-skin-radius);
+
+    /* Reuses the global keyframes from LemonSkeleton.scss */
+    animation: LemonSkeleton__shimmer 2s ease infinite;
+}
+
+/* ═══ Label → LemonLabel ═══════════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-label {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+}
+
+/* ═══ Kbd → KeyboardShortcut keycap ════════════════════════════════════ */
+
+[data-lemon-skin] .quill-kbd {
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0.125rem 0.25rem;
+    font-family: var(--font-title);
+    font-size: 0.75rem;
+    color: var(--text-3000);
+    background: var(--lemon-skin-surface);
+    border: 1px solid var(--secondary-3000-button-border-hover);
+
+    /* The thicker bottom edge gives Lemon's keycap bevel */
+    border-bottom-width: 2px;
+    border-radius: 0.25rem;
+}
+
+/* ═══ Tooltip → Lemon Tooltip (see PORTAL CAVEAT above) ════════════════ */
+
+[data-lemon-skin] .quill-tooltip__content {
+    font-family: var(--font-sans);
+    color: var(--color-text-primary-inverse);
+    background-color: var(--color-bg-surface-tooltip);
+    border-radius: var(--lemon-skin-radius);
+    box-shadow: var(--modal-shadow-elevation);
+}
+
+[data-lemon-skin] .quill-tooltip__arrow {
+    background-color: var(--color-bg-surface-tooltip);
+    fill: var(--color-bg-surface-tooltip);
+}
+
+/* ═══ Popover / menu / select surfaces → Lemon Popover box ═════════════ */
+
+[data-lemon-skin] .quill-popover__content,
+[data-lemon-skin] .quill-menu__content,
+[data-lemon-skin] .quill-menu__sub-content,
+[data-lemon-skin] .quill-select__content {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    background-color: var(--color-bg-surface-popover);
+    border: 1px solid var(--secondary-3000-button-border);
+    border-radius: var(--lemon-skin-radius-lg);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+[data-lemon-skin] .quill-menu__separator,
+[data-lemon-skin] .quill-select__separator {
+    background-color: var(--lemon-skin-border);
+}
+
+/* Select/menu rows sized like the small LemonButtons LemonMenu renders */
+
+[data-lemon-skin] .quill-select__item {
+    min-height: 2.0625rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: var(--lemon-skin-radius);
+}
+
+[data-lemon-skin] .quill-select__item:focus {
+    background-color: var(--color-bg-fill-button-tertiary-hover);
+}
+
+[data-lemon-skin] .quill-select__item:not(:hover)[aria-selected='true'] {
+    background-color: var(--color-bg-fill-button-tertiary-active);
+}
+
+/* ═══ Tabs (line variant) → LemonTabs ══════════════════════════════════ */
+
+[data-lemon-skin] .quill-tabs__trigger {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-tertiary);
+}
+
+[data-lemon-skin] .quill-tabs__trigger:hover {
+    color: var(--text-3000);
+    background-color: transparent;
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-line {
+    gap: 1rem;
+    height: auto;
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-line .quill-tabs__trigger {
+    flex: 0 0 auto;
+    padding-block: 0.5rem;
+    padding-inline: 0;
+}
+
+[data-lemon-skin] .quill-tabs__list--variant-line .quill-tabs__trigger[data-active] {
+    /*
+     * Quill paints the active tab `var(--background) !important`; a layered
+     * !important can't be out-cascaded from here, but rebinding the var it
+     * resolves can.
+     */
+    --background: transparent;
+
+    color: var(--lemon-skin-accent);
+}
+
+[data-lemon-skin] .quill-tabs__indicator--variant-line {
+    background-color: var(--lemon-skin-accent);
+}
+
+/* ═══ Progress → LemonProgress ═════════════════════════════════════════ */
+
+[data-lemon-skin] .quill-progress__track {
+    height: 0.375rem;
+    background-color: var(--lemon-skin-bg-page);
+    border-radius: 9999px;
+}
+
+[data-lemon-skin] .quill-progress__indicator {
+    border-radius: 9999px;
+}
+
+[data-lemon-skin] .quill-progress__indicator--variant-default {
+    background-color: var(--brand-blue);
+}
+
+/* ═══ Dialog → LemonModal (see PORTAL CAVEAT above) ════════════════════ */
+
+[data-lemon-skin] .quill-dialog__content {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    background-color: var(--lemon-skin-surface);
+    border: 1px solid var(--border-bold);
+    border-radius: var(--lemon-skin-radius);
+    box-shadow: var(--modal-shadow-elevation);
+}
+
+[data-lemon-skin] .quill-dialog__title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    line-height: 1.5rem;
+}
+
+[data-lemon-skin] .quill-dialog__header:has(~ [data-slot='dialog-body']) {
+    border-bottom-color: var(--lemon-skin-border);
+}
+
+[data-lemon-skin] .quill-dialog__footer {
+    background-color: transparent;
+    border-top-color: var(--lemon-skin-border);
 }
