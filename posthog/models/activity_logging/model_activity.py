@@ -141,14 +141,22 @@ class ActivityTriggerContext:
 
     def __init__(self, trigger):
         self.trigger = trigger
+        self.previous = None
 
     def __enter__(self):
         if self.trigger is not None:
+            # Save and restore rather than clear on exit, so a nested context can't
+            # silently erase an enclosing context's attribution.
+            self.previous = activity_storage.get_trigger()
             activity_storage.set_trigger(self.trigger)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self.trigger is not None:
+        if self.trigger is None:
+            return
+        if self.previous is not None:
+            activity_storage.set_trigger(self.previous)
+        else:
             activity_storage.clear_trigger()
 
 
