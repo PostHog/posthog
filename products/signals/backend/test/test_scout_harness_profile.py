@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -121,6 +123,42 @@ class TestProductsInUse(BaseTest):
         # Defensive: if the JSON field somehow holds a non-dict value, return [] rather than raise.
         self.team.has_completed_onboarding_for = ["product_analytics"]
         self.team.save()
+        assert _products_in_use(self.team) == []
+
+    @parameterized.expand(
+        [
+            ("new_query_funnel", {"query": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}}),
+            ("new_query_retention", {"query": {"kind": "InsightVizNode", "source": {"kind": "RetentionQuery"}}}),
+            ("legacy_filters_funnel", {"filters": {"insight": "FUNNELS"}}),
+        ]
+    )
+    def test_credits_product_analytics_from_saved_behavioral_insight(self, _name: str, insight_kwargs: dict) -> None:
+        # A team using product analytics via a saved funnel/retention insight but that never
+        # completed onboarding must still surface `product_analytics` — scouts quick-close on
+        # this list, so under-reporting it skips real scoring.
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        Insight.objects.create(team=self.team, name="flow", **insight_kwargs)
+        assert _products_in_use(self.team) == ["product_analytics"]
+
+    def test_does_not_credit_product_analytics_from_non_behavioral_insight(self) -> None:
+        # A plain trends chart is not a behavioral flow to score; it must not falsely mark usage.
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        Insight.objects.create(
+            team=self.team, name="trend", query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
+        )
+        assert _products_in_use(self.team) == []
+
+    def test_ignores_deleted_behavioral_insight(self) -> None:
+        self.team.has_completed_onboarding_for = {}
+        self.team.save()
+        Insight.objects.create(
+            team=self.team,
+            name="gone",
+            deleted=True,
+            query={"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}},
+        )
         assert _products_in_use(self.team) == []
 
 

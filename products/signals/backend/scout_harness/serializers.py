@@ -1269,7 +1269,12 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     )
     products_in_use = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Product keys this team has completed onboarding for, sorted alphabetically.",
+        help_text=(
+            "Product keys this team is using, sorted alphabetically — the products it completed "
+            "onboarding for, plus `product_analytics` whenever the team has a saved behavioral "
+            "insight (funnel / retention / lifecycle / stickiness / paths) even if onboarding was "
+            "never finished."
+        ),
     )
     product_intents = serializers.ListField(
         child=ProductIntentEntrySerializer(),
