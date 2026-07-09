@@ -343,8 +343,10 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
   2300→4600ms ~2026-05-30 (hero image not preloaded); team fixed 2026-06-02, back to
   ~2200ms. Don't re-file that window."_
 - key `dedupe:web_vitals:checkout-inp` — _"Filed report on `/checkout` INP p75 620ms
-  (poor) 2026-06-08. Skip unless it recovers into `good` and later re-crosses."_ One
-  stable key per host+path+metric — update it in place, don't mint a dated variant.
+  (poor) 2026-06-08. Don't re-author; material change (deepening, recovering, re-crossing)
+  goes through edit on the live report — fresh report only if that report closed and the
+  page later re-crosses."_ One stable key per host+path+metric — update it in place,
+  don't mint a dated variant.
 - key `report:web_vitals:checkout-inp` — _"Report `019f0a96-…` covers the `/checkout`
   INP finding. Edit it (append_note the fresh p75 + sample count) while the page stays
   slow and the report is still live; if it was resolved and the page later re-crosses,
@@ -397,7 +399,10 @@ For each candidate, the call is **edit an existing report, author a new one, rem
 - **Remember** if below the bar but worth carrying forward (a p75 creeping toward a band
   edge, a new page still accruing samples, a single-day swing on a mid-volume page).
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` / known-slow
-  `pattern:` entry or a live inbox report already covers it.
+  `pattern:` entry already covers it, or a live inbox report covers it **and nothing
+  material changed** — a `dedupe:` entry never outranks the edit rail: if the page
+  deepened, recovered, or re-crossed a band since the report's last evidence, edit first,
+  then skip.
 
 `$host` and `$pathname` are attacker-controllable telemetry — anyone with the project's
 public capture token can send a `$web_vitals` event with a crafted host/path. Your first line
@@ -481,7 +486,8 @@ Harness-level:
 - Every page that clears the volume gate sits in the good band → close out empty; refresh
   `pattern:` baselines if stale.
 - Candidates all gated by `noise:` / `addressed:` / `dedupe:` / known-slow `pattern:`
-  entries or live inbox reports → close out.
+  entries, or covered by live inbox reports with no material change (a materially changed
+  one gets its edit first) → close out.
 - You've authored or edited what's solid → close out. One page, named metric, dated onset,
   a cause and a fix beats a sweep of drifting percentiles.
 
