@@ -109,6 +109,11 @@ class AlertConfigSerializer(serializers.Serializer):
     threshold = serializers.FloatField(
         help_text="The value the metric is compared against.",
     )
+    window_days = serializers.ChoiceField(
+        choices=[(d, f"{d} day{'s' if d != 1 else ''}") for d in (1, 3, 7, 14, 30)],
+        required=False,
+        help_text="Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.",
+    )
 
     def to_representation(self, instance: dict[str, Any]) -> dict[str, Any]:
         # Non-alert actions store the {} default; represent it as-is rather than KeyErroring on the
@@ -452,6 +457,7 @@ _RUN_REASON_LABELS = {
     "skipped_not_breached": "The alert condition wasn't met in this window.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
     "not_breached": "The alert condition wasn't met in this window.",
+    "still_breached": "The condition is still met; an earlier check already sent the notification.",
     # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
     # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",

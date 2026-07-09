@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -10,7 +12,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.models.vision_action import ActionMode, VisionAction, VisionActionRun
+from products.replay_vision.backend.models.vision_action import (
+    ActionMode,
+    VisionAction,
+    VisionActionRun,
+    VisionActionRunStatus,
+)
 from products.replay_vision.backend.temporal.vision_actions.alerts import _evaluate
 from products.replay_vision.backend.temporal.vision_actions.types import AlertStatus, EvaluateAlertInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
@@ -28,8 +35,10 @@ class TestVisionActionAlerts(BaseTest):
             model=ScannerModel.GEMINI_3_FLASH,
         )
 
-    def _observation(self, scanner: ReplayScanner, output: dict, session_id: str = "s1") -> ReplayObservation:
-        return ReplayObservation.objects.create(
+    def _observation(
+        self, scanner: ReplayScanner, output: dict, session_id: str = "s1", age_days: float = 0
+    ) -> ReplayObservation:
+        obs = ReplayObservation.objects.create(
             scanner=scanner,
             session_id=session_id,
             scanner_snapshot=snapshot_for(scanner),
@@ -38,6 +47,10 @@ class TestVisionActionAlerts(BaseTest):
             completed_at=timezone.now(),
             scanner_result={"model_output": {"scanner_type": scanner.scanner_type, **output}},
         )
+        if age_days:
+            # created_at is auto_now_add; backdate via update() for window tests.
+            ReplayObservation.objects.filter(pk=obs.pk).update(created_at=timezone.now() - timedelta(days=age_days))
+        return obs
 
     def _alert(self, scanner: ReplayScanner, alert_config: dict, selection: dict | None = None) -> VisionAction:
         action = VisionAction(
@@ -71,6 +84,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.metric_value, 2.0)
         run.refresh_from_db()
         self.assertIn("Alert: watcher", run.synthesized_markdown)
+        self.assertIn("over the last 24 hours", run.synthesized_markdown)
         self.assertIn("at or above the threshold of 2", run.synthesized_markdown)
         self.assertIn("2 observations matched", run.synthesized_markdown)
         self.assertTrue(run.output["slack"])
@@ -135,7 +149,7 @@ class TestVisionActionAlerts(BaseTest):
         self.assertEqual(result.status, AlertStatus.FIRED)
         self.assertEqual(result.metric_value, 3.0)
         run.refresh_from_db()
-        self.assertIn("average score was 3", run.synthesized_markdown)
+        self.assertIn("average score over the last 24 hours was 3", run.synthesized_markdown)
 
     def test_avg_over_empty_window_never_fires(self) -> None:
         # An unmeasurable metric must not breach — including operators like `lt` that a "0" would satisfy.
@@ -160,6 +174,45 @@ class TestVisionActionAlerts(BaseTest):
         second = _evaluate(EvaluateAlertInputs(run_id=run.id, team_id=self.team.id))
         self.assertEqual(second.status, AlertStatus.FIRED)
         self.assertEqual(second.observation_count, 1)
+
+    def test_rolling_window_excludes_older_observations(self) -> None:
+        # window_days=1 must not count what a longer window would; window_days=7 must.
+        scanner = self._scanner(name="windowed")
+        self._observation(scanner, {"verdict": "yes"}, age_days=3)
+        short = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 1})
+        result, _ = self._evaluate(short)
+        self.assertEqual(result.status, AlertStatus.NOT_BREACHED)
+
+        wide = self._alert(
+            self._scanner(name="windowed2"),
+            {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7},
+        )
+        self._observation(wide.scanner, {"verdict": "yes"}, session_id="s7", age_days=3)
+        result, _ = self._evaluate(wide, key="k7")
+        self.assertEqual(result.status, AlertStatus.FIRED)
+
+    def test_breach_fires_once_until_it_clears(self) -> None:
+        # A rolling window stays breached across checks; only the transition into breach notifies.
+        scanner = self._scanner(name="steady")
+        self._observation(scanner, {"verdict": "yes"})
+        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7})
+
+        first, first_run = self._evaluate(action)
+        self.assertEqual(first.status, AlertStatus.FIRED)
+        VisionActionRun.objects.for_team(self.team.id).filter(pk=first_run.pk).update(
+            status=VisionActionRunStatus.COMPLETED
+        )
+
+        second, _ = self._evaluate(action, key="k2")
+        self.assertEqual(second.status, AlertStatus.STILL_BREACHED)
+
+        # After a not-breached check (the condition cleared), a new breach notifies again.
+        third, third_run = self._evaluate(action, key="k3")
+        VisionActionRun.objects.for_team(self.team.id).filter(pk=third_run.pk).update(
+            status=VisionActionRunStatus.SKIPPED
+        )
+        fourth, _ = self._evaluate(action, key="k4")
+        self.assertEqual(fourth.status, AlertStatus.FIRED)
 
     def test_malformed_config_never_fires(self) -> None:
         scanner = self._scanner(name="broken")

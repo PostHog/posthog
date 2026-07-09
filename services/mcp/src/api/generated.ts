@@ -9426,6 +9426,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `1` - 1 day
+     * * `3` - 3 days
+     * * `7` - 7 days
+     * * `14` - 14 days
+     * * `30` - 30 days
+     */
+    export type WindowDaysEnum = typeof WindowDaysEnum[keyof typeof WindowDaysEnum];
+
+
+    export const WindowDaysEnum = {
+      Number1: 1,
+      Number3: 3,
+      Number7: 7,
+      Number14: 14,
+      Number30: 30,
+    } as const;
+
+    /**
      * The alert condition for mode='alert', evaluated over each run's observation window after
      * `selection` targeting is applied. The action delivers only when the condition holds.
      */
@@ -9445,6 +9463,14 @@ export namespace Schemas {
       operator: VisionAlertOperatorEnum;
       /** The value the metric is compared against. */
       threshold: number;
+      /** Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.
+       *
+       * * `1` - 1 day
+       * * `3` - 3 days
+       * * `7` - 7 days
+       * * `14` - 14 days
+       * * `30` - 30 days */
+      window_days?: WindowDaysEnum;
     }
 
     export interface AlertSimulate {

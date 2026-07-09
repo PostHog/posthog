@@ -9,6 +9,7 @@ don't require the AI data-processing consent gate.
 
 import re
 import operator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.db.models import Avg, FloatField
@@ -22,15 +23,18 @@ from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.vision_action import AlertMetric, AlertOperator, VisionActionRun
+from products.replay_vision.backend.models.vision_action import (
+    AlertMetric,
+    AlertOperator,
+    VisionActionRun,
+    VisionActionRunStatus,
+)
 from products.replay_vision.backend.observation_formatting import describe_output
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.vision_actions.synthesis import (
     MAX_OBSERVATIONS,
     _markdown_to_slack,
     _readable_scanner_ids,
-    _window_end,
-    _window_start,
     apply_observation_predicate,
 )
 from products.replay_vision.backend.temporal.vision_actions.types import (
@@ -43,6 +47,9 @@ logger = structlog.get_logger(__name__)
 
 # How many matching observations the alert message lists as examples.
 EXAMPLE_LINES = 5
+# Rolling evaluation windows the condition may look back over, in days.
+ALERT_WINDOW_DAYS = (1, 3, 7, 14, 30)
+DEFAULT_ALERT_WINDOW_DAYS = 1
 
 _OPERATORS = {
     AlertOperator.GT: operator.gt,
@@ -90,27 +97,36 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     if not scanner_ids:
         return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
-    window_start = _window_start(team, action, run)
+    alert_config: dict[str, Any] = action.alert_config or {}
+    metric = alert_config.get("metric", AlertMetric.COUNT)
+    op = alert_config.get("operator", AlertOperator.GTE)
+    threshold = alert_config.get("threshold")
+    window_days = alert_config.get("window_days", DEFAULT_ALERT_WINDOW_DAYS)
+    compare = _OPERATORS.get(op)
+    if (
+        compare is None
+        or not isinstance(threshold, int | float)
+        or isinstance(threshold, bool)
+        or not isinstance(window_days, int)
+        or window_days not in ALERT_WINDOW_DAYS
+    ):
+        # Malformed config (serializer-validated, so only reachable via direct writes). Don't fire.
+        logger.warning("vision_action.alert.invalid_config", vision_action_id=str(action.id))
+        return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
+
+    # The condition looks back over a rolling window ending at the run's tick — unlike summaries,
+    # which tile windows between runs — so "over the last 7 days" means the same thing on every check.
+    window_end = run.scheduled_at or datetime.now(UTC)
     observations_qs = apply_observation_predicate(
         ReplayObservation.objects.filter(
             team_id=team.id,
             scanner_id__in=scanner_ids,
             status=ObservationStatus.SUCCEEDED,
-            created_at__gte=window_start,
-            created_at__lt=_window_end(run),
+            created_at__gte=window_end - timedelta(days=window_days),
+            created_at__lt=window_end,
         ),
         selection,
     )
-
-    alert_config: dict[str, Any] = action.alert_config or {}
-    metric = alert_config.get("metric", AlertMetric.COUNT)
-    op = alert_config.get("operator", AlertOperator.GTE)
-    threshold = alert_config.get("threshold")
-    compare = _OPERATORS.get(op)
-    if compare is None or not isinstance(threshold, int | float) or isinstance(threshold, bool):
-        # Malformed config (serializer-validated, so only reachable via direct writes). Don't fire.
-        logger.warning("vision_action.alert.invalid_config", vision_action_id=str(action.id))
-        return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
     matched_count = observations_qs.count()
     if metric == AlertMetric.AVG_SCORE:
@@ -132,8 +148,22 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
             status=AlertStatus.NOT_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
 
+    # Fire on the transition into breach only: a rolling window can stay breached across many checks,
+    # and re-notifying every tick would be spam. The previous check's outcome is the state.
+    previous = (
+        VisionActionRun.objects.for_team(team.id)
+        .filter(vision_action_id=action.id)
+        .exclude(pk=run.pk)
+        .order_by("-created_at")
+        .first()
+    )
+    if previous is not None and previous.status == VisionActionRunStatus.COMPLETED:
+        return EvaluateAlertResult(
+            status=AlertStatus.STILL_BREACHED, observation_count=matched_count, metric_value=metric_value
+        )
+
     markdown = strip_external_links_markdown(
-        _alert_markdown(action, metric, op, threshold, metric_value, matched_count, observations_qs)
+        _alert_markdown(action, metric, op, threshold, metric_value, matched_count, observations_qs, window_days)
     )
     run.synthesized_markdown = markdown
     run.output = {"slack": _markdown_to_slack(markdown)}
@@ -161,6 +191,7 @@ def _alert_markdown(
     metric_value: float,
     matched_count: int,
     observations_qs: Any,
+    window_days: int,
 ) -> str:
     """Deterministic alert report: what fired, the measured value vs the threshold, and a few example
     observation outcomes (verdict/score/tags via `describe_output` — outcomes only, no
@@ -173,9 +204,10 @@ def _alert_markdown(
     op_label = _OPERATOR_LABELS.get(AlertOperator(op), op)
     noun = "observation" if matched_count == 1 else "observations"
 
+    window_label = "24 hours" if window_days == 1 else f"{window_days} days"
     lines = [
-        f"**Alert: {scanner_name}** — {metric_label} was {_format_number(metric_value)}, "
-        f"{op_label} the threshold of {_format_number(threshold)}.",
+        f"**Alert: {scanner_name}** — {metric_label} over the last {window_label} was "
+        f"{_format_number(metric_value)}, {op_label} the threshold of {_format_number(threshold)}.",
         "",
         f"{matched_count} {noun} matched in this window.",
     ]

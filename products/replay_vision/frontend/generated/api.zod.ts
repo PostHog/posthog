@@ -120,6 +120,13 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
                     "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
                 ),
             threshold: zod.number().describe('The value the metric is compared against.'),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    'Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days'
+                ),
         })
         .describe(
             "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."
@@ -260,6 +267,13 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     "Comparison between the measured metric and the threshold, e.g. 'gte' fires when metric >= threshold.\n\n\* `gt` - Greater than\n\* `gte` - Greater than or equal\n\* `lt` - Less than\n\* `lte` - Less than or equal\n\* `eq` - Equal"
                 ),
             threshold: zod.number().describe('The value the metric is compared against.'),
+            window_days: zod
+                .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
+                .describe('\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days')
+                .optional()
+                .describe(
+                    'Rolling lookback window the condition is evaluated over, ending at each check. Defaults to 1 day.\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days'
+                ),
         })
         .describe(
             "The alert condition for mode='alert', evaluated over each run's observation window after\n`selection` targeting is applied. The action delivers only when the condition holds."

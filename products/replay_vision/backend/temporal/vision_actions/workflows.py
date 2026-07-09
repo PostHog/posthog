@@ -92,9 +92,9 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=_SYNTH_RETRY,
                 )
-                if alert.status == AlertStatus.NOT_BREACHED:
+                if alert.status in (AlertStatus.NOT_BREACHED, AlertStatus.STILL_BREACHED):
                     # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
-                    error_info = {"skip_reason": "not_breached"}
+                    error_info = {"skip_reason": alert.status.value}
                     return
             else:
                 synth = await wf.execute_activity(

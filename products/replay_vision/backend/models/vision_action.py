@@ -100,7 +100,8 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         blank=True,
         help_text=(
             "Alert condition for mode='alert': {metric: count|avg_score, operator: gt|gte|lt|lte|eq, "
-            "threshold: number}, evaluated over the run's observation window after `selection` targeting."
+            "threshold: number, window_days: 1|3|7|14|30}, evaluated over a rolling window ending at each "
+            "check, after `selection` targeting."
         ),
     )
     # How many observations may feed one group summary. When the window holds more, they're sampled
