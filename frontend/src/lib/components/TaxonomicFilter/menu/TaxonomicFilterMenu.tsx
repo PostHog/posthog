@@ -147,7 +147,7 @@ const QUICK_REOPEN_MS = 3000
 // that produce it — kept as named parts so a change to `MenuFilterHeader`'s
 // spacing or the input row's padding is visibly the thing to keep in sync here.
 const MENU_HEADER_PADDING_Y_PX = 16 // MenuFilterHeader `py-2` (top + bottom)
-const MENU_HEADER_BUTTON_HEIGHT_PX = 24 // "Go back" Button `size="sm"` (h-6)
+const MENU_HEADER_BUTTON_HEIGHT_PX = 26 // "Go back" Button `size="sm"` under lemon-skin (Lemon xsmall; 24 once the skin is off)
 const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
 const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
 const PANEL_BORDER_PX = 1 // PopoverContent border
@@ -627,7 +627,11 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                <span ref={triggerWrapRef} data-lemon-skin className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
+                <span
+                    ref={triggerWrapRef}
+                    data-lemon-skin
+                    className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}
+                >
                     {useInputTrigger ? (
                         <MenuInputTrigger
                             iconButton={inputTriggerIcon}

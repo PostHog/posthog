@@ -91,6 +91,9 @@ function LemonExamples(): JSX.Element {
                 Loading
             </LemonButton>
             <div className="flex gap-2 items-center">
+                <LemonButton type="secondary" size="xxsmall">
+                    xxsmall
+                </LemonButton>
                 <LemonButton type="secondary" size="xsmall">
                     xsmall
                 </LemonButton>
@@ -127,16 +130,17 @@ function QuillExamples(): JSX.Element {
             <QuillButton variant="primary" loading>
                 Loading
             </QuillButton>
+            {/* Labels name the Lemon size each quill size maps to under the skin */}
             <div className="flex gap-2 items-center">
                 <QuillButton variant="outline" size="xs">
-                    xsmall
+                    xxsmall
                 </QuillButton>
                 <QuillButton variant="outline" size="sm">
-                    small
+                    xsmall
                 </QuillButton>
-                <QuillButton variant="outline">medium</QuillButton>
+                <QuillButton variant="outline">small</QuillButton>
                 <QuillButton variant="outline" size="lg">
-                    large
+                    medium
                 </QuillButton>
             </div>
         </div>
