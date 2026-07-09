@@ -779,7 +779,8 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudbedsSourceConfig(config.Config):
-    pass
+    api_key: str
+    property_id: str | None = None
 
 
 @config.config
