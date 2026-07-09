@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from io import BytesIO
 
@@ -1396,6 +1397,43 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
             ("spf_pass_aligned_domain", {"sender": "alice@external.com", "X-Mailgun-Spf": "Pass"}, True),
             ("no_spf", {}, False),
             ("spf_pass_misaligned_domain", {"sender": "alice@evil.com", "X-Mailgun-Spf": "Pass"}, False),
+            # SPF result only present in the message-headers JSON blob, not as a flat field
+            (
+                "spf_pass_via_message_headers",
+                {
+                    "sender": "alice@external.com",
+                    "message-headers": json.dumps([["Subject", "Question"], ["X-Mailgun-Spf", "Pass"]]),
+                },
+                True,
+            ),
+            # Relaxed (DMARC-style) alignment: subdomain envelope aligns with the From org domain
+            ("spf_pass_subdomain_envelope", {"sender": "bounce@mail.external.com", "X-Mailgun-Spf": "Pass"}, True),
+            # Forwarded external customer: envelope rewritten to the channel's own domain,
+            # trusted forwarder AR attests dmarc=pass for the From domain
+            (
+                "forwarded_customer_trusted_ar",
+                {
+                    "sender": "support+caf_=team@posthog.com",
+                    "X-Mailgun-Spf": "Pass",
+                    "message-headers": json.dumps(
+                        [["Authentication-Results", "mx.google.com; dmarc=pass header.from=external.com"]]
+                    ),
+                },
+                True,
+            ),
+            # Same AR but the envelope isn't the channel's own domain: an attacker sending
+            # directly with their own SPF-passing envelope and a forged AR must not verify
+            (
+                "forwarded_ar_wrong_envelope",
+                {
+                    "sender": "attacker@otherco.com",
+                    "X-Mailgun-Spf": "Pass",
+                    "message-headers": json.dumps(
+                        [["Authentication-Results", "mx.google.com; dmarc=pass header.from=external.com"]]
+                    ),
+                },
+                False,
+            ),
         ]
     )
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
@@ -1440,6 +1478,48 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         forged = Comment.objects.filter(team=self.team, scope="conversations_ticket").order_by("created_at")[1]
         assert forged.item_context["author_type"] == "customer"
         assert forged.created_by is None
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_forwarder_attestation_requires_verified_channel_domain(self, _mock_sig: MagicMock):
+        # Without domain_verified, a shared-provider mailbox (e.g. support@gmail.com)
+        # must not unlock the forwarder-attestation trust path.
+        self.config.domain_verified = False
+        self.config.save()
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": "Alice <alice@external.com>",
+                "sender": "support+caf_=team@posthog.com",
+                "X-Mailgun-Spf": "Pass",
+                "message-headers": json.dumps(
+                    [["Authentication-Results", "mx.google.com; dmarc=pass header.from=external.com"]]
+                ),
+                "Message-Id": "<unverified-domain@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is False
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_deactivated_team_member_not_attributed_as_support(self, _mock_sig: MagicMock):
+        self.user.is_active = False
+        self.user.save()
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "sender": self.user.email,
+                "from": f"Former Employee <{self.user.email}>",
+                "Message-Id": "<deactivated@team.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+                "X-Mailgun-Spf": "Pass",
+            }
+        )
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context["author_type"] == "customer"
+        assert comment.created_by is None
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_spf_pass_but_mismatched_envelope_treated_as_customer(self, _mock_sig: MagicMock):

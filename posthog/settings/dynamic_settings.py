@@ -202,7 +202,9 @@ CONSTANCE_CONFIG = {
     ),
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
         get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
-        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
+        "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com. "
+        "Its inbound spam filter must be set to 'Mark spam with MIME headers' (tag mode) in Mailgun, "
+        "otherwise X-Mailgun-Spf is never added and inbound sender authentication always fails.",
         str,
     ),
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
