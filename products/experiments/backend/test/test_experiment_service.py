@@ -34,7 +34,11 @@ from products.actions.backend.models.action import Action
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.experiment_service import ExperimentService, _deprecated_fields_in_request
+from products.experiments.backend.experiment_service import (
+    ExperimentService,
+    _deprecated_fields_in_request,
+    _deprecated_parameters_keys_in_request,
+)
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
@@ -6578,3 +6582,27 @@ class TestDeprecatedFieldsInRequest(SimpleTestCase):
         request = MagicMock()
         type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
         assert _deprecated_fields_in_request(request) == {}
+
+
+class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "deprecated_subset_sorted",
+                {"parameters": {"rollout_percentage": 50, "feature_flag_variants": [], "variant_notes": {}}},
+                ["feature_flag_variants", "rollout_percentage"],
+            ),
+            ("only_non_deprecated_keys", {"parameters": {"variant_notes": {"control": "n"}}}, []),
+            ("parameters_not_a_dict", {"parameters": [1, 2]}, []),
+            ("non_dict_body", [1, 2, 3], []),
+        ]
+    )
+    def test_detects_deprecated_parameters_keys(self, _name: str, body: Any, expected: list[str]) -> None:
+        request = MagicMock()
+        request.data = body
+        assert _deprecated_parameters_keys_in_request(request) == expected
+
+    def test_returns_empty_when_reading_body_raises(self) -> None:
+        request = MagicMock()
+        type(request).data = PropertyMock(side_effect=RuntimeError("stream consumed"))
+        assert _deprecated_parameters_keys_in_request(request) == []

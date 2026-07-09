@@ -151,6 +151,26 @@ _DEPRECATED_PARAMETERS_KEYS = frozenset(
 )
 
 
+def _deprecated_parameters_keys_in_request(request: Any) -> list[str]:
+    """The deprecated flag-config keys still sent through the raw request body's `parameters` dict, sorted.
+
+    Reads the raw request body, not validated_data: ExperimentSerializer folds/strips deprecated
+    `parameters` input before validation, so only the raw body reveals whether a client still writes
+    flag config through the old dialect. Raw presence deliberately includes faithful projection echoes,
+    since an echoed key is a key the client read back from the projection.
+    """
+    try:
+        body = request.data
+    except Exception:
+        return []
+    if not isinstance(body, dict):
+        return []
+    params = body.get("parameters")
+    if not isinstance(params, dict):
+        return []
+    return sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
+
+
 def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
     """Which deprecated create-API fields the client sent, as `experiment created` event props.
 
@@ -175,10 +195,9 @@ def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
         sent.append("filters")
 
     props: dict[str, Any] = {"experiment_create_deprecated_fields": sent}
-    if isinstance(params, dict):
-        deprecated_param_keys = sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
-        if deprecated_param_keys:
-            props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
+    deprecated_param_keys = _deprecated_parameters_keys_in_request(request)
+    if deprecated_param_keys:
+        props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
     return props
 
 
@@ -2798,6 +2817,7 @@ class ExperimentService:
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
         event_source: EventSource | None = None,
+        deprecated_flag_config_changed: bool = False,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
@@ -2810,6 +2830,10 @@ class ExperimentService:
 
         ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
         mirroring ``create_experiment``.
+
+        ``deprecated_flag_config_changed`` records (for the "experiment updated" event) that the
+        serializer copy-forward turned deprecated ``parameters`` flag config into a real flag write;
+        the direct-caller derivation below sets it too. It is the gate for retiring the copy-forward.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
 
@@ -2888,7 +2912,10 @@ class ExperimentService:
         # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
         # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
         if feature_flag_config is None:
-            feature_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            derived_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            if derived_flag_config is not None:
+                feature_flag_config = derived_flag_config
+                deprecated_flag_config_changed = True
 
         self._validate_update_payload(experiment, update_data, feature_flag, feature_flag_config)
 
@@ -3061,7 +3088,11 @@ class ExperimentService:
             )
             if changed_fields and changed_fields != RUNNING_TIME_ONLY_CHANGED_FIELDS:
                 self._report_experiment_updated(
-                    experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
+                    experiment,
+                    changed_fields=changed_fields,
+                    request=report_request,
+                    event_source=event_source,
+                    deprecated_config_changed=deprecated_flag_config_changed,
                 )
 
         return experiment
@@ -3192,6 +3223,7 @@ class ExperimentService:
         changed_fields: list[str],
         request: Any | None = None,
         event_source: EventSource | None = None,
+        deprecated_config_changed: bool = False,
     ) -> None:
         if request is None and event_source is None:
             return
@@ -3200,6 +3232,15 @@ class ExperimentService:
         metadata["changed_fields"] = changed_fields
         if event_source is not None:
             metadata["source"] = event_source
+        # Deprecation-bake telemetry: `_keys` counts who still writes flag config through `parameters`
+        # (echoes included, the projection-reader proxy); `_changed` counts only writes that actually
+        # moved flag config, the signal for flipping the copy-forward to reject. Request-only, matching
+        # the create path.
+        if request is not None:
+            deprecated_keys = _deprecated_parameters_keys_in_request(request)
+            if deprecated_keys:
+                metadata["experiment_update_deprecated_parameters_keys"] = deprecated_keys
+            metadata["experiment_update_deprecated_config_changed"] = deprecated_config_changed
 
         report_user_action(
             self.user,
