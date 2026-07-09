@@ -75,6 +75,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'logs'
     } else if (resource === AccessControlResourceType.Tracing) {
         return 'tracing'
+    } else if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'sharing'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -212,6 +214,9 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
         return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
+    }
+    if (resource === AccessControlResourceType.SharingConfiguration) {
+        return 'Controls whether users can share resources - dashboards, insights, notebooks, and recordings - with anyone via a public link.'
     }
     return null
 }
