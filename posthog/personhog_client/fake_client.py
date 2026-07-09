@@ -763,14 +763,21 @@ def activate_personhog_fake():
     persons-DB ORM access so a stray Person.objects.* call fails loudly.  Test
     helpers in posthog.test.persons seed the fake explicitly when creating data.
     """
+    import posthog.personhog_client.client as personhog_client_module  # noqa: PLC0415
     from posthog.person_db_router import block_persons_orm, unblock_persons_orm  # noqa: PLC0415
 
     fake = FakePersonHogClient()
     set_active_fake(fake)
     block_persons_orm()
-    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
-        try:
-            yield fake
-        finally:
-            unblock_persons_orm()
-            set_active_fake(None)
+    # Plain attribute swap instead of mock.patch: this context manager wraps every test in the
+    # repo, and mock.patch's MagicMock construction is measurable at that volume. The swap is
+    # equivalent — both replace the same module attribute — and tests that patch the client
+    # themselves still layer over it and restore this one on exit.
+    original_get_client = personhog_client_module.get_personhog_client
+    personhog_client_module.get_personhog_client = lambda *args, **kwargs: fake
+    try:
+        yield fake
+    finally:
+        personhog_client_module.get_personhog_client = original_get_client
+        unblock_persons_orm()
+        set_active_fake(None)
