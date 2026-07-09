@@ -50,7 +50,15 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     exponential_histogram: 'p95',
 }
 const DEFAULT_DATE_FROM = '-1h'
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+
+// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
+// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
+// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
+const isUserInitiatedError = (error: unknown): boolean => {
+    const errorStr = String(error).toLowerCase()
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+}
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -113,6 +121,18 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
         ],
+        // A real query failure (bad regex, 500, timeout) — surfaced as a banner so it isn't mistaken
+        // for the empty-result state. Cleared when a new query starts or one succeeds; an aborted
+        // (superseded) query leaves the previous state untouched so refetches don't flash an error.
+        queryError: [
+            null as string | null,
+            {
+                fetchQueryResults: () => null,
+                fetchQueryResultsSuccess: () => null,
+                fetchQueryResultsFailure: (state, { error }) =>
+                    isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         setMetricName: ({ metricName }) => {
@@ -126,7 +146,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
-                values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                // An AbortError-named DOMException (not a bare string) is what api.ts and the global
+                // loader onFailure recognize as a cancellation, so a superseded query is swallowed
+                // rather than logged/captured as a real error.
+                values.queryAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setQueryAbortController(controller)
         },
