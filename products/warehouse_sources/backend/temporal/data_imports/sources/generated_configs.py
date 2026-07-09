@@ -2512,7 +2512,9 @@ class PartnerStackSourceConfig(config.Config):
 
 @config.config
 class PartnerizeSourceConfig(config.Config):
-    pass
+    application_key: str
+    user_api_key: str
+    publisher_id: str
 
 
 @config.config
