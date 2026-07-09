@@ -76,13 +76,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 if (!selectedNode) {
                     return []
                 }
-                const templateId = selectedNode.data?.config?.template_id
+                const config = selectedNode.data?.config
+                const templateId = config && 'template_id' in config ? config.template_id : undefined
                 if (!templateId) {
                     return []
                 }
                 const nodeDef = getRegisteredActionNodeCategories()
                     .flatMap((c) => c.nodes)
-                    .find((n) => n.config?.template_id === templateId)
+                    .find((n) => 'template_id' in n.config && n.config.template_id === templateId)
                 if (!nodeDef?.getOutputMappingSuggestions) {
                     return []
                 }
@@ -195,7 +196,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 const selectedNode = values.selectedNode
                 if (selectedNode) {
                     actions.initMappings(normalizeOutputVariable(selectedNode.data.output_variable))
-                    actions.loadSuggestions()
+                    actions.loadSuggestions({})
                 }
             },
             setMappings: ({ mappings }) => {
