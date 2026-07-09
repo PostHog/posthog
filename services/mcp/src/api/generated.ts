@@ -14939,6 +14939,27 @@ export namespace Schemas {
       readonly created_by_id: number | null;
     }
 
+    /**
+     * One suggested filter value for a custom property.
+     */
+    export interface CustomPropertyValueSuggestion {
+      /** A suggested value for the custom property. */
+      readonly name: string;
+    }
+
+    /**
+     * Response shape of the custom property value-suggestions endpoint.
+     *
+     * Matches the contract of the shared property-values picker (``propertyDefinitionsModel``
+     * on the frontend), which expects ``{results: [{name}], refreshing}``.
+     */
+    export interface CustomPropertyValueSuggestionsResponse {
+      /** Suggested values matching the search input. */
+      readonly results: readonly CustomPropertyValueSuggestion[];
+      /** Always false — present for compatibility with the property-values consumer. */
+      readonly refreshing: boolean;
+    }
+
     export interface CustomPropertyValueWrite {
       /** UUID of the custom property definition whose value to set for this account. */
       definition: string;
@@ -58955,6 +58976,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsCustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string;
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string;
+    };
+
     export type EnvironmentsCustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -65218,6 +65250,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type CustomPropertyDefinitionsValuesRetrieveParams = {
+    /**
+     * Id of the custom property definition to suggest values for.
+     */
+    key: string;
+    /**
+     * Case-insensitive substring to narrow the suggestions.
+     */
+    value?: string;
     };
 
     export type CustomPropertySourcesListParams = {
