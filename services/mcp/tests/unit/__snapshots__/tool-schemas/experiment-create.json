@@ -2071,7 +2071,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag": {
-            "description": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input, do not send flag config via the deprecated parameters keys (feature_flag_variants, rollout_percentage). If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair, map the baseline to `key: \"control\"` — not \"A\", \"Control\", \"old\", \"original\", or \"baseline\". Other variants can use any key (`test`, `variant_a`, etc.).",
+            "description": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string `control` (lowercase, no variations). It is the baseline used for analysis and the experiment runtime treats it specially. If the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair, map the baseline to `key: \"control\"` — not \"A\", \"Control\", \"old\", \"original\", or \"baseline\". Other variants can use any key (`test`, `variant_a`, etc.).",
             "properties": {
                 "ensure_experience_continuity": {
                     "anyOf": [
@@ -2203,59 +2203,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "feature_flag_variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "properties": {
-                                            "key": {
-                                                "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
-                                                "type": "string"
-                                            },
-                                            "name": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Human-readable variant name."
-                                            },
-                                            "rollout_percentage": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            },
-                                            "split_percent": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
-                                            }
-                                        },
-                                        "required": ["key"],
-                                        "type": "object"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        },
                         "minimum_detectable_effect": {
                             "anyOf": [
                                 {
@@ -2266,17 +2213,6 @@
                                 }
                             ],
                             "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
-                        },
-                        "rollout_percentage": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
                         },
                         "variant_notes": {
                             "anyOf": [
@@ -2302,7 +2238,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
+            "description": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here."
         },
         "stats_config": {}
     },

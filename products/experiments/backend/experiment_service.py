@@ -137,6 +137,50 @@ FREEZE_EXPOSURE_SNAPSHOT_NAME_PREFIX = "Exposure snapshot for experiment "
 # Auto-saved sample-size estimate, not a user edit: skip the "experiment updated" event.
 RUNNING_TIME_ONLY_CHANGED_FIELDS = ["running_time_calculation"]
 
+# Deprecated flag-config sub-keys under `parameters` that should move to the `feature_flag` object.
+# Kept in sync with the model's `parameters` deprecation comment. Used to attribute deprecated-field
+# usage to organizations for migration outreach.
+_DEPRECATED_PARAMETERS_KEYS = frozenset(
+    {
+        "feature_flag_variants",
+        "rollout_percentage",
+        "aggregation_group_type_index",
+        "feature_flag_payloads",
+        "ensure_experience_continuity",
+    }
+)
+
+
+def _deprecated_fields_in_request(request: Any) -> dict[str, Any]:
+    """Which deprecated create-API fields the client sent, as `experiment created` event props.
+
+    Reads the raw request body, not validated_data: ExperimentSerializer._normalize_feature_flag_input
+    folds the new `feature_flag` object into `parameters` before validation, so only the raw body
+    distinguishes deprecated `parameters` usage from new-API usage.
+    """
+    try:
+        body = request.data
+    except Exception:
+        return {}
+    if not isinstance(body, dict):
+        return {}
+
+    sent: list[str] = []
+    params = body.get("parameters")
+    if isinstance(params, dict) and params:
+        sent.append("parameters")
+    if body.get("secondary_metrics"):
+        sent.append("secondary_metrics")
+    if body.get("filters"):
+        sent.append("filters")
+
+    props: dict[str, Any] = {"experiment_create_deprecated_fields": sent}
+    if isinstance(params, dict):
+        deprecated_param_keys = sorted(set(params) & _DEPRECATED_PARAMETERS_KEYS)
+        if deprecated_param_keys:
+            props["experiment_create_deprecated_parameters_keys"] = deprecated_param_keys
+    return props
+
 
 class ExperimentQueryStatus(str, Enum):
     """
@@ -229,9 +273,9 @@ class ExperimentService:
             keys = [variant["key"] for variant in variants]
             if "control" not in keys:
                 # Surface the keys we did receive so LLM callers can self-correct without a
-                # second roundtrip. Capitalized 'Control' is auto-normalized in
-                # ExperimentParametersField.to_internal_value, so anything reaching this
-                # branch genuinely lacks a baseline variant.
+                # second roundtrip. Capitalized 'Control' is auto-normalized on the feature_flag
+                # input path (_normalized_flag_variants), so anything reaching this branch
+                # genuinely lacks a baseline variant.
                 raise ValidationError(
                     "Feature flag variants must contain a variant with key 'control' "
                     f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
@@ -1123,6 +1167,8 @@ class ExperimentService:
             analytics_metadata["source"] = event_source
         if allow_unknown_events:
             analytics_metadata["allow_unknown_events"] = True
+        if request is not None:
+            analytics_metadata.update(_deprecated_fields_in_request(request))
 
         report_user_action(
             self.user,
@@ -3150,7 +3196,11 @@ class ExperimentService:
         if "holdout" in update_data:
             holdout = update_data["holdout"]
 
-        if update_data.get("parameters"):
+        # Only resync the flag from ``parameters`` when it actually carries flag-config keys.
+        # A read-modify-write PATCH that echoes non-flag params (e.g. variant_notes) alongside
+        # a stripped parameters dict must not reset the flag's variants to DEFAULT_VARIANTS.
+        params = update_data.get("parameters")
+        if params and any(key in params for key in self.FEATURE_FLAG_CONFIG_KEYS):
             variants = update_data["parameters"].get("feature_flag_variants", [])
             aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
 
