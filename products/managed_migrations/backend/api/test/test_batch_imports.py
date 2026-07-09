@@ -192,6 +192,13 @@ class TestBatchImportModel(BaseTest):
                 1,
                 "day-1",
             ),
+            (
+                "missing_offset_treated_as_zero",
+                {"parts": [{"key": "day-1", "total_size": 5}]},
+                0,
+                1,
+                "day-1",
+            ),
         ]
     )
     def test_parts_progress_summarizes_worker_state(self, _name, state, expected_done, expected_total, inflight_key):

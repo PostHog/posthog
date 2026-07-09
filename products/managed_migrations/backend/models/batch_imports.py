@@ -67,7 +67,11 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         order, so the first unfinished part is the one in flight (or next up).
         """
         parts = (self.state or {}).get("parts") or []
-        done = sum(1 for p in parts if p.get("total_size") is not None and p["current_offset"] >= p["total_size"])
+        # Defensive .get throughout: this renders on every admin changelist row, so
+        # one partially shaped worker-owned part dict must not 500 the whole list.
+        done = sum(
+            1 for p in parts if p.get("total_size") is not None and p.get("current_offset", 0) >= p["total_size"]
+        )
         inflight = next(
             (p for p in parts if p.get("total_size") is None or p.get("current_offset", 0) < p["total_size"]),
             None,
