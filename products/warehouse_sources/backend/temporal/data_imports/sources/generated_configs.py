@@ -1995,7 +1995,7 @@ class LoopsSourceConfig(config.Config):
 
 @config.config
 class LumaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
