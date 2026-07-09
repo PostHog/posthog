@@ -3168,7 +3168,9 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmailySourceConfig(config.Config):
-    pass
+    subdomain: str
+    username: str
+    password: str
 
 
 @config.config
