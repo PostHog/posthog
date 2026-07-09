@@ -5,7 +5,7 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -108,6 +108,9 @@ from products.slack_app.backend.services.slack_user_oauth import (
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 from products.tasks.backend.facade import api as tasks_facade
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -3345,20 +3348,100 @@ def _selected_permission_mode(payload: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _sync_permission_mode_to_task_run(context: dict[str, Any], integration: Integration, selected_mode: str) -> None:
+def _sync_permission_mode_to_task_run(
+    context: dict[str, Any], integration: Integration, selected_mode: str
+) -> "TaskRunDTO | None":
+    """Apply the mode to the card's live run so it takes effect mid-run, not only for future runs."""
     run_id = context.get("run_id")
     task_id = context.get("task_id")
     if not isinstance(run_id, str) or not isinstance(task_id, str):
-        return
+        return None
 
     try:
         task_run = tasks_facade.get_task_run(run_id, team_id=integration.team_id)
     except (ValidationError, ValueError):
-        return
+        return None
     if task_run is None or str(task_run.task_id) != task_id or task_run.is_terminal:
-        return
+        return None
 
     tasks_facade.update_task_run_state(task_run.id, updates={"slack_permission_mode": selected_mode})
+    return task_run
+
+
+def _approve_pending_permission_request(
+    payload: dict,
+    context: dict[str, Any],
+    context_token: str,
+    integration: Integration,
+    clicker_slack_user_id: str,
+    task_run: "TaskRunDTO",
+    selected_label: str,
+) -> bool:
+    """Approve the card's own pending request after a full-auto grant.
+
+    Full auto means the broker will allow every subsequent request in this run, so
+    leaving the prompt that triggered the grant unanswered would keep the agent
+    blocked on a click that no longer carries a decision. Best-effort: on any
+    resolution failure the card stays and the user can still answer it manually.
+    """
+    request_id = context.get("request_id")
+    channel = context.get("channel")
+    thread_ts = context.get("thread_ts")
+    if not isinstance(request_id, str) or not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return False
+
+    options_by_id = _permission_options_by_id(context)
+    if not options_by_id:
+        return False
+    option_id = _default_permission_option_id(context, options_by_id)
+    if options_by_id[option_id]["kind"].startswith("reject"):
+        return False
+
+    actor_context = resolve_slack_user(
+        SlackIntegration(integration),
+        integration,
+        clicker_slack_user_id,
+        channel,
+        thread_ts,
+        post_feedback=False,
+    )
+    if actor_context is None:
+        return False
+
+    signaled = tasks_facade.signal_task_run_permission_response(
+        task_run.id,
+        task_run.task_id,
+        integration.team_id,
+        request_id=request_id,
+        option_id=option_id,
+        actor_user_id=actor_context.user.id,
+        actor_slack_user_id=clicker_slack_user_id,
+        broker_reason="slack_full_auto_grant",
+    )
+    if signaled is not True:
+        logger.warning(
+            "slack_app_permission_full_auto_approve_failed",
+            run_id=str(task_run.id),
+            request_id=request_id,
+            option_id=option_id,
+        )
+        return False
+
+    cache.delete(_picker_context_cache_key(context_token))
+    option_label = options_by_id[option_id]["label"]
+    _replace_permission_prompt(
+        payload,
+        f"Permission mode saved: `{selected_label}`. Approved `{option_label}` for the agent.",
+    )
+    logger.info(
+        "slack_app_permission_response_signaled",
+        run_id=str(task_run.id),
+        request_id=request_id,
+        option_id=option_id,
+        action=SLACK_PERMISSION_ACTION_SELECT,
+        actor_user_id=actor_context.user.id,
+    )
+    return True
 
 
 def _handle_permission_config_select(payload: dict) -> HttpResponse:
@@ -3366,7 +3449,7 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
     if resolved is None:
         return HttpResponse(status=200)
 
-    _context_token, context, integration, clicker_slack_user_id = resolved
+    context_token, context, integration, clicker_slack_user_id = resolved
     selected_mode = _selected_permission_mode(payload)
 
     from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
@@ -3391,16 +3474,31 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
     permission_modes[str(integration.id)] = selected_mode
     settings_row.permission_modes = permission_modes
     settings_row.save(update_fields=["permission_modes", "updated_at"])
-    _sync_permission_mode_to_task_run(context, integration, selected_mode)
+    task_run = _sync_permission_mode_to_task_run(context, integration, selected_mode)
 
     selected_label = SlackPermissionMode(selected_mode).label
-    _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
+    approved_pending = False
+    if (
+        task_run is not None
+        and selected_mode == SlackPermissionMode.FULL_AUTO
+        # Externally shared channels keep a human in the loop no matter the mode
+        # (mirrors CUSTOMER_FACING_APPROVAL_STATE_KEY in the tasks permission broker).
+        and not task_run.state.get("slack_customer_facing_approval_required")
+    ):
+        approved_pending = _approve_pending_permission_request(
+            payload, context, context_token, integration, clicker_slack_user_id, task_run, selected_label
+        )
+    if not approved_pending:
+        _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
     logger.info(
         "slack_app_permission_mode_saved",
         integration_id=integration.id,
         slack_workspace_id=slack_workspace_id,
         slack_user_id=clicker_slack_user_id,
         permission_mode=selected_mode,
+        run_id=context.get("run_id"),
+        run_state_synced=task_run is not None,
+        pending_request_approved=approved_pending,
     )
     return HttpResponse(status=200)
 

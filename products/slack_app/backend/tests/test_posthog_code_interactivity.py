@@ -545,16 +545,19 @@ class TestRepoPickerOptions(TestCase):
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
 
-    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_permission_config_select_persists_user_setting(
+    def test_permission_config_select_full_auto_persists_and_approves_pending_request(
         self,
         mock_config,
         mock_requests_post,
+        mock_resolve_slack_user,
         mock_signal_permission_response,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_resolve_slack_user.return_value = SimpleNamespace(user=self.user, slack_email=self.user.email)
         # Pre-existing routing pick to a different project — saving a permission mode from an
         # approval card bound to posthog_code_integration must not repoint it.
         routing_team = Team.objects.create(organization=self.organization, name="Other Project")
@@ -577,16 +580,85 @@ class TestRepoPickerOptions(TestCase):
         )
 
         assert response.status_code == 200
-        mock_signal_permission_response.assert_not_called()
         settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
         assert settings.default_integration_id == routing_integration.id
         # Scoped to the card's integration only — never a workspace-wide grant.
         assert settings.permission_modes == {str(self.posthog_code_integration.id): SlackPermissionMode.FULL_AUTO}
         task_run.refresh_from_db()
         assert task_run.state["slack_permission_mode"] == SlackPermissionMode.FULL_AUTO
+        # Full auto grants everything, so the card's own pending request is approved too.
+        mock_signal_permission_response.assert_called_once_with(
+            task_run.id,
+            task_run.task_id,
+            task_run.team_id,
+            request_id="perm-1",
+            option_id="allow",
+            actor_user_id=self.user.id,
+            actor_slack_user_id="U123",
+            broker_reason="slack_full_auto_grant",
+        )
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+        assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert "Approved" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is None
+
+    @parameterized.expand(
+        [
+            ("read_only", SlackPermissionMode.READ_ONLY),
+            ("ask_before_write", SlackPermissionMode.ASK_BEFORE_WRITE),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_config_select_non_full_auto_leaves_pending_request_open(
+        self,
+        _name,
+        selected_mode,
+        mock_config,
+        mock_requests_post,
+        mock_signal_permission_response,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        task_run = self._create_permission_run()
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(self._permission_config_payload(token, selected_mode=selected_mode))
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_not_called()
+        task_run.refresh_from_db()
+        assert task_run.state["slack_permission_mode"] == selected_mode
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
-        assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert cache.get(_picker_context_cache_key(token)) is not None
+
+    @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_config_select_full_auto_keeps_pending_request_in_customer_facing_run(
+        self,
+        mock_config,
+        mock_requests_post,
+        mock_signal_permission_response,
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        task_run = self._create_permission_run()
+        task_run.state["slack_customer_facing_approval_required"] = True
+        task_run.save(update_fields=["state"])
+        token = self._cache_permission_context(task_run)
+
+        response = self._post_interactivity(
+            self._permission_config_payload(token, selected_mode=SlackPermissionMode.FULL_AUTO)
+        )
+
+        assert response.status_code == 200
+        mock_signal_permission_response.assert_not_called()
+        task_run.refresh_from_db()
+        assert task_run.state["slack_permission_mode"] == SlackPermissionMode.FULL_AUTO
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
         assert cache.get(_picker_context_cache_key(token)) is not None
 
     @patch("products.slack_app.backend.api.requests.post")
