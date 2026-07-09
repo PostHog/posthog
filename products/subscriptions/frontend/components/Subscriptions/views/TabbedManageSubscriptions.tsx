@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionType } from '~/types'
@@ -17,9 +15,9 @@ import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionsLogicProps } from '../utils'
 import { SubscriptionListItem } from './ManageSubscriptions'
 
-const PAGE_SIZE = 8
+const PAGE_SIZE = 10
 
-type SubscriptionTabKey = 'resource' | 'insights' | 'ai'
+export type SubscriptionTabKey = 'resource' | 'insights' | 'ai'
 
 interface SubscriptionTabConfig {
     key: SubscriptionTabKey
@@ -32,6 +30,10 @@ interface SubscriptionTabConfig {
 interface TabbedManageSubscriptionsProps extends SubscriptionsLogicProps {
     onCancel: () => void
     onSelect: (value: number | 'new') => void
+    // Tab state is owned by the parent modal: this component unmounts while a subscription
+    // is being edited, so local state would snap back to the first tab on return.
+    activeTab: SubscriptionTabKey
+    onChangeTab: (tab: SubscriptionTabKey) => void
 }
 
 interface SubscriptionTabListProps {
@@ -101,6 +103,8 @@ export function TabbedManageSubscriptions({
     dashboardId,
     onCancel,
     onSelect,
+    activeTab,
+    onChangeTab,
 }: TabbedManageSubscriptionsProps): JSX.Element {
     const logicProps: SubscriptionsLogicProps = { insightShortId, dashboardId }
     const {
@@ -111,13 +115,8 @@ export function TabbedManageSubscriptions({
         aiSubscriptions,
         aiSubscriptionsLoading,
     } = useValues(subscriptionsLogic(logicProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const [activeTab, setActiveTab] = useState<SubscriptionTabKey>('resource')
 
     const isInsightContext = !!insightShortId
-    // Without the AI prompt flag the AI loader always returns [], so the tab could never populate.
-    const aiSubscriptionsAvailable = !!featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]
 
     // Tabs always render (including at count 0) so the available scopes stay discoverable.
     const tabConfigs: (SubscriptionTabConfig | false)[] = [
@@ -135,7 +134,7 @@ export function TabbedManageSubscriptions({
             loading: insightSubscriptionsLoading,
             emptyMessage: "No subscriptions on this dashboard's insights yet.",
         },
-        aiSubscriptionsAvailable && {
+        {
             key: 'ai',
             label: 'AI prompt reports',
             subscriptions: aiSubscriptions,
@@ -169,7 +168,7 @@ export function TabbedManageSubscriptions({
             <LemonModal.Content>
                 <LemonTabs
                     activeKey={activeTab}
-                    onChange={setActiveTab}
+                    onChange={onChangeTab}
                     tabs={tabs}
                     data-attr="manage-subscriptions-tabs"
                     rightSlotClassName="bg-transparent"

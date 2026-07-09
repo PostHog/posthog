@@ -192,6 +192,7 @@ const subscriptionsList = (): ToolBase<
                 dashboard: params.dashboard,
                 dashboard_tiles: params.dashboard_tiles,
                 insight: params.insight,
+                insights: params.insights,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,

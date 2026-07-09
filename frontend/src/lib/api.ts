@@ -6179,21 +6179,18 @@ const api = {
             return await new ApiRequest().subscription(subscriptionId).update({ data })
         },
         async list({
-            insightId,
-            insightIds,
+            insights,
             dashboardId,
             dashboardTiles,
             resourceType,
         }: {
-            insightId?: number
-            insightIds?: number[]
+            insights?: number[]
             dashboardId?: number
             dashboardTiles?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
-                insightId ? `insight=${insightId}` : null,
-                insightIds?.length ? `insights=${insightIds.join(',')}` : null,
+                insights?.length ? `insights=${insights.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
                 dashboardTiles ? `dashboard_tiles=${dashboardTiles}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,

@@ -62182,6 +62182,10 @@ export namespace Schemas {
      */
     insight?: number;
     /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -69914,6 +69918,10 @@ export namespace Schemas {
      * Filter by insight ID.
      */
     insight?: number;
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string;
     /**
      * Number of results to return per page.
      */

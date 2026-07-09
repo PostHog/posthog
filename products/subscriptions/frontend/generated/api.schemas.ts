@@ -563,6 +563,10 @@ export type SubscriptionsListParams = {
      */
     insight?: number
     /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number

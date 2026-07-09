@@ -24,6 +24,7 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
     insight: zod.number().optional().describe('Filter by insight ID.'),
+    insights: zod.string().optional().describe('Filter by a comma-separated list of insight IDs.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),

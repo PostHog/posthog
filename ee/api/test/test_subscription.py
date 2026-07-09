@@ -151,7 +151,6 @@ class TestSubscriptionTemporal(APILicensedTest):
         kwargs = {} if send_test_now is None else {"send_test_now": send_test_now}
         response = self._create_subscription(**kwargs)
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        # write_only: the flag must never appear in responses
         assert "send_test_now" not in response.json()
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
@@ -176,12 +175,46 @@ class TestSubscriptionTemporal(APILicensedTest):
             payload["send_test_now"] = send_test_now
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", payload)
         assert response.status_code == status.HTTP_200_OK, response.content
+        assert "send_test_now" not in response.json()
         # The confirmation send on edit is driven only by send_test_now now — a delivery-relevant
         # field change (here target_value) no longer implies a re-send on its own.
         if should_fire:
             self.mock_temporal_client.start_workflow.assert_called_once()
         else:
             self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_update_send_test_now_skips_duplicate_in_flight_delivery(self):
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+        self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
+            f"test-delivery-subscription-{sub_id}", "handle-subscription-value-change"
+        )
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
+        # A delivery already in flight must not fail the update or fan out a second send
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @patch("posthog.rate_limit.SubscriptionTestDeliveryThrottle.rate", new="2/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_update_send_test_now_shares_test_delivery_throttle(self, _rate_limit_enabled_mock):
+        throttle_key = f"throttle_subscription_test_delivery_team_{self.team.id}"
+        cache.delete(throttle_key)
+        self.addCleanup(cache.delete, throttle_key)
+
+        sub_id = self._create_subscription().json()["id"]
+
+        for _ in range(2):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True}
+            )
+            assert response.status_code == status.HTTP_200_OK, response.content
+
+        throttled = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        # Plain edits without send_test_now must not be throttled
+        plain = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Still editable"})
+        assert plain.status_code == status.HTTP_200_OK, plain.content
 
     def test_cannot_create_subscription_without_insight_or_dashboard(self):
         response = self.client.post(
@@ -1458,13 +1491,30 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert both.status_code == status.HTTP_200_OK
         assert {r["id"] for r in both.json()["results"]} == {first_id, second_id}
 
-        # Non-numeric tokens are skipped rather than failing the whole request
-        mixed = self.client.get(
+        # The legacy single-ID `insight` param routes through the same filter
+        single = self.client.get(
             f"/api/projects/{self.team.id}/subscriptions/",
-            {"insights": f"abc,{self.insight.id}"},
+            {"insight": str(other_insight.id)},
         )
-        assert mixed.status_code == status.HTTP_200_OK
-        assert {r["id"] for r in mixed.json()["results"]} == {first_id}
+        assert single.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in single.json()["results"]} == {second_id}
+
+    @parameterized.expand(
+        [
+            ("insights_non_numeric_token", "insights", "abc,1"),
+            ("insights_superscript_digit", "insights", "²"),
+            ("insights_empty", "insights", ","),
+            ("insight_non_numeric", "insight", "abc"),
+            ("dashboard_tiles_non_numeric", "dashboard_tiles", "abc"),
+            ("dashboard_non_numeric", "dashboard", "abc"),
+        ]
+    )
+    def test_list_subscriptions_rejects_invalid_id_filters(self, _name, param, value):
+        # Invalid tokens must 400 rather than being silently dropped (a typo would
+        # otherwise quietly narrow results) or raising an unhandled 500.
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {param: value})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert res.json()["attr"] == param
 
     def _insight(self, **kwargs) -> Insight:
         return Insight.objects.create(

@@ -17,6 +17,10 @@
             "description": "Filter by insight ID.",
             "type": "number"
         },
+        "insights": {
+            "description": "Filter by a comma-separated list of insight IDs.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

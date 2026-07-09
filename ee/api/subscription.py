@@ -715,10 +715,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
-        # Skip the workflow trigger when the new subscription is created in a disabled
-        # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
-        # for a subscription that won't fire on its schedule either. Also skip it when the
-        # creator opted out of the immediate confirmation send.
         if not instance.enabled or not send_test_now:
             return instance
 
@@ -807,6 +803,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
+        # Explicit adoption signal for the "Send a test run now" toggle on edits — the canonical
+        # "subscription updated" event carries only model fields, so intent is captured here.
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_update_delivery_intent",
+            properties={
+                **analytics_props,
+                "subscription_id": instance.id,
+                "team_id": instance.team_id,
+                "resource_type": instance.resource_type,
+                "send_test_now": send_test_now,
+                "subscription_enabled": instance.enabled,
+            },
+            groups=groups(None, instance.team),
+        )
+
         # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
         if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
@@ -827,32 +839,59 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if not instance.enabled:
             return instance
 
-        # Fire the immediate confirmation delivery only when the editor explicitly asks for one
-        # via send_test_now. Inferring it from which fields changed was surprising (a recipient
-        # tweak would silently send); explicit intent keeps create and edit consistent.
         if not send_test_now:
             return instance
 
         temporal = sync_connect()
-        workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"
-        asyncio.run(
-            temporal.start_workflow(
-                "handle-subscription-value-change",
-                ProcessSubscriptionWorkflowInputs(
-                    subscription_id=instance.id,
-                    team_id=instance.team_id,
-                    distinct_id=str(instance.created_by.distinct_id) if instance.created_by else str(instance.team_id),
-                    previous_value=previous_value,
-                    invite_message=invite_message,
-                    trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
-                    resource_type=instance.resource_type,
-                ),
-                id=workflow_id,
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        # Deterministic ID shared with the test-delivery action: a caller spamming
+        # send_test_now (or racing it against test-delivery) dedupes to one in-flight
+        # delivery per subscription instead of fanning out real sends.
+        workflow_id = f"test-delivery-subscription-{instance.id}"
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    "handle-subscription-value-change",
+                    ProcessSubscriptionWorkflowInputs(
+                        subscription_id=instance.id,
+                        team_id=instance.team_id,
+                        distinct_id=str(instance.created_by.distinct_id)
+                        if instance.created_by
+                        else str(instance.team_id),
+                        previous_value=previous_value,
+                        invite_message=invite_message,
+                        trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        resource_type=instance.resource_type,
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        )
+        except WorkflowAlreadyStartedError:
+            # A delivery for this subscription is already in flight; the update itself
+            # succeeded, so skip the duplicate send rather than failing the request.
+            pass
 
         return instance
+
+
+def _parse_int_param(value: str, param: str) -> int:
+    try:
+        return int(value.strip())
+    except ValueError:
+        raise ValidationError({param: ["Must be an integer ID."]}) from None
+
+
+def _parse_int_list_param(value: str, param: str) -> list[int]:
+    # int() (not str.isdigit) so exotic digits like "²" fail as a 400 here instead of a 500,
+    # and invalid tokens reject the request instead of being silently dropped.
+    tokens = [token.strip() for token in value.split(",") if token.strip()]
+    try:
+        ids = [int(token) for token in tokens]
+    except ValueError:
+        ids = []
+    if not ids:
+        raise ValidationError({param: ["Must be a comma-separated list of integer insight IDs."]})
+    return ids
 
 
 def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool:
@@ -897,6 +936,13 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Filter by insight ID.",
+            ),
+            OpenApiParameter(
+                name="insights",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by a comma-separated list of insight IDs.",
             ),
             OpenApiParameter(
                 name="dashboard",
@@ -968,6 +1014,15 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        # An update that requests send_test_now enqueues a real email/Slack delivery — the same
+        # blast radius as the test-delivery action — so it shares that team-wide throttle.
+        data = self.request.data
+        if self.action in ("update", "partial_update") and isinstance(data, dict) and data.get("send_test_now"):
+            throttles.append(SubscriptionTestDeliveryThrottle())
+        return throttles
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 
@@ -1009,14 +1064,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 queryset = queryset.filter(target_type=target_type_filter)
 
         for key in request_params:
-            if key == "insight":
-                queryset = queryset.filter(insight_id=request_params["insight"])
-            elif key == "insights":
-                # Comma-separated insight IDs — list subscriptions across an explicit set of insights.
-                insight_ids = [int(i) for i in request_params["insights"].split(",") if i.strip().isdigit()]
-                if not insight_ids:
-                    raise ValidationError({"insights": ["Must be a comma-separated list of integer insight IDs."]})
-                queryset = queryset.filter(insight_id__in=insight_ids)
+            if key in ("insight", "insights"):
+                # `insight` (single ID) and `insights` (comma-separated IDs) share one filter:
+                # both are parsed as an ID list so behavior and validation stay identical.
+                queryset = queryset.filter(insight_id__in=_parse_int_list_param(request_params[key], key))
             elif key == "dashboard_tiles":
                 # Subscriptions on insights that are live tiles of the given dashboard, resolved server-side
                 # so the overview's "Insights" tab never depends on which tiles the client happens to have
@@ -1024,14 +1075,14 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 # also drop soft-deleted insights and scope to the team, matching the tile set the sibling
                 # dashboard-export validation resolves.
                 tile_insight_ids = DashboardTile.objects.filter(
-                    dashboard_id=request_params["dashboard_tiles"],
+                    dashboard_id=_parse_int_param(request_params["dashboard_tiles"], "dashboard_tiles"),
                     dashboard__team_id=self.team_id,
                     insight_id__isnull=False,
                     insight__deleted=False,
                 ).values_list("insight_id", flat=True)
                 queryset = queryset.filter(insight_id__in=tile_insight_ids)
             elif key == "dashboard":
-                queryset = queryset.filter(dashboard_id=request_params["dashboard"])
+                queryset = queryset.filter(dashboard_id=_parse_int_param(request_params["dashboard"], "dashboard"))
             elif key == "deleted":
                 queryset = queryset.filter(deleted=str_to_bool(request_params["deleted"]))
 
