@@ -262,15 +262,23 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
         needs_step_up = True
         enforced = True
 
-    # Dedup the side effects, never the returned tier: `effective` is computed above and returned
-    # regardless, so session-end is never suppressed. Only telemetry and the step-up write are gated,
-    # so one persistent anomaly stops firing on every request.
-    if _should_emit_risk(request.session, tier, signals, now=now):
-        if needs_step_up:
-            request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
-        # Persist the step-up flag and dedup markers now rather than relying on SessionMiddleware, which
-        # skips save() on a 5xx response — otherwise a server error here would drop the step-up requirement.
+    # `effective` is computed above and returned regardless, so session-end is never suppressed.
+    should_emit = _should_emit_risk(request.session, tier, signals, now=now)
+
+    # Enforcement is independent of the telemetry dedup: apply step-up whenever it is needed and not
+    # already set, even when the identical anomaly's telemetry is being deduped. Otherwise enabling
+    # step-up mid-session would leave an already-flagged session unenforced until the cooldown expires.
+    set_step_up = needs_step_up and not request.session.get(settings.SESSION_STEP_UP_REQUIRED_KEY)
+    if set_step_up:
+        request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+
+    # Persist the step-up flag and/or the dedup markers _should_emit_risk just wrote, now rather than
+    # relying on SessionMiddleware, which skips save() on a 5xx response — otherwise a server error
+    # here would drop the step-up requirement.
+    if should_emit or set_step_up:
         request.session.save()
+
+    if should_emit:
         # Telemetry must never break the request: a capture failure here would otherwise 500 an
         # otherwise-valid authenticated request from the request-phase middleware.
         try:
