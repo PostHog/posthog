@@ -921,7 +921,7 @@ class CultureAmpSourceConfig(config.Config):
 
 @config.config
 class CursorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

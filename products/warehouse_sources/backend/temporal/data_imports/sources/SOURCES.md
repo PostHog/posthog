@@ -124,6 +124,7 @@ the row lists both.
 | coupa                   | HTTP                        | requests                                                        | ✅                          |
 | crunchbase              | HTTP                        | requests                                                        | ✅                          |
 | culture_amp             | HTTP                        | requests                                                        | ✅                          |
+| cursor                  | HTTP                        | requests                                                        | ✅                          |
 | customer_io             | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | datadog                 | HTTP                        | requests                                                        | ✅                          |
 | deel                    | HTTP                        | requests                                                        | ✅                          |
@@ -474,7 +475,6 @@ doesn't conflict with concurrent PRs.
 - cosmosdb
 - couchbase
 - criteo
-- cursor
 - curve
 - customerly
 - databricks
