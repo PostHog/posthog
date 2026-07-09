@@ -2,6 +2,17 @@
 
 For full documentation, see [posthog.com/docs/cli](https://posthog.com/docs/cli).
 
+## What it does
+
+`posthog-cli` is a single binary for talking to PostHog from your terminal and CI. It covers two main jobs:
+
+- **Uploading debug symbols for error tracking.** Most of the commands upload the artifacts PostHog needs to turn minified or stripped stack traces back into readable source. `sourcemap` handles JavaScript bundles, `hermes` handles React Native (Hermes) sourcemaps, `proguard` handles Android mapping files, `dsym` handles Apple dSYM bundles, and `symbol-sets` uploads, downloads, and manages native (ELF/dSYM) symbol sets.
+- **Agent-first API access.** `api` exposes PostHog's MCP tool catalog through a shell-friendly interface, so coding agents (and the humans driving them) can discover, inspect, and call PostHog API tools without loading every schema into context. See [Agent-first API tools](#agent-first-api-tools) below.
+
+The rest of the commands are supporting utilities: `login` authenticates and stores a personal API token locally, and `exp` groups experimental commands that aren't quite ready for prime time yet — running HogQL/SQL queries (`exp query`), managing endpoints as YAML (`exp endpoints`), syncing event schemas into a typed SDK (`exp schema`), and working with tasks (`exp task`).
+
+The global `--dry-run` flag turns the upload commands into a no-op for CI gates that bundle to catch regressions but must not (or cannot) upload — see [Skipping uploads (dry run)](#skipping-uploads-dry-run).
+
 ## Installation
 
 Install the PostHog CLI with our wizard by running this command:
