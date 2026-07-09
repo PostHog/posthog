@@ -14,7 +14,6 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
-import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
@@ -871,14 +870,6 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            // Drop content-equal writes entirely. Every write produces a fresh workflow object,
-            // which re-renders every subscriber; a component that reacts to those renders by
-            // writing the same content back would otherwise self-sustain into React's maximum
-            // update depth crash. Starving no-op writes settles any such cycle after one pass.
-            if (objectsEqual(action.config, config)) {
-                return
-            }
-
             // Replace the action rather than mutating it: subscribers diff the workflow against
             // their previous snapshot, and an in-place write updates that snapshot too, making
             // every config edit look like a no-op.
@@ -918,12 +909,6 @@ export const workflowLogic = kea<workflowLogicType>([
             } as HogFlowAction['config'])
         },
         setWorkflowAction: async ({ actionId, action }) => {
-            const existing = values.workflow.actions.find((a) => a.id === actionId)
-            // Same no-op guard as setWorkflowActionConfig: identical content must not churn
-            // the workflow identity, or render-reactive writers can loop.
-            if (existing && objectsEqual(existing, action)) {
-                return
-            }
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
             actions.autoSaveWorkflow()

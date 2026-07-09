@@ -506,16 +506,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     // Reuse unchanged edge references so ReactFlow only reprocesses edges that
                     // actually changed (matching its own applyEdgeChanges contract).
-                    const reconciledEdges = reconcileById(values.edges, edges, (edge) => edge.id)
-                    const edgesUnchanged =
-                        reconciledEdges.length === values.edges.length &&
-                        reconciledEdges.every((edge, index) => edge === values.edges[index])
-                    // Config-only edits rebuild the graph but leave every edge deep-equal. Keeping
-                    // the array identity stable too means ReactFlow skips resyncing its internal
-                    // edge store (which notifies every subscriber) on each such write.
-                    if (!edgesUnchanged) {
-                        actions.setEdges(reconciledEdges)
-                    }
+                    actions.setEdges(reconcileById(values.edges, edges, (edge) => edge.id))
                     actions.setNodes(nodes)
                 } catch (error) {
                     console.error('Error resetting flow from hog flow', error)

@@ -541,8 +541,7 @@ describe('hogFlowEditorLogic', () => {
             await applyFlow(makeFlow())
 
             logic.values.nodes.forEach((node, index) => expect(node).toBe(initialNodes[index]))
-            // The edges array keeps its identity too, so ReactFlow skips resyncing its edge store.
-            expect(logic.values.edges).toBe(initialEdges)
+            logic.values.edges.forEach((edge, index) => expect(edge).toBe(initialEdges[index]))
         })
 
         it('replaces only the changed node reference when one action changes', async () => {
