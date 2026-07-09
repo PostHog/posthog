@@ -98,7 +98,12 @@ function fmtLongDuration(seconds) {
 }
 
 // Signed one-decimal WoW delta: '+66.5%' / '-1.0%'. '+0.0%' covers the -0.0 rounding edge.
+// A zero prior-week baseline (e.g. a clean week with no re-run cycles) has no finite
+// percent, so 0->positive shows '+∞%' and 0->0 stays '+0.0%'.
 function fmtDelta(current, previous) {
+    if (previous === 0) {
+        return current === 0 ? '+0.0%' : '+∞%'
+    }
     const pct = ((current - previous) / previous) * 100
     let s = pct.toFixed(1)
     if (s === '-0.0') {
