@@ -24,7 +24,11 @@ export interface ExperimentData {
     created_at?: string
     updated_at?: string
     feature_flag?: {
+        id?: number
+        key?: string
+        name?: string
         filters?: {
+            groups?: { rollout_percentage?: number | null }[]
             multivariate?: {
                 variants?: ExperimentVariant[]
             } | null
