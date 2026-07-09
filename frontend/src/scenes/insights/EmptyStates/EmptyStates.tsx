@@ -17,12 +17,12 @@ import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isTrustedImageSrc } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -62,7 +62,7 @@ const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 
 // Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
-// a clean href. No `g` flag: split() already splits on every match and reuses the capture group.
+// a clean href. No `g` flag needed: split() finds all matches and interleaves the captured URLs.
 const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
@@ -531,14 +531,12 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Render embedded URLs (e.g. a docs link the backend includes) as clickable links. Only PostHog
-// URLs are linkified — error detail can echo user-controlled text (e.g. a HogQL parse error), so we
-// don't turn arbitrary strings into clickable external links (isTrustedImageSrc is the
-// same-origin/posthog.com host allowlist used for untrusted markdown images).
+// Render embedded URLs (e.g. backend docs links) as clickable links. Only PostHog-host URLs are
+// linkified — error detail can echo user-controlled text.
 export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
     // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
     return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 && isTrustedImageSrc(part) ? (
+        index % 2 === 1 && isTrustedPostHogUrl(part) ? (
             <Link key={index} to={part} target="_blank">
                 {part}
             </Link>
@@ -589,7 +587,9 @@ export function InsightValidationError({
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
             {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
-                beside it so users who decline AI consent (or lack AI access) still have a next step. */}
+                beside it so users who decline AI consent (or lack AI access) still have a next step.
+                onClick fires when consent was already given (popover hidden); onApprove fires after
+                the consent flow completes — same pattern as InsightAIAnalysis. */}
             {isMemoryLimitError && !cta ? (
                 <div className="flex items-center gap-2">
                     <AIConsentPopoverWrapper onApprove={debugWithAI}>
