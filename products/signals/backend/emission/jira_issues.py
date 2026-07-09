@@ -68,8 +68,6 @@ FIELDS = (
     "JSONExtractRaw(fields, 'description') AS description",
 )
 
-EXTRA_FIELDS = ("key", "url", "status", "priority", "assignee", "labels", "created", "updated")
-
 
 def jira_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterOutput | None:
     try:
