@@ -70,6 +70,19 @@ def cmd_up(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_swap_frontend(args: argparse.Namespace) -> int:
+    # Deferred frontend swap onto an already-up box (parallel CI flow): `up`
+    # brings the box healthy on the :master SPA with no dist, then this lays the
+    # PR's freshly-built dist in once the runner finishes building it. Resolves
+    # the live box by pen/name — never restores a new one.
+    backend = build_backend(args)
+    stack = build_stack(backend, args)
+    url = stack.swap_frontend_only()
+    print(f"box_id={backend.box_id}")
+    print(f"url={url}")
+    return 0
+
+
 def cmd_create(args: argparse.Namespace) -> int:
     backend = build_backend(args)
     backend.provision()
@@ -195,6 +208,15 @@ def main(argv: list[str] | None = None) -> int:
         help="path to a gzipped tar of a prebuilt frontend/dist; serves the PR's own frontend (else the image's :master SPA)",
     )
     up.set_defaults(func=cmd_up)
+
+    sf = sub.add_parser("swap-frontend", help="swap the PR frontend onto an already-up box (deferred, parallel CI)")
+    sf.add_argument("--box-id", default=None, help="attach to this box instead of resolving the pen by --name")
+    sf.add_argument(
+        "--frontend-dist",
+        required=True,
+        help="path to a gzipped tar of the prebuilt frontend/dist to serve (built on the CI runner)",
+    )
+    sf.set_defaults(func=cmd_swap_frontend)
 
     cr = sub.add_parser("create", help="provision the box only")
     cr.set_defaults(func=cmd_create)

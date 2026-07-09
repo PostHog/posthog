@@ -31,6 +31,10 @@ _ORDER_COLUMNS: dict[TraceSpanBreakdownOrderBy, str] = {
     TraceSpanBreakdownOrderBy.ERROR_COUNT: "error_count",
 }
 
+# Top-level columns the `span` breakdown type may group by. The allowlist (enforced at both the
+# API and runner level) keeps arbitrary column names out of the generated SQL.
+FACET_COLUMNS: frozenset[str] = frozenset({"service_name", "status_code"})
+
 
 class TraceSpansAttributeBreakdownQueryRunner(
     _SpanAggregationMixin, AnalyticsQueryRunner[TraceSpansAttributeBreakdownQueryResponse]
@@ -46,24 +50,50 @@ class TraceSpansAttributeBreakdownQueryRunner(
 
     def __init__(self, query: TraceSpansAttributeBreakdownQuery, *args, **kwargs) -> None:
         super().__init__(query, *args, **kwargs)
+        if self.query.breakdownType == TraceSpanBreakdownType.SPAN and self.query.breakdownKey not in FACET_COLUMNS:
+            raise ValueError(f"Unsupported span column for breakdown: {self.query.breakdownKey!r}")
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         self._extract_filters()
+
+    def _extract_filters(self) -> None:
+        super()._extract_filters()
+        if not self.query.excludeBreakdownFilter:
+            return
+        # Facet semantics: a facet's value list must ignore its own selection (otherwise selecting
+        # a value collapses the facet to one row), while all other filters still apply.
+        key = self.query.breakdownKey
+        if self.query.breakdownType == TraceSpanBreakdownType.SPAN:
+            self.span_filters = [f for f in self.span_filters if f.key != key]
+            if key == "service_name":
+                # The dedicated service filter targets the same column as the breakdown.
+                self.query.serviceNames = None
+        elif self.query.breakdownType == TraceSpanBreakdownType.SPAN_ATTRIBUTE:
+            # Extraction suffixed the keys with their physical-map type (`__str` / `__float`).
+            suffixed = {f"{key}__str", f"{key}__float"}
+            self.span_attribute_filters = [f for f in self.span_attribute_filters if f.key not in suffixed]
+        else:
+            self.resource_attribute_filters = [f for f in self.resource_attribute_filters if f.key != key]
 
     def _calculate(self) -> TraceSpansAttributeBreakdownQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
         return TraceSpansAttributeBreakdownQueryResponse(results=current_rows, compare=previous_rows)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
-        if self.query.breakdownType == TraceSpanBreakdownType.SPAN_RESOURCE_ATTRIBUTE:
+        breakdown_field: ast.Expr
+        if self.query.breakdownType == TraceSpanBreakdownType.SPAN:
+            # Allowlisted top-level column (validated in __init__). toString keeps the response
+            # shape uniform — status_code is an Int16 (0/1/2) but rows always carry string values.
+            breakdown_field = ast.Call(name="toString", args=[ast.Field(chain=[self.query.breakdownKey])])
+        elif self.query.breakdownType == TraceSpanBreakdownType.SPAN_RESOURCE_ATTRIBUTE:
             # resource_attributes' property group matches any key as-is.
-            breakdown_chain: list[str | int] = ["resource_attributes", self.query.breakdownKey]
+            breakdown_field = ast.Field(chain=["resource_attributes", self.query.breakdownKey])
         else:
             # Span attribute keys carry a type suffix in the physical map (attributes_map_str);
             # the property-group resolver only rewrites suffixed keys to map access — a bare key
             # falls through to a JSON read, which is illegal on the Map column. Every value is
             # present in the __str map (the float/datetime maps are derived from it).
-            breakdown_chain = ["attributes", f"{self.query.breakdownKey}__str"]
+            breakdown_field = ast.Field(chain=["attributes", f"{self.query.breakdownKey}__str"])
         order_column = _ORDER_COLUMNS[self.query.orderBy or TraceSpanBreakdownOrderBy.COUNT]
 
         query = parse_select(
@@ -88,7 +118,7 @@ class TraceSpansAttributeBreakdownQueryRunner(
             LIMIT {limit}
             """,
             placeholders={
-                "breakdown_field": ast.Field(chain=breakdown_chain),
+                "breakdown_field": breakdown_field,
                 "where": self._where_without_date_range(),
                 "limit": ast.Constant(value=_ROW_LIMIT),
                 **query_date_range.to_placeholders(),
@@ -117,6 +147,7 @@ def run_attribute_breakdown_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    exclude_breakdown_filter: bool = False,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Facade-friendly entry point for running an attribute breakdown query."""
     query = TraceSpansAttributeBreakdownQuery(
@@ -127,6 +158,7 @@ def run_attribute_breakdown_query(
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,
+        excludeBreakdownFilter=exclude_breakdown_filter,
     )
     runner = TraceSpansAttributeBreakdownQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

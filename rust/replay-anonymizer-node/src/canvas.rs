@@ -1,6 +1,6 @@
 //! Scrubs rrweb CanvasMutation events: redacts text drawn via fill/strokeText and blurs drawn images
-//! and canvas snapshots. Mirrors `anonymize/canvas.ts`, with the deferred sharp jobs replaced by inline
-//! native blur (so the object lands on its final blurred/blanked value directly).
+//! and canvas snapshots. Blur runs inline (native), so the object lands on its final blurred/blanked
+//! value directly.
 
 use base64::Engine;
 use simd_json::borrowed::{Object, Value};

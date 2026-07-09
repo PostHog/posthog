@@ -7,7 +7,7 @@ ViewSet remains in experiments.py.
 """
 
 from copy import deepcopy
-from typing import Any
+from typing import Any, TypeGuard
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRunningTimeCalculation,
 )
 
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
@@ -105,11 +106,6 @@ class ExperimentParametersField(serializers.JSONField):
             data = {**data, "feature_flag_variants": _with_split_percent(data["feature_flag_variants"])}
         return data
 
-    def to_internal_value(self, data: Any) -> Any:
-        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
-            data = {**data, "feature_flag_variants": _normalized_flag_variants(data["feature_flag_variants"])}
-        return super().to_internal_value(data)
-
 
 @extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
 class ExperimentExposureCriteriaField(serializers.JSONField):
@@ -160,9 +156,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Experiment parameters JSON. Supported keys include "
             "`custom_exposure_filter` and `variant_notes` "
             "(free-text notes per variant, keyed by variant key). "
-            "Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated "
-            "input surface kept for compatibility — the linked feature flag is the source of "
-            "truth, and reads project its current config into this field. "
+            "Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs "
+            "on the `feature_flag` object; send it there. For backward compatibility, config still "
+            "sent through these deprecated keys is copied onto the linked flag rather than rejected, "
+            "and reads project the flag's current config back into this field. "
             "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
@@ -214,7 +211,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
             "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
+            "feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the "
+            "already-exposed cohort while metrics keep flowing — virtual state derived from the flag's "
+            "release groups, not stored), 'stopped' (ended)."
         ),
     )
     is_legacy = serializers.SerializerMethodField(
@@ -225,7 +224,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         ),
     )
 
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
         return instance.status_label
 
@@ -356,10 +355,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         default=False,
         write_only=True,
         help_text=(
-            "When true, sync feature flag configuration from parameters "
-            "to the linked feature flag. Draft experiments always sync "
-            "regardless of update_feature_flag_params, so only required "
-            "for non-drafts."
+            "When true, sync the flag config sent in this request (via the "
+            "`feature_flag` object) to the linked feature flag. Draft experiments "
+            "always sync regardless. On a running experiment, `feature_flag` config "
+            "without this flag is rejected."
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -509,12 +508,17 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read-only field. An object with no config keys at all (e.g. a ``{"key": ...}`` stub) is
         likewise ignored rather than rejected, so clients that have always included such stubs in
         write bodies keep working.
+
+        When no such object is present, a legacy caller may still be sending flag config through the
+        deprecated ``parameters`` keys. Rather than reject it, we copy it into the ``feature_flag``
+        object shape here so it flows through this same build/sync path (see
+        ``_deprecated_parameters_as_feature_flag_config``).
         """
         feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
-        if not isinstance(feature_flag_input, dict) or feature_flag_input.get("id") is not None:
-            return data
-        if not any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity")):
-            return data
+        if not self._is_feature_flag_config_input(feature_flag_input):
+            feature_flag_input = self._deprecated_parameters_as_feature_flag_config()
+            if feature_flag_input is None:
+                return data
         if self.instance is None:
             # The service links an existing flag as-is (it may already serve traffic), so explicit
             # config here would be applied nowhere — reject instead of silently dropping it.
@@ -560,8 +564,85 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return data
 
     def validate_parameters(self, value):
+        # Flag config is no longer a persisted `parameters` key; it is sourced from the linked flag
+        # (see ExperimentBaseSerializer._project_feature_flag_config). Strip any flag-config keys sent
+        # through `parameters` so they never reach the stored column; a legacy caller sending them is
+        # copied into the `feature_flag` path in _normalize_feature_flag_input instead of rejected.
+        value = ExperimentService._strip_feature_flag_config(value)
         ExperimentService.validate_experiment_parameters(value)
         return value
+
+    @staticmethod
+    def _is_feature_flag_config_input(feature_flag_input: Any) -> TypeGuard[dict]:
+        """Whether the request carries a genuine ``feature_flag`` config object (write intent), as
+        opposed to nothing, a read-only echo of the linked flag (non-null ``id``), or a bare stub
+        with no config keys."""
+        return (
+            isinstance(feature_flag_input, dict)
+            and feature_flag_input.get("id") is None
+            and any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity"))
+        )
+
+    def _deprecated_parameters_as_feature_flag_config(self) -> dict | None:
+        """Copy flag config still sent through the deprecated ``parameters`` keys into a
+        ``feature_flag`` config object, so legacy callers flow through the same build/sync path as
+        the ``feature_flag`` object rather than being rejected. Read from ``initial_data`` because
+        ``validate_parameters`` has already stripped these keys from the validated parameters.
+
+        Returns ``None`` when ``parameters`` carries no flag config, or when every key merely echoes
+        the linked flag's current projected config — a read-modify-write no-op that must stay a
+        no-op (not resync the flag, not trip the running-experiment guard)."""
+        raw_parameters = (getattr(self, "initial_data", None) or {}).get("parameters")
+        if not isinstance(raw_parameters, dict):
+            return None
+        present = [key for key in ExperimentService.FEATURE_FLAG_CONFIG_KEYS if key in raw_parameters]
+        if not present:
+            return None
+
+        flag = self.instance.feature_flag if self.instance is not None else None
+        projected: dict[str, Any] = {}
+        if flag is not None:
+            projection: dict[str, Any] = {}
+            self._project_feature_flag_config(projection, flag)
+            projected = projection.get("parameters") or {}
+
+        changed = {
+            key: raw_parameters[key]
+            for key in present
+            if not self._flag_config_echo_matches(key, raw_parameters[key], projected.get(key))
+        }
+        if not changed:
+            return None
+        return self._feature_flag_config_object(changed) or None
+
+    @staticmethod
+    def _feature_flag_config_object(flag_config: dict[str, Any]) -> dict[str, Any]:
+        """Assemble a ``feature_flag`` config object (the flag's native write shape) from deprecated
+        ``parameters`` flag-config keys, so the shared feature_flag input path can consume them.
+        Mirrors the read projection's translation in reverse."""
+        filters: dict[str, Any] = {}
+        if "feature_flag_variants" in flag_config:
+            filters["multivariate"] = {"variants": flag_config["feature_flag_variants"]}
+        if flag_config.get("rollout_percentage") is not None:
+            filters["groups"] = [{"properties": [], "rollout_percentage": flag_config["rollout_percentage"]}]
+        if "aggregation_group_type_index" in flag_config:
+            filters["aggregation_group_type_index"] = flag_config["aggregation_group_type_index"]
+        if "feature_flag_payloads" in flag_config:
+            filters["payloads"] = flag_config["feature_flag_payloads"]
+        feature_flag_input: dict[str, Any] = {}
+        if filters:
+            feature_flag_input["filters"] = filters
+        if "ensure_experience_continuity" in flag_config:
+            feature_flag_input["ensure_experience_continuity"] = flag_config["ensure_experience_continuity"]
+        return feature_flag_input
+
+    @staticmethod
+    def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:
+        if key == "feature_flag_variants":
+            # The read projection adds split_percent; normalize both sides to the flag's native
+            # shape (split_percent -> rollout_percentage) so a faithful echo compares equal.
+            return _normalized_flag_variants(sent or []) == _normalized_flag_variants(projected or [])
+        return sent == projected
 
     def validate_running_time_calculation(self, value):
         ExperimentService.validate_running_time_calculation(value)
@@ -689,6 +770,97 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         return service.update_experiment(
             instance, validated_data, serializer_context=self.context, allow_unknown_events=allow_unknown_events
         )
+
+
+class ExperimentFlagRolloutGroupSerializer(serializers.Serializer):
+    """A single release-condition group carrying only the overall rollout percentage, the one
+    groups entry the experiment input applies."""
+
+    rollout_percentage = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage of users who enter the experiment (0-100).",
+    )
+    properties = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        max_length=0,
+        help_text=(
+            "Must be empty or omitted: release-condition properties are not supported via the "
+            "experiment input. Edit the feature flag directly for targeting."
+        ),
+    )
+
+
+# Subclassing the flag's canonical filters schema (rather than redeclaring the shape) keeps the
+# experiment write surface from drifting when the flag filters schema changes. Constraints the
+# schema can't express are enforced at runtime by
+# ExperimentService.feature_flag_config_to_parameters.
+class ExperimentFeatureFlagFiltersSerializer(FeatureFlagFiltersSchemaSerializer):
+    """Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,
+    minus the keys experiments don't apply."""
+
+    # DRF's declarative field removal: assigning None drops the inherited field.
+    feature_enrollment = None  # type: ignore[assignment]
+    early_exit = None  # type: ignore[assignment]
+    # The runtime applies only groups[0].rollout_percentage and rejects release conditions, so
+    # advertise exactly that instead of the flag's full condition-group schema. The full schema
+    # would invite payloads (property filters, variant overrides, multiple groups) that always
+    # fail validation, and it adds ~10KB to each generated MCP tool schema.
+    groups = ExperimentFlagRolloutGroupSerializer(  # type: ignore[assignment,call-arg]
+        many=True,
+        required=False,
+        max_length=1,
+        help_text='Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].',
+    )
+
+
+# Schema-only: runtime consumes the raw feature_flag object from initial_data (see
+# ExperimentSerializer._normalize_feature_flag_input), so echoed read-only flag objects
+# (carrying a non-null id) keep being tolerated instead of failing this validation.
+class ExperimentFeatureFlagInputSerializer(serializers.Serializer):
+    """Flag config for experiment create/update, sent through the linked feature flag's own shape."""
+
+    filters = ExperimentFeatureFlagFiltersSerializer(
+        required=False,
+        help_text=(
+            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
+            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "conditions are not supported here, edit the feature flag directly), "
+            "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
+            "On update, config this object omits is preserved from the linked flag's current state."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the flag persists variant assignment across authentication steps.",
+    )
+
+
+# Schema-only request serializer: advertises the writable feature_flag input in OpenAPI. Runtime
+# writes still validate through ExperimentSerializer (the viewset's serializer_class), which reads
+# feature_flag from initial_data. Referenced only via extend_schema(request=...) on the
+# create/update/partial_update methods.
+class ExperimentWriteSerializer(ExperimentSerializer):
+    """Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input."""
+
+    feature_flag = ExperimentFeatureFlagInputSerializer(  # type: ignore[assignment]
+        required=False,
+        help_text=(
+            "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag "
+            "is the source of truth for variants, rollout, aggregation, payloads, and experience "
+            "continuity: send config here instead of the deprecated `parameters` keys. On a running "
+            "experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key "
+            "of a pre-existing feature flag on create (the experiment links to it as-is)."
+        ),
+    )
+
+    class Meta(ExperimentSerializer.Meta):
+        # feature_flag is writable in this schema-only variant, so it must leave read_only_fields.
+        read_only_fields = [field for field in ExperimentSerializer.Meta.read_only_fields if field != "feature_flag"]
 
 
 class ExperimentBasicSerializer(ExperimentBaseSerializer):

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
+import * as readingIsMagicPng from '@posthog/brand/hoggies/png/reading-is-magic'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,6 +21,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
+
+const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',

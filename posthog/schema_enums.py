@@ -417,6 +417,7 @@ class AssistantTool(StrEnum):
     DIAGNOSE_PROXY = "diagnose_proxy"
     WEB_ANALYTICS_DOCTOR = "web_analytics_doctor"
     ASSESS_HEATMAP = "assess_heatmap"
+    SUMMARIZE_WEBSITE_INTERACTIONS = "summarize_website_interactions"
     MARKETING_DIAGNOSE_SETUP = "marketing_diagnose_setup"
     MARKETING_EXPLAIN_CONVERSION_GOAL = "marketing_explain_conversion_goal"
     MARKETING_LIST_CONVERSION_GOALS = "marketing_list_conversion_goals"
@@ -587,6 +588,11 @@ class ChartDisplayType(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+
+
+class Curve(StrEnum):
+    LINEAR = "linear"
+    SMOOTH = "smooth"
 
 
 class ColorMode(StrEnum):
@@ -1826,6 +1832,34 @@ class ExternalDataSourceType(StrEnum):
     MERCURY = "Mercury"
     GOJIBERRY = "Gojiberry"
     TEACHABLE = "Teachable"
+    PEEC_AI = "PeecAI"
+    HEALTHCHECKS = "Healthchecks"
+    IMPACT = "Impact"
+    AIKIDO_SECURITY = "AikidoSecurity"
+    ALGUNA = "Alguna"
+    ANTHROPIC = "Anthropic"
+    APPWRITE = "Appwrite"
+    BLAND_AI = "BlandAI"
+    BROWSE_AI = "BrowseAI"
+    BROWSER_USE = "BrowserUse"
+    CHART_HOP = "ChartHop"
+    CODY = "Cody"
+    CURSOR = "Cursor"
+    DECAGON = "Decagon"
+    DEEPGRAM = "Deepgram"
+    ELEVEN_LABS = "ElevenLabs"
+    HARVEY = "Harvey"
+    HYPERSPELL = "Hyperspell"
+    LANGFUSE = "Langfuse"
+    LINGO_DEV = "LingoDev"
+    M3TER = "M3ter"
+    MAXIO = "Maxio"
+    METORIAL = "Metorial"
+    OPEN_ROUTER = "OpenRouter"
+    TOGETHER_AI = "TogetherAI"
+    VAPI = "Vapi"
+    VESPA = "Vespa"
+    WRITESONIC = "Writesonic"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2807,6 +2841,7 @@ class PropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
     LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
+    METRIC_ATTRIBUTE = "metric_attribute"
     SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
@@ -3030,8 +3065,10 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_WRITE = "canvases:write"
     CHANNELS_MANAGE = "channels:manage"
     COMMANDS = "commands"
+    FILES_WRITE = "files:write"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 
@@ -3242,6 +3279,7 @@ class TaxonomicFilterGroupType(StrEnum):
     LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
     LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
+    METRIC_ATTRIBUTES = "metric_attributes"
     SPANS = "spans"
     SPAN_ATTRIBUTES = "span_attributes"
     SPAN_RESOURCE_ATTRIBUTES = "span_resource_attributes"
@@ -3282,6 +3320,7 @@ class TraceSpanBreakdownOrderBy(StrEnum):
 
 
 class TraceSpanBreakdownType(StrEnum):
+    SPAN = "span"
     SPAN_ATTRIBUTE = "span_attribute"
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute"
 

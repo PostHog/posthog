@@ -37,17 +37,6 @@ class TestAIObservabilityAccessControl(APIBaseTest):
         ]
         self.organization.save()
 
-        self.score_definitions_flag_patcher = patch(
-            "products.ai_observability.backend.api.score_definitions.feature_enabled_or_false", return_value=True
-        )
-        self.trace_reviews_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.feature_enabled_or_false", return_value=True
-        )
-        self.score_definitions_flag_patcher.start()
-        self.trace_reviews_flag_patcher.start()
-        self.addCleanup(self.score_definitions_flag_patcher.stop)
-        self.addCleanup(self.trace_reviews_flag_patcher.stop)
-
         AccessControl.objects.create(
             team=self.team,
             resource="project",

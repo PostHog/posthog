@@ -15,7 +15,8 @@
                 "minimax",
                 "openai",
                 "openrouter",
-                "together_ai"
+                "together_ai",
+                "zeabur"
             ],
             "type": "string"
         }

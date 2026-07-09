@@ -138,7 +138,7 @@ Before any per-URL deep dive, normalize against the whole stream: if total `$rag
 
 From the orientation join, a cliff candidate is a day (or the live partial day) where `capture_ratio` dropped below ~40% of its 14-day norm while `event_sessions` held within ~25% of its own norm. Require an established baseline (≥ ~100 recordings/day across ≥ 7 days) — low-volume projects wobble. Then explain it before emitting:
 
-- `advanced-activity-logs-list` (`scopes: ["Team"]`, `start_date`/`end_date` bracketing the cliff — the plain `activity-log-list` has no date filter and can page past an older edit) — recording settings live on the team: look for edits to sampling, minimum duration, URL triggers/blocklists, or opt-out near the cliff date. A matching edit means deliberate; cite it as context and stop.
+- `advanced-activity-logs-list` (`scopes: ["Team"]`, `start_date`/`end_date` bracketing the cliff) — recording settings live on the team: look for edits to sampling, minimum duration, URL triggers/blocklists, or opt-out near the cliff date. A matching edit means deliberate; cite it as context and stop.
 - SDK-side diagnosis from the event stream — recent events carry replay health properties: `$recording_status`, `$replay_sample_rate` (did the client-observed rate change on the cliff date?), `$sdk_debug_recording_script_not_loaded` (ad blockers / CSP blocking the recorder bundle). Group by `$lib_version` — a cliff aligned to one SDK version is a release regression; say so in the finding.
 - Slice by `$host` and platform (web vs mobile SDKs) — a cliff scoped to one host or one platform points at that surface's deploy, not the whole pipeline.
 
@@ -298,7 +298,7 @@ Direct calls (read-only):
 - `session-recording-summaries-list` / `session-recording-summary-get` — stored AI summaries (list filters: `session_ids`, `has_exceptions`, `outcome`; get returns segment-level detail). A 404 just means no summary exists — never trigger generation.
 - `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster. Feature-gated: skip silently if absent.
 - `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
-- `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs; prefer it over `activity-log-list`, which cannot filter by date.
+- `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties exist before aggregating. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 
 - `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox (native replay signals and scanner-emitted findings land here too); check before authoring so you edit instead of duplicating.

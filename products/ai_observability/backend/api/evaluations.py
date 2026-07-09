@@ -1,5 +1,5 @@
 import json
-from typing import Any, cast
+from typing import Any
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -19,14 +19,12 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
-from ..feature_flags import is_sentiment_evaluations_enabled
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER, TRIAL_MODEL_IDS
 from ..models.evaluation_config import EvaluationConfig
@@ -35,7 +33,6 @@ from ..models.evaluation_configs import (
     TRACE_EVAL_MAX_WINDOW_SECONDS,
     TRACE_EVAL_MIN_WINDOW_SECONDS,
     EvaluationType,
-    OutputType,
     evaluation_supports_reports,
     evaluation_uses_model_configuration,
     get_evaluation_config_content_key,
@@ -288,11 +285,6 @@ class EvaluationSerializer(serializers.ModelSerializer):
             getattr(self.instance, "model_configuration", None) if self.instance else None,
         )
 
-        if self._requires_sentiment_evaluations_feature(data) and not self._sentiment_evaluations_enabled():
-            raise serializers.ValidationError(
-                {"evaluation_type": "Sentiment evaluations are not available for this project."}
-            )
-
         if not evaluation_uses_model_configuration(evaluation_type) and model_configuration is not None:
             raise serializers.ValidationError(
                 {"model_configuration": "This evaluation type does not use model configuration."}
@@ -351,34 +343,6 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 self._validate_re_enable(data)
 
         return data
-
-    def _requires_sentiment_evaluations_feature(self, data: dict) -> bool:
-        if self.instance is None:
-            return (
-                data.get("evaluation_type") == EvaluationType.SENTIMENT.value
-                or data.get("output_type") == OutputType.SENTIMENT.value
-            )
-        if (
-            data.get("evaluation_type") == EvaluationType.SENTIMENT.value
-            and self.instance.evaluation_type != EvaluationType.SENTIMENT.value
-        ):
-            return True
-        if (
-            data.get("output_type") == OutputType.SENTIMENT.value
-            and self.instance.output_type != OutputType.SENTIMENT.value
-        ):
-            return True
-        return (
-            data.get("enabled") is True
-            and not self.instance.enabled
-            and self.instance.evaluation_type == EvaluationType.SENTIMENT.value
-        )
-
-    def _sentiment_evaluations_enabled(self) -> bool:
-        return is_sentiment_evaluations_enabled(
-            cast(User, self.context["request"].user),
-            self.context["get_team"](),
-        )
 
     def _validate_can_run(self, data: dict) -> None:
         """An eval being turned on — created enabled or re-enabled — must be able to resolve a
@@ -717,10 +681,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.create(
-                    team=self.team,
-                    evaluation=instance,
-                )
+                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
