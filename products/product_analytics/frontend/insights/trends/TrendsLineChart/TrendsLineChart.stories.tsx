@@ -2,9 +2,16 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import {
+    createInsightStory,
+    insightSceneMswDecorator,
+    insightSceneStoryParameters,
+} from 'scenes/insights/__mocks__/createInsightScene'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsAreaFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import trendsAreaBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
 import trendsLineFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import trendsLineBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import trendsLineMultiFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
@@ -120,4 +127,24 @@ export const SingleSeries: Story = {
 
 export const Breakdown: Story = {
     render: () => renderTrendsLineChart(trendsLineBreakdownFixture),
+}
+
+// The area display renders through the same line chart component with filled series
+export const Area: Story = {
+    render: () => renderTrendsLineChart(trendsAreaFixture),
+}
+
+export const AreaBreakdown: Story = {
+    render: () => renderTrendsLineChart(trendsAreaBreakdownFixture),
+}
+
+// Full insight scene in edit mode — the only snapshot of the editor's populated breakdown section
+export const EditSceneBreakdown: Story = createInsightStory(trendsLineBreakdownFixture as any, 'edit')
+EditSceneBreakdown.decorators = [insightSceneMswDecorator]
+EditSceneBreakdown.parameters = {
+    ...insightSceneStoryParameters,
+    testOptions: {
+        ...insightSceneStoryParameters.testOptions,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+    },
 }

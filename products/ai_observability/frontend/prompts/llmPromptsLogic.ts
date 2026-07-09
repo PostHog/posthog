@@ -65,6 +65,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
                     }),
             },
         ],
+        promptsLoaded: [
+            false as boolean,
+            {
+                loadPromptsSuccess: () => true,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -140,6 +146,12 @@ export const llmPromptsLogic = kea<llmPromptsLogicType>([
 
                 return count === 0 ? '0 prompts' : `${start}-${end} of ${count} prompt${count === 1 ? '' : 's'}`
             },
+        ],
+
+        shouldShowEmptyState: [
+            (s) => [s.count, s.promptsLoaded, s.promptsLoading, s.filters],
+            (count, promptsLoaded, promptsLoading, filters): boolean =>
+                promptsLoaded && !promptsLoading && count === 0 && !filters.search && !filters.created_by_id,
         ],
     }),
 

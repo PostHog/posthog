@@ -1,4 +1,7 @@
+import os
 import types
+import datetime as dt
+import tempfile
 
 import pytest
 from unittest import mock
@@ -9,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.c
     BingAdsClient,
     extract_webfault_detail,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
@@ -242,6 +246,47 @@ class TestBingAdsClient:
         # No detail to surface, so no auth pattern should be matched (stays retryable).
         non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
         assert not any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.download_and_extract_report_csv"
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.build_report_request")
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.reporting")
+    def test_get_performance_report_gives_sdk_private_existing_working_directory(
+        self, mock_reporting, _mock_build_request, mock_download
+    ):
+        """The bingads SDK defaults every ReportingServiceManager to a shared /tmp/BingAdsSDKPython that it
+        creates with a non-atomic check-then-makedirs; concurrent report fetches race and one dies with
+        FileExistsError. get_performance_report must hand the SDK a private directory that already exists so
+        the SDK never runs that creation path.
+        """
+        shared_default = os.path.join(tempfile.gettempdir(), "BingAdsSDKPython")
+        captured: dict[str, object] = {}
+
+        def fake_manager(authorization_data, poll_interval_in_milliseconds, environment, working_directory=None):
+            # Mirror the SDK's own working-directory handling to prove our fix bypasses it.
+            resolved = working_directory if working_directory is not None else shared_default
+            captured["working_directory"] = resolved
+            captured["created_by_sdk"] = not os.path.exists(resolved)
+            if captured["created_by_sdk"]:
+                os.makedirs(resolved)
+            return mock.MagicMock()
+
+        mock_reporting.ReportingServiceManager.side_effect = fake_manager
+        mock_download.return_value = ""
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        client.get_performance_report(
+            resource=BingAdsResource.AD_PERFORMANCE_REPORT,
+            account_id=self.account_id,
+            customer_id=self.customer_id,
+            start_date=dt.datetime(2024, 1, 1),
+            end_date=dt.datetime(2024, 12, 31),
+        )
+
+        # A private, already-existing directory means the SDK's racy makedirs never runs.
+        assert captured["working_directory"] != shared_default
+        assert captured["created_by_sdk"] is False
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_campaigns_success(self, mock_service_client):

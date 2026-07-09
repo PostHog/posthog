@@ -3657,15 +3657,18 @@ export interface AttributeBreakdownRow {
     p95_duration_nano: number
 }
 
-export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownType = 'span' | 'span_attribute' | 'span_resource_attribute'
 export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
 
 export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
     kind: NodeKind.TraceSpansAttributeBreakdownQuery
     dateRange: DateRange
-    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    /**
+     * Attribute key to group by (e.g. `http.response.status_code`, `server.address`).
+     * For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).
+     */
     breakdownKey: string
-    /** Where the key lives: span-level attributes or resource-level attributes. */
+    /** Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes. */
     breakdownType: TraceSpanBreakdownType
     /** Order rows by span count or error count, descending. Defaults to count. */
     orderBy?: TraceSpanBreakdownOrderBy
@@ -3673,6 +3676,11 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
     compareFilter?: CompareFilter
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
+    /**
+     * Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name`
+     * breakdown) so a facet's value list stays complete while one of its values is selected.
+     */
+    excludeBreakdownFilter?: boolean
 }
 
 export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -7271,6 +7279,31 @@ export const externalDataSources = [
     'PeecAI',
     'Healthchecks',
     'Impact',
+    'AikidoSecurity',
+    'Alguna',
+    'Anthropic',
+    'Appwrite',
+    'BlandAI',
+    'BrowseAI',
+    'BrowserUse',
+    'ChartHop',
+    'Cody',
+    'Cursor',
+    'Decagon',
+    'Deepgram',
+    'ElevenLabs',
+    'Harvey',
+    'Hyperspell',
+    'Langfuse',
+    'LingoDev',
+    'M3ter',
+    'Maxio',
+    'Metorial',
+    'OpenRouter',
+    'TogetherAI',
+    'Vapi',
+    'Vespa',
+    'Writesonic',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
