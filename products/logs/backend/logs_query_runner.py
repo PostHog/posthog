@@ -657,9 +657,19 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable.
-                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    # The placeholder is CAST to Map(String, String) rather than a bare map() so a
+                    # custom column or filter that indexes into it (arrayElement over the attribute
+                    # map) still type-checks — a bare map() is Map(Nothing, Nothing) and ClickHouse
+                    # rejects arrayElement against it at runtime.
+                    "attributes": parse_expr(
+                        "CAST(map(), 'Map(String, String)') AS attributes"
+                        if self.query.excludeAttributes
+                        else "attributes"
+                    ),
                     "resource_attributes": parse_expr(
-                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                        "CAST(map(), 'Map(String, String)') AS resource_attributes"
+                        if self.query.excludeAttributes
+                        else "resource_attributes"
                     ),
                 },
             )
