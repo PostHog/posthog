@@ -358,30 +358,41 @@ describe('BatchingPipeline', () => {
         })
     })
 
-    describe('empty batches', () => {
-        // An empty batch — fed empty, or mapped to empty by beforeBatch — used to
-        // register an un-completable batch: next() then threw the "null with N
-        // in-flight batches" corruption guard, and the phantom batch permanently
-        // occupied a concurrentBatches slot so every later feed() was rejected.
-        it.each([
-            ['fed empty', () => {}, [] as number[]],
-            [
-                'mapped to empty by beforeBatch',
-                () =>
-                    beforeBatchStep.mockImplementationOnce(({ batchContext }: any) =>
-                        Promise.resolve(ok({ elements: [], batchContext }))
-                    ),
-                [1, 2],
-            ],
-        ])('%s does not wedge next() or leak a capacity slot', async (_name, setup, offsets) => {
-            setup()
+    describe('empty and count-changing batches', () => {
+        // An empty feed used to register an un-completable batch: next() then
+        // threw the "null with N in-flight batches" corruption guard, and the
+        // phantom batch permanently occupied a concurrentBatches slot so every
+        // later feed() was rejected.
+        it('empty feed is a no-op that skips hooks and does not leak a capacity slot', async () => {
             const collector = createCollector({ concurrentBatches: 1 })
 
-            expect(await collector.feed(makeBatch(offsets))).toEqual({ ok: true })
+            expect(await collector.feed([])).toEqual({ ok: true })
+            expect(beforeBatchStep).not.toHaveBeenCalled()
             expect(await collector.next()).toBeNull()
-            expect(afterBatchStep).not.toHaveBeenCalled()
 
             // The slot was not leaked: a subsequent normal batch is accepted and processed.
+            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            const { allResults } = await drainAll(collector)
+            expect(allResults).toHaveLength(1)
+            expect(afterBatchStep).toHaveBeenCalledTimes(1)
+        })
+
+        // beforeBatch must preserve the element count; a shrunken batch (worst
+        // case zero elements) could never complete and would leak its slot.
+        it('rejects a beforeBatch that changes the element count without leaking a capacity slot', async () => {
+            beforeBatchStep.mockImplementationOnce(({ elements, batchContext }: any) =>
+                Promise.resolve(ok({ elements: elements.slice(1), batchContext }))
+            )
+            const collector = createCollector({ concurrentBatches: 1 })
+
+            expect(await collector.feed(makeBatch([1, 2]))).toEqual({
+                ok: false,
+                kind: 'before_batch_failed',
+                reason: expect.stringContaining('changed element count (2 -> 1)'),
+            })
+            expect(await collector.next()).toBeNull()
+
+            // Nothing was registered: a subsequent normal batch is accepted and processed.
             expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
             const { allResults } = await drainAll(collector)
             expect(allResults).toHaveLength(1)

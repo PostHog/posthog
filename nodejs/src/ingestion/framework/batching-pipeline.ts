@@ -18,6 +18,12 @@ export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>
     batchContext: { batchId: number } & CBatch
 }
 
+/**
+ * What a beforeBatch pipeline produces. Hooks may enrich elements (values or
+ * contexts) and the batch context, but must return exactly as many elements as
+ * they received — batch completion tracking counts messages, so a changed
+ * element count is a contract violation and the feed is rejected.
+ */
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
     elements: OkResultWithContext<TInput, CInput>[]
     batchContext: CBatch & { batchId: number }
@@ -79,8 +85,11 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  * the collector matches them to their batch and fires hooks.
  *
  * Lifecycle:
- * - feed() runs beforeBatch which returns mapped elements and side effects.
- *   Elements are tagged with messageId, then fed to the sub-pipeline.
+ * - feed() with zero elements is a no-op that returns ok — no batch is
+ *   registered and no hooks run (a zero-message batch could never complete).
+ * - feed() runs beforeBatch which returns enriched elements (same count as
+ *   fed — count changes are rejected) and side effects. Elements are tagged
+ *   with messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -163,6 +172,16 @@ export class BatchingPipeline<
     }
 
     private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+        // An empty feed has no messages that could ever complete a batch:
+        // completion is only detected in pump()'s result loop, so registering a
+        // zero-message batch would occupy a concurrentBatches slot forever and
+        // trip the "null with N in-flight batches" corruption guard on the next
+        // pull. Skip it entirely — no batchId consumed, no hooks run, nothing
+        // registered — so there are no side effects to surface either.
+        if (elements.length === 0) {
+            return { ok: true }
+        }
+
         if (this.batches.size >= this.options.concurrentBatches) {
             return {
                 ok: false,
@@ -187,20 +206,16 @@ export class BatchingPipeline<
         const { elements: mappedElements, batchContext } = beforeResult.result.value
         const beforeSideEffects = beforeResult.context.sideEffects
 
-        // A batch with zero elements — fed empty, or mapped to empty by beforeBatch —
-        // has no messages that could ever complete it. Registering it would occupy a
-        // concurrentBatches slot forever, and once the sub-pipeline drains it would
-        // trip the "null with N in-flight batches" corruption guard in pump(). So never
-        // register it: no batches.set, no capacity consumption, no subPipeline.feed, and
-        // no feedEpoch bump (nothing is buffered for a racing pull to pick up).
-        // beforeBatch may still have produced side effects; surface them as an
-        // empty-elements result so next() drains them instead of dropping them silently.
-        // With no side effects there is nothing to emit and next() stays null.
-        if (mappedElements.length === 0) {
-            if (beforeSideEffects.length > 0) {
-                this.completedResults.push({ elements: [], sideEffects: beforeSideEffects })
+        // beforeBatch may enrich elements and batch context but must not change
+        // the element count: a shrunken batch (worst case zero elements) could
+        // never complete and would leak its concurrentBatches slot forever. A
+        // count change is a contract violation, so reject the feed loudly.
+        if (mappedElements.length !== elements.length) {
+            return {
+                ok: false,
+                kind: 'before_batch_failed',
+                reason: `beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`,
             }
-            return { ok: true }
         }
 
         const messageIds: number[] = []
