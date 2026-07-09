@@ -1074,7 +1074,9 @@ def _build_and_finalize(
         pr_files=pr_files,
         published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
     )
-    finalize_review_report(team_id=team_id, report_id=report_id, body_markdown=body, run_index=run_index)
+    finalize_review_report(
+        team_id=team_id, report_id=report_id, body_markdown=body, run_index=run_index, head_sha=head_sha
+    )
 
 
 @activity.defn

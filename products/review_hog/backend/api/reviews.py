@@ -277,18 +277,19 @@ def _turn_scope_q(head_by_report: dict[str, str | None]) -> Q | None:
     return reduce(operator.or_, (Q(report_id=report_id, head_sha=head_sha) for report_id, head_sha in pairs))
 
 
-def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _SnapshotStats]:
-    """The latest snapshot's PR metadata per report, extracted DB-side.
+def _snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, _SnapshotStats]:
+    """The latest snapshot's PR metadata per report, extracted DB-side, scoped to `heads`.
 
-    `pr_snapshot` content embeds the PR's full files payload (easily hundreds of KB), so the
-    jsonb extraction pulls only `pr_metadata` and the `pr_files` length across the wire, and the
-    `head_sha` column keeps the jsonb work off prior turns' rows. Prefers the snapshot matching
-    the report's reviewed head, falling back to the newest one.
+    `heads` maps report id → the head to describe: the completed turn's head for row/detail payloads
+    (so an in-flight turn's snapshot never splices onto the previous turn's findings), the live
+    watermark for in-flight progress. `pr_snapshot` content embeds the PR's full files payload
+    (easily hundreds of KB), so the jsonb extraction pulls only `pr_metadata` and the `pr_files`
+    length across the wire, and the `head_sha` column keeps the jsonb work off prior turns' rows.
+    Prefers the snapshot matching the requested head, falling back to the newest one.
     """
     stats: dict[str, _SnapshotStats] = {}
-    head_by_report = {str(report.id): report.head_sha for report in reports}
     snapshots = ReviewReportArtefact.objects.for_team(team_id).filter(
-        report_id__in=list(head_by_report), type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT
+        report_id__in=list(heads), type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT
     )
 
     def _annotated(qs: QuerySet) -> QuerySet:
@@ -316,11 +317,11 @@ def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _Sna
             meta = None
         stats[report_id] = _SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=head_matched)
 
-    head_q = _turn_scope_q(head_by_report)
+    head_q = _turn_scope_q(heads)
     if head_q is not None:
         for row in _annotated(snapshots.filter(head_q).order_by("created_at", "id")):
             _ingest(row, head_matched=True)  # oldest-first, so the turn's latest snapshot wins
-    missing = [report_id for report_id in head_by_report if report_id not in stats]
+    missing = [report_id for report_id in heads if report_id not in stats]
     if missing:
         # No snapshot at the reviewed head (degraded fetch, or fetch not run yet): newest one wins.
         fallback = (
@@ -333,10 +334,10 @@ def _snapshot_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _Sna
     return stats
 
 
-def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnStats]:
-    """Chunk/perspective shape of each report's latest turn, extracted DB-side (counts only)."""
-    stats = {str(report.id): _TurnStats() for report in reports}
-    head_q = _turn_scope_q({str(report.id): report.head_sha for report in reports})
+def _turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, _TurnStats]:
+    """Chunk/perspective shape of each report's turn at `heads[report_id]`, extracted DB-side."""
+    stats = {report_id: _TurnStats() for report_id in heads}
+    head_q = _turn_scope_q(heads)
     if head_q is None:
         return stats
 
@@ -631,8 +632,15 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 reports.append(report)
         reports = reports[:RECENT_REVIEWS_LIMIT]
 
-        snapshots = _snapshot_stats(team_id, reports)
-        turns = _turn_stats(team_id, reports)
+        # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
+        # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
+        # watermark, which is also correct for never-finalized first turns.
+        snapshots = _snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+        turns = _turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+        in_flight = [report for report in reports if str(report.id) in in_progress_ids]
+        live_heads = {str(report.id): report.head_sha for report in in_flight}
+        live_snapshots = _snapshot_stats(team_id, live_heads) if in_flight else {}
+        live_turns = _turn_stats(team_id, live_heads) if in_flight else {}
         bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
         items = []
         for report in reports:
@@ -644,7 +652,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             if report_id in in_progress_ids:
                 # The in-flight turn's findings live one run_index ahead of the completed watermark.
                 current_pairs = bundle.turn(report_id, report.run_count + 1)
-                progress = _progress_payload(team_id, report, snapshot, turn, current_pairs)
+                progress = _progress_payload(
+                    team_id,
+                    report,
+                    live_snapshots.get(report_id, _SnapshotStats()),
+                    live_turns.get(report_id, _TurnStats()),
+                    current_pairs,
+                )
             items.append(_review_payload(report, snapshot, turn, pairs, progress))
         return Response(ReviewRecentReviewSerializer(items, many=True).data)
 
@@ -706,11 +720,14 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise NotFound("Review not found.")
 
         report_id = str(report.id)
-        snapshots = _snapshot_stats(team_id, [report])
-        turns = _turn_stats(team_id, [report])
+        # Everything the detail returns — stats, chunk set, link-anchoring head — describes the same
+        # completed turn the findings come from, never an in-flight turn's watermark.
+        completed_head = report.completed_head_sha or report.head_sha
+        snapshots = _snapshot_stats(team_id, {report_id: completed_head})
+        turns = _turn_stats(team_id, {report_id: completed_head})
         pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
         chunk_set = (
-            load_chunk_set(team_id=team_id, report_id=report_id, head_sha=report.head_sha) if report.head_sha else None
+            load_chunk_set(team_id=team_id, report_id=report_id, head_sha=completed_head) if completed_head else None
         )
 
         def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
@@ -722,7 +739,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             **_review_payload(
                 report, snapshots.get(report_id, _SnapshotStats()), turns.get(report_id, _TurnStats()), pairs
             ),
-            "head_sha": report.head_sha,
+            "head_sha": completed_head,
             "report_markdown": report.report_markdown,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),

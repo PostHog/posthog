@@ -565,18 +565,20 @@ def load_prior_findings_with_verdicts(
     return pairs
 
 
-def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, run_index: int) -> None:
-    """Mark the turn complete: store the rendered review body, bump `run_count`, stamp `last_run_at`.
+def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, run_index: int, head_sha: str) -> None:
+    """Mark the turn complete: store the body, bump `run_count`, stamp `last_run_at` and the reviewed head.
 
     Idempotent per turn: the update is conditioned on `run_count == run_index - 1` (the turn's fixed
     starting watermark), so an activity retry whose first attempt already committed matches nothing —
     a blind `F("run_count") + 1` would double-bump and break the `run_index == run_count` invariant
-    every latest-turn reader relies on.
+    every latest-turn reader relies on. `completed_head_sha` records what this finished turn reviewed;
+    the live `head_sha` watermark already points at the NEXT turn's commit the moment that turn starts.
     """
     ReviewReport.objects.for_team(team_id).filter(id=report_id, run_count=run_index - 1).update(
         report_markdown=body_markdown,
         run_count=run_index,
         last_run_at=timezone.now(),
+        completed_head_sha=head_sha,
         status=ReviewReport.Status.IDLE,
     )
 

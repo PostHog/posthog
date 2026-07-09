@@ -390,6 +390,53 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def test_row_and_detail_anchor_to_the_completed_turn_during_a_re_review(self) -> None:
+        # A re-review advances the live head_sha at turn START while run_count still points at the
+        # previous turn — row stats and the detail's link-anchoring head must describe the COMPLETED
+        # turn (same one as the findings), not splice in the in-flight commit's metadata. Only the
+        # progress payload reads the live head.
+        report = self._report(
+            pr_number=5,
+            acting_user=self.user,
+            status=ReviewReport.Status.ACTIVE,
+            head_sha="def",
+            completed_head_sha="abc",
+        )
+        report_id = str(report.id)
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="abc",
+            pr_metadata=_pr_metadata("abc", "completed title"),
+            pr_comments=[],
+            pr_files=[],
+        )
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="abc",
+            chunks=ChunksList(chunks=[Chunk(chunk_id=i, files=[FileInfo(filename="a.py")]) for i in range(3)]),
+        )
+        self._finding(report, "1-a", priority=IssuePriority.MUST_FIX)
+        # The in-flight turn's snapshot at the new head — must not leak into the row/detail payload.
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="def",
+            pr_metadata=_pr_metadata("def", "in flight title"),
+            pr_comments=[],
+            pr_files=[],
+        )
+
+        row = self.client.get(self.url).json()[0]
+        assert (row["pr_title"], row["chunk_count"], row["must_fix_count"]) == ("completed title", 3, 1)
+        assert row["in_progress"] is True
+        assert row["progress"]["review_stage"] == "chunking"  # live head: snapshot yes, chunks not yet
+
+        detail = self.client.get(f"{self.url}{report_id}/").json()
+        assert detail["head_sha"] == "abc"
+        assert detail["pr_title"] == "completed title"
+
     def test_in_progress_re_review_of_a_dormant_report_still_lists(self) -> None:
         # A re-review keeps the previous turn's last_run_at until it finalizes, so a dormant report's
         # in-flight turn ranks below the top-N completed slice — it used to be dropped from the

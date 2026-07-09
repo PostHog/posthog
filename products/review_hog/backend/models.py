@@ -50,6 +50,10 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     last_run_at = models.DateTimeField(null=True, blank=True)
     # Watermark — what the latest turn already reviewed, so a re-run knows what changed.
     head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The head the latest COMPLETED turn reviewed — stamped at finalize, while `head_sha` advances at
+    # turn START. Read paths pairing stats/links with the completed turn's findings anchor here, so an
+    # in-flight or crashed turn's metadata never splices onto the previous turn's findings.
+    completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
     # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
