@@ -404,7 +404,7 @@ function extractPromptVariables(promptText: string): string[] {
 
 function buildPythonSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
     const compileLines = variables.length
-        ? `\nsystem_prompt = prompts.compile(template, {${variables.map((v) => `'${v}': '...'`).join(', ')}})`
+        ? `\nsystem_prompt = prompts.compile(result.prompt, {${variables.map((v) => `'${v}': '...'`).join(', ')}})`
         : ''
     return `from posthog import Posthog
 from posthog.ai.prompts import Prompts
@@ -416,12 +416,13 @@ posthog = Posthog(
 )
 prompts = Prompts(posthog)
 
-template = prompts.get('${promptName}', fallback='You are a helpful assistant.')${compileLines}`
+result = prompts.get('${promptName}', with_metadata=True, fallback='You are a helpful assistant.')${compileLines}
+# result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
 function buildNodeSnippet(promptName: string, host: string, projectApiKey: string, variables: string[]): string {
     const compileLines = variables.length
-        ? `\nconst systemPrompt = prompts.compile(template, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
+        ? `\nconst systemPrompt = prompts.compile(result.prompt, {${variables.map((v) => ` ${JSON.stringify(v)}: '...'`).join(',')} })`
         : ''
     return `import { Prompts } from '@posthog/ai'
 import { PostHog } from 'posthog-node'
@@ -432,7 +433,8 @@ const posthog = new PostHog('${projectApiKey}', {
 })
 const prompts = new Prompts({ posthog })
 
-const template = await prompts.get('${promptName}', { fallback: 'You are a helpful assistant.' })${compileLines}`
+const result = await prompts.get('${promptName}', { fallback: 'You are a helpful assistant.' })${compileLines}
+// result.name / result.version -> send as $ai_prompt_name / $ai_prompt_version on your LLM events`
 }
 
 export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Element {
