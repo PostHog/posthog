@@ -108,8 +108,13 @@ export class ToolExecutor {
         }
 
         if (toolName === 'render-ui') {
-            // render-ui is only advertised when the flag is on; reject calls otherwise.
-            if (!state.renderUiEnabled) {
+            // render-ui is only ever advertised in single-exec mode. Honor the call there
+            // even if this request's UI-host classification resolved `render-ui` off:
+            // Anthropic's pooled transport sends `x-anthropic-client` inconsistently across
+            // a session, so re-deriving `renderUiEnabled` per call would 404 a tool that a
+            // cached `tools/list` already advertised — the exact break Claude web/desktop
+            // hit. `callRenderUiTool` degrades gracefully when no UI-app tool is available.
+            if (!state.useSingleExec) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }

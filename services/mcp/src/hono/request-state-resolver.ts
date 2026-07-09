@@ -153,7 +153,17 @@ export class RequestStateResolver {
         // single-exec CLI clients pool the same flag value, so the tool's advertisement and
         // execution must also require the UI-host check — otherwise rolling the flag out to
         // everyone leaks `render-ui` into Claude Code.
-        const renderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
+        const freshRenderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
+        // Anthropic pools MCP transports across products and sends `x-anthropic-client`
+        // inconsistently within a session (and flag eval can transiently fall back to `{}`),
+        // so re-deriving the UI-host decision per request flips it — a `tools/list` advertises
+        // `render-ui` while a later `tools/call` retracts it and 404s. Pin the first-resolved
+        // value to the session and reuse it, so the advertised roster stays stable.
+        const renderUiEnabled = await this.resolveSessionRenderUi(
+            reqCtx,
+            requestContext.mcpSessionId,
+            freshRenderUiEnabled
+        )
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
@@ -214,6 +224,31 @@ export class RequestStateResolver {
             renderUiEnabled,
             metadata,
             groupTypes,
+        }
+    }
+
+    // Pin the render-ui decision to the MCP session on first resolve and reuse it.
+    // Without a session id (or on a cache error) fall back to the freshly-derived
+    // value. Pin-first, not sticky-on: a non-UI Anthropic surface (Claude Code)
+    // that shares a pooled session id must never have `render-ui` turned on by an
+    // earlier UI-host request, so we never upgrade a cached `false` to `true`.
+    private async resolveSessionRenderUi(
+        reqCtx: RequestContext,
+        mcpSessionId: string | undefined,
+        freshValue: boolean
+    ): Promise<boolean> {
+        if (!mcpSessionId) {
+            return freshValue
+        }
+        try {
+            const cached = await reqCtx.sessionCache.get('renderUiEnabled')
+            if (cached !== undefined) {
+                return cached
+            }
+            await reqCtx.sessionCache.set('renderUiEnabled', freshValue)
+            return freshValue
+        } catch {
+            return freshValue
         }
     }
 

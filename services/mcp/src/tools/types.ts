@@ -31,6 +31,11 @@ export type State = {
     mcpProtocolVersion: string | undefined
     mcpConsumer: string | undefined
     mcpVendorClient: string | undefined
+    // The render-ui decision, pinned to the MCP session on first resolve.
+    // Anthropic pools MCP transports and sends `x-anthropic-client` inconsistently
+    // across a session, so re-deriving it per request flips the advertised roster —
+    // this keeps it stable for the session's lifetime.
+    renderUiEnabled: boolean | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
