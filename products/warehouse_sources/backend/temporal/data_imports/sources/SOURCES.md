@@ -225,6 +225,7 @@ the row lists both.
 | linkedin_ads            | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | linkrunner              | HTTP                        | requests                                                        | ✅                          |
 | lob                     | HTTP                        | requests                                                        | ✅                          |
+| luma                    | HTTP                        | requests                                                        | ✅                          |
 | mailchimp               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite              | HTTP                        | requests                                                        | ✅                          |
 | mailersend              | HTTP                        | requests                                                        | ✅                          |
@@ -589,7 +590,6 @@ doesn't conflict with concurrent PRs.
 - lokalise
 - looker
 - loops
-- luma
 - m3ter
 - mailtrap
 - mantle
