@@ -185,6 +185,7 @@ the row lists both.
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
+| humanitix               | HTTP                        | requests                                                        | ✅                          |
 | hubplanner              | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
@@ -509,7 +510,6 @@ doesn't conflict with concurrent PRs.
 - hoorayhr
 - hubplanner
 - hugging_face
-- humanitix
 - ikas
 - illumina_basespace
 - imagga
