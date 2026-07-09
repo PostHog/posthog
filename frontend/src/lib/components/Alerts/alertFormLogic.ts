@@ -65,6 +65,10 @@ export type AlertFormType = Pick<
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
+    | 'investigation_mode'
+    | 'investigation_repository'
+    | 'investigation_context'
+    | 'investigation_rerun_on_continued_breach'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
@@ -319,6 +323,10 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       investigation_agent_enabled: false,
                       investigation_gates_notifications: false,
                       investigation_inconclusive_action: 'notify',
+                      investigation_mode: 'notebook',
+                      investigation_repository: null,
+                      investigation_context: null,
+                      investigation_rerun_on_continued_breach: true,
                       insight: props.insightId,
                   } as AlertFormType),
             errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
@@ -355,13 +363,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           }
                         : alert.config,
                     detector_config: alert.detector_config ?? null,
-                    // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
-                    investigation_agent_enabled: alert.detector_config
-                        ? (alert.investigation_agent_enabled ?? false)
-                        : false,
-                    // Notification gating requires the investigation agent to be on.
+                    investigation_mode: alert.investigation_mode ?? 'notebook',
+                    // posthog_code investigations don't depend on anomaly detection; notebook ones do,
+                    // so those still force off without a detector_config.
+                    investigation_agent_enabled:
+                        alert.investigation_mode === 'posthog_code'
+                            ? (alert.investigation_agent_enabled ?? false)
+                            : alert.detector_config
+                              ? (alert.investigation_agent_enabled ?? false)
+                              : false,
+                    investigation_repository: alert.investigation_repository || null,
+                    investigation_context: alert.investigation_context || null,
+                    investigation_rerun_on_continued_breach: alert.investigation_rerun_on_continued_breach ?? true,
+                    // Notification gating is notebook-mode only, and requires the agent on with a detector.
                     investigation_gates_notifications:
-                        alert.detector_config && alert.investigation_agent_enabled
+                        alert.investigation_mode !== 'posthog_code' &&
+                        alert.detector_config &&
+                        alert.investigation_agent_enabled
                             ? (alert.investigation_gates_notifications ?? false)
                             : false,
                     investigation_inconclusive_action: alert.investigation_inconclusive_action ?? 'notify',

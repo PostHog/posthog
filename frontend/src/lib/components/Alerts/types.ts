@@ -94,6 +94,8 @@ export interface AnomalyPoint {
 
 export type InvestigationInconclusiveAction = 'notify' | 'suppress'
 
+export type InvestigationMode = 'notebook' | 'posthog_code'
+
 export interface AlertTypeBase {
     name: string
     condition: AlertCondition
@@ -107,6 +109,10 @@ export interface AlertTypeBase {
     investigation_agent_enabled?: boolean
     investigation_gates_notifications?: boolean
     investigation_inconclusive_action?: InvestigationInconclusiveAction
+    investigation_mode?: InvestigationMode
+    investigation_repository?: string | null
+    investigation_context?: string | null
+    investigation_rerun_on_continued_breach?: boolean
 }
 
 export interface AlertTypeWrite extends Omit<AlertTypeBase, 'insight'> {
@@ -134,6 +140,8 @@ export interface AlertCheck {
     investigation_verdict?: InvestigationVerdict | null
     investigation_summary?: string | null
     investigation_notebook_short_id?: string | null
+    investigation_task_run_id?: string | null
+    investigation_task_url?: string | null
     notification_sent_at?: string | null
     notification_suppressed_by_agent?: boolean
 }

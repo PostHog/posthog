@@ -263,6 +263,31 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
     })
 
+    // posthog_code investigations don't depend on anomaly detection, so the submit path must keep
+    // investigation_agent_enabled on without a detector_config. The pre-existing logic forced it off
+    // whenever detector_config was missing — this locks in the mode-aware exception.
+    it('keeps investigation enabled for posthog_code mode without detector config', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                detector_config: null,
+                investigation_agent_enabled: true,
+                investigation_mode: 'posthog_code',
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        const payload = createSpy.mock.calls[0][0]
+        expect(payload.investigation_agent_enabled).toBe(true)
+        expect(payload.investigation_mode).toBe('posthog_code')
+        expect(payload.investigation_rerun_on_continued_breach).toBe(true)
+    })
+
     it('blocks save when threshold alert has no lower or upper bound', async () => {
         const logic = mountForm()
         logic.actions.setAlertFormValues({

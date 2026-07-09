@@ -51,6 +51,13 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
     const summary = check.investigation_summary?.trim() || null
     const verdict = check.investigation_verdict ?? null
     const suppressed = !!check.notification_suppressed_by_agent
+    const taskUrl = check.investigation_task_url ?? null
+
+    const investigationLink = taskUrl ? (
+        <Link to={taskUrl} className="inline-flex items-center gap-1 text-sm">
+            <IconOpenInNew className="text-xs" /> View investigation
+        </Link>
+    ) : null
 
     if (status === 'done') {
         const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
@@ -79,21 +86,28 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />
                     </Link>
                 )}
+                {investigationLink}
             </div>
         )
     }
     if (status === 'running' || status === 'pending') {
         return (
-            <span className="inline-flex items-center gap-1 text-secondary">
-                <Spinner textColored /> Running
-            </span>
+            <div className="flex flex-col gap-1 items-start">
+                <span className="inline-flex items-center gap-1 text-secondary">
+                    <Spinner textColored /> Running
+                </span>
+                {investigationLink}
+            </div>
         )
     }
     if (status === 'failed') {
         return (
-            <Tooltip title="The investigation agent couldn't complete in time. The alert was still delivered. If this keeps happening, you can turn off the investigation agent in this alert's settings.">
-                <span className="text-danger">Failed</span>
-            </Tooltip>
+            <div className="flex flex-col gap-1 items-start">
+                <Tooltip title="The investigation agent couldn't complete in time. The alert was still delivered. If this keeps happening, you can turn off the investigation agent in this alert's settings.">
+                    <span className="text-danger">Failed</span>
+                </Tooltip>
+                {investigationLink}
+            </div>
         )
     }
     if (status === 'skipped') {
@@ -139,7 +153,9 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
     } = useValues(logic)
     const { selectAlertHistoryView, alertHistoryTablePageForward, alertHistoryTablePageBackward } = useActions(logic)
 
-    const investigationAgentEnabled = alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled
+    const investigationAgentEnabled =
+        (alertHistoryIsAnomalyDetection && !!alert?.investigation_agent_enabled) ||
+        (alert?.investigation_mode === 'posthog_code' && !!alert?.investigation_agent_enabled)
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
 
     const checkHistoryColumns = useMemo((): LemonTableColumn<AlertCheck, keyof AlertCheck | undefined>[] => {

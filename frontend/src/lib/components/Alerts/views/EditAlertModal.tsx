@@ -134,6 +134,7 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
+    const posthogCodeInvestigationEnabled = useFeatureFlag('ALERTS_POSTHOG_CODE_INVESTIGATION')
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -285,6 +286,7 @@ export function EditAlertModal({
                                             anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }
                                         investigationAgentEnabled={investigationAgentEnabled}
+                                        posthogCodeInvestigationEnabled={posthogCodeInvestigationEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}
                                         simulationDateFrom={simulationDateFrom}

@@ -8,6 +8,8 @@ import {
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
+    LemonTag,
+    LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -73,6 +75,7 @@ export interface AlertDefinitionSectionProps {
     hogql: HogQLDefinitionProps
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
+    posthogCodeInvestigationEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
     simulationDateFrom: string | null
@@ -98,6 +101,7 @@ export function AlertDefinitionSection({
     hogql,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
+    posthogCodeInvestigationEnabled,
     simulationResult,
     simulationResultLoading,
     simulationDateFrom,
@@ -111,6 +115,8 @@ export function AlertDefinitionSection({
     // value to compare against. A historical-trend funnel is a time series, so it does support them.
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const supportsRelativeConditions = !isFunnelAlert || funnel.isTrendsFunnel
+    const investigationMode = alertForm.investigation_mode ?? 'notebook'
+    const isPostHogCodeMode = investigationMode === 'posthog_code'
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
@@ -340,7 +346,8 @@ export function AlertDefinitionSection({
                 />
             )}
 
-            {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
+            {((alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled) ||
+                posthogCodeInvestigationEnabled) && (
                 <div className="deprecated-space-y-2">
                     <div className="flex items-center gap-1">
                         <h4 className="m-0">Investigation agent</h4>
@@ -352,6 +359,29 @@ export function AlertDefinitionSection({
                             <IconInfo />
                         </Tooltip>
                     </div>
+                    {posthogCodeInvestigationEnabled && (
+                        <LemonSegmentedButton
+                            fullWidth
+                            value={investigationMode}
+                            onChange={(value) => onSetAlertFormValue('investigation_mode', value)}
+                            options={[
+                                {
+                                    value: 'notebook',
+                                    label: 'Notebook',
+                                    disabledReason: !alertForm.detector_config
+                                        ? 'Notebook investigations require anomaly detection'
+                                        : undefined,
+                                    tooltip: 'Read-only queries against this insight, findings written to a notebook.',
+                                },
+                                {
+                                    value: 'posthog_code',
+                                    label: 'Deep investigation (PostHog Code)',
+                                    tooltip:
+                                        'Spawns a PostHog Code task to investigate across your codebase and data, optionally opening a draft PR.',
+                                },
+                            ]}
+                        />
+                    )}
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                         <LemonCheckbox
                             data-attr="alertForm-investigation-agent-enabled"
@@ -370,51 +400,88 @@ export function AlertDefinitionSection({
                                 </span>
                             }
                         />
-                        <LemonCheckbox
-                            data-attr="alertForm-investigation-gates-notifications"
-                            checked={!!alertForm.investigation_gates_notifications}
-                            onChange={(checked) => onSetAlertFormValue('investigation_gates_notifications', checked)}
-                            disabledReason={
-                                !alertForm.investigation_agent_enabled
-                                    ? 'Enable the investigation agent first'
-                                    : undefined
-                            }
-                            label={
-                                <span className="flex items-center gap-1">
-                                    Wait for the verdict before notifying
-                                    <Tooltip
-                                        title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
-                                        placement="right"
-                                        delayMs={0}
-                                    >
-                                        <IconInfo />
-                                    </Tooltip>
-                                </span>
-                            }
-                        />
+                        {!isPostHogCodeMode && (
+                            <LemonCheckbox
+                                data-attr="alertForm-investigation-gates-notifications"
+                                checked={!!alertForm.investigation_gates_notifications}
+                                onChange={(checked) =>
+                                    onSetAlertFormValue('investigation_gates_notifications', checked)
+                                }
+                                disabledReason={
+                                    !alertForm.investigation_agent_enabled
+                                        ? 'Enable the investigation agent first'
+                                        : undefined
+                                }
+                                label={
+                                    <span className="flex items-center gap-1">
+                                        Wait for the verdict before notifying
+                                        <Tooltip
+                                            title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
+                                            placement="right"
+                                            delayMs={0}
+                                        >
+                                            <IconInfo />
+                                        </Tooltip>
+                                    </span>
+                                }
+                            />
+                        )}
                     </div>
-                    {alertForm.investigation_agent_enabled && alertForm.investigation_gates_notifications && (
-                        <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
-                            <span>On inconclusive verdict</span>
-                            <LemonSegmentedButton
-                                size="xsmall"
-                                value={alertForm.investigation_inconclusive_action ?? 'notify'}
-                                onChange={(value) => onSetAlertFormValue('investigation_inconclusive_action', value)}
-                                options={[
-                                    {
-                                        value: 'notify',
-                                        label: 'Notify',
-                                        tooltip: 'Safe default — an unsure agent is itself signal.',
-                                    },
-                                    {
-                                        value: 'suppress',
-                                        label: 'Suppress',
-                                        tooltip: 'Only notify on true positives.',
-                                    },
-                                ]}
+                    {isPostHogCodeMode && alertForm.investigation_agent_enabled && (
+                        <div className="deprecated-space-y-2">
+                            <LemonInput
+                                data-attr="alertForm-investigation-repository"
+                                placeholder="org/repo (optional — enables a draft PR)"
+                                value={alertForm.investigation_repository ?? ''}
+                                onChange={(value) => onSetAlertFormValue('investigation_repository', value || null)}
+                            />
+                            <LemonTextArea
+                                data-attr="alertForm-investigation-context"
+                                placeholder="Tell the agent what to look at — e.g. which skill to use, known failure patterns, runbook links"
+                                value={alertForm.investigation_context ?? ''}
+                                onChange={(value) => onSetAlertFormValue('investigation_context', value || null)}
+                            />
+                            <LemonCheckbox
+                                data-attr="alertForm-investigation-rerun-on-continued-breach"
+                                checked={alertForm.investigation_rerun_on_continued_breach ?? true}
+                                onChange={(checked) =>
+                                    onSetAlertFormValue('investigation_rerun_on_continued_breach', checked)
+                                }
+                                label={
+                                    <span className="flex items-center gap-1">
+                                        Re-investigate while breach continues
+                                        <LemonTag type="warning">Experimental</LemonTag>
+                                    </span>
+                                }
                             />
                         </div>
                     )}
+                    {!isPostHogCodeMode &&
+                        alertForm.investigation_agent_enabled &&
+                        alertForm.investigation_gates_notifications && (
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
+                                <span>On inconclusive verdict</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={alertForm.investigation_inconclusive_action ?? 'notify'}
+                                    onChange={(value) =>
+                                        onSetAlertFormValue('investigation_inconclusive_action', value)
+                                    }
+                                    options={[
+                                        {
+                                            value: 'notify',
+                                            label: 'Notify',
+                                            tooltip: 'Safe default — an unsure agent is itself signal.',
+                                        },
+                                        {
+                                            value: 'suppress',
+                                            label: 'Suppress',
+                                            tooltip: 'Only notify on true positives.',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        )}
                 </div>
             )}
 
