@@ -29,9 +29,9 @@ describe('resolveGroupBySource', () => {
     it('stays in sync with the backend GROUPABLE_COLUMNS dict', () => {
         const runnerPath = path.resolve(__dirname, '../../../backend/group_by_query_runner.py')
         const source = fs.readFileSync(runnerPath, 'utf8')
-        const block = source.match(/GROUPABLE_COLUMNS[^{]*\{([^}]*)\}/)?.[1]
-        expect(block).toBeDefined()
-        const backendKeys = [...(block as string).matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1])
+        const block = source.match(/GROUPABLE_COLUMNS[^{]*\{([^}]*)\}/)?.[1] ?? ''
+        const backendKeys = [...block.matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1])
+        // Non-empty guards that the dict was actually found and parsed, not silently empty.
         expect(backendKeys.length).toBeGreaterThan(0)
         expect(new Set(backendKeys)).toEqual(GROUPABLE_COLUMN_KEYS)
     })
