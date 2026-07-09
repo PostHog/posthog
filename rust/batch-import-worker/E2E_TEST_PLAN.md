@@ -129,14 +129,15 @@ Scenario 13 pins the resume contract that makes scenario 8 work: `release_job_re
 
 Goal: cover the only layer Phases 1-2 skip: `JobModel`'s sqlx claim/lease/commit/pause path against the real `posthog_batchimport` table.
 
-- Local dev Postgres runs on port 15432 (hogli dev stack). Skip if unreachable, same pattern as Kafka.
-- Insert a `posthog_batchimport` row with a Mixpanel source config pointed at the mock server, then drive `JobModel::claim_next_job` + the real `Job` run path in-process (preferable to spawning the binary: no env juggling, direct assertions).
-- Scenarios (smoke-level only, the matrix lives in Phase 1):
-  - Claim → run to completion → status `completed`, state parts all done.
-  - Claim → `Reorder` restart failure → status `paused`, `display_status_message` contains the user-facing parse error with the date range suffix.
-  - Paused job resumed (status flipped back to `running` by the test, offset of the poisoned part reset to 0) → completes; ClickHouse-level dedup is out of scope, but assert re-emitted UUIDs equal first-run UUIDs.
-- One Kafka smoke test (reuse `person_processing_kafka_integration_test.rs` infra): happy-path Mixpanel range emitted via `KafkaEmitter`, consume the topic, exactly-once by UUID.
-- One config-wiring smoke test for staging: build the worker `Config` with `STAGING_BACKEND=temp_bucket` + `TEMP_BUCKET_*` set (see `src/config.rs`) and assert the constructed context/source actually gets a staging backend. Phases 1-2 inject `RemoteStaging` directly, so this is the only place the env-to-backend wiring is exercised.
+- Local dev Postgres runs on port 15432 (hogli dev stack). Skip if unreachable, same pattern as Kafka. Also skip if the DB already has claimable batch imports: `claim_next_job` claims *any* claimable row, and a test must never steal a developer's real local import.
+- Insert a `posthog_batchimport` row with a Mixpanel source config pointed at the mock server, then drive `JobModel::claim_next_job` + the real `Job::process` loop in-process (preferable to spawning the binary: no env juggling, direct assertions). Secrets caveat: `JobSecrets::encrypt` expects pre-base64-encoded fernet keys while the claim path's `decrypt` encodes the raw configured keys internally, so seed with `encrypt(&[b64(raw_key)])`.
+- Scenarios, implemented in `tests/job_lifecycle_postgres_test.rs`:
+  - Claim → run to completion → status `completed`, state parts all done, one download per day.
+  - Claim → `CorruptLine` parse failure → status `paused`, `display_status_message` contains the user-facing parse error with the date range suffix (the exact support-facing surface).
+  - Resume: mirror the resume endpoint (`BatchImportViewSet.resume`) exactly, clearing `lease_id`/`leased_until`/backoff along with the status flip. Pausing deliberately keeps the worker's lease, so a bare `status = 'running'` update leaves the row unclaimable for up to 30 minutes.
+  - `STAGING_BACKEND=temp_bucket` + `TEMP_BUCKET_*` via env → claimed job constructs the temp-bucket backend from the real envconfig path and completes through it (SeaweedFS-gated). This covers the env-to-backend wiring Phases 1-2 bypass; config *parse* errors are already unit-tested in `src/config.rs`.
+- Deferred: the Kafka emit smoke test (the `KafkaEmitter` already has its own integration test; wiring it into the lifecycle loop adds little) and offset-reset-to-0 re-import (UUID determinism is already pinned in Phase 1).
+- CI caveat: these tests require a Django-migrated Postgres with a team row, which the rust CI job does not currently provide, so they skip in CI and run against the local dev stack. Wiring a migrated database into rust CI is follow-up work.
 
 ---
 
@@ -147,12 +148,55 @@ Goal: cover the only layer Phases 1-2 skip: `JobModel`'s sqlx claim/lease/commit
 - Double-compressed part (gzip magic at offset 0 of decompressed stream) → the compression-mismatch user error.
 - A `Slow`/stall behavior in the mock to exercise request timeout handling (`extract_client_request_error`).
 
+## Phase 5: real-endpoint contract testing (Mixpanel/Amplitude)
+
+Goal: catch what no mock can anticipate - real API drift (auth quirks, response framing, compression changes, new fields, rate-limit behavior, export instability) - and give developers a one-command way to import real vendor data into local dev.
+
+Principles:
+
+- **Never in per-PR CI.** External dependencies, shared credentials, vendor rate limits, and multi-minute ingestion lag make these unfit to block merges. They run nightly and on demand.
+- **Deterministic ground truth via an immutable seeded dataset.** Both vendors' export APIs serve historical data indefinitely; seed once, assert forever. Do not seed-then-assert in the same run (ingestion-to-export lag is minutes to hours and flaky).
+- **Real response bytes in normal CI via record/replay.** Recording against the real APIs produces sanitized fixtures; replay tests parse them with the production parser on every PR, so "does our parser handle real Mixpanel/Amplitude output" is still continuously covered.
+
+Work items, in order:
+
+### 5a. Vendor test accounts and secrets
+
+- PostHog-owned Mixpanel project and Amplitude project (free tiers suffice), used exclusively for this. Export credentials (Mixpanel API secret; Amplitude API key + secret key) stored as GitHub Actions secrets (see the managing-github-actions-secrets skill) and in the team vault for local use. Env names: `MIXPANEL_CONTRACT_TEST_API_SECRET`, `AMPLITUDE_CONTRACT_TEST_API_KEY`, `AMPLITUDE_CONTRACT_TEST_SECRET_KEY`.
+
+### 5b. One-time seeding + checked-in manifest
+
+- `scripts/seed_vendor_contract_data` (per-vendor): pushes a fixed synthetic dataset into a fixed **past** date range (e.g. 2020-03-01 to 2020-03-03) via Mixpanel's `/import` and Amplitude's batch upload API. Deterministic `$insert_id`s / `insert_id`s and distinct_ids (reuse the Phase 1 generator so ground truth is computable).
+- The script also writes `tests/fixtures/vendor_manifest_{mixpanel,amplitude}.json`: the expected `(uuid, event, distinct_id)` set per day. Checked in; regenerated only if the dataset is ever re-seeded.
+
+### 5c. Contract tests (opt-in, `#[ignore]`)
+
+- `tests/vendor_contract_test.rs`: `#[ignore]`-d tests, skipped unless the credential env vars are set. Real `DateRangeExportSource` (real auth, real gzip framing) over the seeded range through the Phase 1 harness loop; assert exactly-once against the manifest.
+- A byte-stability probe: download the same day twice and report (not assert) whether the bytes matched - drift telemetry for the instability class behind the incident.
+- Run locally with `cargo test -p batch-import-worker --test vendor_contract_test -- --ignored`.
+
+### 5d. Nightly workflow
+
+- Scheduled GitHub Actions workflow (with `timeout-minutes`), non-blocking for PRs: runs the ignored contract tests with the secrets, posts failures to the owning team's alert channel. A red nightly means vendor drift or seeded-data loss - both worth a human look within a day, neither worth blocking merges.
+
+### 5e. Record/replay fixtures
+
+- A recording flag on the contract tests writes each day's raw export response body to `tests/fixtures/vendor_exports/` (already synthetic data, so nothing to sanitize beyond stripping any response headers).
+- Replay tests (normal, not ignored, no network) feed the fixture bytes through the production extractor + parser and assert against the manifest - real vendor output shapes covered on every PR.
+- Refresh fixtures by re-running the recorder manually when the nightly catches a format change.
+
+### 5f. Developer ergonomics: ad hoc real imports into local dev
+
+- Document (README section in this crate) the one-command path for importing real vendor data into a local PostHog: a small management command or script that inserts a `posthog_batchimport` row for the local team via `BatchImportConfigBuilder` (Mixpanel or Amplitude date-range source, the developer's own credentials from env), then runs the worker binary pointed at the dev stack. The Phase 3 test file is the reference for exactly what the row needs.
+- This is the "does a real customer export actually import" smoke a developer runs before shipping source changes - with their own throwaway vendor account or the shared contract-test account.
+
 ## Suggested PR sequencing
 
 1. PR 1: Phase 1 (mock service + harness + scenarios 1-7). This is the highest-value slice; scenario 4 alone would have caught the incident.
 2. PR 2: Phase 2 (stacks on PR 1's harness).
 3. PR 3: Phase 3.
 4. Phase 4 items as opportunistic follow-ups.
+5. Phase 5 in three PRs: seeding script + manifest (5a-5b, includes the one-time account setup), contract tests + nightly workflow (5c-5d), record/replay + dev docs (5e-5f).
 
 ## Verification checklist per PR
 

@@ -57,6 +57,12 @@ pub enum Behavior {
         failures: u32,
         retry_after_secs: u64,
     },
+    /// Line `line` of the export is overwritten with same-length garbage that
+    /// is not valid JSON, on every attempt. Same-length so byte offsets before
+    /// and after the corrupt line are identical to the `Stable` body: a job
+    /// paused on the corruption can resume byte-aligned once the behavior is
+    /// flipped back to `Stable` (the "customer fixed their data" path).
+    CorruptLine { line: usize },
     /// The day has no data: 404.
     NotFound,
     /// The day has no data: 200 with a zero-byte body.
@@ -333,19 +339,43 @@ pub fn day_body(
     permutation: u64,
     late_events: usize,
 ) -> Vec<u8> {
+    day_body_inner(
+        provider,
+        seed,
+        day,
+        events_per_day,
+        permutation,
+        late_events,
+        None,
+    )
+}
+
+fn day_body_inner(
+    provider: Provider,
+    seed: u64,
+    day: &str,
+    events_per_day: usize,
+    permutation: u64,
+    late_events: usize,
+    corrupt_line: Option<usize>,
+) -> Vec<u8> {
     let mut events = generate_day(seed, day, events_per_day);
     events.extend(generate_late(seed, day, late_events));
     permute(&mut events, seed ^ day_hash(day), permutation);
 
+    let mut lines: Vec<String> = match provider {
+        Provider::Mixpanel => events.iter().map(mixpanel_line).collect(),
+        Provider::Amplitude => events.iter().map(amplitude_line).collect(),
+    };
+    if let Some(line) = corrupt_line {
+        // Same-length garbage keeps every other line's byte offset identical
+        // to the Stable body (see Behavior::CorruptLine).
+        lines[line] = "x".repeat(lines[line].len());
+    }
+
     match provider {
-        Provider::Mixpanel => {
-            let lines: Vec<String> = events.iter().map(mixpanel_line).collect();
-            gzip(lines.join("\n").as_bytes())
-        }
-        Provider::Amplitude => {
-            let lines: Vec<String> = events.iter().map(amplitude_line).collect();
-            amplitude_zip(&lines)
-        }
+        Provider::Mixpanel => gzip(lines.join("\n").as_bytes()),
+        Provider::Amplitude => amplitude_zip(&lines),
     }
 }
 
@@ -363,13 +393,14 @@ pub fn day_expected(
 }
 
 fn body_for(state: &ServerState, day: &str, permutation: u64, late_events: usize) -> Vec<u8> {
-    day_body(
+    day_body_inner(
         state.provider,
         state.seed,
         day,
         state.events_per_day,
         permutation,
         late_events,
+        None,
     )
 }
 
@@ -416,6 +447,15 @@ async fn handle_export(
             }
             body_for(&state, &day, 0, 0)
         }
+        Behavior::CorruptLine { line } => day_body_inner(
+            state.provider,
+            state.seed,
+            &day,
+            state.events_per_day,
+            0,
+            0,
+            Some(line),
+        ),
         Behavior::NotFound => return StatusCode::NOT_FOUND.into_response(),
         Behavior::EmptyBody => Vec::new(),
         Behavior::TruncatedGzip => {
