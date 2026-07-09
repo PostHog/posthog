@@ -15,7 +15,9 @@ import {
     experimentsLogic,
     getExperimentStatus,
     getExperimentStatusColor,
+    getExperimentStatusLabel,
     hasEnded,
+    isExperimentExposureFrozen,
     isExperimentPaused,
 } from './experimentsLogic'
 
@@ -572,12 +574,32 @@ describe('utility functions', () => {
         })
     })
 
+    describe('getExperimentStatus', () => {
+        it('returns ExposureFrozen when the API status is exposure_frozen', () => {
+            const frozenExperiment = createMockExperiment({
+                start_date: '2024-01-01',
+                end_date: null,
+                status: ExperimentStatus.ExposureFrozen,
+                feature_flag: { active: true },
+            })
+            expect(getExperimentStatus(frozenExperiment)).toBe(ExperimentStatus.ExposureFrozen)
+            expect(isExperimentExposureFrozen(frozenExperiment)).toBe(true)
+        })
+    })
+
     describe('getExperimentStatusColor', () => {
         it('returns correct colors for each status', () => {
             expect(getExperimentStatusColor(ExperimentStatus.Draft)).toBe('default')
             expect(getExperimentStatusColor(ExperimentStatus.Running)).toBe('success')
             expect(getExperimentStatusColor(ExperimentStatus.Paused)).toBe('warning')
+            expect(getExperimentStatusColor(ExperimentStatus.ExposureFrozen)).toBe('highlight')
             expect(getExperimentStatusColor(ExperimentStatus.Stopped)).toBe('completion')
+        })
+    })
+
+    describe('getExperimentStatusLabel', () => {
+        it('labels exposure_frozen as Exposure frozen', () => {
+            expect(getExperimentStatusLabel(ExperimentStatus.ExposureFrozen)).toBe('Exposure frozen')
         })
     })
 

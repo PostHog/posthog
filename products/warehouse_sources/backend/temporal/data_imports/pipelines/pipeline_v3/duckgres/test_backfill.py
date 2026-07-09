@@ -1,6 +1,9 @@
 import uuid
 
 import pytest
+from unittest.mock import MagicMock, patch
+
+import psycopg
 
 from posthog.models import DuckgresSinkSchemaState, Organization, Team
 
@@ -224,3 +227,85 @@ class TestBootstrapV3SourceGate:
         primed = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
         assert v3_schema.id in primed
         assert non_v3_schema.id not in primed
+
+
+@pytest.mark.django_db
+class TestDeletedSchemaPurge:
+    def _fixture(self, deleted: bool, run_uuid: str | None = "run-1"):
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="s", connection_id="c", source_type="Stripe", status="Running"
+        )
+        schema = ExternalDataSchema.objects.create(team=team, source=source, name="customers", deleted=deleted)
+        state = DuckgresSinkSchemaState.objects.create(
+            team=team,
+            schema_id=schema.id,
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid=run_uuid,
+        )
+        return schema, state
+
+    def test_purge_retires_run_and_drops_state_for_deleted_schema(self):
+        # A deleted schema's chunks are unclaimable, so its BACKFILLING row would
+        # otherwise pin one of the global backfill slots forever with zero
+        # failures on any gauge.
+        _, state = self._fixture(deleted=True)
+        conn = MagicMock()
+
+        with patch.object(backfill_module, "retire_backfill_run") as retire:
+            backfill_module._purge_deleted_schema_states(conn, None)
+
+        retire.assert_called_once_with(conn, run_uuid="run-1")
+        assert not DuckgresSinkSchemaState.objects.filter(id=state.id).exists()
+
+    def test_purge_leaves_live_schemas_untouched(self):
+        _, state = self._fixture(deleted=False)
+        conn = MagicMock()
+
+        with patch.object(backfill_module, "retire_backfill_run") as retire:
+            backfill_module._purge_deleted_schema_states(conn, None)
+
+        retire.assert_not_called()
+        assert DuckgresSinkSchemaState.objects.filter(id=state.id).exists()
+
+    def test_plan_one_skips_deleted_schema(self):
+        # The default manager includes soft-deleted rows, so without the guard a
+        # deleted schema would be planned and its unclaimable chunks enqueued
+        # (and re-enqueued after every queue prune).
+        schema, state = self._fixture(deleted=True, run_uuid=None)
+
+        with (
+            patch.object(backfill_module, "resolve_snapshot_plan") as resolve,
+            patch.object(backfill_module.psycopg, "connect") as connect,
+        ):
+            backfill_module._plan_one(state)
+
+        resolve.assert_not_called()
+        connect.assert_not_called()
+
+
+class TestEnqueueLockTimeout:
+    def test_lock_timeout_skips_replay_and_resets(self):
+        # A dead lock-holder session previously blocked every pod's reconciler
+        # replay indefinitely, inline in the consumer fetch path.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import (
+            backfill_queue,
+        )
+
+        conn = MagicMock()
+
+        def execute(query, *args, **kwargs):
+            if "pg_advisory_lock" in str(query):
+                raise psycopg.errors.LockNotAvailable()
+            return MagicMock()
+
+        conn.execute.side_effect = execute
+        schema = MagicMock()
+
+        inserted = backfill_queue.enqueue_chunks(conn, schema, "run-x", [])
+
+        assert inserted == 0
+        executed = [str(c.args[0]) for c in conn.execute.call_args_list]
+        assert any("SET lock_timeout" in q for q in executed)
+        assert any("RESET lock_timeout" in q for q in executed)
+        assert not any("INSERT INTO" in q for q in executed)

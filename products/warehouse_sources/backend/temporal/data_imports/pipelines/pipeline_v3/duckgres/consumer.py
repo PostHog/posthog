@@ -137,21 +137,31 @@ class DuckgresBatchConsumerAdapter:
             return
         self._last_maintenance_at = now
 
-        superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
-        SINK_SUPERSEDED_BATCHES_TOTAL.set(superseded)
-        if superseded:
-            logger.info("duckgres_superseded_obsolete_batches", count=superseded)
+        try:
+            # Eligibility-CTE queries scan the queue DB over the partition-pruning
+            # window per enabled team; they are statement-timeout bounded (see
+            # jobs_db). A timeout or transient queue-DB error must not wedge or
+            # crash the poll loop — skip this tick and retry on the next one
+            # rather than stacking long-running scans on the shared queue DB.
+            superseded = await DuckgresBatchQueue.supersede_replaced_runs(conn, team_ids=team_ids)
+            SINK_SUPERSEDED_BATCHES_TOTAL.set(superseded)
+            if superseded:
+                logger.info("duckgres_superseded_obsolete_batches", count=superseded)
 
-        backlog, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
-            conn,
-            team_ids=team_ids,
-            blocked_schema_ids=self._blocked_schema_ids,
-            eligible_schema_ids=self._eligible_schema_ids,
-        )
-        SINK_ELIGIBLE_BACKLOG.set(backlog)
-        SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
-        SINK_BLOCKED_BACKLOG.set(blocked)
-        SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
+            backlog, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+                conn,
+                team_ids=team_ids,
+                blocked_schema_ids=self._blocked_schema_ids,
+                eligible_schema_ids=self._eligible_schema_ids,
+            )
+            SINK_ELIGIBLE_BACKLOG.set(backlog)
+            SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
+            SINK_BLOCKED_BACKLOG.set(blocked)
+            SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
+        except Exception as e:
+            logger.exception("duckgres_sink_maintenance_query_failed")
+            capture_exception(e)
+            return
 
         block_list_was_unset = self._blocked_schema_ids is None
         try:

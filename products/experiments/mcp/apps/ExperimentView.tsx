@@ -11,7 +11,7 @@ export interface ExperimentViewProps {
 
 export function ExperimentView({ experiment }: ExperimentViewProps): ReactElement {
     const status = getStatus(experiment)
-    const variants = experiment.parameters?.feature_flag_variants ?? []
+    const variants = experiment.feature_flag?.filters?.multivariate?.variants ?? []
 
     const variantColumns: DataTableColumn<ExperimentVariant>[] = [
         { key: 'key', header: 'Key', sortable: true },
