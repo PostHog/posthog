@@ -20,23 +20,54 @@ function filter(overrides: Partial<AccountCustomPropertyFilter>): AccountCustomP
     }
 }
 
-const TEXT_COLUMN = `accounts.custom_properties.values.\`${TEXT_ID}\``
-const NUMBER_COLUMN = `accounts.custom_properties.values.\`${NUMBER_ID}\``
+// The shared identifier escaper double-quotes the (non-simple) UUID key.
+const TEXT_COLUMN = `accounts.custom_properties.values."${TEXT_ID}"`
+const NUMBER_COLUMN = `accounts.custom_properties.values."${NUMBER_ID}"`
 
 describe('accountsCustomPropertyFilters', () => {
     it.each([
         ['text exact', 'text', { value: 'Enterprise' }, `${TEXT_COLUMN} = 'Enterprise'`],
         ['escapes quotes and backslashes', 'text', { value: "O'Brien \\ co" }, `${TEXT_COLUMN} = 'O\\'Brien \\\\ co'`],
         ['exact with multiple values', 'text', { value: ['a', 'b'] }, `${TEXT_COLUMN} IN ('a', 'b')`],
-        ['is_not', 'text', { operator: PropertyOperator.IsNot, value: 'Churned' }, `${TEXT_COLUMN} != 'Churned'`],
+        // Negative operators keep accounts where the property is unset (the join yields NULL there).
+        [
+            'is_not includes unset accounts',
+            'text',
+            { operator: PropertyOperator.IsNot, value: 'Churned' },
+            `ifNull(${TEXT_COLUMN} != 'Churned', true)`,
+        ],
+        [
+            'is_not with multiple values',
+            'text',
+            { operator: PropertyOperator.IsNot, value: ['a', 'b'] },
+            `ifNull(${TEXT_COLUMN} NOT IN ('a', 'b'), true)`,
+        ],
         ['icontains', 'text', { operator: PropertyOperator.IContains, value: 'acme' }, `${TEXT_COLUMN} ILIKE '%acme%'`],
         [
-            'not_icontains',
+            'icontains matches any of multiple values',
+            'text',
+            { operator: PropertyOperator.IContains, value: ['acme', 'beta'] },
+            `(${TEXT_COLUMN} ILIKE '%acme%' OR ${TEXT_COLUMN} ILIKE '%beta%')`,
+        ],
+        [
+            'not_icontains includes unset accounts',
             'text',
             { operator: PropertyOperator.NotIContains, value: 'acme' },
-            `NOT (${TEXT_COLUMN} ILIKE '%acme%')`,
+            `ifNull(NOT (${TEXT_COLUMN} ILIKE '%acme%'), true)`,
+        ],
+        [
+            'not_icontains matches none of multiple values',
+            'text',
+            { operator: PropertyOperator.NotIContains, value: ['acme', 'beta'] },
+            `ifNull(NOT (${TEXT_COLUMN} ILIKE '%acme%' OR ${TEXT_COLUMN} ILIKE '%beta%'), true)`,
         ],
         ['regex', 'text', { operator: PropertyOperator.Regex, value: '^acme' }, `match(${TEXT_COLUMN}, '^acme')`],
+        [
+            'not_regex includes unset accounts',
+            'text',
+            { operator: PropertyOperator.NotRegex, value: '^acme' },
+            `ifNull(NOT (match(${TEXT_COLUMN}, '^acme')), true)`,
+        ],
         ['is_set', 'text', { operator: PropertyOperator.IsSet, value: null }, `${TEXT_COLUMN} IS NOT NULL`],
         ['is_not_set', 'text', { operator: PropertyOperator.IsNotSet, value: null }, `${TEXT_COLUMN} IS NULL`],
         [
@@ -45,9 +76,23 @@ describe('accountsCustomPropertyFilters', () => {
             { value: 'Enterprise' },
             `${TEXT_COLUMN} = 'Enterprise'`,
         ],
-        ['boolean exact', 'boolean', { value: 'true' }, `${TEXT_COLUMN} = 'true'`],
+        // Booleans match both string renderings of the stored bool ('true'/'false' and '1'/'0').
+        ['boolean exact matches either rendering', 'boolean', { value: 'true' }, `${TEXT_COLUMN} IN ('true', '1')`],
+        ['boolean false', 'boolean', { value: 'false' }, `${TEXT_COLUMN} IN ('false', '0')`],
+        [
+            'boolean is_not includes unset accounts',
+            'boolean',
+            { operator: PropertyOperator.IsNot, value: 'true' },
+            `ifNull(${TEXT_COLUMN} NOT IN ('true', '1'), true)`,
+        ],
         ['numeric exact casts the column', 'number', { value: '42' }, `toFloatOrNull(${TEXT_COLUMN}) = 42`],
         ['numeric multi-value IN', 'currency', { value: [10, '20.5'] }, `toFloatOrNull(${TEXT_COLUMN}) IN (10, 20.5)`],
+        [
+            'numeric is_not includes unset accounts',
+            'number',
+            { operator: PropertyOperator.IsNot, value: '42' },
+            `ifNull(toFloatOrNull(${TEXT_COLUMN}) != 42, true)`,
+        ],
         [
             'numeric greater than',
             'percent',
@@ -76,15 +121,16 @@ describe('accountsCustomPropertyFilters', () => {
     })
 
     it.each([
-        ['missing value', { value: null }],
-        ['empty string value', { value: '' }],
-        ['non-UUID key never reaches the query', { key: 'accounts.name); DROP', value: 'x' }],
-        ['numeric operator with non-numeric value', { operator: PropertyOperator.GreaterThan, value: 'abc' }],
-    ])('returns null for %s', (_name, filterOverrides) => {
+        ['missing value', 'number', { value: null }],
+        ['empty string value', 'number', { value: '' }],
+        ['non-UUID key never reaches the query', 'number', { key: 'accounts.name); DROP', value: 'x' }],
+        ['numeric operator with non-numeric value', 'number', { operator: PropertyOperator.GreaterThan, value: 'abc' }],
+        ['boolean with an unrecognized value', 'boolean', { value: 'maybe' }],
+    ])('returns null for %s', (_name, displayType, filterOverrides) => {
         expect(
             customPropertyFilterToExpression(
                 filter(filterOverrides as Partial<AccountCustomPropertyFilter>),
-                definition({ display_type: 'number' })
+                definition({ display_type: displayType as CustomPropertyDefinitionApi['display_type'] })
             )
         ).toBeNull()
     })

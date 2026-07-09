@@ -1,6 +1,6 @@
 import { isUUIDLike } from 'lib/utils/guards'
 
-import { escapeHogQLString } from '~/queries/utils'
+import { escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccountCustomPropertyFilter, PropertyOperator, PropertyType } from '~/types'
 
 import type {
@@ -62,6 +62,27 @@ function normalizeFilterValues(filter: AccountCustomPropertyFilter): (string | n
     return raw.filter((value): value is string | number => value !== '' && value !== null && value !== undefined)
 }
 
+// The join yields NULL for accounts where the property is unset, and a bare negation
+// propagates it (NULL → row excluded) — but "is not X" must keep accounts with no value
+// at all. Same fix as posthog/hogql/property.py wrapping NOT_REGEX in ifNull(..., 1).
+function includeUnset(predicate: string): string {
+    return `ifNull(${predicate}, true)`
+}
+
+// The join coalesces the boolean column to a string, but whether that renders as
+// 'true'/'false' or '1'/'0' depends on the federated engine — match either, the same
+// hedge the boolean cell renderer uses.
+const BOOLEAN_LITERALS: Record<string, string[]> = {
+    true: ["'true'", "'1'"],
+    '1': ["'true'", "'1'"],
+    false: ["'false'", "'0'"],
+    '0': ["'false'", "'0'"],
+}
+
+function booleanLiterals(values: (string | number)[]): string[] {
+    return [...new Set(values.flatMap((value) => BOOLEAN_LITERALS[String(value).toLowerCase()] ?? []))]
+}
+
 // The join coalesces every value to a string, so equality/ILIKE work on the column directly;
 // numeric and date comparisons re-type it (toFloatOrNull / parseDateTimeBestEffort) —
 // the same casts the overview tiles use for aggregation.
@@ -70,11 +91,11 @@ export function customPropertyFilterToExpression(
     definition: CustomPropertyDefinitionApi
 ): string | null {
     // The key round-trips through saved views and the URL hash before landing in raw HogQL,
-    // so only ever interpolate a validated UUID.
+    // so only ever interpolate a validated UUID (the shared escaper is defense in depth).
     if (!filter.key || !isUUIDLike(filter.key)) {
         return null
     }
-    const column = `accounts.custom_properties.values.\`${filter.key}\``
+    const column = `accounts.custom_properties.values.${escapePropertyAsHogQLIdentifier(filter.key)}`
     const operator = filter.operator
 
     if (operator === PropertyOperator.IsSet) {
@@ -93,29 +114,50 @@ export function customPropertyFilterToExpression(
     switch (operator) {
         case PropertyOperator.Exact:
         case PropertyOperator.IsNot: {
+            const negated = operator === PropertyOperator.IsNot
             if (propertyType === PropertyType.Numeric) {
                 const numbers = values.map(Number).filter(Number.isFinite)
                 if (numbers.length === 0) {
                     return null
                 }
                 const target = `toFloatOrNull(${column})`
-                return numbers.length === 1
-                    ? `${target} ${operator === PropertyOperator.Exact ? '=' : '!='} ${numbers[0]}`
-                    : `${target} ${operator === PropertyOperator.Exact ? 'IN' : 'NOT IN'} (${numbers.join(', ')})`
+                const comparison =
+                    numbers.length === 1
+                        ? `${target} ${negated ? '!=' : '='} ${numbers[0]}`
+                        : `${target} ${negated ? 'NOT IN' : 'IN'} (${numbers.join(', ')})`
+                return negated ? includeUnset(comparison) : comparison
             }
-            const literals = values.map((value) => escapeHogQLString(String(value)))
-            return literals.length === 1
-                ? `${column} ${operator === PropertyOperator.Exact ? '=' : '!='} ${literals[0]}`
-                : `${column} ${operator === PropertyOperator.Exact ? 'IN' : 'NOT IN'} (${literals.join(', ')})`
+            const literals =
+                propertyType === PropertyType.Boolean
+                    ? booleanLiterals(values)
+                    : values.map((value) => escapeHogQLString(String(value)))
+            if (literals.length === 0) {
+                return null
+            }
+            const comparison =
+                literals.length === 1
+                    ? `${column} ${negated ? '!=' : '='} ${literals[0]}`
+                    : `${column} ${negated ? 'NOT IN' : 'IN'} (${literals.join(', ')})`
+            return negated ? includeUnset(comparison) : comparison
         }
         case PropertyOperator.IContains:
-            return `${column} ILIKE ${escapeHogQLString(`%${values[0]}%`)}`
-        case PropertyOperator.NotIContains:
-            return `NOT (${column} ILIKE ${escapeHogQLString(`%${values[0]}%`)})`
+        case PropertyOperator.NotIContains: {
+            // Several values match "contains any of them" (so the negation is "contains none"),
+            // mirroring posthog/hogql/property.py's multi-value search semantics.
+            const anyMatch = values.map((value) => `${column} ILIKE ${escapeHogQLString(`%${value}%`)}`).join(' OR ')
+            if (operator === PropertyOperator.NotIContains) {
+                return includeUnset(`NOT (${anyMatch})`)
+            }
+            return values.length === 1 ? anyMatch : `(${anyMatch})`
+        }
         case PropertyOperator.Regex:
-            return `match(${column}, ${escapeHogQLString(String(values[0]))})`
-        case PropertyOperator.NotRegex:
-            return `NOT match(${column}, ${escapeHogQLString(String(values[0]))})`
+        case PropertyOperator.NotRegex: {
+            const anyMatch = values.map((value) => `match(${column}, ${escapeHogQLString(String(value))})`).join(' OR ')
+            if (operator === PropertyOperator.NotRegex) {
+                return includeUnset(`NOT (${anyMatch})`)
+            }
+            return values.length === 1 ? anyMatch : `(${anyMatch})`
+        }
         case PropertyOperator.GreaterThan:
         case PropertyOperator.GreaterThanOrEqual:
         case PropertyOperator.LessThan:

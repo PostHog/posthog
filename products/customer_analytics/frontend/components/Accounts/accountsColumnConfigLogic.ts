@@ -575,17 +575,24 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     relationshipDefinitions
                 ),
         ],
-        aliasToDefinition: [
-            (s) => [s.customPropertyDefinitions],
-            (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
-                Object.fromEntries(
-                    customPropertyDefinitions.map((definition) => [customPropertyAlias(definition.id), definition])
-                ),
-        ],
         customPropertyDefinitionsById: [
             (s) => [s.customPropertyDefinitions],
             (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
                 Object.fromEntries(customPropertyDefinitions.map((definition) => [definition.id, definition])),
+        ],
+        // The same map re-keyed by the cp_<id> column alias — resolves visible column
+        // names back to their definition (table header, configurator labels).
+        aliasToDefinition: [
+            (s) => [s.customPropertyDefinitionsById],
+            (
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+            ): Record<string, CustomPropertyDefinitionApi> =>
+                Object.fromEntries(
+                    Object.values(customPropertyDefinitionsById).map((definition) => [
+                        customPropertyAlias(definition.id),
+                        definition,
+                    ])
+                ),
         ],
         // Items for the custom-properties taxonomic group (fed via `optionsFromProp`): the
         // definition id is the stable filter key, the name is what's displayed and searched.
@@ -618,16 +625,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
     listeners(({ actions, values, selectors }) => ({
         // Seed the shared propertyDefinitionsModel so OperatorValueSelect resolves each
         // custom property's type (numeric/boolean/datetime/string) to the right operator set.
-        loadCustomPropertyDefinitionsSuccess: ({ customPropertyDefinitions }) => {
+        loadCustomPropertyDefinitionsSuccess: () => {
             updatePropertyDefinitions(
                 Object.fromEntries(
-                    customPropertyDefinitions.map((definition) => [
-                        `${PropertyDefinitionType.AccountCustomProperty}/${definition.id}`,
-                        {
-                            id: definition.id,
-                            name: definition.id,
-                            property_type: propertyTypeForDisplayType(definition.display_type),
-                        },
+                    values.customPropertyTaxonomicOptions.map((option) => [
+                        `${PropertyDefinitionType.AccountCustomProperty}/${option.id}`,
+                        // name is the id, not the display name: OperatorValueSelect resolves
+                        // the definition by matching `name` against the filter key (the id).
+                        { id: option.id, name: option.id, property_type: option.property_type },
                     ])
                 )
             )
