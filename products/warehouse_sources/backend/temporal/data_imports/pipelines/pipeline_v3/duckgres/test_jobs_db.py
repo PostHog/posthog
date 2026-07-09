@@ -4,6 +4,9 @@ import pytest
 
 import psycopg
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    _has_inflight_replace_run,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.jobs_db import (
     DUCKGRES_APPLY_TABLE,
     DUCKGRES_LEASE_TABLE,
@@ -198,6 +201,27 @@ async def conn(_db_url: str):
 
 @pytest.mark.django_db(transaction=True)
 class TestDuckgresBatchQueueEligibility:
+    @pytest.mark.asyncio
+    async def test_failed_delta_replace_run_is_not_inflight(
+        self, conn: psycopg.AsyncConnection[Any], _db_url: str
+    ) -> None:
+        run_uuid = "failed-replace-run"
+        head_id = await _insert_batch(
+            conn,
+            run_uuid=run_uuid,
+            batch_index=0,
+            sync_type="full_refresh",
+            is_final_batch=False,
+            is_resume=False,
+        )
+        await BatchQueue.update_status(conn, batch_id=head_id, job_state="succeeded", attempt=1)
+
+        tail_id = await _insert_batch(conn, run_uuid=run_uuid, batch_index=1)
+        await BatchQueue.update_status(conn, batch_id=tail_id, job_state="failed", attempt=1)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert not _has_inflight_replace_run(sync_conn, team_id=1, schema_id="schema-1")
+
     @pytest.mark.asyncio
     async def test_ignores_batches_until_delta_succeeds(self, conn):
         await _insert_batch(conn)

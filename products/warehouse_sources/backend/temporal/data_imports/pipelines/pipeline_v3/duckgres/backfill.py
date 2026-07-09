@@ -406,10 +406,10 @@ def _revert_to_pending(state_id: Any, error: str | None = None) -> None:
 def _has_inflight_replace_run(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str) -> bool:
     """A replace-head live run that Delta accepted but duckgres has not finished.
 
-    Batch 0 replace-shaped and delta-succeeded, with neither a duckgres-succeeded
-    final marker (completion) nor any duckgres-failed batch (terminal/retired)
-    for the run. Planning must wait these out: the snapshot would cover the
-    run's head and orphan its tail (see the guard in _plan_one).
+    Batch 0 replace-shaped and delta-succeeded, with no terminal Delta failure,
+    duckgres-succeeded final marker (completion), or duckgres-failed batch for
+    the run. Planning must wait these out: the snapshot would cover the run's
+    head and orphan its tail (see the guard in _plan_one).
     """
     row = conn.execute(
         f"""
@@ -424,6 +424,14 @@ def _has_inflight_replace_run(conn: psycopg.Connection[Any], *, team_id: int, sc
             AND h.is_resume = false
             AND (h.sync_type = 'full_refresh' OR (h.sync_type = 'incremental' AND h.is_first_ever_sync))
             AND hds.job_state = 'succeeded'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_status xds ON xds.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xds.job_state = 'failed'
+            )
             AND NOT EXISTS (
                 SELECT 1
                 FROM {BATCH_TABLE} f
