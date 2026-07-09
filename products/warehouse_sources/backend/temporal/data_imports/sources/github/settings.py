@@ -17,6 +17,10 @@ class GithubEndpointConfig:
     # fan-out children whose row id is only unique within a parent (a user can belong to
     # two teams, so team_members keys on ["team_id", "id"] to stay unique table-wide).
     primary_key: str | list[str] = "id"
+    # False leaves the table deselected in the schema picker and disabled by one-shot setup.
+    # Use for tables needing grants beyond the repo scope validated at source-create, so a
+    # default connection doesn't enable a table whose first sync would 403.
+    should_sync_default: bool = True
     # Ordered columns (compared newest-first, NULLs last) that rank webhook events sharing a
     # primary key, so the source collapses a batch to the latest state per id before it reaches the
     # delta merge (which doesn't dedupe within a batch). GitHub emits one run/job as separate
@@ -206,6 +210,10 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # The teams endpoint exposes no timestamps or server-side time filter, so there is no
         # cursor to sync incrementally on, so full refresh each sync (data volume is tiny).
         incremental_fields=[],
+        # Needs the org Members: Read grant (read:org on PATs), which repo-scoped connections
+        # lack, and 404s on user-owned repos. Off by default so a fresh source doesn't enable
+        # a table whose first sync fails; the picker's permission probe explains the grant.
+        should_sync_default=False,
     ),
     "team_members": GithubEndpointConfig(
         name="team_members",
@@ -220,6 +228,11 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         fan_out_parent_field="slug",
         # Member rows are plain user objects with no team context, so inject it from the parent team.
         fan_out_include_parent_fields={"id": "team_id", "slug": "team_slug", "name": "team_name"},
+        should_sync_default=False,  # Same org grant requirement as teams.
+        # The default cap (50 pages, sized for per-run job lists) would silently truncate a team
+        # past 5,000 members at 100/page. 400 pages bounds a runaway paginator at 40,000
+        # memberships per team while clearing any plausible real team; the cap still logs.
+        max_pages_per_parent=400,
     ),
 }
 

@@ -261,6 +261,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             supports_webhooks=webhook_capable,
             webhook_only=webhook_only,
             incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+            should_sync_default=GITHUB_ENDPOINTS[endpoint].should_sync_default,
         )
 
     def get_schemas(

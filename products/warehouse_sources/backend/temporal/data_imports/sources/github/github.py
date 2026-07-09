@@ -380,8 +380,10 @@ def _make_parent_field_injector(
     parent: dict[str, Any], field_map: dict[str, str]
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Copy the mapped parent fields onto each child row (e.g. team id/slug/name onto a member),
-    so a fan-out child carries the parent context its own API response omits."""
-    injected = {child_column: parent.get(parent_field) for parent_field, child_column in field_map.items()}
+    so a fan-out child carries the parent context its own API response omits. Direct access on the
+    parent fields: the injected columns feed the child's composite primary key, so a parent missing
+    one is a broken response that must fail loudly, not corrupt the key with None."""
+    injected = {child_column: parent[parent_field] for parent_field, child_column in field_map.items()}
 
     def inject(item: dict[str, Any]) -> dict[str, Any]:
         return {**item, **injected}

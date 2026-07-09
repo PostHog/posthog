@@ -88,9 +88,11 @@ class TestGithubSource:
         assert result["team_members"] == result["teams"]
 
     @pytest.mark.parametrize("endpoint", ["teams", "team_members"])
-    def test_org_schemas_are_full_refresh_only(self, endpoint):
+    def test_org_schemas_are_full_refresh_only_and_off_by_default(self, endpoint):
         # teams / team_members expose no timestamps, so they must never advertise incremental,
         # append, or webhook sync; otherwise the picker would offer a mode that syncs nothing.
+        # And they need an org grant repo-scoped connections lack, so they must start
+        # deselected; default-on would make a fresh source's first sync fail with 403/404.
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="t"),
             repository="acme/widgets",
@@ -103,6 +105,7 @@ class TestGithubSource:
         assert schema.supports_append is False
         assert schema.supports_webhooks is False
         assert schema.webhook_only is False
+        assert schema.should_sync_default is False
 
     def test_existing_workflow_schemas_stay_webhook_capable(self):
         # Guard that adding the org endpoints didn't disturb the webhook-capable schemas.
@@ -114,6 +117,7 @@ class TestGithubSource:
 
         assert schemas["workflow_runs"].supports_webhooks is True
         assert schemas["workflow_jobs"].supports_webhooks is True
+        assert all(s.should_sync_default for s in schemas.values() if s.name not in ("teams", "team_members"))
 
     def test_get_access_token_returns_pat(self):
         config = GithubSourceConfig(
