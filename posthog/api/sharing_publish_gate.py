@@ -7,9 +7,8 @@ escalation channel - save a query over a restricted table, publish, read it thro
 public link.
 """
 
-from typing import Any, Optional
+from typing import Any
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
@@ -43,11 +42,12 @@ def tables_blocked_for_publisher(user: User, team: Team, config: SharingConfigur
     )
     blocked: set[str] = set()
     for query in queries:
-        select = _select_ast_for(query, team, user)
-        if select is None:
-            continue
         try:
-            prepare_ast_for_printing(select, context=context, dialect="clickhouse")
+            # get_query_runner unwraps container nodes (DataTableNode, InsightVizNode, ...) itself.
+            runner = get_query_runner_or_none(query, team, user=user)
+            if runner is None:
+                continue
+            prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except TableAccessDeniedError as e:
             blocked.add(e.table_name)
         except Exception:
@@ -68,23 +68,3 @@ def _queries_exposed_by(config: SharingConfiguration) -> list[dict[str, Any]]:
     if config.notebook:
         queries.extend(query for _node_id, query in extract_inline_query_nodes(config.notebook.content))
     return queries
-
-
-def _select_ast_for(query: dict[str, Any], team: Team, user: User) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
-    """
-    The query's select AST via its own runner, unwrapping container nodes the same way
-    process_query_model does. None when the query isn't runner-backed or can't build.
-    """
-    node: Any = query
-    while isinstance(node, dict):
-        try:
-            runner = get_query_runner_or_none(node, team, user=user)
-        except Exception:
-            return None
-        if runner is not None:
-            try:
-                return runner.to_query()
-            except Exception:
-                return None
-        node = node.get("source")
-    return None
