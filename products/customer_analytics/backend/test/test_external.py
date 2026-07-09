@@ -249,6 +249,30 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(self.account.external_id, "acme-1")
         self.assertEqual(self.account.name, "Acme Corp")
 
+    def test_patch_unexpected_exception_captures_with_team_and_external_id(self):
+        with (
+            patch(
+                "products.customer_analytics.backend.facade.api._apply_external_tags",
+                side_effect=RuntimeError("db exploded"),
+            ),
+            patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture,
+        ):
+            self._patch({"external_id": "acme-1", "tags": ["enterprise"]})
+
+        mock_capture.assert_called_once()
+        _exc, context = mock_capture.call_args[0]
+        self.assertEqual(context["team_id"], self.team.id)
+        self.assertEqual(context["external_id"], "acme-1")
+
+    def test_patch_relationship_definition_not_found_does_not_capture(self):
+        with patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture:
+            response = self._patch(
+                {"external_id": "acme-1", "relationships": {"AE": {"type": "user", "id": self.user.id}}}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()
+
 
 class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
     def setUp(self):
@@ -305,3 +329,25 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
     def test_rejects_non_scalar_value(self):
         response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): {"nested": "object"}}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_unexpected_exception_captures_with_team_and_external_id(self):
+        with (
+            patch(
+                "products.customer_analytics.backend.logic.custom_property_values.set_account_custom_properties_by_id",
+                side_effect=RuntimeError("db exploded"),
+            ),
+            patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture,
+        ):
+            self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}})
+
+        mock_capture.assert_called_once()
+        _exc, context = mock_capture.call_args[0]
+        self.assertEqual(context["team_id"], self.team.id)
+        self.assertEqual(context["external_id"], "acme-1")
+
+    def test_unknown_definition_does_not_capture(self):
+        with patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture:
+            response = self._patch({"external_id": "acme-1", "properties": {str(uuid4()): "x"}})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_capture.assert_not_called()

@@ -24,6 +24,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable action name. Unique within the team.'),
     scanner: zod.uuid().describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
@@ -135,6 +141,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Scanner whose observations this action operates on. Must belong to the same team.'),
     enabled: zod.boolean().optional().describe('When false, the scheduler skips this action.'),
+    is_scanner_digest: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner."
+        ),
     trigger_type: zod
         .enum(['schedule', 'threshold'])
         .describe('\* `schedule` - Schedule\n\* `threshold` - Threshold')
