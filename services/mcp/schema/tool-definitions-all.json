@@ -1866,7 +1866,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "dashboard-create": {
-        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. This tool cannot attach insights — insights join a dashboard through their own `dashboards` field, so when building a dashboard of insights, create the dashboard first and pass its ID in `dashboards` on each insight-create (or add existing insights by appending it via insight-update). The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard",
@@ -4576,7 +4576,7 @@
         }
     },
     "insight-create": {
-        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Set `name`, `description`, `tags`, and `dashboards` here at creation instead of patching them in afterwards with insight-update. If the insight is destined for a dashboard, create the dashboard first (dashboard-create) and pass its ID in `dashboards`. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Create insight",
