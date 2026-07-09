@@ -89,6 +89,22 @@ export interface _ModelBreakdownApi {
     truncated: boolean
 }
 
+export interface _DayBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /** Number of $ai_generation + $ai_embedding events on this day for the scoped product. */
+    event_count: number
+    /** Total cost in USD on this day for the scoped product. */
+    cost_usd: number
+}
+
+export interface _DayBreakdownApi {
+    /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
+    items: _DayBreakdownRowApi[]
+    /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
+    truncated: boolean
+}
+
 export interface _TopTraceRowApi {
     /**
      * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -125,6 +141,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_tool: _ToolBreakdownApi
     /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
     by_model: _ModelBreakdownApi
+    /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
+    by_day: _DayBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
     top_traces: _TopTracesApi
 }
@@ -326,6 +344,7 @@ export const EvaluationStatusEnumApi = {
 } as const
 
 /**
+ * * `provider_key_required` - No provider API key configured
  * * `trial_limit_reached` - Trial evaluation limit reached
  * * `model_not_allowed` - Model not available on the trial plan
  * * `provider_key_deleted` - Provider API key was deleted
@@ -340,6 +359,7 @@ export const EvaluationStatusEnumApi = {
 export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
 
 export const StatusReasonEnumApi = {
+    ProviderKeyRequired: 'provider_key_required',
     TrialLimitReached: 'trial_limit_reached',
     ModelNotAllowed: 'model_not_allowed',
     ProviderKeyDeleted: 'provider_key_deleted',
@@ -947,6 +967,10 @@ export interface EvaluationConfigApi {
     readonly trial_evals_used: number
     /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
     readonly trial_evals_remaining: number
+    /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
+    readonly trial_grandfathered: boolean
+    /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
+    readonly trial_deprecation_date: string
     /** Provider key used to run llm_judge evals; null if none configured yet. */
     readonly active_provider_key: LLMProviderKeyApi | null
     /** Timestamp when the evaluation config row was created. */
@@ -976,23 +1000,20 @@ export interface EvaluationReportApi {
     readonly id: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
-    /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
-     */
-    timezone_name?: string
+    readonly starts_at: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name: string
     /** @nullable */
     readonly next_delivery_date: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1005,15 +1026,15 @@ export interface EvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */
@@ -1044,27 +1065,84 @@ export interface PaginatedEvaluationReportListApi {
     results: EvaluationReportApi[]
 }
 
-export interface PatchedEvaluationReportApi {
-    readonly id?: string
+export interface EvaluationReportUpdateApi {
+    readonly id: string
     /** UUID of the evaluation this report config belongs to. */
-    evaluation?: string
-    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+    readonly evaluation: string
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
      *
      * * `scheduled` - Scheduled
      * * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
      * @nullable
      */
-    starts_at?: string | null
+    readonly starts_at: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name: string
+    /** @nullable */
+    readonly next_delivery_date: string | null
+    /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
+    delivery_targets?: unknown
     /**
-     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-     * @maxLength 64
+     * Maximum number of evaluation runs included in each report. Defaults to 200.
+     * @minimum -2147483648
+     * @maximum 2147483647
      */
-    timezone_name?: string
+    max_sample_size?: number
+    /** Whether report delivery is active. Disabled configs do not fire. */
+    enabled?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted: boolean
+    /** @nullable */
+    readonly last_delivered_at: string | null
+    /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
+    report_prompt_guidance?: string
+    /**
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
+     * @maximum 10000
+     * @nullable
+     */
+    trigger_threshold?: number | null
+    /**
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * @minimum 60
+     * @maximum 1440
+     */
+    cooldown_minutes?: number
+    /**
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+     * @minimum 1
+     * @maximum 24
+     */
+    daily_run_cap?: number
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PatchedEvaluationReportUpdateApi {
+    readonly id?: string
+    /** UUID of the evaluation this report config belongs to. */
+    readonly evaluation?: string
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
+     *
+     * * `scheduled` - Scheduled
+     * * `every_n` - Every N */
+    frequency?: EvaluationReportFrequencyEnumApi
+    /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
+    rrule?: string
+    /**
+     * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
+     * @nullable
+     */
+    readonly starts_at?: string | null
+    /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+    readonly timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
     /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -1077,15 +1155,15 @@ export interface PatchedEvaluationReportApi {
     max_sample_size?: number
     /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
-    /** Set to true to soft-delete this report config. */
-    deleted?: boolean
+    /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+    readonly deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
     /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum 10
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 100
      * @maximum 10000
      * @nullable
      */
@@ -1219,7 +1297,7 @@ export interface EvaluationSummaryResponseApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
-    /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
+    /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
     posthog_available: boolean
 }
 
@@ -1934,6 +2012,11 @@ export interface LLMPromptListApi {
     /** Prompt payload as JSON or string data. */
     readonly prompt: unknown
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @nullable
+     */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -1966,6 +2049,12 @@ export interface LLMPromptApi {
     /** Prompt payload as JSON or string data. */
     prompt: unknown
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @maxLength 400
+     * @nullable
+     */
+    version_description?: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -2013,6 +2102,11 @@ export interface PatchedLLMPromptPublishApi {
      * @minimum 1
      */
     base_version?: number
+    /**
+     * Optional note describing what changed in this version. Shown in the version history.
+     * @maxLength 400
+     */
+    version_description?: string
 }
 
 export interface LLMPromptDuplicateApi {
@@ -2026,6 +2120,8 @@ export interface LLMPromptDuplicateApi {
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
+    /** @nullable */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean
@@ -2431,6 +2527,10 @@ export type LlmAnalyticsClusteringJobsListParams = {
 }
 
 export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Only return report configs for this evaluation UUID.
+     */
+    evaluation?: string
     /**
      * Number of results to return per page.
      */

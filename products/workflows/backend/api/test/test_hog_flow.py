@@ -3001,6 +3001,34 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["deleted"] == 0
         assert HogFlow.objects.filter(id=flow_id).exists()
 
+    @parameterized.expand(
+        [
+            ("single_delete",),
+            ("bulk_delete",),
+        ]
+    )
+    def test_delete_publishes_reload_to_workers(self, delete_mode):
+        flow_id = self._create_flow(name="Delete reload")
+        self._archive_flow(flow_id)
+
+        with (
+            patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as mock_reload,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if delete_mode == "single_delete":
+                response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+                assert response.status_code == 204, response.content
+            else:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/bulk_delete",
+                    {"ids": [flow_id]},
+                )
+                assert response.status_code == 200, response.json()
+                assert response.json()["deleted"] == 1
+
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[flow_id])
+
     def _base_hog_flow_with_variables(self, variables):
         trigger_action = {
             "id": "trigger_node",

@@ -50,7 +50,9 @@ The convergence gate closes it, in **two steps** that run inside the multinode m
 
 1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
-   cluster (a `--network host` container, or `HCLEXP_BIN` locally).
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
+   `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
+   informational provenance, not gated by `check-live.sh`.
 2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
    `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
    `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
@@ -90,7 +92,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-c0affa0 -help
+  ghcr.io/posthog/chschema:sha-bf84186 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in

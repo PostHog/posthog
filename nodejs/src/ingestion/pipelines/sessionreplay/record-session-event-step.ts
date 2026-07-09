@@ -4,12 +4,16 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
 export interface RecordSessionEventStepInput {
     team: TeamForReplay
     parsedMessage: ParsedMessageData
+    retentionPeriod: RetentionPeriod
+    sessionKey: SessionKey
 }
 
 export interface RecordSessionEventStepConfig {
@@ -31,7 +35,7 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
     const { sessionBatchManager, isDebugLoggingEnabled } = config
 
     return async function recordSessionEventStep(input) {
-        const { team, parsedMessage } = input
+        const { team, parsedMessage, retentionPeriod, sessionKey } = input
 
         // Reset revoked sessions counter once we're consuming
         SessionRecordingIngesterMetrics.resetSessionsRevoked()
@@ -57,7 +61,7 @@ export function createRecordSessionEventStep<T extends RecordSessionEventStepInp
         // Record to the session batch
         const batch = sessionBatchManager.getCurrentBatch()
         const messageWithTeam: MessageWithTeam = { team, message: parsedMessage }
-        await batch.record(messageWithTeam)
+        await batch.record(messageWithTeam, retentionPeriod, sessionKey)
 
         return ok(input)
     }

@@ -942,12 +942,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.uuid().nullish(),
+            batch_export_id: zod.string().nullish(),
             search_match_type: zod
                 .union([zod.enum(['exact', 'similar']), zod.null()])
                 .optional()
                 .describe(
-                    'How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`.'
+                    'How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.'
                 ),
         })
         .describe('Full function configuration to test.'),

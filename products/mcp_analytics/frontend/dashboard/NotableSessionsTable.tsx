@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
+
 import { Link } from '@posthog/lemon-ui'
 import {
     Badge,
@@ -21,6 +24,14 @@ import { urls } from 'scenes/urls'
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
 import { formatDuration, truncateSessionId } from './formatters'
 
+// Link to the Sessions tab, keeping the dashboard's date range so a linked session resolves in the
+// same window. A sessionId becomes the search term (filtering the list to it and selecting it);
+// without one, opens the full list.
+function sessionsUrl(searchParams: Record<string, any>, sessionId?: string): string {
+    const { search: _search, ...rest } = searchParams
+    return combineUrl(urls.mcpAnalyticsSessions(), sessionId ? { ...rest, search: sessionId } : rest).url
+}
+
 const DESTRUCTIVE_ERROR_PCT = 5
 const WARNING_ERROR_PCT = 1
 
@@ -43,7 +54,15 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
     )
 }
 
-function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {
+function SessionRows({
+    sessions,
+    loading,
+    searchParams,
+}: {
+    sessions: NotableSession[]
+    loading: boolean
+    searchParams: Record<string, any>
+}): JSX.Element {
     if (loading && sessions.length === 0) {
         return (
             <TableBody>
@@ -67,7 +86,11 @@ function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loadin
             {sessions.map((entry) => (
                 <TableRow key={entry.session.session_id}>
                     <TableCell className="whitespace-nowrap">
-                        <Link to={urls.mcpAnalyticsSessions()} className="font-mono" title={entry.session.session_id}>
+                        <Link
+                            to={sessionsUrl(searchParams, entry.session.session_id)}
+                            className="font-mono"
+                            title={entry.session.session_id}
+                        >
                             {truncateSessionId(entry.session.session_id)}
                         </Link>
                     </TableCell>
@@ -92,6 +115,7 @@ export function NotableSessionsTable({
     sessions: NotableSession[]
     loading: boolean
 }): JSX.Element {
+    const { searchParams } = useValues(router)
     return (
         <Card size="sm" className="gap-0">
             <CardHeader className="border-b border-border pb-3">
@@ -107,12 +131,12 @@ export function NotableSessionsTable({
                         <TableHead expand>Why notable</TableHead>
                     </TableRow>
                 </TableHeader>
-                <SessionRows sessions={sessions} loading={loading} />
+                <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
             </Table>
             {sessions.length > 0 && (
                 <CardFooter className="justify-end">
-                    <Link to={urls.mcpAnalyticsSessions()} className="text-[10px]">
-                        Open all flagged sessions in Sessions tab ↗
+                    <Link to={sessionsUrl(searchParams)} className="text-[10px]">
+                        Open in Sessions tab ↗
                     </Link>
                 </CardFooter>
             )}

@@ -219,7 +219,8 @@ class AlpacaBrokerAPISourceConfig(config.Config):
 
 @config.config
 class AlphaVantageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
@@ -300,7 +301,7 @@ class AppfiguresSourceConfig(config.Config):
 
 @config.config
 class AppfollowSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -362,7 +363,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -620,7 +621,8 @@ class ChargedeskSourceConfig(config.Config):
 
 @config.config
 class ChargifySourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
@@ -804,7 +806,8 @@ class ConcordSourceConfig(config.Config):
 
 @config.config
 class ConfigCatSourceConfig(config.Config):
-    pass
+    basic_auth_username: str
+    basic_auth_password: str
 
 
 @config.config
@@ -948,7 +951,8 @@ class DeputySourceConfig(config.Config):
 
 @config.config
 class DevinAISourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str
 
 
 @config.config
@@ -1103,7 +1107,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1221,7 +1225,7 @@ class FlexportSourceConfig(config.Config):
 
 @config.config
 class FloatAppSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1251,7 +1255,8 @@ class FreshBooksSourceConfig(config.Config):
 
 @config.config
 class FreshcallerSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1284,7 +1289,7 @@ class FrontSourceConfig(config.Config):
 
 @config.config
 class FulcrumSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1294,12 +1299,19 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
@@ -1504,13 +1516,18 @@ class HarnessSourceConfig(config.Config):
 
 
 @config.config
+class HealthchecksSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HeapSourceConfig(config.Config):
     pass
 
 
 @config.config
 class HeightSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1547,7 +1564,7 @@ class HoorayHRSourceConfig(config.Config):
 
 @config.config
 class HubplannerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1569,12 +1586,13 @@ class HumanitixSourceConfig(config.Config):
 
 @config.config
 class HuntrSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
 class IP2WhoisSourceConfig(config.Config):
-    pass
+    api_key: str
+    domains: str
 
 
 @config.config
@@ -1593,13 +1611,19 @@ class ImaggaSourceConfig(config.Config):
 
 
 @config.config
+class ImpactSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class IncidentIoSourceConfig(config.Config):
     api_key: str
 
 
 @config.config
 class InflowinventorySourceConfig(config.Config):
-    pass
+    company_id: str
+    api_key: str
 
 
 @config.config
@@ -1630,7 +1654,7 @@ class InstantlySourceConfig(config.Config):
 
 @config.config
 class InstatusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1645,7 +1669,7 @@ class InterzoidSourceConfig(config.Config):
 
 @config.config
 class IntruderSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1655,7 +1679,8 @@ class InvoicedSourceConfig(config.Config):
 
 @config.config
 class InvoiceninjaSourceConfig(config.Config):
-    pass
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
@@ -1678,7 +1703,7 @@ class JiraSourceConfig(config.Config):
 
 @config.config
 class JobNimbusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1700,17 +1725,19 @@ class JudgeMeReviewsSourceConfig(config.Config):
 
 @config.config
 class JustCallSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
 class JustSiftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class K6CloudSourceConfig(config.Config):
-    pass
+    api_token: str
+    stack_id: str
 
 
 @config.config
@@ -1725,7 +1752,7 @@ class KafkaSourceConfig(config.Config):
 
 @config.config
 class KatanaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1809,7 +1836,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1851,7 +1878,7 @@ class LinkedinPagesSourceConfig(config.Config):
 
 @config.config
 class LinkrunnerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1925,7 +1952,7 @@ class MailjetSourceConfig(config.Config):
 
 @config.config
 class MailosaurSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1945,7 +1972,8 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MarketstackSourceConfig(config.Config):
-    pass
+    access_key: str
+    symbols: str | None = None
 
 
 @config.config
@@ -2075,7 +2103,7 @@ class MuxSourceConfig(config.Config):
 
 @config.config
 class MyHoursSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2092,7 +2120,8 @@ class MySQLSourceConfig(config.Config):
 
 @config.config
 class N8nSourceConfig(config.Config):
-    pass
+    host: str
+    api_key: str
 
 
 @config.config
@@ -2133,12 +2162,14 @@ class NewYorkTimesSourceConfig(config.Config):
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2158,7 +2189,8 @@ class NinjaOneRMMSourceConfig(config.Config):
 
 @config.config
 class NoCRMSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -2224,7 +2256,7 @@ class OnepagecrmSourceConfig(config.Config):
 
 @config.config
 class OnfleetSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2234,7 +2266,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2244,12 +2276,14 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
 class OpenFDASourceConfig(config.Config):
-    pass
+    api_key: str | None = None
 
 
 @config.config
@@ -2260,7 +2294,7 @@ class OpenWeatherSourceConfig(config.Config):
 
 @config.config
 class OpinionStageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2367,7 +2401,8 @@ class PardotSourceConfig(config.Config):
 
 @config.config
 class PartnerStackSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
 
 
 @config.config
@@ -2396,6 +2431,11 @@ class PaystackSourceConfig(config.Config):
 
 
 @config.config
+class PeecAISourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PendoSourceConfig(config.Config):
     integration_key: str
     region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
@@ -2418,12 +2458,12 @@ class PerkSourceConfig(config.Config):
 
 @config.config
 class PersistIqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class PersonaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2434,7 +2474,8 @@ class PersonioSourceConfig(config.Config):
 
 @config.config
 class PexelsSourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config
@@ -2451,7 +2492,8 @@ class PhylloSourceConfig(config.Config):
 
 @config.config
 class PicqerSourceConfig(config.Config):
-    pass
+    account_name: str
+    api_key: str
 
 
 @config.config
@@ -2506,7 +2548,7 @@ class PlanetScaleSourceConfig(config.Config):
 
 @config.config
 class PlanhatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2610,7 +2652,8 @@ class QontoSourceConfig(config.Config):
 
 @config.config
 class QualarooSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2667,7 +2710,8 @@ class RecreationSourceConfig(config.Config):
 
 @config.config
 class RecruiteeSourceConfig(config.Config):
-    pass
+    company_id: str
+    api_token: str
 
 
 @config.config
@@ -2711,7 +2755,7 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RentCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2767,7 +2811,7 @@ class RocketChatSourceConfig(config.Config):
 
 @config.config
 class RocketlaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2787,7 +2831,7 @@ class RssSourceConfig(config.Config):
 
 @config.config
 class RuddrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2827,7 +2871,7 @@ class SalesLoftSourceConfig(config.Config):
 
 @config.config
 class SalesflareSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2877,7 +2921,7 @@ class SearchAds360SourceConfig(config.Config):
 
 @config.config
 class SecodaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2996,12 +3040,12 @@ class SimFinSourceConfig(config.Config):
 
 @config.config
 class SimpleCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class SimplesatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3021,7 +3065,7 @@ class SmartEngageSourceConfig(config.Config):
 
 @config.config
 class SmartreachSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3169,7 +3213,7 @@ class SurvicateSourceConfig(config.Config):
 
 @config.config
 class SvixSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3216,7 +3260,7 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamtailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3505,7 +3549,8 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WufooSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -3647,7 +3692,8 @@ class ZohoInvoiceSourceConfig(config.Config):
 
 @config.config
 class ZonkaFeedbackSourceConfig(config.Config):
-    pass
+    auth_token: str
+    data_center: Literal["us1", "e", "in"] = config.value(default="us1")
 
 
 @config.config
@@ -3932,6 +3978,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GURU: GuruSourceConfig,
         ExternalDataSourceType.GUSTO: GustoSourceConfig,
         ExternalDataSourceType.HARNESS: HarnessSourceConfig,
+        ExternalDataSourceType.HEALTHCHECKS: HealthchecksSourceConfig,
         ExternalDataSourceType.HEAP: HeapSourceConfig,
         ExternalDataSourceType.HEIGHT: HeightSourceConfig,
         ExternalDataSourceType.HELLOBATON: HellobatonSourceConfig,
@@ -3949,6 +3996,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
+        ExternalDataSourceType.IMPACT: ImpactSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
         ExternalDataSourceType.INFLOWINVENTORY: InflowinventorySourceConfig,
         ExternalDataSourceType.INFORNEXUS: InforNexusSourceConfig,
@@ -4101,6 +4149,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PAYLOCITY: PaylocitySourceConfig,
         ExternalDataSourceType.PAYSTACK: PaystackSourceConfig,
+        ExternalDataSourceType.PEECAI: PeecAISourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
         ExternalDataSourceType.PENNYLANE: PennylaneSourceConfig,
         ExternalDataSourceType.PERIGON: PerigonSourceConfig,

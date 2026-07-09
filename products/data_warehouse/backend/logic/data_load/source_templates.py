@@ -11,7 +11,7 @@ LOGGER = get_logger(__name__)
 
 
 def database_operations(team_id: int, table_prefix: str) -> None:
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name="persons",
@@ -21,7 +21,7 @@ def database_operations(team_id: int, table_prefix: str) -> None:
         field_name=f"{table_prefix}stripe_customer",
     )
 
-    DataWarehouseJoin.objects.get_or_create(
+    DataWarehouseJoin.create_if_missing(
         team_id=team_id,
         deleted=False,
         source_table_name="persons",

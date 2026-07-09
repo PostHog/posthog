@@ -7,7 +7,7 @@ import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep } from './scannerEditorSce
 const STEP_LABELS: Record<ScannerEditorStep, string> = {
     template: 'Template',
     configure: 'Configure',
-    triggers: 'Triggers',
+    triggers: 'Scan conditions',
 }
 
 interface ScannerEditorStepperProps {

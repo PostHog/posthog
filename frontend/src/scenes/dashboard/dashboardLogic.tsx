@@ -14,7 +14,8 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
@@ -44,6 +45,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
@@ -1858,7 +1860,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return size
             },
         ],
-        layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
+        layouts: [
+            (s) => [s.tiles],
+            (tiles) => calculateLayouts(tiles),
+            // Tile refreshes replace `tiles` once per insight response without touching geometry;
+            // keeping the result reference stable stops react-grid-layout re-laying-out every tile
+            // N times per dashboard refresh cycle.
+            { resultEqualityCheck: objectsEqual },
+        ],
         layout: [
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
@@ -3251,6 +3260,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
+        },
+    })),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (values.dashboardMode !== DashboardMode.Edit || !values.hasUnsavedLayoutChanges) {
+                return false
+            }
+            // Ignore in-page navigations such as opening a side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
+        onConfirm: () => {
+            actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 

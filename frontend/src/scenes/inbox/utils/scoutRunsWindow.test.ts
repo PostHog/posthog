@@ -5,6 +5,7 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
+    reconcileById,
     runMatchesFilter,
     ScoutRunOutcome,
     scoutReportActivityLabel,
@@ -101,6 +102,49 @@ describe('scoutRunsWindow report channel', () => {
             // per-scout "Emitted" chip counts report-channel output too — the two surfaces must agree.
             const rollups = computeScoutRollups([makeRun({ emitted_report_ids: ['r-1'] })])
             expect(computeFleetSummary([], rollups).emitRate).toEqual(1)
+        })
+    })
+
+    describe('reconcileById', () => {
+        it('keeps the previous reference for unchanged items and the fresh one for changed items', () => {
+            // Every runs-window poll returns freshly parsed objects; reconcileById is what preserves
+            // identity so memoized rows only re-render on real change. If it degrades to `return next`,
+            // unchanged runs churn references every 60s and the memo is silently defeated.
+            const prevUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
+            const prevChanged = makeRun({ run_id: 'run-2', status: 'in_progress' })
+
+            const nextUnchanged = makeRun({ run_id: 'run-1', emitted_count: 1 })
+            const nextChanged = makeRun({ run_id: 'run-2', status: 'completed' })
+            const nextNew = makeRun({ run_id: 'run-3' })
+
+            const result = reconcileById(
+                [prevUnchanged, prevChanged],
+                [nextUnchanged, nextChanged, nextNew],
+                (run) => run.run_id
+            )
+
+            expect(result[0]).toBe(prevUnchanged)
+            expect(result[1]).toBe(nextChanged)
+            expect(result[2]).toBe(nextNew)
+        })
+
+        it('returns the next array untouched when there is no previous window', () => {
+            const next = [makeRun({ run_id: 'run-1' })]
+            expect(reconcileById([], next, (run) => run.run_id)).toBe(next)
+        })
+
+        it('never reuses items the isReusable predicate rejects, even when deep-equal', () => {
+            // A running run's row renders a wall-clock duration: reusing its reference would let the
+            // memoized row skip the poll re-render and freeze the ticking timer.
+            const prev = makeRun({ run_id: 'run-1', status: 'in_progress' })
+            const next = makeRun({ run_id: 'run-1', status: 'in_progress' })
+            const result = reconcileById(
+                [prev],
+                [next],
+                (run) => run.run_id,
+                (run) => run.status !== 'in_progress'
+            )
+            expect(result[0]).toBe(next)
         })
     })
 })

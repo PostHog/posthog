@@ -167,7 +167,7 @@ describe('AiIngestionPipeline', () => {
             hogTransformer: mockHogTransformer as unknown as HogTransformer,
             personRepository: mockPersonRepository,
             groupTypeManager: mockGroupTypeManager,
-            overflowEnabled: false,
+            overflowMode: 'disabled',
             preservePartitionLocality: false,
             overflowRedirectService: new DisabledOverflowRedirect(),
             overflowLaneTTLRefreshService: new DisabledOverflowRedirect(),

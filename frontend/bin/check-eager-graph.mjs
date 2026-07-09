@@ -9,8 +9,8 @@ const frontendDir = path.resolve(__dirname, '..')
 const metaPath = path.join(frontendDir, 'posthog-app-esbuild-meta.json')
 
 // --report-only: record results without failing the build. Used by build:with-report
-// because compressed-size-action runs that script for BOTH the PR build and the base
-// build — a base-branch budget breach must not abort the action for every open PR.
+// because the CI bundle-size job runs that script for BOTH the PR build and the base
+// build — a base-branch budget breach must not abort the job for every open PR.
 // Budget breaches are surfaced as warnings in the dedicated workflow step via --assert-report.
 const reportOnly = process.argv.includes('--report-only')
 
@@ -40,16 +40,46 @@ const ROOTS = [
         // 2026-07-01: 3.75 MiB eager output (2.73 MiB JS + 1.02 MiB eager CSS, 21 chunks).
         // ~15% headroom so routine churn doesn't trip the warn; ratchet down on a split win.
         budgetBytes: 4_500_000,
-        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
+        forbidden: [
+            'node_modules/monaco-editor/',
+            'src/lib/components/ActivityLog/describers',
+            // Inlined hoggie SVGs are huge (up to ~1 MiB each), and one static barrel import
+            // from eager code drags every hoggie used anywhere in the app onto the eager
+            // path. All app code uses pngHoggie (lib/brand/hoggies) instead - the package's
+            // `hoggies/png/*` URL stubs are allowed (a few bytes each, the image bytes stay
+            // out of the JS bundle entirely). Nothing imports the SVG modules today (oxlint
+            // no-restricted-imports bans them), so these are tripwires: verifyPrefix checks
+            // the package is still laid out as expected via the PNG stubs that DO ship.
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/components/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+        ],
     },
     {
         root: 'src/scenes/AuthenticatedShell.tsx',
         label: 'authenticated shell (every logged-in page)',
-        // 2026-07-01: 11.58 MiB eager output (10.85 MiB JS + 0.73 MiB eager CSS, 104 chunks).
-        // Includes ~3.6 MiB of inlined @posthog/brand/hoggies SVGs pulled onto the eager path
-        // by #66238 — a ratchet-down target (make those hog usages lazy / import where rendered).
-        budgetBytes: 13_500_000,
-        forbidden: ['node_modules/monaco-editor/', 'src/lib/components/ActivityLog/describers'],
+        // 2026-07-07: 8.02 MiB eager output after moving all @posthog/brand/hoggies usage in
+        // eager code to PNG stubs (lib/brand/hoggies) — the inline-SVG modules are now a
+        // forbidden module below. ~15% headroom so routine churn doesn't trip the warn.
+        budgetBytes: 9_700_000,
+        forbidden: [
+            'node_modules/monaco-editor/',
+            'src/lib/components/ActivityLog/describers',
+            // See the entry root's note: inline-SVG hoggies must stay off the eager path.
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/svg/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+            {
+                pattern: 'node_modules/@posthog/brand/dist/generated/hoggies/components/',
+                verifyPrefix: 'node_modules/@posthog/brand/dist/generated/hoggies/',
+            },
+        ],
     },
 ]
 
@@ -72,6 +102,9 @@ function assertReport(reportFilePath) {
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
+    for (const message of reportToAssert.warnings ?? []) {
+        warnViolation(message)
+    }
     const topLevelErrors = reportToAssert.errors ?? []
     for (const message of topLevelErrors) {
         warnViolation(message)
@@ -110,7 +143,9 @@ if (assertReportIndex !== -1) {
                 `Signals scout tracks eager-graph regressions from the PR comment. Trim the eager closure when you can.`
         )
     } else {
-        console.info('\nAll eager graph budgets respected.')
+        // Neutral wording: warnings (e.g. a stale forbidden pattern) may have printed above
+        // without counting as violations, so don't declare an unqualified all-clear.
+        console.info('\nNo eager graph budget violations.')
     }
     process.exit(0)
 }
@@ -190,7 +225,31 @@ function eagerChunkClosure(entry) {
 }
 
 const summaryLines = ['## Eager graph check', '', '| Root | Eager size | Budget | Files |', '| --- | --- | --- | --- |']
-const report = { roots: [], errors: [] }
+const report = { roots: [], errors: [], warnings: [] }
+
+// Computed once: the full set of module paths known to this build. Shared across all roots
+// because `inputs` is the global metafile index, not per-root.
+const allInputKeys = Object.keys(inputs)
+
+// Forbidden entries are strings, or { pattern, verifyPrefix } when the pattern is a pure
+// tripwire that legitimately matches nothing in a healthy build.
+const forbiddenPattern = (entry) => (typeof entry === 'string' ? entry : entry.pattern)
+const forbiddenVerify = (entry) => (typeof entry === 'string' ? entry : entry.verifyPrefix)
+
+// Self-verify: each forbidden pattern's verify prefix should match at least one module present
+// anywhere in the metafile inputs. If it matches nothing, the path string is stale (dist layout
+// changed, package renamed) and the guard silently stops enforcing. Tripwire entries verify a
+// broader prefix instead, since matching nothing is their healthy state. Warn once per unique
+// prefix so a pattern shared across roots doesn't produce duplicate annotations.
+for (const verifySubstr of new Set(ROOTS.flatMap((r) => r.forbidden.map(forbiddenVerify)))) {
+    if (!allInputKeys.some((f) => f.includes(verifySubstr))) {
+        const msg =
+            `Forbidden pattern (or its verify prefix) '${verifySubstr}' does not match any module in the build — ` +
+            `the path may be stale. Update it in frontend/bin/check-eager-graph.mjs.`
+        warnViolation(msg)
+        report.warnings.push(msg)
+    }
+}
 
 for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     const entry = entryChunk(root)
@@ -237,8 +296,9 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
     // diverge (a module can ship eagerly via a bundler-injected or re-export edge with no
     // source-level import path), so the chain is a pointer, not the byte source, and may be
     // short when the output edge has no input-graph counterpart.
+
     const hitFiles = new Map()
-    for (const forbiddenSubstr of forbidden) {
+    for (const forbiddenSubstr of forbidden.map(forbiddenPattern)) {
         const hit = [...eagerBytesByFile.keys()].find((f) => f.includes(forbiddenSubstr))
         if (hit) {
             hitFiles.set(forbiddenSubstr, hit)
@@ -294,7 +354,7 @@ for (const { root, label, budgetBytes, forbidden } of ROOTS) {
 
 // Consumed by the workflow's comment + enforcement steps; written even on failure so
 // the PR comment can show what went over. The filename and the embedded sha carry the
-// built tree's HEAD because compressed-size-action runs this for BOTH the PR build and
+// built tree's HEAD because the CI bundle-size job runs this for BOTH the PR build and
 // the base build in the same workspace — the PR build's report is found by sha, and the
 // plain filename (last write = the base build) doubles as the base-branch measurement
 // for the comment's vs-base delta.

@@ -11,6 +11,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.cdp.validation import compile_hog
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 from .evaluation_llm_judge import BooleanEvalResult
@@ -70,6 +71,13 @@ def setup_data():
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
+
+
+@pytest.fixture
+def grandfathered(setup_data, settings):
+    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
+    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
 
 
 def evaluation_dict(setup_data: dict, **overrides: Any) -> dict[str, Any]:
@@ -250,7 +258,7 @@ class TestFetchTraceForEvaluation:
 
 class TestExecuteTraceLLMJudgeActivity:
     @pytest.mark.django_db(transaction=True)
-    def test_judges_full_trace_transcript(self, setup_data):
+    def test_judges_full_trace_transcript(self, setup_data, grandfathered):
         trace = create_trace(
             [
                 create_trace_event("$ai_generation", **{"$ai_input": "What is 2+2?", "$ai_output": "4"}),

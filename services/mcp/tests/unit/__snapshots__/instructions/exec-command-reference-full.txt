@@ -5,7 +5,7 @@ tools — list available tool names
 search <regex_pattern> — search tools by JavaScript regex (matches name, title, description)
 info [--json] <tool_name> — show tool name, description, and input schema (summarized if too large). Pass `--json` for raw JSON output.
 schema <tool_name> [field_path] — drill into a specific field schema (supports dot-notation, e.g. series, breakdownFilter.breakdowns)
-call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
+call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns raw JSON instead of optimized output in supported tools. Use raw JSON for scripts. --confirm is required by the CLI for destructive tools.)
 ```
 
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
@@ -171,23 +171,26 @@ If you cannot answer the user's PostHog related request or question using other 
 
 ### Tool search
 
-**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <regex>` with a short, targeted pattern to find what you need.
+**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
 
-Write focused patterns that match 1-5 tools. The regex matches against tool name, title, and description.
+`search` understands two kinds of query:
 
-**Good patterns** (specific, narrow):
+- **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
+- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
 
-- `search feature-flag` — tools for feature flags
+**Good queries:**
+
+- `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
+- `search feature-flag` — regex (`-`): tools for feature flags
 - `search dashboard` — dashboard CRUD tools
-- `search query-` — all insight query tools
+- `search query-` — regex (`-`): all insight query tools
 - `search experiment` — experiment tools
 - `search survey` — survey tools
 
-**Bad patterns** (too broad, match dozens of tools):
+**Avoid queries that are too broad** (match dozens of tools):
 
 - `search data` — matches almost everything
-- `search get|list|create` — matches action verbs across all domains
-- `search pageview_trends` — search is too focused
+- `search get list create` — action verbs across all domains
 - `search pageview|email@address.com` — unrelated to tools
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.

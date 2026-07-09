@@ -171,6 +171,37 @@ class TestExternalDataSource(APIBaseTest):
             len(STRIPE_ENDPOINTS),
         )
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_rejects_row_filters_for_source_without_pushdown(self, _mock_validate):
+        # Stripe doesn't push filters into a SQL WHERE — accepting one on creation would save it
+        # and then silently sync unfiltered rows (mirrors the PATCH-path
+        # test_row_filters_rejected_for_source_without_pushdown in test_external_data_schema.py).
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                            "row_filters": [{"column": "id", "operator": ">", "value": "10"}],
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not supported for this source type" in str(response.json())
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_discover_schemas_schedule")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -3949,6 +3980,15 @@ class TestExternalDataSource(APIBaseTest):
 
         postgres_connection.close()
 
+    def test_database_schema_unknown_source_type(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "GoogleAds-"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Unknown source_type 'GoogleAds-'"
+
     def test_database_schema_stripe_credentials(self):
         with (
             patch(
@@ -4060,6 +4100,30 @@ class TestExternalDataSource(APIBaseTest):
             # Expected per-source errors surface the classifier's friendly copy.
             assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_rejects_source_without_schema_discovery(self, mock_get_source, mock_capture_exception):
+        # AmazonS3 deliberately omits get_schemas, so the base raises NotImplementedError. The endpoint
+        # must return a clean 400 without capturing it as a server error, mirroring `setup`.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
+
+        source = AmazonS3Source()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "AmazonS3"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == "Source type 'AmazonS3' does not support schema discovery."
+        mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
         """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
@@ -9694,6 +9758,299 @@ class TestDisableCDC(APIBaseTest):
         mock_cleanup.assert_called_once()
         called_with = mock_cleanup.call_args.args[0]
         assert called_with.pk == source.pk
+
+
+BROKEN_MARKER = {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}
+
+
+class TestRepairCDC(APIBaseTest):
+    def _repair(self, source: ExternalDataSource):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/repair_cdc/",
+        )
+
+    def test_repair_cdc_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self._repair(source)
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+    )
+    def test_repair_cdc_rejects_when_no_active_cdc_schemas(self, mock_recreate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+        response = self._repair(source)
+        assert response.status_code == 400
+        assert "no active CDC schemas" in response.json()["message"]
+        mock_recreate.assert_not_called()
+
+    @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        return_value={"cdc_consistent_point": "0/AABBCC"},
+    )
+    def test_repair_cdc_resets_schemas_and_resumes_schedules(
+        self, mock_recreate, mock_unpause_schema, mock_trigger, mock_unpause_extraction, mock_sync_extraction
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        source.status = ExternalDataSource.Status.ERROR
+        source.save()
+
+        broken_schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            latest_error="The replication slot no longer exists on the source database.",
+            initial_sync_complete=True,
+            sync_type_config={
+                "cdc_mode": "streaming",
+                "cdc_last_log_position": "0/123",
+                "cdc_deferred_runs": [{"run": "stale"}],
+                "cdc_broken": BROKEN_MARKER,
+            },
+        )
+        streaming_schema = ExternalDataSchema.objects.create(
+            name="users",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            initial_sync_complete=True,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+        disabled_cdc_schema = ExternalDataSchema.objects.create(
+            name="ignored",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=False,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+        non_cdc_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["success"] is True
+        assert body["schemas_reset"] == 2
+
+        # Slot recreated against the qualified capture set of active CDC schemas only.
+        mock_recreate.assert_called_once()
+        assert sorted(mock_recreate.call_args.kwargs["tables"]) == ["public.orders", "public.users"]
+
+        for schema in (broken_schema, streaming_schema):
+            schema.refresh_from_db()
+            config = schema.sync_type_config
+            assert config["cdc_mode"] == "snapshot"
+            assert config["reset_pipeline"] is True
+            assert "cdc_broken" not in config
+            assert "cdc_last_log_position" not in config
+            assert "cdc_deferred_runs" not in config
+            assert schema.initial_sync_complete is False
+            assert schema.latest_error is None
+
+        disabled_cdc_schema.refresh_from_db()
+        assert disabled_cdc_schema.sync_type_config == {"cdc_mode": "streaming"}
+        non_cdc_schema.refresh_from_db()
+        assert non_cdc_schema.sync_type_config == {}
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_consistent_point"] == "0/AABBCC"
+        assert source.status == ExternalDataSource.Status.RUNNING
+
+        unpaused_ids = {call.args[0] for call in mock_unpause_schema.call_args_list}
+        assert unpaused_ids == {str(broken_schema.id), str(streaming_schema.id)}
+        triggered_ids = {str(call.args[0].id) for call in mock_trigger.call_args_list}
+        assert triggered_ids == {str(broken_schema.id), str(streaming_schema.id)}
+        mock_sync_extraction.assert_called_once()
+        mock_unpause_extraction.assert_called_once_with(str(source.pk))
+
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_repair_cdc_failure_keeps_broken_state(
+        self, _mock_recreate, mock_unpause_schema, mock_trigger, mock_unpause_extraction
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 400
+        assert "Could not connect to source to repair CDC" in response.json()["message"]
+
+        # Broken state must survive a failed repair so a retry starts from the same place.
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_broken"] == BROKEN_MARKER
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        mock_unpause_schema.assert_not_called()
+        mock_trigger.assert_not_called()
+        mock_unpause_extraction.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
+    )
+    def test_repair_cdc_rejects_healthy_source(self, mock_status, mock_recreate) -> None:
+        # No broken markers and a live probe showing slot + publication present: repair must
+        # refuse — otherwise a stray API call drops a healthy slot and forces a full re-sync.
+        mock_status.return_value = {"slot_exists": True, "publication_exists": True, "lag_bytes": 0}
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 400
+        assert "CDC looks healthy" in response.json()["message"]
+        mock_recreate.assert_not_called()
+
+    @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        return_value={"cdc_consistent_point": "0/AABBCC"},
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_repair_cdc_allows_missing_slot_without_marker(
+        self, mock_status, mock_recreate, _unpause, _trigger, _unpause_ext, _sync_ext
+    ) -> None:
+        # A slot dropped on the source database before any extraction run noticed leaves no
+        # cdc_broken marker — the live probe is the evidence that lets repair proceed.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming"},
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 200, response.content
+        mock_recreate.assert_called_once()
+
+    @patch("products.data_warehouse.backend.logic.data_load.service.cancel_external_data_workflow")
+    @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
+    @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        return_value={"cdc_consistent_point": "0/AABBCC"},
+    )
+    def test_repair_cdc_cancels_running_cdc_jobs(
+        self, _mock_recreate, _unpause, _trigger, _unpause_ext, _sync_ext, mock_cancel
+    ) -> None:
+        # A run still holding the slot fails pg_drop_replication_slot, and a wedged Running
+        # workflow would block the resumed SKIP-overlap schedules — repair must cancel them.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+        non_cdc_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+        ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline_id=source.pk,
+            schema_id=cdc_schema.id,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="cdc-workflow-1",
+            rows_synced=0,
+        )
+        ExternalDataJob.objects.create(
+            team_id=self.team.pk,
+            pipeline_id=source.pk,
+            schema_id=non_cdc_schema.id,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="incremental-workflow-1",
+            rows_synced=0,
+        )
+
+        response = self._repair(source)
+        assert response.status_code == 200, response.content
+        # Only the CDC schema's run is cancelled — unrelated incremental syncs keep running.
+        mock_cancel.assert_called_once_with("cdc-workflow-1")
+
+    def test_repair_cdc_conflicts_while_another_repair_holds_the_lock(self) -> None:
+        from posthog.redis import get_client
+
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.repair import _repair_lock_key
+
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataSchema.objects.create(
+            name="orders",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config={"cdc_mode": "streaming", "cdc_broken": BROKEN_MARKER},
+        )
+
+        redis = get_client()
+        lock_key = _repair_lock_key(str(source.pk))
+        assert redis.set(lock_key, "1", nx=True, ex=60)
+        try:
+            response = self._repair(source)
+        finally:
+            redis.delete(lock_key)
+
+        assert response.status_code == 409
+        assert "already running" in response.json()["message"]
 
 
 class TestUpdateCDCSettings(APIBaseTest):

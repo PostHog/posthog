@@ -43,6 +43,7 @@ import {
     createPersonsStoreBeforeBatchStep,
 } from '~/ingestion/common/steps/persons-store-batch-step'
 import { AiEventSubpipelineFactory } from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
@@ -69,7 +70,7 @@ import {
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
@@ -149,7 +150,7 @@ export function createJoinedIngestionPipeline<
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
-        overflowEnabled,
+        overflowMode,
         preservePartitionLocality,
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
@@ -234,7 +235,7 @@ export function createJoinedIngestionPipeline<
                                 .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowEnabled,
+                                        overflowMode,
                                         preservePartitionLocality,
                                     })
                                 )

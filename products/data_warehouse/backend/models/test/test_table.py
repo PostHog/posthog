@@ -28,11 +28,14 @@ from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+    postgres_column_to_dwh_column,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):
@@ -481,15 +484,14 @@ class TestTable(BaseTest):
             team=self.team,
         )
 
-        chdb_result = type("R", (), {"__str__": lambda self: chdb_csv})()
         with (
             patch("products.warehouse_sources.backend.models.table.TEST", False),
-            patch("chdb.query", return_value=chdb_result) as chdb_query,
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query", return_value=chdb_csv) as mock_run,
         ):
             getattr(table, method_name)()
 
-        assert chdb_query.called, "chdb.query should have been invoked on the chdb path"
-        rendered_query: str = chdb_query.call_args.args[0]
+        assert mock_run.called, "run_chdb_query should have been invoked on the chdb path"
+        rendered_query: str = mock_run.call_args.args[0]
         assert malicious_secret not in rendered_query, (
             f"Unescaped secret leaked into chdb query, enabling SQL injection: {rendered_query}"
         )
@@ -886,7 +888,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is None
 
     def test_remove_named_tuples_backtick_quoted(self):
-        from products.warehouse_sources.backend.models.util import remove_named_tuples
+        from products.warehouse_sources.backend.facade.models import remove_named_tuples
 
         result = remove_named_tuples("Array(Tuple(`1` String, `2` String, `3` Nullable(String)))")
         assert result == "Array(Tuple( String,  String,  Nullable(String)))"

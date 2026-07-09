@@ -331,6 +331,79 @@ export interface WriteTypedBundleRequestApi {
 }
 
 /**
+ * Body shape for PUT /revisions/<id>/bundle/file/.
+ *
+ * Edits one `.md` file on a draft revision. `agent.md` writes go to the
+ * draft bundle. `skills/<id>/SKILL.md` writes are store-backed: the edit
+ * publishes a new version of the referenced skill-store skill and re-pins
+ * the draft's `skill_refs` entry to it — skills are materialized from the
+ * store at freeze, so the store is the single source of truth. Tool
+ * source / schema editing is out of scope here; use the per-tool endpoint.
+ */
+export interface UpdateBundleFileRequestApi {
+    /** Canonical bundle path. Must be `agent.md` or `skills/<id>/SKILL.md` where `<id>` is a skill-reference alias on this revision. */
+    path: string
+    /** The new file contents. For `agent.md`, written verbatim to the draft bundle. For a skill, published as a new version of the referenced store skill — shared with every agent that references it. SKILL.md frontmatter (description, license, allowed-tools, metadata) is honoured when present; body-only content carries those fields forward. */
+    content: string
+}
+
+/**
+ * 409 body returned when a bundle edit targets a non-draft revision.
+ *
+ * Distinct from a 400 on purpose: the frozen bundle sha is the source of
+ * truth once a revision leaves `draft`, so the fix is to clone a new draft,
+ * not to correct the payload. Callers switch on `error`.
+ */
+export interface RevisionNotDraftErrorApi {
+    /** Machine-readable error code — always `revision_not_draft`. */
+    error: string
+    /** The revision's current state (never `draft` — a draft would have accepted the edit).
+     *
+     * * `draft` - draft
+     * * `ready` - ready
+     * * `live` - live
+     * * `archived` - archived */
+    state: AgentRevisionStateEnumApi
+    /** Human-readable explanation of the conflict. */
+    detail: string
+}
+
+/**
+ * One skill entry in a bulk-import payload.
+ *
+ * Skills are store-backed: each entry publishes to (or creates) a skill in
+ * the skill store and pins a `skill_refs` entry on the draft. The optional
+ * `description` is honoured when supplied; when omitted on an existing
+ * skill, the current store description is preserved. Skill `id` must match
+ * the canonical resource-id regex used by the janitor.
+ */
+export interface ImportBundleSkillApi {
+    /** Skill id. Lowercase letters, digits, hyphens, or underscores; must start and end with `[a-z0-9]`. */
+    id: string
+    /** One-line summary shown in the skill index. Required when creating a new skill; optional when updating one. */
+    description?: string
+    /** The skill's markdown body, published as a new version of the store skill. */
+    body: string
+}
+
+/**
+ * Body shape for POST /revisions/<id>/bundle/import/.
+ *
+ * Bulk-paste hatch for migrating an existing multi-file agent. Either
+ * `agent_md` or `skills` (or both) may be present. Skills merge by `id`
+ * into the skill store: an id already referenced by the draft publishes a
+ * new version of its store skill; a new id attaches (or creates) the store
+ * skill of that name and appends a pinned `skill_refs` entry. Skills NOT
+ * mentioned are left alone — the import is safe to retry.
+ */
+export interface ImportBundleRequestApi {
+    /** New `agent.md` contents. When omitted, the existing agent.md is left alone. */
+    agent_md?: string
+    /** Per-skill payloads merged into the skill store by id and pinned onto the draft's skill references. When omitted, no skills are touched. */
+    skills?: ImportBundleSkillApi[]
+}
+
+/**
  * Body shape for POST /revisions/<id>/clone_from/ — copy every file
  * from `source_revision_id` into this (draft) revision.
  */
@@ -437,6 +510,46 @@ export interface AgentRevisionSystemPromptResponseApi {
     framework_prompt_version: number
     /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
+}
+
+/**
+ * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+ */
+export type DryRunToolRequestApiMockSecrets = { [key: string]: string }
+
+/**
+ * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+ *
+ * Executes the persisted compiled.js once in the janitor's single-shot
+ * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+ * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+ * something deterministic to the author.
+ */
+export interface DryRunToolRequestApi {
+    /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+    args: unknown
+    /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+    mock_secrets?: DryRunToolRequestApiMockSecrets
+}
+
+export interface AgentRevisionDryRunToolErrorApi {
+    /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
+    code: string
+    /** One-line human-readable detail. */
+    message: string
+}
+
+export interface AgentRevisionDryRunToolResponseApi {
+    /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+    ok: boolean
+    /** Echo of the tool id from the URL. */
+    tool_id: string
+    /** Present on success — the value the tool's `actions.default` returned. */
+    result?: unknown
+    error?: AgentRevisionDryRunToolErrorApi
+    /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
+    duration_ms: number
 }
 
 export interface AgentRevisionValidationErrorApi {
