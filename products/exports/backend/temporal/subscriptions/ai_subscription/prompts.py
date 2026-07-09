@@ -243,7 +243,7 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
   LIMIT 50
 
 Count distinct groups/accounts (the account itself, via the raw `$`-prefixed key, never bare
-`group_N`, which is only valid as `group_N.properties.<name>`):
+`group_<index>`, which is only valid as `group_<index>.properties.<name>`):
   SELECT
     uniq($group_2) AS accounts,
     uniqIf($group_2, event = 'signup') AS accounts_signed_up
