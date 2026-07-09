@@ -336,7 +336,7 @@ class TestFailureStreak:
             consecutive_failures=5, first_failed_at=timezone.now(), last_error="boom"
         )
 
-        backfill_module.mark_primed(str(candidate.schema_id))
+        backfill_module.mark_primed(str(candidate.schema_id), run_uuid="run-test")
 
         candidate.refresh_from_db()
         assert candidate.state == _State.PRIMED
