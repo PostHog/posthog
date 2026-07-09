@@ -44,6 +44,12 @@ import { useTaxonomicResource } from './useTaxonomicResource'
 
 export const NO_ITEM_SELECTED = -1
 
+/** Leading element of `remoteKey` — the cached-first-page / full remote fetch. */
+export const TAXONOMIC_LIST_KEY_FAMILY = 'taxonomic-list'
+/** Leading element of `serverSearchKey` — the server-side search fallback for
+ *  `clientFilterFirstPage` groups whose dataset exceeds one page. */
+export const TAXONOMIC_LIST_SEARCH_KEY_FAMILY = 'taxonomic-list-search'
+
 const EMPTY_RESULTS: TaxonomicDefinitionTypes[] = []
 const EMPTY_LIST_STORAGE: ListStorage = { results: EMPTY_RESULTS, searchQuery: '', count: 0 }
 
@@ -220,7 +226,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     const remoteKey = useMemo(
         () => [
-            'taxonomic-list',
+            TAXONOMIC_LIST_KEY_FAMILY,
             group.type,
             group.endpoint,
             group.scopedEndpoint ?? null,
@@ -287,7 +293,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     const serverSearchKey = useMemo(
         () => [
-            'taxonomic-list-search',
+            TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
             group.type,
             group.endpoint,
             group.scopedEndpoint ?? null,

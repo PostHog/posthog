@@ -4,6 +4,10 @@ import { router } from 'kea-router'
 import { v4 as uuidv4 } from 'uuid'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import {
+    TAXONOMIC_LIST_KEY_FAMILY,
+    TAXONOMIC_LIST_SEARCH_KEY_FAMILY,
+} from 'lib/components/TaxonomicFilter/hooks/useGroupList'
 import { invalidateTaxonomicResourcesWhere } from 'lib/components/TaxonomicFilter/hooks/useTaxonomicResource'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -120,12 +124,13 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
  * Predicate for `invalidateTaxonomicResourcesWhere` — matches the cache
  * entries belonging to the `Cohorts` / `CohortsWithAllUsers` taxonomic
  * groups. `useGroupList.ts` caches under two key families — `remoteKey`
- * (`'taxonomic-list'`) and `serverSearchKey` (`'taxonomic-list-search'`) —
- * both shaped `[family, groupType, ...fetch params]` and growing with new
- * fetch params, so rely only on the leading two positions here.
+ * (`TAXONOMIC_LIST_KEY_FAMILY`) and `serverSearchKey`
+ * (`TAXONOMIC_LIST_SEARCH_KEY_FAMILY`) — both shaped
+ * `[family, groupType, ...fetch params]` and growing with new fetch params,
+ * so rely only on the leading two positions here.
  */
 function isCohortTaxonomicListKey(key: unknown[]): boolean {
-    if (key[0] !== 'taxonomic-list' && key[0] !== 'taxonomic-list-search') {
+    if (key[0] !== TAXONOMIC_LIST_KEY_FAMILY && key[0] !== TAXONOMIC_LIST_SEARCH_KEY_FAMILY) {
         return false
     }
     return key[1] === TaxonomicFilterGroupType.Cohorts || key[1] === TaxonomicFilterGroupType.CohortsWithAllUsers

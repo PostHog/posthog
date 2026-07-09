@@ -135,10 +135,8 @@ describe('useGroupList', () => {
             }
             renderHook(() => useGroupList({ group: makeGroup({ ...base, ...a }), searchQuery: '' }))
             renderHook(() => useGroupList({ group: makeGroup({ ...base, ...b }), searchQuery: '' }))
-            await waitFor(() => expect(apiGet.mock.calls.length).toBeGreaterThanOrEqual(1))
-            // Give a would-be second fetch a tick to fire before counting.
-            await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
-            expect(apiGet).toHaveBeenCalledTimes(expectedFetches)
+            // waitFor polls until this holds, giving a would-be second fetch every chance to fire.
+            await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(expectedFetches))
         })
 
         it('respects minSearchQueryLength gating', () => {
