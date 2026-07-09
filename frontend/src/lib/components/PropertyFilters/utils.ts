@@ -32,8 +32,10 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -130,6 +132,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
         [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
         [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
         [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -306,6 +309,9 @@ export function isSpanPropertyFilter(filter?: AnyFilterLike | null): filter is S
         filter?.type === PropertyFilterType.SpanResourceAttribute
     )
 }
+export function isMetricPropertyFilter(filter?: AnyFilterLike | null): filter is MetricPropertyFilter {
+    return filter?.type === PropertyFilterType.MetricAttribute
+}
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue
 }
@@ -348,6 +354,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isFlagPropertyFilter(filter) ||
         isGroupPropertyFilter(filter) ||
         isLogPropertyFilter(filter) ||
+        isMetricPropertyFilter(filter) ||
         isSpanPropertyFilter(filter)
     )
 }
@@ -370,6 +377,7 @@ export function isPropertyFilterWithOperator(
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | WorkflowVariablePropertyFilter {
     return (
@@ -391,6 +399,7 @@ export function isPropertyFilterWithOperator(
             isDataWarehousePersonPropertyFilter(filter) ||
             isErrorTrackingIssuePropertyFilter(filter) ||
             isLogPropertyFilter(filter) ||
+            isMetricPropertyFilter(filter) ||
             isSpanPropertyFilter(filter) ||
             isWorkflowVariablePropertyFilter(filter))
     )
@@ -423,6 +432,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+    [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
     [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
     [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -478,6 +488,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
         [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
+        [PropertyFilterType.MetricAttribute]: PropertyDefinitionType.MetricAttribute,
         [PropertyFilterType.Span]: PropertyDefinitionType.Span,
         [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
@@ -542,6 +553,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.LogResourceAttribute
     }
 
+    if (filterType == TaxonomicFilterGroupType.MetricAttributes) {
+        return PropertyFilterType.MetricAttribute
+    }
+
     if (filterType == TaxonomicFilterGroupType.Spans) {
         return PropertyFilterType.Span
     }
@@ -565,6 +580,33 @@ export function taxonomicFilterTypeToPropertyFilterType(
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as
         | PropertyFilterType
         | undefined
+}
+
+/**
+ * Recover a property definition's id. Pinned/default taxonomic items are stored as
+ * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
+ * (keyed by name + type) instead of building a link with an `undefined` id. Returns
+ * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
+ * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ */
+export function resolvePropertyDefinitionId(
+    definition: Pick<PropertyDefinition, 'id' | 'name'>,
+    taxonomicGroupType: TaxonomicFilterGroupType,
+    getPropertyDefinition: propertyDefinitionsModelType['values']['getPropertyDefinition']
+): PropertyDefinition['id'] | undefined {
+    if (definition.id) {
+        return definition.id
+    }
+    if (!definition.name) {
+        return undefined
+    }
+    const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroupType)
+    // `null` only when the taxonomic type has no property-filter equivalent;
+    // propertyFilterTypeToPropertyDefinitionType itself is total (defaults to Event).
+    const propertyDefinitionType = propertyFilterType
+        ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+        : null
+    return propertyDefinitionType ? getPropertyDefinition(definition.name, propertyDefinitionType)?.id : undefined
 }
 
 export function isEmptyProperty(property: AnyPropertyFilter): boolean {

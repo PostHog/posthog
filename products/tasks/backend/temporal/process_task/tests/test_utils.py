@@ -56,6 +56,66 @@ class TestRunStateSnapshotPaths(TestCase):
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
         assert RunState.model_validate(state).resume_snapshot_mount_path() == expected_path
 
+    @parameterized.expand(
+        [
+            (
+                "directory_workspace_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                True,
+            ),
+            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
+            (
+                "directory_legacy_tmp_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                False,
+            ),
+            ("filesystem", {"snapshot_kind": "filesystem"}, True),
+            ("no_kind", {}, True),
+        ]
+    )
+    def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
+        assert RunState.model_validate(state).resume_snapshot_is_usable() is expected
+
+    @parameterized.expand(
+        [
+            (
+                "directory_full_triple",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+            ),
+            (
+                "filesystem_no_mount_path",
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "legacy_no_kind",
+                {"snapshot_external_id": "im-old"},
+                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "unusable_directory",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": "/tmp",
+                },
+                {},
+            ),
+            ("no_snapshot", {}, {}),
+        ]
+    )
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+        assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
+
 
 class TestGetSandboxMcpConfigs(TestCase):
     TOKEN = "phx_test_token"
@@ -445,6 +505,26 @@ class TestGetGitIdentityEnvVars(TestCase):
         result = get_git_identity_env_vars(task)
         assert result["GIT_AUTHOR_NAME"] == "PostHog User"
         assert result["GIT_AUTHOR_EMAIL"] == "anon@example.com"
+
+
+class TestGetGithubToken(TestCase):
+    def test_raises_credential_unavailable_for_dead_installation_instead_of_stale_token(self):
+        from posthog.models import Integration, Organization, Team
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            config={"installation_id": "INSTALL", "installation_unavailable_since": 1700000000},
+            sensitive_config={"access_token": "ghs_stale"},
+        )
+
+        with self.assertRaises(CredentialUnavailableError):
+            get_github_token(integration.id)
 
 
 class TestGetSandboxGitHubToken(TestCase):

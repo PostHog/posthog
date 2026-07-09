@@ -62,7 +62,7 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
-/// `cf_stage1` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
+/// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
 /// Owned partitions that had at least one `cf_pending_transfers` entry re-produced by the eager boot
@@ -118,8 +118,26 @@ pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
-/// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
-pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
+/// Stores destroyed and recreated at open because the on-disk schema version did not match, under the
+/// `COHORT_WIPE_ON_SCHEMA_MISMATCH` opt-in (counter). Non-zero means a store layout revision wiped
+/// durable state; expected only on a deliberate schema migration.
+pub const STORE_SCHEMA_MISMATCH_WIPES_TOTAL: &str = "store_schema_mismatch_wipes_total";
+
+/// Time an offloaded store op waited to acquire its read-lane permit on the async side, before it
+/// was ever spawned, labelled by `op` (histogram, seconds). Recorded only when the lane is bounded.
+pub const STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS: &str =
+    "store_offload_permit_wait_duration_seconds";
+/// Time from `spawn_blocking` to the offloaded closure actually starting, labelled by `op`
+/// (histogram, seconds) — the blocking-pool queue wait plus spawn overhead.
+pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
+    "store_offload_queue_wait_duration_seconds";
+/// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
+/// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
+pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
+/// Store ops currently executing inside a blocking closure, labelled by `lane`
+/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
+/// correct even if the caller future is dropped mid-flight.
+pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
 
 /// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
 /// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
@@ -202,6 +220,20 @@ pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
+/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
+/// Backpressure, not loss: the partition is paused and its events redispatch once the channel drains.
+/// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
+/// count.
+pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
+/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
+/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
+/// stuck worker.
+pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
+/// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
+pub const PARTITIONS_PAUSED: &str = "partitions_paused";
+/// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
+/// paused partition stops fetching — so a climbing value flags a stuck worker.
+pub const PENDING_HELD_EVENTS: &str = "pending_held_events";
 
 /// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
@@ -225,28 +257,36 @@ pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
 /// Condition evaluations skipped because the result was already known, labelled by `reason`
-/// (`person_memo_hit`|`event_name_gate`) (counter).
+/// (`event_name_gate`) (counter).
 pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
-/// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
-pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";
+/// Person side of an event resolved against the durable [`crate::stage1::PersonRecord`], labelled by
+/// `result` (`fresh`|`stale_props`|`stale_catalog`|`stale_both`|`absent`|`corrupt`|`argmax_stale`|
+/// `replay`) (counter). One increment per event that touches the person side. `absent`/`corrupt` come
+/// from the prior-record classification (an evaluation from nothing), not the freshness axis, so they
+/// are not folded into `stale_both`.
+pub const STAGE1_PERSON_RECORD_TOTAL: &str = "stage1_person_record_total";
+/// Encoded byte size of a [`crate::stage1::PersonRecord`] at each write (histogram). Watches record
+/// growth on hot persons; the TTL backstop bounds it.
+pub const STAGE1_PERSON_RECORD_SIZE_BYTES: &str = "stage1_person_record_size_bytes";
+/// Behavioral applies staged per event — the write fan-out of the behavioral side (histogram).
+pub const STAGE1_BEHAVIORAL_APPLIES: &str = "stage1_behavioral_applies";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
-/// `cf_stage1` records written, labelled by `variant` (counter).
+/// `cf_behavioral` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
-/// First-time `cf_person_index` appends, one per newly-seen `(person, leaf_state_key)` (counter).
-pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
 /// Applies skipped because the source `(partition, offset)` was already folded in, labelled by
 /// `variant` (counter).
 pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
-/// Person-property applies dropped by the event-time argMax tiebreaker (counter).
-pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
 /// Applies skipped because the leaf's resolved variant is unsupported, labelled by `variant`
 /// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
-/// Stored `cf_stage1` values that failed to decode; the key is skipped, not panicked (counter).
+/// Stored `cf_behavioral` values that failed to decode; the key is skipped, not panicked (counter).
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
+/// (histogram).
+pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
 
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
@@ -378,6 +418,10 @@ pub const MERGE_HELD_OFFSET_GAUGE: &str = "merge_held_offset";
 pub const MERGE_DRAIN_DURATION_SECONDS: &str = "merge_drain_duration_seconds";
 /// Latency of one transfer apply (histogram, seconds).
 pub const MERGE_APPLY_DURATION_SECONDS: &str = "merge_apply_duration_seconds";
+/// Behavioral rows enumerated for P_old on one merge drain — the drain-scan cost distribution
+/// (histogram). Recorded once per non-replay drain. The drain enumerates P_old's leaves with a prefix
+/// scan, so this is the visibility into how many rows that scan touches.
+pub const MERGE_DRAIN_LEAVES_SCANNED: &str = "merge_drain_leaves_scanned";
 
 /// Merge-CF keys scanned by the GC sweep, labelled by `cf` (counter).
 pub const MERGE_GC_KEYS_SCANNED_TOTAL: &str = "merge_gc_keys_scanned_total";
@@ -487,6 +531,19 @@ mod tests {
         // new store/tokio constant is pinned so a rename cannot silently break a panel.
         assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
         assert_eq!(STORE_READS_TOTAL, "store_reads_total");
+        assert_eq!(
+            STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS,
+            "store_offload_permit_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS,
+            "store_offload_queue_wait_duration_seconds",
+        );
+        assert_eq!(
+            STORE_OFFLOAD_EXEC_DURATION_SECONDS,
+            "store_offload_exec_duration_seconds",
+        );
+        assert_eq!(STORE_OFFLOAD_INFLIGHT, "store_offload_inflight");
         assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
         assert_eq!(
             STORE_BLOCK_CACHE_MISSES_TOTAL,
@@ -556,6 +613,24 @@ mod tests {
     }
 
     #[test]
+    fn partition_backpressure_metric_names_are_stable() {
+        assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
+        assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
+        assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
+        assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
+    }
+
+    #[test]
+    fn person_record_metric_names_are_stable() {
+        assert_eq!(STAGE1_PERSON_RECORD_TOTAL, "stage1_person_record_total");
+        assert_eq!(
+            STAGE1_PERSON_RECORD_SIZE_BYTES,
+            "stage1_person_record_size_bytes",
+        );
+        assert_eq!(STAGE1_BEHAVIORAL_APPLIES, "stage1_behavioral_applies");
+    }
+
+    #[test]
     fn stage2_orphan_gc_metric_names_are_stable() {
         assert_eq!(
             STAGE2_ORPHAN_GC_KEYS_SCANNED_TOTAL,
@@ -573,5 +648,14 @@ mod tests {
             STAGE2_ORPHAN_GC_UNDECODABLE_KEYS_TOTAL,
             "stage2_orphan_gc_undecodable_keys_total",
         );
+    }
+
+    #[test]
+    fn schema_guard_and_drain_scan_metric_names_are_stable() {
+        assert_eq!(
+            STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
+            "store_schema_mismatch_wipes_total",
+        );
+        assert_eq!(MERGE_DRAIN_LEAVES_SCANNED, "merge_drain_leaves_scanned");
     }
 }

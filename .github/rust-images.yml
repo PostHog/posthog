@@ -37,6 +37,10 @@
 - image: cymbal
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
+  # Frame pointers and unwind tables so the profiler can walk Cymbal stacks on
+  # aarch64, including native dependency frames (see rust/Dockerfile).
+  extra_rustflags: -C force-frame-pointers=yes -C force-unwind-tables=yes
+  extra_cflags: -fno-omit-frame-pointer -fasynchronous-unwind-tables
 
 - image: embedding-worker
   dockerfile: ./rust/Dockerfile

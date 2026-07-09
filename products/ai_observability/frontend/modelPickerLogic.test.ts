@@ -114,6 +114,7 @@ describe('modelPickerLogic', () => {
         it('should return empty array when no valid keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
@@ -235,6 +236,7 @@ describe('modelPickerLogic', () => {
         it('should return false when all keys are non-ok', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
@@ -257,6 +259,7 @@ describe('modelPickerLogic', () => {
         it('should return false when no keys exist', async () => {
             useMocks({
                 get: {
+                    '/api/llm_proxy/models/': () => [200, []],
                     '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
@@ -366,6 +369,17 @@ const GROUPS: ProviderModelGroup[] = [
 ]
 
 describe('parseTrialProviderKeyId', () => {
+    // The 'trial:' case exercises the unknown-provider path, which logs a console.error by design.
+    let consoleErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
     it.each([
         ['trial:openai', 'openai'],
         ['trial:anthropic', 'anthropic'],
@@ -374,6 +388,9 @@ describe('parseTrialProviderKeyId', () => {
         ['trial:', null],
     ])('parseTrialProviderKeyId(%s) => %s', (input, expected) => {
         expect(parseTrialProviderKeyId(input)).toBe(expected)
+        if (input === 'trial:') {
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown LLM provider'))
+        }
     })
 })
 

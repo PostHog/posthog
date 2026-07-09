@@ -119,6 +119,7 @@ def to_dict(query: BaseModel) -> dict:
                         "funnelStepReference",
                         "breakdownSorting",
                         "legendPosition",
+                        "chartStyle",
                     ]
                 }
 

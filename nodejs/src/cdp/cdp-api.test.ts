@@ -1,5 +1,4 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -32,6 +31,19 @@ import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+
+// Email MX validation runs on every email send, so without a mock the test-panel
+// email tests would do live DNS lookups for their fixture recipients (and
+// example.com publishes a null MX, which validation correctly blocks). Resolve
+// everything as deliverable — validation behavior is covered by
+// email-validation.service.test.ts.
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
+        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
+        resolve6: jest.fn().mockResolvedValue([]),
+    })),
+}))
 
 describe('CDP API', () => {
     let hub: Hub
@@ -772,16 +784,63 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow wait_until_condition test invocations', () => {
+        // Matches events whose name equals `eventName` - same shape the serializer compiles
+        // for an "events to wait for" entry.
+        const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+
+        const waitFlowConfiguration = {
+            name: 'Wait flow',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'wait_node',
+                    name: 'Wait',
+                    type: 'wait_until_condition',
+                    config: {
+                        events: [
+                            {
+                                filters: {
+                                    bytecode: eventBytecode('follow_up'),
+                                    events: [{ id: 'follow_up', name: 'follow_up', type: 'events', order: 0 }],
+                                },
+                            },
+                        ],
+                        condition: { filters: null },
+                        max_wait_duration: '5m',
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'wait_node', to: 'exit_node', type: 'branch', index: 0 },
+                { from: 'wait_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        it.each([
+            ['matching', 'follow_up', 'exit_node'],
+            ['non-matching', 'some_other_event', 'wait_node'],
+        ])('a %s test event resolves the wait step correctly', async (_, eventName, expectedNextActionId) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event!, event: eventName } },
+                    mock_async_functions: true,
+                    configuration: waitFlowConfiguration,
+                    current_action_id: 'wait_node',
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.nextActionId).toEqual(expectedNextActionId)
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            // The batch hogflow route now goes through the outputs registry, which in
-            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
-            // on its `produce` intercepts the produced message without reconstructing
-            // the api.
-            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -804,10 +863,6 @@ describe('CDP API', () => {
                     },
                 },
             })
-        })
-
-        afterEach(() => {
-            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -855,73 +910,12 @@ describe('CDP API', () => {
             expect(res.body.error).toEqual('Only batch Workflows are supported for batch jobs')
         })
 
-        it('queues batch job request to kafka', async () => {
-            produceSpy.mockResolvedValue(undefined)
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
-                .send({
-                    filters: {
-                        filter_test_accounts: true,
-                    },
-                })
-
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
-            expect(produceSpy).toHaveBeenCalledWith({
-                topic: 'cdp_batch_hogflow_requests_test',
-                value: Buffer.from(
-                    JSON.stringify({
-                        teamId: batchHogFlow.team_id,
-                        hogFlowId: batchHogFlow.id,
-                        parentRunId: 'job-123',
-                        filters: {
-                            properties: (batchHogFlow as any).trigger.filters.properties,
-                            filter_test_accounts: true,
-                        },
-                    })
-                ),
-                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
-            })
-        })
-
-        it('queues batch job with filters from hog flow config when not provided', async () => {
-            produceSpy.mockResolvedValue(undefined)
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
-                .send({})
-
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
-            expect(produceSpy).toHaveBeenCalledWith({
-                topic: 'cdp_batch_hogflow_requests_test',
-                value: Buffer.from(
-                    JSON.stringify({
-                        teamId: batchHogFlow.team_id,
-                        hogFlowId: batchHogFlow.id,
-                        parentRunId: 'job-456',
-                        filters: {
-                            properties: (batchHogFlow as any).trigger.filters.properties,
-                            filter_test_accounts: false,
-                        },
-                    })
-                ),
-                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
-            })
-        })
-
-        it('routes to the cyclotron resolver when CDP_BATCH_RESOLVER_ROUTING matches the team', async () => {
-            // Stub a producer in place of the real CyclotronV2Manager; assert
-            // it gets the right createJob payload (queue name, parentRunId,
-            // serialized state) without standing up a real cyclotron pool.
+        it('queues batch job to the cyclotron resolver', async () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
             api['batchResolverProducer'] = {
                 createJob: createJobMock,
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
-            const originalMatcher = api['batchResolverRoutingMatcher']
-            api['batchResolverRoutingMatcher'] = () => true
 
             try {
                 const res = await supertest(app)
@@ -937,9 +931,6 @@ describe('CDP API', () => {
                 expect(res.status).toEqual(200)
                 expect(res.body).toEqual({ status: 'queued' })
 
-                // Kafka path stays untouched
-                expect(produceSpy).not.toHaveBeenCalled()
-
                 expect(createJobMock).toHaveBeenCalledTimes(1)
                 const arg = createJobMock.mock.calls[0][0]
                 expect(arg).toMatchObject({
@@ -954,6 +945,10 @@ describe('CDP API', () => {
                     batchJobId: 'job-789',
                     teamId: batchHogFlow.team_id,
                     hogFlowId: batchHogFlow.id,
+                    filters: {
+                        properties: (batchHogFlow as any).trigger.filters.properties,
+                        filter_test_accounts: true,
+                    },
                     maxAudienceSize: 1234,
                     variables: { foo: 'bar' },
                     cursor: null,
@@ -961,7 +956,6 @@ describe('CDP API', () => {
                     pagesProcessed: 0,
                 })
             } finally {
-                api['batchResolverRoutingMatcher'] = originalMatcher
                 api['batchResolverProducer'] = null
             }
         })
@@ -1161,6 +1155,7 @@ describe('CDP API', () => {
                         ],
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
+                        emailAssets: [],
                     })
                 )
         })

@@ -1,11 +1,10 @@
-//! `LeafStateKey` derivation and `Stage1Key`.
+//! `LeafStateKey` derivation.
 //!
 //! `conditionHash` encodes only the event matcher, so two leaves with different windows can share
 //! the same hash. State is keyed by a [`LeafStateKey`] that hashes the full predicate configuration.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 use crate::filters::tree::BehavioralLeafConfig;
 
@@ -42,15 +41,6 @@ impl LeafStateKey {
         out.copy_from_slice(&digest[..16]);
         Self(out)
     }
-}
-
-/// Stage 1 state-storage key. Partition prefix enables per-partition `delete_range` on rebalance.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub struct Stage1Key {
-    pub partition_id: u16,
-    pub team_id: u64,
-    pub leaf_state_key: LeafStateKey,
-    pub person_id: Uuid,
 }
 
 #[cfg(test)]

@@ -49,6 +49,9 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
+// Notifications fetched per page for the in-app list (initial load + "Load more"). Backend max_limit is 100.
+const NOTIFICATION_PAGE_SIZE = 30
+
 // Maps each source type to a path builder from `source_id`, or `null` to fall through to the
 // backend-provided `source_url` (customer_analytics carries a precise account deep-link a
 // source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
@@ -332,6 +335,20 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 markAsRead: (state) => Math.max(0, state - 1),
                 toggleRead: (state) => state,
                 markAllAsRead: () => 0,
+            },
+        ],
+        // Notifications the user explicitly toggled read/unread this session. They're exempt from
+        // auto-mark-on-view, so a deliberate "keep this unread" isn't silently undone 3s later.
+        // In-memory only, so a page reload clears it and auto-mark resumes for everything.
+        manuallyToggledIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleRead: (state, { id }) => {
+                    const next = new Set(state)
+                    next.add(id)
+                    return next
+                },
+                markAllAsRead: () => new Set<string>(),
             },
         ],
         loadedGroupKeys: [
@@ -832,7 +849,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 }
                 try {
                     const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
-                        limit: 20,
+                        limit: NOTIFICATION_PAGE_SIZE,
                         offset: values.mainListOffset,
                     })
                     const results = resp.results as InAppNotification[]
@@ -879,6 +896,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         realTimeNotificationsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+        ],
+        archivingEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.CLEARABLE_NOTIFICATIONS],
         ],
         legacyNotifications: [
             (s) => [s.importantChanges],
@@ -1009,7 +1030,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
                 try {
-                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), { limit: 20 })
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: NOTIFICATION_PAGE_SIZE,
+                    })
                     actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
                 } catch {
                     // Swallow

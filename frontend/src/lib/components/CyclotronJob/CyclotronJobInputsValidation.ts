@@ -64,8 +64,14 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
         return
     }
 
-    // Hog field
-    if (new RegExp(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`).test(value)) {
+    // Hog field. Beyond `{{ global.… }}`, a pipe filter inside double braces (`{{ x | upcase }}`)
+    // or a `{% … %}` tag is unambiguously Liquid regardless of what it references — Hog has no
+    // single-pipe operator and no percent tags, so these fail Hog compilation at activation.
+    if (
+        new RegExp(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`).test(value) ||
+        /\{\{[^{}]*\|[^{}]*\}\}/.test(value) ||
+        /\{%[\s\S]*?%\}/.test(value)
+    ) {
         return TEMPLATING_MISMATCH_WARNINGS.liquidSyntaxInHogField
     }
 }
@@ -145,6 +151,10 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
     }
 
     if (['email', 'native_email'].includes(inputSchema.type) && value) {
+        // `native_email` stores `to` as { name, email }; the legacy `email` type stores a bare address string.
+        // Pull out the address so it gets the same required + templating validation as every other field —
+        // otherwise a malformed Liquid template in the To field (or an empty address) saves with no error.
+        const toEmail = value.to && typeof value.to === 'object' ? value.to.email : value.to
         const emailTemplateErrors: Partial<EmailTemplate> = {
             html:
                 !value.html && !value.text
@@ -155,7 +165,7 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
             text: value.text ? getTemplatingError(value.text) : undefined,
             subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
             from: !value.from ? 'From is required' : getTemplatingError(value.from),
-            to: !value.to ? 'To is required' : getTemplatingError(value.to),
+            to: !toEmail ? 'To is required' : getTemplatingError(toEmail),
         }
 
         const combinedErrors = Object.values(emailTemplateErrors)

@@ -129,8 +129,8 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
         : step.breakdown_value?.toString() || ''
 
     // Source variants from the feature flag (the source of truth used by VariantTag and the rest
-    // of the experiment UI). `parameters.feature_flag_variants` is an optional mirror that some
-    // experiments never populate, which would otherwise leave the bars uncolored.
+    // of the experiment UI). A saved experiment always has a linked flag; if it somehow lacks
+    // variants, the bars fall back to the muted color.
     const seriesColor =
         experiment.feature_flag?.filters.multivariate?.variants && variantKey
             ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)

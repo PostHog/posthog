@@ -26,7 +26,7 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -34,7 +34,6 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -398,10 +397,13 @@ function DescriptionBlock({
 
 function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: false, ...yAxis },
+        curve: 'monotone',
         showAxisLines: true,
-        xAxis: { interval: 'day', timezone },
+        showTickMarks: true,
         showCrosshair: true,
+        showGrid: true,
+        yAxis,
+        xAxis: { interval: 'day', timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -495,11 +497,9 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         topUserRows,
         topUserRowsLoading,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn forces a recompute on theme flip.
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
         () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
         [dailyChartData, theme]
@@ -508,8 +508,11 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useMemo(() => trendChartConfig(timezone), [timezone])
-    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const latencyConfig = useChartConfig(
+        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
+        [timezone]
+    )
 
     return (
         <SceneContent>

@@ -211,7 +211,7 @@ export class HogFunctionManagerService {
 
         const response = await this.postgres.query<HogFunctionType>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1)`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
             [ids],
             'fetchHogFunctions'
         )

@@ -15,6 +15,7 @@ env:
     OBJECT_STORAGE_BUCKET: 'posthog'
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -58,6 +59,9 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # The Jest shared-fixtures suite pins the native replay anonymizer against
+                        # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
+                        - 'rust/replay-anonymizer-node/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -363,6 +367,13 @@ jobs:
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
+                  # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # describe block, so make it the file path instead.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Test postgres-parity (isolated DB)
@@ -375,7 +386,23 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   LOG_LEVEL: info
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-postgres-parity.xml
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Output logs on failure
               if: failure()

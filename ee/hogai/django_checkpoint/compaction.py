@@ -1,7 +1,10 @@
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Literal
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from langgraph.checkpoint.serde.types import TASKS
 
@@ -11,6 +14,15 @@ from products.posthog_ai.backend.models.assistant import (
     ConversationCheckpointBlob,
     ConversationCheckpointWrite,
 )
+
+# Opt-in gate for the compaction sweep. Either an int (compact teams whose id is this value or
+# lower) or "*" (compact every team). Start narrow and raise the number to widen the rollout.
+CHECKPOINT_COMPACTION_MAX_TEAM_ID: int | Literal["*"] = 2
+
+# A conversation is eligible once it has had no activity for at least this long. Anchored in the
+# observed return behaviour: ~99.6% of resumes happen within a week, and compaction keeps even
+# later returns fully resumable.
+CHECKPOINT_COMPACTION_IDLE_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -27,6 +39,39 @@ class CompactionResult:
             blobs_deleted=self.blobs_deleted + other.blobs_deleted,
             namespaces=self.namespaces + other.namespaces,
         )
+
+
+def _max_team_id() -> int | None:
+    """The inclusive max team id to compact, or None when every team is enabled."""
+    return None if CHECKPOINT_COMPACTION_MAX_TEAM_ID == "*" else CHECKPOINT_COMPACTION_MAX_TEAM_ID
+
+
+def select_compactable_conversation_ids(
+    limit: int,
+    after_id: str | None = None,
+    idle_days: int | None = None,
+) -> list[str]:
+    """Return ids of conversations on enabled teams that are safe and worth compacting.
+
+    "Worth compacting" means the root namespace still has more than one checkpoint — i.e. a root
+    checkpoint that has a parent. An already-compacted thread (a single parentless tip) is
+    excluded, so a daily sweep does not re-process it. Pending-approval threads can still slip
+    through this coarse filter; `compact_thread` is the safety net that skips them.
+
+    `idle_days=None` uses CHECKPOINT_COMPACTION_IDLE_DAYS — the one place the window is resolved."""
+    cutoff = timezone.now() - timedelta(days=idle_days if idle_days is not None else CHECKPOINT_COMPACTION_IDLE_DAYS)
+    qs = Conversation.objects.filter(
+        status=Conversation.Status.IDLE,
+        updated_at__lt=cutoff,
+        checkpoints__checkpoint_ns="",
+        checkpoints__parent_checkpoint__isnull=False,
+    )
+    cap = _max_team_id()
+    if cap is not None:
+        qs = qs.filter(team_id__lte=cap)
+    if after_id is not None:
+        qs = qs.filter(id__gt=after_id)
+    return list(qs.order_by("id").values_list("id", flat=True).distinct()[:limit])
 
 
 def _is_safe_to_compact(conversation: Conversation) -> bool:
@@ -62,7 +107,11 @@ def compact_thread(thread_id: str, checkpoint_ns: str = "") -> CompactionResult:
 
     Only checkpoints strictly older than the chosen tip are deleted, so a thread that resumes
     between selecting the tip and deleting is never corrupted (the newer checkpoint is left in
-    place and its parent chain stays valid)."""
+    place and its parent chain stays valid).
+
+    This is the pure primitive: it has no team awareness. The rollout allowlist is enforced by
+    the sweep at selection (`select_compactable_conversation_ids`); on-demand callers (e.g. the
+    Django admin action) deliberately compact any conversation they are handed."""
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint maintenance)
         conversation = Conversation.objects.select_for_update().filter(pk=thread_id).first()

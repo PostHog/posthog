@@ -71,15 +71,20 @@ export function NotificationGroupRow({
     onNavigate?: () => void
     readOnly?: boolean
 }): JSX.Element {
-    const { expandedGroupKeys, loadingGroupKeys } = useValues(sidePanelNotificationsLogic)
+    const { expandedGroupKeys, loadingGroupKeys, manuallyToggledIds, archivingEnabled } =
+        useValues(sidePanelNotificationsLogic)
     const { toggleGroupExpanded, loadGroupChildren, loadArchivedGroupChildren, toggleGroupRead, archiveGroup } =
         useActions(sidePanelNotificationsLogic)
     const isExpanded = expandedGroupKeys.has(group.group_key)
     const isLoading = loadingGroupKeys.has(group.group_key)
 
+    // Don't let a collapsed group's auto-mark undo a child the user deliberately toggled this session.
+    const hasManualChild =
+        manuallyToggledIds.has(group.representative.id) || group.children.some((c) => manuallyToggledIds.has(c.id))
+
     // Dwelling on a collapsed, unread group marks the whole group read. When expanded,
     // the individual child rows mark themselves read instead, so disarm here.
-    const autoMarkRef = useAutoMarkRead(group.count > 1 && group.has_unread && !isExpanded, () =>
+    const autoMarkRef = useAutoMarkRead(group.count > 1 && group.has_unread && !isExpanded && !hasManualChild, () =>
         toggleGroupRead(group)
     )
 
@@ -134,7 +139,7 @@ export function NotificationGroupRow({
                     allRead={allRead}
                     expanded={isExpanded}
                     readOnly={readOnly}
-                    hasArchivable={group.has_archivable}
+                    hasArchivable={archivingEnabled && group.has_archivable}
                     onToggleRead={handleToggleRead}
                     onToggleExpand={handleExpand}
                     onArchive={handleArchive}

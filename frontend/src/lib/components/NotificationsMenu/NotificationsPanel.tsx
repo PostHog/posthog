@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive, IconCheckCircle, IconNotification } from '@posthog/icons'
+import { IconArchive, IconArrowLeft, IconArrowRight, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -23,18 +23,20 @@ export function NotificationsPanel(): JSX.Element {
         archivedGroups,
         archivedLoaded,
         loadedUnreadCount,
+        inAppUnreadCount,
         importantChangesLoading,
         hasMoreNotifications,
         hasMoreArchived,
         isLoadingMore,
         isLoadingMoreArchived,
         hasArchivableNotifications,
+        archivingEnabled,
     } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications, loadMoreArchived, archiveAll } =
         useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
-    const isArchivedTab = activeTab === 'archived'
+    const isArchivedTab = archivingEnabled && activeTab === 'archived'
     const filteredGroups = isArchivedTab
         ? archivedGroups
         : activeTab === 'unread'
@@ -66,48 +68,72 @@ export function NotificationsPanel(): JSX.Element {
                         <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
-                <button
-                    className={`px-2 py-1 text-xs font-medium rounded transition-colors ${
-                        isArchivedTab ? 'bg-fill-highlight-100 text-primary' : 'text-secondary hover:text-primary'
-                    }`}
-                    onClick={() => setActiveTab('archived')}
-                >
-                    Archived
-                </button>
+                {/* Archived isn't a peer tab — it's reached from the ⋯ menu. Surface a static
+                    marker while viewing it so the current context stays obvious. */}
+                {isArchivedTab && (
+                    <span className="px-2 py-1 text-xs font-medium rounded bg-fill-highlight-100 text-primary">
+                        Archived
+                    </span>
+                )}
             </div>
+            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
+                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
+            {!isArchivedTab && hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => markAllAsRead()}
+                    className="ml-auto"
+                    data-attr="notifications-mark-all-read"
+                >
+                    Mark all read
+                </LemonButton>
+            )}
         </div>
     )
 
-    // Bulk actions are rare — tuck them into the panel's overflow (⋯) menu instead of the header.
-    // Each surfaces only when it applies; the whole menu is hidden on the archived tab.
-    const panelActions = isArchivedTab
+    // Archiving is flag-gated. With it off there's no ⋯ menu at all (the pre-clearable state);
+    // with it on the ⋯ is always present — the entry point to the archived view and, on the
+    // inbox, the home for the rare "Archive all" bulk action.
+    const panelActions = !archivingEnabled
         ? undefined
-        : [
-              loadedUnreadCount > 0
-                  ? {
-                        'data-attr': 'notifications-mark-all-read',
-                        onClick: () => markAllAsRead(),
-                        children: (
-                            <>
-                                <IconCheckCircle />
-                                Mark all as read
-                            </>
-                        ),
-                    }
-                  : null,
-              hasArchivableNotifications
-                  ? {
-                        'data-attr': 'notifications-archive-all',
-                        onClick: () => archiveAll(),
-                        children: (
-                            <>
-                                <IconArchive />
-                                Archive all
-                            </>
-                        ),
-                    }
-                  : null,
-          ]
+        : isArchivedTab
+          ? [
+                {
+                    'data-attr': 'notifications-view-inbox',
+                    onClick: () => setActiveTab('all'),
+                    children: (
+                        <>
+                            <IconArrowLeft />
+                            Back to notifications
+                        </>
+                    ),
+                },
+            ]
+          : [
+                {
+                    'data-attr': 'notifications-view-archived',
+                    onClick: () => setActiveTab('archived'),
+                    children: (
+                        <>
+                            <IconArrowRight />
+                            View archived
+                        </>
+                    ),
+                },
+                hasArchivableNotifications
+                    ? {
+                          'data-attr': 'notifications-archive-all',
+                          onClick: () => archiveAll(),
+                          children: (
+                              <>
+                                  <IconArchive />
+                                  Archive all
+                              </>
+                          ),
+                      }
+                    : null,
+            ]
 
     return (
         <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
