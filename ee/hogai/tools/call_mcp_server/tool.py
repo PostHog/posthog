@@ -170,7 +170,7 @@ class CallMCPServerTool(MaxTool):
             args_block = f"\n\n```json\n{args_str}\n```"
         else:
             args_block = "\n\n*(no arguments)*"
-        return f"Max wants to call **{tool_name}** on **{display}**.{args_block}"
+        return f"PostHog AI wants to call **{tool_name}** on **{display}**.{args_block}"
 
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
         self._validate_server_url(server_url)

@@ -312,21 +312,17 @@ func (m *Model) updateProcKeys() {
 	if p.IsStandby() {
 		m.keys.Start.SetEnabled(true)
 		m.keys.Stop.SetEnabled(false)
-		m.keys.Restart.SetEnabled(false)
+		m.keys.Restart.SetEnabled(true)
 		m.keys.ClearLogs.SetEnabled(false)
 		return
 	}
-	// Snapshot status once so running/crashed are derived from the same
-	// observation — avoids a second trip through the proc mutex and any
-	// chance of inconsistency between the two reads.
-	st := p.Status()
-	running := st.IsRunning()
-	crashed := st == process.StatusCrashed
+	running := p.Status().IsRunning()
 	m.keys.Start.SetEnabled(!running)
 	m.keys.Stop.SetEnabled(running)
-	// `r` doubles as "restart a running proc" and "kick a crashed proc back to
-	// life" — both express the same user intent of "rerun this thing".
-	m.keys.Restart.SetEnabled(running || crashed)
+	// `r` always has work to do — restart a running proc, or (re)run one
+	// that crashed, finished, was stopped, or never started. One key, one
+	// intent: "run this thing", regardless of what state it's in.
+	m.keys.Restart.SetEnabled(true)
 	m.keys.ClearLogs.SetEnabled(running)
 }
 
@@ -519,11 +515,18 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		if p := m.activeProc(); p != nil {
 			send := m.mgr.Send()
 			switch {
+			case p.IsStandby():
+				if real, ok := m.promoteStandby(); ok {
+					m.dbg("restart: promoted standby proc=%s", real.Name)
+					go func() { _ = real.Start(send) }()
+				}
 			case p.IsRunning():
 				m.dbg("restart: proc=%s", p.Name)
 				go p.Restart(send)
-			case p.Status() == process.StatusCrashed:
-				m.dbg("restart (from crashed): proc=%s", p.Name)
+			default:
+				// Crashed, finished, stopped, or never started — `r` means
+				// "run it (again)", so one-shot tasks rerun on a keypress.
+				m.dbg("restart (from %s): proc=%s", p.Status(), p.Name)
 				go func() { _ = p.Start(send) }()
 			}
 		}
