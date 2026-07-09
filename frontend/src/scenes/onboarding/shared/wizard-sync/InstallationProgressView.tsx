@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import * as wizardHogPng from '@posthog/brand/hoggies/png/wizard-hog'
 import {
@@ -14,7 +14,9 @@ import {
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { cn } from 'lib/utils/css-classes'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
@@ -32,8 +34,15 @@ import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 const HedgehogWizardHog = pngHoggie(wizardHogPng)
 
 // Timeline dot for a single step.
-function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
+function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
     if (status === 'completed') {
+        // GitHub's PR color language: green while open, purple once merged.
+        if (prState === 'merged') {
+            return <IconPullRequest className="text-purple text-base" />
+        }
+        if (prState === 'open') {
+            return <IconPullRequest className="text-success text-base" />
+        }
         return <IconCheckCircle className="text-success text-base" />
     }
     if (status === 'failed') {
@@ -90,6 +99,20 @@ export function InstallationProgressContent({
     // than an indefinite "setting up". Terminal phases keep their own headline.
     const prReady = !!prUrl && phase !== 'completed' && phase !== 'error'
 
+    // Celebrate a merge the user performs while watching, exactly once per mount. Gated on the
+    // false -> true transition so mounting an already-merged run (reloads, storybook snapshots)
+    // stays quiet; the test-runner guard keeps hogfetti out of visual regression captures.
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti()
+    const prevMergedRef = useRef(prMerged)
+    const mergeCelebratedRef = useRef(false)
+    useEffect(() => {
+        if (prMerged && !prevMergedRef.current && !mergeCelebratedRef.current && !inStorybookTestRunner()) {
+            mergeCelebratedRef.current = true
+            triggerHogfetti()
+        }
+        prevMergedRef.current = prMerged
+    }, [prMerged, triggerHogfetti])
+
     const headline =
         phase === 'completed'
             ? 'PostHog is wired up'
@@ -131,6 +154,7 @@ export function InstallationProgressContent({
             className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3"
             data-attr="installation-progress"
         >
+            <HogfettiComponent />
             <div className="flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2.5 min-w-0">
                     {waitingForSteps && <Spinner className="text-xl shrink-0 mt-0.5 text-accent" textColored />}
@@ -164,7 +188,12 @@ export function InstallationProgressContent({
                         // One flat rail for pipeline and wizard-reported steps alike.
                         <li key={step.id} className="flex gap-3">
                             <div className="flex flex-col items-center pt-0.5">
-                                <StepIcon status={step.status} />
+                                <StepIcon
+                                    status={step.status}
+                                    prState={
+                                        step.id.endsWith(':pr') && prUrl ? (prMerged ? 'merged' : 'open') : undefined
+                                    }
+                                />
                                 {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
                             </div>
                             <div className="flex-1 min-w-0 pb-3">
