@@ -153,6 +153,10 @@ export class RequestStateResolver {
         // single-exec CLI clients pool the same flag value, so the tool's advertisement and
         // execution must also require the UI-host check — otherwise rolling the flag out to
         // everyone leaks `render-ui` into Claude Code.
+        // Session stability comes from `clientProfile` itself: it is built from the
+        // session-cached client context (`mcpVendorClient` is in SESSION_CONTEXT_KEYS), so
+        // Anthropic's pooled transport sending `x-anthropic-client` inconsistently within a
+        // session cannot flip this decision once the header has been observed.
         const renderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({

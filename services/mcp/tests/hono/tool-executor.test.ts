@@ -279,8 +279,29 @@ describe('ToolExecutor', () => {
             expect(result.structuredContent.app_key).toBe('survey')
         })
 
-        it('rejects a render-ui call when the flag is off', async () => {
+        it('honors a render-ui call in single-exec even when this request resolved render-ui off', async () => {
+            // Regression: the per-request `renderUiEnabled` decision can flip to false after
+            // a cached `tools/list` advertised render-ui (transient flag-eval fallback, or
+            // the vendor header first appearing mid-session and overriding the user-agent
+            // fallback). Gating the call on it used to 404 with "Tool render-ui not found",
+            // breaking Claude web/desktop entirely. In single-exec mode the call must still
+            // be served.
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: false })
+
+            const result = (await executor.handleToolCall(
+                { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },
+                state
+            )) as any
+
+            expect(result.isError).toBeUndefined()
+            expect(result._meta.ui.resourceUri).toBe(RENDER_UI_RESOURCE_URI)
+            expect(result.structuredContent.tool_name).toBe('survey-get')
+        })
+
+        it('rejects a render-ui call outside single-exec mode', async () => {
+            // render-ui is only ever advertised in single-exec mode, so a call in tools mode
+            // was never advertised and stays a 404.
+            const state = makeState([uiAppTool], { useSingleExec: false, renderUiEnabled: false })
 
             const result = (await executor.handleToolCall(
                 { name: 'render-ui', arguments: { tool_name: 'survey-get', tool_input: { surveyId: 'abc' } } },

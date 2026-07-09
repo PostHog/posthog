@@ -309,6 +309,50 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.toolFeatureFlags?.['mcp-render-ui']).toBe(true)
     })
 
+    it('keeps render-ui on when a later pooled request flips the vendor header', async () => {
+        // Regression: Anthropic pools MCP transports and sends `x-anthropic-client`
+        // inconsistently within a session. The first request (Claude web/desktop, ClaudeAI)
+        // resolves render-ui on; a later request on the same pooled session reports the
+        // ClaudeCode vendor. The session-cached client context (first-observed
+        // `mcpVendorClient` wins) keeps the UI-host classification — and with it the
+        // advertised roster — stable, so the flip cannot retract a tool a cached
+        // `tools/list` already advertised.
+        vi.mocked(evaluateFeatureFlags)
+            .mockResolvedValueOnce({ 'mcp-render-ui': true })
+            .mockResolvedValueOnce({ 'mcp-render-ui': true })
+
+        const first = await makeResolver().resolve(
+            makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeAI' })
+        )
+        expect(first.renderUiEnabled).toBe(true)
+
+        const flipped = await makeResolver().resolve(
+            makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
+        )
+        expect(flipped.clientProfile.vendorClient).toBe('ClaudeAI')
+        expect(flipped.renderUiEnabled).toBe(true)
+    })
+
+    it('does not turn render-ui on when a Claude Code session later reports ClaudeAI (no leak)', async () => {
+        // The mirror case: a session whose first-observed vendor is ClaudeCode must never
+        // have `render-ui` enabled by a later ClaudeAI request sharing the pooled session
+        // id — otherwise `render-ui` leaks into a non-UI host.
+        vi.mocked(evaluateFeatureFlags)
+            .mockResolvedValueOnce({ 'mcp-render-ui': true })
+            .mockResolvedValueOnce({ 'mcp-render-ui': true })
+
+        const first = await makeResolver().resolve(
+            makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
+        )
+        expect(first.renderUiEnabled).toBe(false)
+
+        const flipped = await makeResolver().resolve(
+            makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeAI' })
+        )
+        expect(flipped.clientProfile.vendorClient).toBe('ClaudeCode')
+        expect(flipped.renderUiEnabled).toBe(false)
+    })
+
     it('detects Claude web/desktop via the Claude-User user agent', async () => {
         vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-render-ui': true })
         const props = makeProps({ mcpClientName: 'Claude Desktop', clientUserAgent: 'Claude-User' })
