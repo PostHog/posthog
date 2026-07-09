@@ -253,6 +253,7 @@ the row lists both.
 | notion                  | HTTP                        | requests                                                        | ✅                          |
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
 | oncehub                 | HTTP                        | requests                                                        | ✅                          |
+| onepagecrm              | HTTP                        | requests                                                        | ✅                          |
 | onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
 | opinion_stage           | HTTP                        | requests                                                        | ✅                          |
@@ -621,7 +622,6 @@ doesn't conflict with concurrent PRs.
 - nylas
 - onedrive
 - onehundredms
-- onepagecrm
 - onesignal
 - open_data_dc
 - openrouter
