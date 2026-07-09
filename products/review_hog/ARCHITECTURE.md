@@ -36,6 +36,48 @@ multi-stage effort to bring this (originally March 2026) branch up to date with 
 
 ---
 
+## Preflight — is everything ready for a local review?
+
+Check these four things before a local `run_review`; don't re-derive them from code each time.
+
+1. **Temporal worker up** — the dev-stack (phrocs) process `temporal-worker` must be `running`
+   (phrocs MCP `get_process_status`, or the `hogli` TUI). It hot-reloads via nodemon on any
+   `products/**/*.py` edit — **never start a second worker** (it dies on port 8001 already-in-use).
+   The `backend` process must be running too.
+2. **ngrok tunnels up** (only the user can start ngrok): `curl -s http://localhost:4040/api/tunnels`
+   must list all three — `django` → :8010, `gateway` → :3308 (LLM gateway), `mcp` → :8787.
+   Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
+3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
+   reviewed and published (there is no draft gate) — warn the user before publishing on someone's
+   draft. The PR's additions count picks the chunking path: ≤1000 single chunk (no chunking LLM),
+   ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
+4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
+   re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
+
+   ```bash
+   PGPASSWORD=posthog psql -h localhost -p 5432 -d posthog -U posthog -c \
+     "SELECT pr_number, status, run_count, head_sha, published_head_sha \
+      FROM review_hog_reviewreport WHERE repository='PostHog/posthog' AND pr_number=<N> AND team_id=1;"
+   ```
+
+Run it (no `GITHUB_TOKEN` env — fetch and publish resolve the team's GitHub App installation token
+server-side; publishing is opt-in per run via `--publish`):
+
+```bash
+flox activate -- bash -c "DJANGO_SETTINGS_MODULE=posthog.settings python manage.py \
+  run_review --pr-url https://github.com/PostHog/posthog/pull/<N> --team-id 1 --user-id 1 [--publish]"
+```
+
+Verify a run: `review_hog_reviewreport.run_count` bumps once per finalized turn (status returns to
+`idle`), or inspect activity-level progress in Temporal:
+
+```bash
+docker exec posthog-temporal-1 tctl --address temporal:7233 --ns default workflow show \
+  --workflow_id "review-pr:<team>:<owner>/<repo>:<pr>"
+```
+
+---
+
 ## Current state & roadmap
 
 This work (now on `signals/reviewhog`, originally `signals/custom-prompt-to-sandbox`) predates several
