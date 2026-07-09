@@ -538,10 +538,15 @@ export function createHogTransformerService(
         config.SITE_URL,
         trackingCodeSigner
     )
-    const pushNotificationService = new PushNotificationService(deps.integrationManager, deps.encryptedFields, {
-        trackedFetch: cdpTrackedFetch,
-        maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
-    })
+    const pushNotificationService = new PushNotificationService(
+        deps.integrationManager,
+        deps.encryptedFields,
+        {
+            trackedFetch: cdpTrackedFetch,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+        },
+        redis
+    )
     const hogExecutor = new HogExecutorService(
         {
             hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,

@@ -63,6 +63,9 @@ describe('PushNotificationService', () => {
     let service: PushNotificationService
     let integrationManager: IntegrationManagerService
     let fetchUtils: PushNotificationFetchUtils
+    let redisStore: Map<string, string>
+    let mockRedisSet: jest.Mock
+    let mockRedis: any
 
     const mockTrackedFetch = jest.fn()
 
@@ -84,7 +87,21 @@ describe('PushNotificationService', () => {
             maxFetchTimeoutMs: 10000,
         }
 
-        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils)
+        redisStore = new Map<string, string>()
+        mockRedisSet = jest.fn((key: string, value: string) => {
+            redisStore.set(key, value)
+            return 'OK'
+        })
+        mockRedis = {
+            useClient: jest.fn((_opts: any, fn: any) =>
+                fn({
+                    get: (key: string) => redisStore.get(key) ?? null,
+                    set: mockRedisSet,
+                })
+            ),
+        } as any
+
+        service = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, mockRedis)
     })
 
     afterEach(() => {
@@ -261,6 +278,27 @@ describe('PushNotificationService', () => {
                 }),
                 templateId: 'unknown',
             })
+        })
+
+        it('reuses a cached APNS provider token across sends instead of minting one each time', async () => {
+            const send = (): Promise<any> =>
+                service.executeSendPushNotification(
+                    createSendPushNotificationInvocation({
+                        '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                    })
+                )
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+
+            await send()
+            await send()
+
+            // The JWT is written to Redis once and read back on the second send. Minting a new token per
+            // send is what makes Apple return 429 TooManyProviderTokenUpdates.
+            expect(mockRedisSet).toHaveBeenCalledTimes(1)
         })
 
         it('sets apns-priority to 5 for passive interruption level', async () => {

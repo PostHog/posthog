@@ -409,10 +409,15 @@ export function createCdpCoreServices(
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
-    const pushNotificationService = new PushNotificationService(deps.integrationManager, deps.encryptedFields, {
-        trackedFetch: cdpTrackedFetch,
-        maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
-    })
+    const pushNotificationService = new PushNotificationService(
+        deps.integrationManager,
+        deps.encryptedFields,
+        {
+            trackedFetch: cdpTrackedFetch,
+            maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+        },
+        deps.redis
+    )
 
     const hogExecutor = new HogExecutorService(
         {

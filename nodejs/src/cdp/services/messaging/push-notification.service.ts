@@ -5,6 +5,7 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
@@ -22,6 +23,12 @@ const pushNotificationSentCounter = new Counter({
     labelNames: ['platform'],
 })
 
+// Apple rate-limits new APNs provider tokens (returns 429 TooManyProviderTokenUpdates if refreshed more
+// than once every ~20 min per key) and accepts a token for up to 1 hour. Cache the signed JWT in Redis
+// keyed by the auth key id so the whole fleet reuses one token per key rather than minting one per send.
+const APNS_JWT_CACHE_PREFIX = '@posthog/apns-provider-jwt/'
+const APNS_JWT_TTL_SECONDS = 45 * 60
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
         fetchError: Error | null
@@ -35,7 +42,8 @@ export class PushNotificationService {
     constructor(
         private integrationManager: IntegrationManagerService,
         private encryptedFields: EncryptedFields,
-        private fetchUtils: PushNotificationFetchUtils
+        private fetchUtils: PushNotificationFetchUtils,
+        private redis: RedisV2 | null
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -201,7 +209,7 @@ export class PushNotificationService {
             return false
         }
 
-        const jwt = this.generateApnsJwt(appleTeamId, keyId, signingKey)
+        const jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
 
         const apnsPayload = this.buildApnsPayload(payload)
         const apnsHost =
@@ -281,7 +289,16 @@ export class PushNotificationService {
         return true
     }
 
-    private generateApnsJwt(teamId: string, keyId: string, signingKey: string): string {
+    private async generateApnsJwt(teamId: string, keyId: string, signingKey: string): Promise<string> {
+        const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyId}`
+
+        const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+            client.get(cacheKey)
+        )
+        if (cached) {
+            return cached
+        }
+
         const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
         const now = Math.floor(Date.now() / 1000)
         const claims = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString('base64url')
@@ -289,7 +306,12 @@ export class PushNotificationService {
         const sign = createSign('SHA256')
         sign.update(signingInput)
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
-        return `${signingInput}.${signature}`
+        const jwt = `${signingInput}.${signature}`
+
+        await this.redis?.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+        )
+        return jwt
     }
 
     private buildApnsPayload(payload: PushNotificationPayloadType): Record<string, unknown> {
