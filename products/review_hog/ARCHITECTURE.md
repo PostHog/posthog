@@ -3099,21 +3099,22 @@ while validation resumes per issue off its persisted verdicts (`load_run_validat
 multi-turn session per chunk (one verdict per turn); there is **no separate analyze stage** (the reviewer
 self-investigates from the diff + the PR intent).
 
-See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the visual flow. Compact form:
+Visual flow (this compact diagram is the only one — a full-detail `ARCHITECTURE_DIAGRAM.mmd` existed and was
+deleted deliberately; every attempt to keep it readable and current failed, so don't recreate it):
 
 ```mermaid
 flowchart TD
     PR["PR URL"] --> FETCH["1. Fetch PR data (GitHub API)"]
     FETCH --> SCHEMA["2. Generate JSON schemas from Pydantic models"]
-    SCHEMA --> CHUNK{{"3. Chunk PR (one-shot ≤5k adds, else sandbox)"}}
-    CHUNK --> L1{{"4a. Perspective — Logic & Correctness"}}
-    CHUNK --> L2{{"4b. Perspective — Contracts & Security"}}
-    CHUNK --> L3{{"4c. Perspective — Performance & Reliability"}}
-    L1 --> COMBINE["5. Combine issues (local, stamps source_perspective)"]
-    L2 --> COMBINE
-    L3 --> COMBINE
-    COMBINE --> CLEAN["6. Scope clean (local)"]
-    CLEAN --> DEDUP{{"7. Deduplicate (pre-filter + one-shot ≤50 findings, else sandbox)"}}
+    SCHEMA --> CHUNK{{"3. Chunk PR (single chunk ≤400 adds; one-shot ≤5k, else sandbox)"}}
+    CHUNK --> SELECT{{"4. Select perspectives per chunk (one-shot, fail-open → dense)"}}
+    SELECT --> L1{{"5a. Perspective — Logic & Correctness"}}
+    SELECT --> L2{{"5b. Perspective — Contracts & Security"}}
+    SELECT --> L3{{"5c. Perspective — Performance & Reliability"}}
+    L1 --> BLIND{{"6. Blind-spot sweep (1/chunk, told which lenses succeeded)"}}
+    L2 --> BLIND
+    L3 --> BLIND
+    BLIND --> DEDUP{{"7. Dedup (combine + scope-clean local; pre-filter + one-shot ≤50 candidates, else sandbox; drops prior comments' and prior turns' re-finds)"}}
     DEDUP --> VALIDATE{{"8. Per-chunk validation (warm session, parallel)"}}
     VALIDATE --> MD["9. Build review body + finalize (DB)"]
     MD --> PUBLISH["10. Publish PR review (GitHub API, DB-driven)"]
