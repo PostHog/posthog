@@ -183,19 +183,23 @@ describe('experimentWizardLogic', () => {
             logic.actions.setLinkedFeatureFlag(flag)
             logic.actions.setFeatureFlagConfig({
                 feature_flag_key: flag.key,
-                feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                variants: flag.filters?.multivariate?.variants || [],
             })
 
             await expectLogic(logic).toMatchValues({
                 linkedFeatureFlag: partial({ id: 20, key: 'another-flag' }),
                 experiment: partial({
                     feature_flag_key: 'another-flag',
-                    parameters: partial({
-                        feature_flag_variants: [
-                            partial({ key: 'control' }),
-                            partial({ key: 'variant-a' }),
-                            partial({ key: 'variant-b' }),
-                        ],
+                    feature_flag_config: partial({
+                        filters: partial({
+                            multivariate: {
+                                variants: [
+                                    partial({ key: 'control' }),
+                                    partial({ key: 'variant-a' }),
+                                    partial({ key: 'variant-b' }),
+                                ],
+                            },
+                        }),
                     }),
                 }),
             })
@@ -274,7 +278,7 @@ describe('experimentWizardLogic', () => {
             logic.actions.setLinkedFeatureFlag(mockEligibleFlags[0] as FeatureFlagType)
             logic.actions.setFeatureFlagConfig({
                 feature_flag_key: 'existing-flag',
-                feature_flag_variants: mockEligibleFlags[0].filters?.multivariate?.variants || [],
+                variants: mockEligibleFlags[0].filters?.multivariate?.variants || [],
             })
 
             // Now remove it (mirrors AboutStep onRemove handler)
@@ -515,11 +519,15 @@ describe('experimentWizardLogic', () => {
         it('variant split not summing to 100% triggers error on variants step', async () => {
             createLogic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
-                parameters: {
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 40 },
-                        { key: 'test', rollout_percentage: 40 },
-                    ],
+                feature_flag_config: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 40 },
+                                { key: 'test', rollout_percentage: 40 },
+                            ],
+                        },
+                    },
                 },
             })
 
@@ -558,7 +566,7 @@ describe('experimentWizardLogic', () => {
         ])('variants step: $desc', async ({ variants, expectedErrors }) => {
             createLogic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
-                parameters: { feature_flag_variants: variants },
+                feature_flag_config: { filters: { multivariate: { variants } } },
             })
 
             await expectLogic(logic).toMatchValues({

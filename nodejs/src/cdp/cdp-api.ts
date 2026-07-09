@@ -25,6 +25,7 @@ import {
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
+import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -35,6 +36,7 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
+import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -588,6 +590,35 @@ export class CdpApi {
                 : undefined
 
             const logs: MinimalLogEntry[] = []
+
+            // In production a wait_until_condition step's "events to wait for" are evaluated by the
+            // subscription matcher against incoming events (never by the executor), so a plain
+            // executeCurrentAction could not advance past one. Simulate the matcher here: when the
+            // supplied test event matches, tag the invocation the same way a real match would, and
+            // the handler advances to the next step.
+            const currentAction: HogFlowAction | undefined = current_action_id
+                ? compoundConfiguration.actions?.find((a: HogFlowAction) => a.id === current_action_id)
+                : undefined
+            if (currentAction?.type === 'wait_until_condition' && invocation.state.currentAction) {
+                const matched = await matchesWaitUntilCondition(currentAction, filterGlobals, {
+                    hogFlowId: isNewHogFlow ? 'new' : id,
+                    actionId: currentAction.id,
+                })
+                if (matched) {
+                    invocation.state.currentAction.eventMatched = true
+                    invocation.state.currentAction.eventMatchedEvent = globals.event.event
+                    invocation.state.currentAction.eventMatchedEventUuid = globals.event.uuid
+                    invocation.state.currentAction.eventMatchedEventTimestamp = globals.event.timestamp
+                }
+                logs.push({
+                    level: 'info',
+                    timestamp: DateTime.now(),
+                    message: matched
+                        ? `Test event '${globals.event.event}' matched the wait conditions`
+                        : `Test event '${globals.event.event}' did not match the wait conditions - the workflow would continue waiting`,
+                })
+            }
+
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
             options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })

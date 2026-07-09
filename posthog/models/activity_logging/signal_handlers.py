@@ -893,6 +893,10 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     # fresh password/2FA/SSO login satisfies TimeSensitiveActionPermission.
     request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
     request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+    # Clear the risk-telemetry dedup markers so the first anomaly after this (re)login re-emits instead
+    # of being suppressed by the pre-login signature. Pairs with the baseline reset below.
+    request.session.pop(settings.SESSION_RISK_LAST_SIG_KEY, None)
+    request.session.pop(settings.SESSION_RISK_LAST_EMIT_AT_KEY, None)
 
     # Defensive risk-baseline reset: login() rotates the session key, so the new row's risk columns
     # are already NULL and this is normally a no-op. It guarantees a clean baseline after a high-tier
