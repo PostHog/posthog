@@ -119,15 +119,17 @@ def _trim_and_tag(identifier: str, tag: str, max_length: int) -> str:
 
 
 def duckgres_sink_table_name(source_type: str, prefix: str | None, normalized_name: str) -> str:
-    """The duckgres table name the v3 sink writes a schema into.
+    """The stable duckgres table name shared by data-import writers and readers.
 
-    Single source of truth, re-exported through the facade for the DuckLake
-    read binding and the copy workflow: writer and readers must stay
-    byte-identical, or reads resolve to a table the sink never writes and
-    serve frozen data. NamingConvention (not sanitize_ducklake_identifier)
-    is canonical because existing sink-written tables carry these names —
-    the two normalizers disagree on camel-hump source types (MySQL ->
-    my_sql_*) and >63-char truncation.
+    The copy workflow and read bindings used this normalization before the v3
+    sink existed. Keeping that deployed naming canonical lets the sink take
+    ownership without switching readers to a table that has not been written
+    yet during a rolling deployment.
     """
     raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    cleaned = re.sub(r"[^0-9a-zA-Z]+", "_", raw_name.strip()).strip("_").lower()
+    if not cleaned:
+        cleaned = "data_import"
+    if cleaned[0].isdigit():
+        cleaned = f"data_import_{cleaned}"
+    return cleaned[:63]

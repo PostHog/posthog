@@ -543,11 +543,10 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
     """Resolve the duckgres table name for a data-import schema (copy workflow writer,
     DuckLake read binding).
 
-    Delegates to the v3 sink's naming so writer and readers stay byte-identical:
-    the previous sanitize_ducklake_identifier normalization disagreed with the
-    sink's NamingConvention on camel-hump source types (MySQL -> mysql_* vs
-    my_sql_*) and >63-char truncation, which would freeze reads for those
-    schemas the moment the sink takes ownership and the copy workflow stops.
+    Delegates to the shared product naming so the copy workflow, v3 sink, and
+    readers stay byte-identical. The shared function preserves the deployed
+    copy/read names, avoiding a cutover window where readers point at a new
+    table before any sink batch has created it.
     """
     # noqa comment applies to the deferred import below: posthog.ducklake is
     # imported by the product at runtime, so a module-level facade import here
