@@ -769,12 +769,16 @@ def activate_personhog_fake():
     fake = FakePersonHogClient()
     set_active_fake(fake)
     block_persons_orm()
+
     # Plain attribute swap instead of mock.patch: this context manager wraps every test in the
     # repo, and mock.patch's MagicMock construction is measurable at that volume. The swap is
     # equivalent — both replace the same module attribute — and tests that patch the client
     # themselves still layer over it and restore this one on exit.
+    def _get_fake_client() -> Any:
+        return fake
+
     original_get_client = personhog_client_module.get_personhog_client
-    personhog_client_module.get_personhog_client = lambda *args, **kwargs: fake
+    personhog_client_module.get_personhog_client = _get_fake_client  # ty: ignore[invalid-assignment]
     try:
         yield fake
     finally:

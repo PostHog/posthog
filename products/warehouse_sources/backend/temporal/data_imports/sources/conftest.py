@@ -1,13 +1,14 @@
 import time
 from collections.abc import Generator
+from typing import SupportsIndex
 
 import pytest
 
 _real_sleep = time.sleep
 
 
-def _capped_sleep(seconds: float) -> None:
-    _real_sleep(min(seconds, 0.001))
+def _capped_sleep(seconds: SupportsIndex | float, /) -> None:
+    _real_sleep(min(float(seconds), 0.001))
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +25,7 @@ def _cap_backoff_sleeps() -> Generator[None]:
     A plain attribute swap rather than mock.patch: this runs for every test in the
     sources tree, and MagicMock construction is measurable at that volume.
     """
-    time.sleep = _capped_sleep
+    time.sleep = _capped_sleep  # ty: ignore[invalid-assignment]
     try:
         yield
     finally:
