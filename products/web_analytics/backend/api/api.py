@@ -6,7 +6,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 
 from products.web_analytics.backend.recap import build_team_recap
@@ -74,7 +73,6 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team,
             days=params["days"],
             compare=params["compare"],
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             user=request.user if isinstance(request.user, User) else None,
         )
         serializer = self.get_serializer(instance=digest)
@@ -122,7 +120,6 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team,
             days=params["days"],
             compare=params["compare"],
-            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
             user=request.user if isinstance(request.user, User) else None,
         )
         serializer = WebAnalyticsRecapResponseSerializer(instance=recap, context=self.get_serializer_context())

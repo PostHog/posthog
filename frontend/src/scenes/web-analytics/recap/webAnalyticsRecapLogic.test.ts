@@ -47,7 +47,6 @@ describe('webAnalyticsRecapLogic', () => {
     let logic: ReturnType<typeof webAnalyticsRecapLogic.build>
 
     beforeEach(() => {
-        localStorage.clear()
         initKeaTests()
         mockRecap.mockReset()
         jest.spyOn(posthog, 'capture').mockReturnValue(null as any)
@@ -90,23 +89,6 @@ describe('webAnalyticsRecapLogic', () => {
                 visitors: 100,
             })
         )
-    })
-
-    it('reuses the persisted recap on remount instead of refetching', async () => {
-        mockRecap.mockResolvedValue(makeRecap())
-        logic = webAnalyticsRecapLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadRecapSuccess'])
-        expect(mockRecap).toHaveBeenCalledTimes(1)
-        logic.unmount()
-
-        mockRecap.mockClear()
-        logic = webAnalyticsRecapLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['recordOpened'])
-
-        expect(mockRecap).not.toHaveBeenCalled()
-        expect(logic.values.recap).toMatchObject({ persona: { id: 'rising_star' } })
     })
 
     it('copies the recap link and records the share', async () => {
