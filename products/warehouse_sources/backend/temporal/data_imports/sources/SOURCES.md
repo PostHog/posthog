@@ -84,6 +84,7 @@ the row lists both.
 | buildkite               | HTTP                        | requests                                                        | ✅                          |
 | bunny                   | HTTP                        | requests                                                        | ✅                          |
 | buzzsprout              | HTTP                        | requests                                                        | ✅                          |
+| cal_com                 | HTTP                        | requests                                                        | ✅                          |
 | calendly                | HTTP                        | requests                                                        | ✅                          |
 | callrail                | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor        | HTTP                        | requests                                                        | ✅                          |
