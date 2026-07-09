@@ -107,7 +107,11 @@ export const NEW_WORKFLOW: HogFlow = {
 
 // Step types that depend on person data and so cannot run for person-less (row-scoped)
 // data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
-export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+export const PERSON_DEPENDENT_ACTION_TYPES = new Set([
+    'wait_until_condition',
+    'random_cohort_branch',
+    'experiment_branch',
+])
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {

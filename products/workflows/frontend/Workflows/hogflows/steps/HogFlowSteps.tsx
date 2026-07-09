@@ -7,6 +7,7 @@ import {
     IconClock,
     IconDay,
     IconDecisionTree,
+    IconFlask,
     IconHourglass,
     IconLeave,
     IconLetter,
@@ -24,6 +25,7 @@ import { HogFlowAction } from '../types'
 import { StepConditionalBranchConfiguration } from './StepConditionalBranch'
 import { StepDelayConfiguration } from './StepDelay'
 import { StepExitConfiguration } from './StepExit'
+import { StepExperimentBranchConfiguration } from './StepExperimentBranch'
 import { StepFunctionConfiguration } from './StepFunction'
 import { StepRandomCohortBranchConfiguration } from './StepRandomCohortBranch'
 import { StepTriggerConfiguration } from './StepTrigger'
@@ -74,6 +76,12 @@ const HogFlowStepConfigs: Partial<{
         icon: () => <IconPercentage />,
         color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
         renderConfiguration: (node) => <StepRandomCohortBranchConfiguration key={node.id} node={node} />,
+    },
+    experiment_branch: {
+        type: 'experiment_branch',
+        icon: () => <IconFlask />,
+        color: (_, isDarkModeOn) => (isDarkModeOn ? '#D6247B' : '#9a004d'),
+        renderConfiguration: (node) => <StepExperimentBranchConfiguration key={node.id} node={node} />,
     },
     trigger: {
         type: 'trigger',

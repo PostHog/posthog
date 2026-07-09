@@ -98,6 +98,24 @@ class TestValidateGraph(TestCase):
         ]
         assert validate_graph(actions, edges) == []
 
+    def test_experiment_branch_slots_follow_variant_count(self):
+        experiment = {
+            "id": "e",
+            "name": "e",
+            "type": "experiment_branch",
+            "config": {"variants": [{"key": "control", "percentage": 50}, {"key": "test", "percentage": 50}]},
+        }
+        actions = [TRIGGER, experiment, _fn("a"), _fn("b"), EXIT]
+        edges = [
+            _edge("t", "e"),
+            _edge("e", "a", "branch", index=0),
+            _edge("e", "b", "branch", index=1),
+            _edge("a", "x"),
+            _edge("b", "x"),
+        ]
+        assert validate_graph(actions, edges) == []
+        assert "out of range [0, 2)" in _graph_errors(actions, [_edge("t", "e"), _edge("e", "x", "branch", index=2)])
+
     def test_wait_until_condition_allows_index_zero_only(self):
         wait = {"id": "w", "name": "w", "type": "wait_until_condition", "config": {"condition": {"filters": {}}}}
         actions = [TRIGGER, wait, EXIT]

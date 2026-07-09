@@ -60,7 +60,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
 
     const action = selectedNode.data
 
-    const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
+    const isBranchingStep = [
+        'conditional_branch',
+        'wait_until_condition',
+        'random_cohort_branch',
+        'experiment_branch',
+    ].includes(action.type)
     const actionFilters = action.filters ?? {}
     const numberOfActionFilters =
         (actionFilters.events?.length ?? 0) +

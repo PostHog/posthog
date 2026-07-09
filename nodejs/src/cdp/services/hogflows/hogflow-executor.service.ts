@@ -27,6 +27,7 @@ import { ActionHandler } from './actions/action.interface'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
+import { ExperimentBranchHandler } from './actions/experiment_branch'
 import { HogFunctionHandler } from './actions/hog_function'
 import { RandomCohortBranchHandler } from './actions/random_cohort_branch'
 import { TriggerHandler } from './actions/trigger.handler'
@@ -112,6 +113,7 @@ export class HogFlowExecutorService {
             delay: new DelayHandler(),
             wait_until_time_window: new WaitUntilTimeWindowHandler(),
             random_cohort_branch: new RandomCohortBranchHandler(),
+            experiment_branch: new ExperimentBranchHandler(),
             function: hogFunctionHandler,
             function_sms: hogFunctionHandler,
             function_email: hogFunctionEmailHandler,

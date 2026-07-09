@@ -7,8 +7,8 @@ from rest_framework import serializers
 # A branch edge's `index` must fall in [0, branch_count). Types not listed support no branch edges.
 # Mirrors the frontend branch-edge model (getBranchLabel / StepConditionalBranch / StepRandomCohortBranch
 # in products/workflows/frontend/Workflows/hogflows): conditional_branch has one branch per condition,
-# random_cohort_branch one per cohort, wait_until_condition exactly one (the condition-met path, index 0),
-# each alongside a single `continue` fall-through/timeout edge.
+# random_cohort_branch one per cohort, experiment_branch one per variant, wait_until_condition exactly
+# one (the condition-met path, index 0), each alongside a single `continue` fall-through/timeout edge.
 
 
 def _branch_slot_count(action: dict) -> int:
@@ -18,6 +18,8 @@ def _branch_slot_count(action: dict) -> int:
         return len(config.get("conditions") or [])
     if action_type == "random_cohort_branch":
         return len(config.get("cohorts") or [])
+    if action_type == "experiment_branch":
+        return len(config.get("variants") or [])
     if action_type == "wait_until_condition":
         return 1
     return 0

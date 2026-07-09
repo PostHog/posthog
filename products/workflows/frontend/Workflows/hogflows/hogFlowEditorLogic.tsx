@@ -56,6 +56,11 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
             const cohort = cohortAction.config.cohorts?.[edge.index || 0]
             return cohort?.name || `If cohort #${(edge.index || 0) + 1} matches`
         }
+        case 'experiment_branch': {
+            const experimentAction = action as Extract<HogFlowAction, { type: 'experiment_branch' }>
+            const variant = experimentAction.config.variants?.[edge.index || 0]
+            return variant?.name || variant?.key || `Variant #${(edge.index || 0) + 1}`
+        }
         case 'conditional_branch': {
             const branchAction = action as Extract<HogFlowAction, { type: 'conditional_branch' }>
             const condition = branchAction.config.conditions?.[edge.index || 0]
@@ -332,7 +337,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                const branchingTypes = [
+                    'conditional_branch',
+                    'random_cohort_branch',
+                    'experiment_branch',
+                    'wait_until_condition',
+                ]
                 return !branchingTypes.includes(selectedNode?.data.type ?? '')
             },
         ],

@@ -266,6 +266,54 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 201, response.json()
 
+    def _make_experiment_flow(self, experiment_config: dict, status: Optional[str] = "active") -> dict:
+        flow = self._make_delay_flow({"delay_duration": "30m"}, status=status)
+        flow["actions"].append({"id": "e1", "name": "e1", "type": "experiment_branch", "config": experiment_config})
+        return flow
+
+    @parameterized.expand(
+        [
+            ("no_variants", {}, "at least 2 variants"),
+            ("single_variant", {"variants": [{"key": "control", "percentage": 100}]}, "at least 2 variants"),
+            (
+                "first_variant_not_control",
+                {"variants": [{"key": "a", "percentage": 50}, {"key": "b", "percentage": 50}]},
+                "must be 'control'",
+            ),
+            (
+                "duplicate_variant_keys",
+                {"variants": [{"key": "control", "percentage": 50}, {"key": "control", "percentage": 50}]},
+                "must be unique",
+            ),
+            (
+                "percentages_not_summing_to_100",
+                {"variants": [{"key": "control", "percentage": 50}, {"key": "test", "percentage": 30}]},
+                "sum to 100",
+            ),
+            (
+                "winner_not_a_variant",
+                {
+                    "variants": [{"key": "control", "percentage": 50}, {"key": "test", "percentage": 50}],
+                    "winner": "nope",
+                },
+                "not one of the variant keys",
+            ),
+        ]
+    )
+    def test_hog_flow_experiment_branch_validation_rejects_bad_config(self, _name, bad_config, expected_error):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_experiment_flow(bad_config))
+        assert response.status_code == 400, response.json()
+        assert expected_error in response.json()["detail"]
+
+    def test_hog_flow_experiment_branch_validation_accepts_valid_config(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._make_experiment_flow(
+                {"variants": [{"key": "control", "percentage": 50}, {"key": "test", "percentage": 50}]}
+            ),
+        )
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_delay_validation_lenient_for_drafts(self):
         # status omitted defaults to draft; draft mode lets users save WIP with invalid configs
         response = self.client.post(

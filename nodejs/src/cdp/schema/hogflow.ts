@@ -115,6 +115,29 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             ),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('experiment_branch'),
+        config: z.object({
+            // Index in this array = the `branch` edge index taken for that variant.
+            // The first variant is the control arm.
+            variants: z.array(
+                z.object({
+                    key: z.string(),
+                    percentage: z.number(),
+                    name: z.string().optional(),
+                })
+            ),
+            // Set once the node is backed by a PostHog experiment; the split works standalone without them.
+            experiment_id: z.number().optional().nullable(),
+            feature_flag_id: z.number().optional().nullable(),
+            // Hash seed for deterministic assignment, kept identical to the backing feature flag's key so
+            // client-side flag evaluation agrees with the executor's assignment.
+            feature_flag_key: z.string().optional().nullable(),
+            // When set (winner promoted), all new entrants route to this variant and no exposure is emitted.
+            winner: z.string().optional().nullable(),
+        }),
+    }),
 
     // Time based
     z.object({

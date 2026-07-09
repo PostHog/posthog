@@ -32,6 +32,7 @@ BILLABLE_ACTION_TYPES: Final[set[str]] = {
 PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
     "wait_until_condition",
     "random_cohort_branch",
+    "experiment_branch",
 }
 
 

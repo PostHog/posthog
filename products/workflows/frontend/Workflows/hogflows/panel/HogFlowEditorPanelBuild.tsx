@@ -110,6 +110,18 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
             ],
         },
     },
+    {
+        type: 'experiment_branch',
+        name: 'A/B test',
+        description: 'Split people between variants deterministically to test which performs better.',
+        branchEdges: 2,
+        config: {
+            variants: [
+                { key: 'control', percentage: 50 },
+                { key: 'test', percentage: 50 },
+            ],
+        },
+    },
 ]
 
 export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [

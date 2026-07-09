@@ -339,7 +339,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         max_length=100,
         help_text=(
             "trigger | function | function_email | function_sms | delay | "
-            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
+            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | "
+            "experiment_branch | exit."
         ),
     )
     config = HogFlowActionConfigField(
@@ -357,6 +358,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
             "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "experiment_branch: {variants: [{key, percentage, name?}, ...]} — a deterministic A/B split; "
+            "each person is assigned to a variant by a sticky hash of their distinct_id. Variant index N "
+            "matches the 'branch' edge with index:N. The first variant must be keyed 'control' and "
+            "percentages must sum to 100. Optional: winner (variant key; once set all new entrants take "
+            "that branch). "
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
@@ -593,6 +599,27 @@ class HogFlowActionSerializer(serializers.Serializer):
                     else:
                         serializer.is_valid(raise_exception=True)
                         event_config["filters"] = serializer.validated_data
+
+        if data.get("type") == "experiment_branch" and strict:
+            config = data.get("config") or {}
+            variants = config.get("variants") or []
+            if len(variants) < 2:
+                raise serializers.ValidationError({"config": "experiment_branch requires at least 2 variants."})
+            keys = [variant.get("key") for variant in variants]
+            if keys[0] != "control":
+                raise serializers.ValidationError({"config": "The first experiment_branch variant must be 'control'."})
+            if len(set(keys)) != len(keys) or not all(keys):
+                raise serializers.ValidationError({"config": "experiment_branch variant keys must be unique."})
+            total = sum(variant.get("percentage") or 0 for variant in variants)
+            if total != 100:
+                raise serializers.ValidationError(
+                    {"config": f"experiment_branch variant percentages must sum to 100 (got {total})."}
+                )
+            winner = config.get("winner")
+            if winner and winner not in keys:
+                raise serializers.ValidationError(
+                    {"config": f"experiment_branch winner '{winner}' is not one of the variant keys."}
+                )
 
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
