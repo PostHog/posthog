@@ -1640,7 +1640,7 @@ def _send_wizard_pr_ready_email_for_pr(run: TaskRun) -> None:
     if not _is_wizard_pr_ready_email_enabled(run):
         return
 
-    if not run.task.mark_pr_ready_email_sent(pr_url):
+    if not run.task.mark_pr_ready_email_queued(pr_url):
         return
 
     from posthog.tasks.email import send_wizard_pr_ready_email  # noqa: PLC0415 - keep email task import lazy

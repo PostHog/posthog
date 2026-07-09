@@ -925,6 +925,17 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if user is None or not user.email or not pr_url:
         return
+    if task.pr_ready_email_sent_at:
+        return
+
+    campaign_key = f"wizard_pr_ready_{task.id}"
+    recipient_email_hashes = get_email_hashes(user.email)
+    already_delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if already_delivered:
+        task.mark_pr_ready_email_sent(pr_url)
+        return
 
     template_context = {
         "pr_url": pr_url,
@@ -939,13 +950,25 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
     }
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"wizard_pr_ready_{task.id}",
+        campaign_key=campaign_key,
         subject="Your pull request is ready",
         template_name="wizard_pr_ready",
         template_context=template_context,
     )
     message.add_user_recipient(user)
-    message.send()
+    message.send(send_async=False)
+    delivered = MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
+    ).exists()
+    if not delivered:
+        logger.warning(
+            "send_wizard_pr_ready_email.delivery_unconfirmed",
+            task_id=str(task.id),
+            run_id=str(run.id),
+            campaign_key=campaign_key,
+        )
+        return
+    task.mark_pr_ready_email_sent(pr_url)
 
     with ph_scoped_capture() as capture:
         capture(

@@ -15,7 +15,7 @@ from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.tasks.email import (
@@ -383,8 +383,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_wizard_pr_ready_email_uses_customer_io_context(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
+        team = user.team
+        assert team is not None
         task = Task.objects.create(
-            team=user.team,
+            team=team,
             created_by=user,
             title="Install PostHog",
             description="Set up PostHog",
@@ -393,7 +395,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         run = TaskRun.objects.create(
             task=task,
-            team=user.team,
+            team=team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": "https://github.com/posthog/posthog-js/pull/1"},
             branch="posthog-code/install-posthog",
@@ -412,12 +414,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "repository": "posthog/posthog-js",
             "first_name": user.first_name,
             "organization_name": org.name,
-            "project_name": user.team.name,
+            "project_name": team.name,
             "branch_name": "posthog-code/install-posthog",
             "task_id": str(task.id),
             "run_id": str(run.id),
             "site_url": settings.SITE_URL,
         }
+
+    def test_send_wizard_pr_ready_email_skips_when_delivery_already_recorded(self, MockEmailMessage: MagicMock) -> None:
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-delivered@posthog.com")
+        team = user.team
+        assert team is not None
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Install PostHog",
+            description="Set up PostHog",
+            origin_product=Task.OriginProduct.ONBOARDING,
+            repository="posthog/posthog-js",
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": "https://github.com/posthog/posthog-js/pull/1"},
+        )
+        MessagingRecord.objects.create(
+            campaign_key=f"wizard_pr_ready_{task.id}",
+            email_hash=get_email_hashes(user.email)[0],
+            sent_at=timezone.now(),
+        )
+
+        send_wizard_pr_ready_email(str(run.id))
+
+        MockEmailMessage.assert_not_called()
+        task.refresh_from_db()
+        assert task.pr_ready_email_sent_at is not None
 
     @patch("posthoganalytics.capture")
     def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
