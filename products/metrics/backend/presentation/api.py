@@ -85,7 +85,7 @@ class _MetricClauseSerializer(serializers.Serializer):
         help_text="Exact metric name this clause queries.",
     )
     metricType = serializers.ChoiceField(
-        choices=["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+        choices=[t.value for t in MetricType],
         required=False,
         allow_null=True,
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
@@ -123,7 +123,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
     )
     metricType = serializers.ChoiceField(
-        choices=["gauge", "sum", "histogram", "exponential_histogram", "summary"],
+        choices=[t.value for t in MetricType],
         required=False,
         allow_null=True,
         help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
@@ -186,6 +186,10 @@ class _MetricQueryBodySerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
+        if has_clauses and attrs.get("metricType"):
+            raise serializers.ValidationError(
+                "'metricType' applies to the single-clause shorthand; set it per clause instead."
+            )
         return attrs
 
 

@@ -23,7 +23,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
-from products.metrics.backend.facade.enums import FilterOp
+from products.metrics.backend.facade.enums import FilterOp, MetricType
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -125,8 +125,9 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
     {"sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"}
 )
 
-# The `metric_type` values the ingest writes (rust/capture-logs `flatten_metric`).
-_ALLOWED_METRIC_TYPES: frozenset[str] = frozenset({"gauge", "sum", "histogram", "exponential_histogram", "summary"})
+# Derived from the contract enum (whose values match what the ingest writes,
+# rust/capture-logs `flatten_metric`) so the two can't silently diverge.
+_ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
 
 def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float]) -> float:
