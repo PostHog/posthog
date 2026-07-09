@@ -11,7 +11,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 
-from products.alerts.backend.models import AlertConfiguration, AlertSubscription
+from products.alerts.backend.models import AlertCheck, AlertConfiguration, AlertSubscription
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -72,7 +72,17 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
 
         OrganizationMembership.objects.filter(user=self.other_user, organization=self.organization).delete()
 
-        send_notifications_for_breaches(alert, ["test breach"], idempotency_key="test-excludes-removed-members")
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=1.0,
+            condition=alert.condition,
+            targets_notified={},
+            state="firing",
+        )
+        with patch("posthog.tasks.alerts.utils.produce_internal_event"):
+            send_notifications_for_breaches(
+                alert, alert_check, ["test breach"], idempotency_key="test-excludes-removed-members"
+            )
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
@@ -184,9 +194,20 @@ class TestAlertEmailNotifications(APIBaseTest):
     def test_send_emails(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         alert = AlertConfiguration.objects.get(pk=self.alert["id"])
-        send_notifications_for_breaches(
-            alert, ["first anomaly description", "second anomaly description"], idempotency_key="test-send-emails"
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=42.0,
+            condition=alert.condition,
+            targets_notified={},
+            state="firing",
         )
+        with patch("posthog.tasks.alerts.utils.produce_internal_event"):
+            send_notifications_for_breaches(
+                alert,
+                alert_check,
+                ["first anomaly description", "second anomaly description"],
+                idempotency_key="test-send-emails",
+            )
 
         assert len(mocked_email_messages) == 1
         email = mocked_email_messages[0]
@@ -194,3 +215,67 @@ class TestAlertEmailNotifications(APIBaseTest):
         assert email.to[0]["recipient"] == "user1@posthog.com"
         assert "first anomaly description" in email.html_body
         assert "second anomaly description" in email.html_body
+
+
+@freeze_time("2024-06-02T08:55:00.000Z")
+class TestInsightAlertFiringBreachContext(APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        ).model_dump()
+
+        _, self.insight_data = self.dashboard_api.create_insight(data={"name": "test insight", "query": query_dict})
+        _, self.dashboard_data = self.dashboard_api.create_dashboard({"name": "test dashboard"})
+        self.dashboard_api.add_insight_to_dashboard(
+            dashboard_ids=[self.dashboard_data["id"]],
+            insight_id=self.insight_data["id"],
+        )
+
+        alert_response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "breach context alert",
+                "insight": self.insight_data["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 1.0, "upper": 5.0}}},
+            },
+        ).json()
+        self.alert = AlertConfiguration.objects.get(pk=alert_response["id"])
+        self.alert_check = AlertCheck.objects.create(
+            alert_configuration=self.alert,
+            calculated_value=7.5,
+            condition=self.alert.condition,
+            targets_notified={},
+            state="firing",
+        )
+
+    @patch("posthog.tasks.alerts.utils.produce_internal_event")
+    @patch("posthog.tasks.alerts.utils.EmailMessage")
+    def test_insight_alert_firing_event_carries_breach_context(
+        self, MockEmailMessage: MagicMock, mock_produce: MagicMock
+    ) -> None:
+        send_notifications_for_breaches(
+            self.alert,
+            self.alert_check,
+            ["value 7.5 above upper threshold 5.0"],
+            idempotency_key=str(self.alert_check.id),
+        )
+
+        mock_produce.assert_called_once()
+        event_arg = mock_produce.call_args.kwargs["event"]
+        props = event_arg.properties
+
+        assert props["alert_check_id"] == str(self.alert_check.id)
+        assert props["calculated_value"] == 7.5
+        assert props["threshold_lower"] == 1.0
+        assert props["threshold_upper"] == 5.0
+        assert props["dashboard_ids"] == [self.dashboard_data["id"]]

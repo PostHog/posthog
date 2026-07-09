@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from django.utils import timezone
 
@@ -166,6 +167,28 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
         alert.next_check_at = old_next
 
 
+def build_alert_firing_context(alert: AlertConfiguration, alert_check: AlertCheck) -> dict[str, Any]:
+    """Return the breach-time context dict that enriches every $insight_alert_firing event."""
+    threshold_configuration: dict = {}
+    if alert.threshold and isinstance(alert.threshold.configuration, dict):
+        threshold_configuration = alert.threshold.configuration
+    bounds: dict = threshold_configuration.get("bounds") or {}
+    dashboard_ids: list[int] = []
+    if alert.insight_id:
+        dashboard_ids = list(
+            alert.insight.dashboard_tiles.filter(dashboard__deleted=False)
+            .values_list("dashboard_id", flat=True)
+            .distinct()
+        )
+    return {
+        "alert_check_id": str(alert_check.id),
+        "calculated_value": alert_check.calculated_value,
+        "threshold_lower": bounds.get("lower"),
+        "threshold_upper": bounds.get("upper"),
+        "dashboard_ids": dashboard_ids,
+    }
+
+
 def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 
@@ -213,7 +236,12 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
+def send_notifications_for_breaches(
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    breaches: list[str],
+    idempotency_key: str,
+) -> list[str]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once delivery on retries.
     """
@@ -243,7 +271,8 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
+    firing_context = build_alert_firing_context(alert, alert_check)
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches), **firing_context})
 
     return email_targets
 
@@ -313,7 +342,7 @@ def dispatch_alert_notification(
                     "caller must pass the breaches list from AlertEvaluationResult"
                 )
             logger.info("Sending alert firing notifications", alert_id=alert.id)
-            return send_notifications_for_breaches(alert, breaches, idempotency_key=str(alert_check.id))
+            return send_notifications_for_breaches(alert, alert_check, breaches, idempotency_key=str(alert_check.id))
         case _:
             raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 

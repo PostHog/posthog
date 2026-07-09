@@ -187,7 +187,7 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
 
     mock_send_breaches.assert_called_once()
     call = mock_send_breaches.call_args
-    assert call.args[1] == ["value above threshold"]
+    assert call.args[2] == ["value above threshold"]
     assert call.kwargs.get("idempotency_key") == str(check.id)
 
     completed_props = _completed_slo_props(mock_slo_analytics)

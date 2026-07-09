@@ -52,7 +52,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         )
 
     def get_breach_description(self, mock_send_notifications_for_breaches: MagicMock, call_index: int) -> list[str]:
-        return mock_send_notifications_for_breaches.call_args_list[call_index].args[1]
+        return mock_send_notifications_for_breaches.call_args_list[call_index].args[2]
 
     def _create_formula_alert(self, query_dict: dict, series_index: int = 0) -> dict:
         insight = self.dashboard_api.create_insight(data={"name": "formula insight", "query": query_dict})[1]
