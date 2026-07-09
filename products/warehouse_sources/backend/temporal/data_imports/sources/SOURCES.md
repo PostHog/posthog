@@ -304,6 +304,7 @@ the row lists both.
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
+| sendowl                 | HTTP                        | requests                                                        | ✅                          |
 | sentry                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow              | HTTP                        | requests                                                        | ✅                          |
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
@@ -652,7 +653,6 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - search_ads_360
-- sendowl
 - sendpulse
 - senseforce
 - serpstat

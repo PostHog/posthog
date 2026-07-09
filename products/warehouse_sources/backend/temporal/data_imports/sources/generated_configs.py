@@ -2942,7 +2942,8 @@ class SendPulseSourceConfig(config.Config):
 
 @config.config
 class SendowlSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
