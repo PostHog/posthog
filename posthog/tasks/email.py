@@ -37,7 +37,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -919,39 +919,40 @@ def send_canary_email(user_email: str) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_wizard_pr_ready_email(run_id: str) -> None:
-    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id)
-    task = run.task
-    user = task.created_by
-    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
-    if user is None or not user.email or not pr_url:
+    context = tasks_facade.get_wizard_pr_ready_email_context(run_id)
+    if context is None or context.created_by_id is None:
         return
-    membership = OrganizationMembership.objects.filter(organization_id=run.team.organization_id, user=user).first()
+    user = User.objects.filter(id=context.created_by_id).first()
+    team = Team.objects.select_related("organization").filter(id=context.team_id).first()
+    if user is None or not user.email or team is None:
+        return
+    membership = OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).first()
     if not user.is_active or membership is None:
         return
-    team_permissions = UserPermissions(user).team(run.team)
-    if team_permissions.effective_membership_level_for_parent_membership(run.team.organization, membership) is None:
+    team_permissions = UserPermissions(user).team(team)
+    if team_permissions.effective_membership_level_for_parent_membership(team.organization, membership) is None:
         return
-    if task.pr_ready_email_sent_at:
+    if context.already_sent:
         return
 
-    campaign_key = f"wizard_pr_ready_{task.id}"
+    campaign_key = f"wizard_pr_ready_{context.task_id}"
     recipient_email_hashes = get_email_hashes(user.email)
     already_delivered = MessagingRecord.objects.filter(
         campaign_key=campaign_key, email_hash__in=recipient_email_hashes, sent_at__isnull=False
     ).exists()
     if already_delivered:
-        task.mark_pr_ready_email_sent(pr_url)
+        tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
         return
 
     template_context = {
-        "pr_url": pr_url,
-        "repository": task.repository or "",
+        "pr_url": context.pr_url,
+        "repository": context.repository or "",
         "first_name": user.first_name or "",
-        "organization_name": run.team.organization.name,
-        "project_name": run.team.name,
-        "branch_name": run.branch or "",
-        "task_id": str(task.id),
-        "run_id": str(run.id),
+        "organization_name": team.organization.name,
+        "project_name": team.name,
+        "branch_name": context.branch or "",
+        "task_id": str(context.task_id),
+        "run_id": str(context.run_id),
         "site_url": settings.SITE_URL,
     }
     message = EmailMessage(
@@ -969,26 +970,26 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
     if not delivered:
         logger.warning(
             "send_wizard_pr_ready_email.delivery_unconfirmed",
-            task_id=str(task.id),
-            run_id=str(run.id),
+            task_id=str(context.task_id),
+            run_id=str(context.run_id),
             campaign_key=campaign_key,
         )
         return
-    task.mark_pr_ready_email_sent(pr_url)
+    tasks_facade.mark_task_pr_ready_email_sent(context.task_id, context.pr_url)
 
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(user.distinct_id),
             event="wizard pr ready email sent",
             properties={
-                "task_id": str(task.id),
-                "run_id": str(run.id),
-                "team_id": run.team_id,
-                "origin_product": task.origin_product,
-                "repository": task.repository,
-                "branch_name": run.branch,
+                "task_id": str(context.task_id),
+                "run_id": str(context.run_id),
+                "team_id": context.team_id,
+                "origin_product": context.origin_product,
+                "repository": context.repository,
+                "branch_name": context.branch,
             },
-            groups=groups(team=run.team),
+            groups=groups(team=team),
         )
 
 

@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.conf import settings
 from django.utils import timezone
 
@@ -48,7 +49,6 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.tasks.backend.models import Task, TaskRun
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -385,6 +385,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard@posthog.com")
         team = user.team
         assert team is not None
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=team,
             created_by=user,
@@ -419,7 +421,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "task_id": str(task.id),
             "run_id": str(run.id),
             "site_url": settings.SITE_URL,
-            "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=wizard_pr_ready",
         }
 
     @parameterized.expand(
@@ -434,6 +435,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-former-member@posthog.com")
         team = user.team
         assert team is not None
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=team,
             created_by=user,
@@ -464,6 +467,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         _org, user = create_org_team_and_user("2022-01-02 00:00:00", "wizard-delivered@posthog.com")
         team = user.team
         assert team is not None
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=team,
             created_by=user,

@@ -472,6 +472,35 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
+    """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    if run is None:
+        return None
+    pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
+    if not pr_url:
+        return None
+    task = run.task
+    return contracts.WizardPrReadyEmailContextDTO(
+        task_id=task.id,
+        run_id=run.id,
+        team_id=run.team_id,
+        origin_product=task.origin_product,
+        pr_url=pr_url,
+        repository=task.repository,
+        branch=run.branch,
+        created_by_id=task.created_by_id,
+        already_sent=task.pr_ready_email_sent_at is not None,
+    )
+
+
+def mark_task_pr_ready_email_sent(task_id: str | UUID, pr_url: str) -> None:
+    """Record confirmed PR-ready email delivery for a task, if it still exists."""
+    task = Task.objects.filter(id=task_id).first()
+    if task is not None:
+        task.mark_pr_ready_email_sent(pr_url)
+
+
 def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     """The parent task id for a run, team-scoped. ``None`` if the run isn't found for the team.
 
