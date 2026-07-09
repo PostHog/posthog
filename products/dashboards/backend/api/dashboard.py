@@ -2051,10 +2051,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
+        layout_size = "sm"  # default layout size
+
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        # Use the specified layout size to get the correct order for the current viewport
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
+
+        # Handle case where there are no tiles, skipping flag lookups for an outcome that's moot
+        if not sorted_tiles:
+            return []
+
         team = self.context["get_team"]()
+        org_id = str(team.organization_id)
 
         def _org_flag_enabled(flag_key: str) -> bool:
-            org_id = str(team.organization_id)
             return bool(
                 posthoganalytics.feature_enabled(
                     flag_key,
@@ -2071,21 +2081,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "parallel_dashboard_tile_serialization"
         )
 
-        layout_size = "sm"  # default layout size
-
-        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-        # Use the specified layout size to get the correct order for the current viewport
-        sorted_tiles = DashboardTile.sort_tiles_by_layout(tiles, layout_size)
-
         span = trace.get_current_span()
         span.set_attribute("dashboard.tile_serialize.parallel", parallel_serialization_enabled)
         span.set_attribute("dashboard.tile_serialize.tile_count", len(sorted_tiles))
 
         with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
-            # Handle case where there are no tiles
-            if not sorted_tiles:
-                return []
-
             if not parallel_serialization_enabled:
                 tile_results = [
                     (*serialize_tile_with_context(tile, order, self.context), [])
@@ -2110,11 +2110,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 tile_results = [future.result() for future in futures]
 
             serialized_tiles = []
+            # Re-queue worker-thread tasks on the request thread's chain, in dashboard layout
+            # order, so task_chain_context() executes them as one chain on commit as before.
+            request_thread_chain = get_task_chain()
             for _, tile_data, chained_tasks in tile_results:
                 serialized_tiles.append(cast(ReturnDict, tile_data))
-                # Re-queue worker-thread tasks on the request thread's chain, in dashboard layout
-                # order, so task_chain_context() executes them as one chain on commit as before.
-                get_task_chain().extend(chained_tasks)
+                request_thread_chain.extend(chained_tasks)
 
         return serialized_tiles
 
