@@ -317,8 +317,8 @@ export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesixType
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault = `account_custom_property`
-export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwothreeTypeDefault = `workflow_variable`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
 export const endpointsRunCreateBodyRefreshDefault = `cache`
 
 export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
@@ -1034,7 +1034,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                         .default(
                                             endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with "$feature/" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1501,7 +1501,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     type: zod
                                         .literal('account_custom_property')
                                         .default(
-                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemAccountCustomPropertyTypeDefault
                                         )
                                         .describe(
                                             'Customer analytics account custom property — the key is the property definition id'
@@ -1558,7 +1558,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                     type: zod
                                         .literal('workflow_variable')
                                         .default(
-                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwothreeTypeDefault
+                                            endpointsRunCreateBodyFiltersOverrideOnePropertiesOneItemTwotwoTypeDefault
                                         ),
                                     value: zod
                                         .union([

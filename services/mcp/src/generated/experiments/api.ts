@@ -282,7 +282,7 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -559,7 +559,7 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe(
-                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the *\*exclusion*\* percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
+                "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout."
             ),
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
@@ -747,9 +747,6 @@ export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemRolloutPerce
 
 export const experimentsCreateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
-export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
-export const experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
-
 export const experimentsCreateBodyArchivedDefault = false
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
@@ -774,8 +771,8 @@ export const experimentsCreateBodyExposureCriteriaOneExposureConfigOneProperties
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -894,46 +891,26 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                             ),
                         multivariate: zod
                             .union([
-                                zod
-                                    .object({
-                                        variants: zod
-                                            .array(
-                                                zod
-                                                    .object({
-                                                        key: zod
-                                                            .string()
-                                                            .describe(
-                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
-                                                            ),
-                                                        name: zod
-                                                            .string()
-                                                            .optional()
-                                                            .describe('Human-readable variant name.'),
-                                                        rollout_percentage: zod
-                                                            .number()
-                                                            .min(
-                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
-                                                            )
-                                                            .max(
-                                                                experimentsCreateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
-                                                            )
-                                                            .describe(
-                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
-                                                            ),
-                                                    })
-                                                    .describe(
-                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
-                                                    )
-                                            )
-                                            .describe(
-                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
-                                            ),
-                                    })
-                                    .describe("Multivariate config for the experiment's feature flag."),
+                                zod.object({
+                                    variants: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod.string().describe('Unique key for this variant.'),
+                                                name: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe('Human-readable name for this variant.'),
+                                                rollout_percentage: zod
+                                                    .number()
+                                                    .describe('Variant rollout percentage.'),
+                                            })
+                                        )
+                                        .describe('Variant definitions for multivariate feature flags.'),
+                                }),
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('Multivariate variant configuration.'),
+                            .describe('Multivariate configuration for variant-based rollouts.'),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -948,16 +925,14 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
-            .describe(
-                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
-            )
+            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
@@ -1717,7 +1692,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -2204,7 +2179,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -2263,7 +2238,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -4364,9 +4339,6 @@ export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemRollo
 
 export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneGroupsItemPropertiesMax = 0
 
-export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin = 0
-export const experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax = 100
-
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
@@ -4390,8 +4362,8 @@ export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePro
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -4510,46 +4482,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                         multivariate: zod
                             .union([
-                                zod
-                                    .object({
-                                        variants: zod
-                                            .array(
-                                                zod
-                                                    .object({
-                                                        key: zod
-                                                            .string()
-                                                            .describe(
-                                                                "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant."
-                                                            ),
-                                                        name: zod
-                                                            .string()
-                                                            .optional()
-                                                            .describe('Human-readable variant name.'),
-                                                        rollout_percentage: zod
-                                                            .number()
-                                                            .min(
-                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMin
-                                                            )
-                                                            .max(
-                                                                experimentsPartialUpdateBodyFeatureFlagOneFiltersOneMultivariateOneVariantsItemRolloutPercentageMax
-                                                            )
-                                                            .describe(
-                                                                'Variant rollout percentage (0-100). Across variants these must sum to 100.'
-                                                            ),
-                                                    })
-                                                    .describe(
-                                                        'A single multivariate variant. Extra per-variant keys are dropped.'
-                                                    )
-                                            )
-                                            .describe(
-                                                "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant."
-                                            ),
-                                    })
-                                    .describe("Multivariate config for the experiment's feature flag."),
+                                zod.object({
+                                    variants: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod.string().describe('Unique key for this variant.'),
+                                                name: zod
+                                                    .string()
+                                                    .optional()
+                                                    .describe('Human-readable name for this variant.'),
+                                                rollout_percentage: zod
+                                                    .number()
+                                                    .describe('Variant rollout percentage.'),
+                                            })
+                                        )
+                                        .describe('Variant definitions for multivariate feature flags.'),
+                                }),
                                 zod.null(),
                             ])
                             .optional()
-                            .describe('Multivariate variant configuration.'),
+                            .describe('Multivariate configuration for variant-based rollouts.'),
                         aggregation_group_type_index: zod
                             .number()
                             .nullish()
@@ -4564,16 +4516,14 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                     )
                     .optional()
                     .describe(
-                        "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
+                        "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state."
                     ),
                 ensure_experience_continuity: zod
                     .boolean()
                     .nullish()
                     .describe('Whether the flag persists variant assignment across authentication steps.'),
             })
-            .describe(
-                "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation."
-            )
+            .describe("Flag config for experiment create/update, sent through the linked feature flag's own shape.")
             .optional()
             .describe(
                 "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is)."
@@ -5330,7 +5280,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -5817,7 +5767,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -5876,7 +5826,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -8055,8 +8005,8 @@ export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOneP
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnesevenTypeDefault = `error_tracking_issue`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOnenineTypeDefault = `metric_attribute`
 export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwooneTypeDefault = `revenue_analytics`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `account_custom_property`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault = `workflow_variable`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault = `workflow_variable`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -8894,7 +8844,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                     .default(
                                                         experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneoneTypeDefault
                                                     )
-                                                    .describe('Event property with "$feature/\" prepended'),
+                                                    .describe('Event property with "$feature/" prepended'),
                                                 value: zod
                                                     .union([
                                                         zod.array(
@@ -9381,7 +9331,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('account_custom_property')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemAccountCustomPropertyTypeDefault
                                                     )
                                                     .describe(
                                                         'Customer analytics account custom property — the key is the property definition id'
@@ -9440,7 +9390,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                                 type: zod
                                                     .literal('workflow_variable')
                                                     .default(
-                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwothreeTypeDefault
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwotwoTypeDefault
                                                     ),
                                                 value: zod
                                                     .union([
@@ -11588,7 +11538,7 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. fewer than 2 variants).
+ * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
  */
 export const ExperimentsLaunchCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),

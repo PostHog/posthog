@@ -52,8 +52,8 @@ export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenT
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingAssignmentRulesCreateBodyOrderKeyDefault = 0
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
@@ -635,7 +635,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         type: zod
                             .literal('feature')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1083,7 +1083,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -1138,7 +1138,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1218,8 +1218,8 @@ export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -1800,7 +1800,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2248,7 +2248,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -2303,7 +2303,7 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2354,8 +2354,8 @@ export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnesevenTypeD
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -2936,7 +2936,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3384,7 +3384,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -3439,7 +3439,7 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3520,8 +3520,8 @@ export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -4102,7 +4102,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .literal('feature')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -4550,7 +4550,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -4605,7 +4605,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -4675,8 +4675,8 @@ export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenTyp
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -5263,7 +5263,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             type: zod
                                 .literal('feature')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                                .describe('Event property with "$feature/\" prepended'),
+                                .describe('Event property with "$feature/" prepended'),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5713,7 +5713,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('account_custom_property')
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                                 .describe(
                                     'Customer analytics account custom property — the key is the property definition id'
                                 ),
@@ -5768,7 +5768,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('workflow_variable')
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
+                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
                             value: zod
                                 .union([
                                     zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5926,6 +5926,7 @@ export const errorTrackingQueryIssueEventsCreateBodyLimitMax = 20
 export const errorTrackingQueryIssueEventsCreateBodyOffsetDefault = 0
 export const errorTrackingQueryIssueEventsCreateBodyOffsetMin = 0
 
+export const errorTrackingQueryIssueEventsCreateBodyVerbosityDefault = `summary`
 export const errorTrackingQueryIssueEventsCreateBodyOnlyAppFramesDefault = true
 
 export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.object({
@@ -5961,7 +5962,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                     ),
                 operator: zod
                     .union([
@@ -6023,12 +6024,11 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
-                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -6058,26 +6058,12 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
         .min(errorTrackingQueryIssueEventsCreateBodyOffsetMin)
         .default(errorTrackingQueryIssueEventsCreateBodyOffsetDefault)
         .describe('Pagination offset.'),
-    include: zod
-        .array(
-            zod
-                .enum([
-                    'exception',
-                    'stacktrace',
-                    'code_variables',
-                    'environment',
-                    'release',
-                    'navigation',
-                    'correlation',
-                    'diagnostics',
-                ])
-                .describe(
-                    '* `exception` - exception\n* `stacktrace` - stacktrace\n* `code_variables` - code_variables\n* `environment` - environment\n* `release` - release\n* `navigation` - navigation\n* `correlation` - correlation\n* `diagnostics` - diagnostics'
-                )
-        )
-        .optional()
+    verbosity: zod
+        .enum(['summary', 'stack', 'raw'])
+        .describe('* `summary` - summary\n* `stack` - stack\n* `raw` - raw')
+        .default(errorTrackingQueryIssueEventsCreateBodyVerbosityDefault)
         .describe(
-            'Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.'
+            'Controls exception detail size: summary, stack, or raw. Defaults to summary.\n\n* `summary` - summary\n* `stack` - stack\n* `raw` - raw'
         ),
     onlyAppFrames: zod
         .boolean()
@@ -6182,7 +6168,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                         zod.array(zod.union([zod.string(), zod.number()])),
                     ])
                     .describe(
-                        'Value of your filter. For example `test@example.com` or `https:/\/example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
+                        'Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`'
                     ),
                 operator: zod
                     .union([
@@ -6244,12 +6230,11 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
                                 'span_attribute',
                                 'span_resource_attribute',
                                 'revenue_analytics',
-                                'account_custom_property',
                                 'flag',
                                 'workflow_variable',
                             ])
                             .describe(
-                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
+                                '* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `flag` - flag\n* `workflow_variable` - workflow_variable'
                             ),
                         zod.enum(['']),
                     ])
@@ -6422,8 +6407,8 @@ export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
@@ -7007,7 +6992,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7455,7 +7440,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -7510,7 +7495,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7570,8 +7555,8 @@ export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneseven
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightTypeDefault = `error_tracking_issue`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `metric_attribute`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwotwoTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `account_custom_property`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault = `workflow_variable`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault = `account_custom_property`
+export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault = `workflow_variable`
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
 
@@ -8154,7 +8139,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .literal('feature')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault)
-                            .describe('Event property with "$feature/\" prepended'),
+                            .describe('Event property with "$feature/" prepended'),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -8602,7 +8587,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault)
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -8657,7 +8642,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('workflow_variable')
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwofourTypeDefault),
+                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwothreeTypeDefault),
                         value: zod
                             .union([
                                 zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
