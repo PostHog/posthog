@@ -151,13 +151,14 @@ class TestGetRows:
         rows = self._collect(manager, monkeypatch, pages, "products")
         assert rows == [{"id": "p1", "shop_id": 111}, {"id": "p2", "shop_id": 222}]
 
-    def test_rows_keep_api_provided_shop_id(self, monkeypatch: Any) -> None:
+    def test_webhook_rows_keep_api_shop_id_and_drop_signing_secret(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
-            ("/shops/111/webhooks.json", None): ([{"id": "w1", "shop_id": "111"}], False),
+            ("/shops/111/webhooks.json", None): ([{"id": "w1", "shop_id": "111", "secret": "whsec_123"}], False),
         }
         rows = self._collect(manager, monkeypatch, pages, "webhooks")
+        # The signing secret must never reach the warehouse — a reader could forge webhook requests.
         assert rows == [{"id": "w1", "shop_id": "111"}]
 
     def test_paginated_fanout_saves_state_after_each_page(self, monkeypatch: Any) -> None:

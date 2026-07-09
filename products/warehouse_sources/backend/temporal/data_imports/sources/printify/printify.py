@@ -98,10 +98,18 @@ def _fetch_page(
     raise PrintifyRetryableError(f"Printify returned an unexpected payload for {path}: {type(data).__name__}")
 
 
-def _rows_with_shop_id(items: list[dict[str, Any]], shop_id: int) -> list[dict[str, Any]]:
-    # Shop-scoped objects don't reliably carry their shop id, and the composite primary key needs
-    # it. Webhook objects that already include one keep the API's own value.
-    return [{**row, "shop_id": row.get("shop_id", shop_id)} for row in items]
+def _prepare_rows(
+    config: PrintifyEndpointConfig, items: list[dict[str, Any]], shop_id: int | None
+) -> list[dict[str, Any]]:
+    rows = items
+    if config.redact_fields:
+        redacted = set(config.redact_fields)
+        rows = [{key: value for key, value in row.items() if key not in redacted} for row in rows]
+    if shop_id is not None:
+        # Shop-scoped objects don't reliably carry their shop id, and the composite primary key
+        # needs it. Webhook objects that already include one keep the API's own value.
+        rows = [{**row, "shop_id": row.get("shop_id", shop_id)} for row in rows]
+    return rows
 
 
 def _iter_endpoint_pages(
@@ -116,7 +124,7 @@ def _iter_endpoint_pages(
     if not config.paginated:
         items, _ = _fetch_page(session, path, None, None, logger)
         if items:
-            yield _rows_with_shop_id(items, shop_id) if shop_id is not None else items
+            yield _prepare_rows(config, items, shop_id)
         # Save AFTER yielding so a crash resumes at this shop — re-fetching it once is
         # idempotent because merge dedupes on the primary key.
         if shop_id is not None:
@@ -127,7 +135,7 @@ def _iter_endpoint_pages(
     while True:
         items, has_more = _fetch_page(session, path, page, config.page_size, logger)
         if items:
-            yield _rows_with_shop_id(items, shop_id) if shop_id is not None else items
+            yield _prepare_rows(config, items, shop_id)
 
         if not has_more or not items:
             break

@@ -15,6 +15,9 @@ class PrintifyEndpointConfig:
     # Value for the `limit` query param; None means the endpoint doesn't accept one.
     page_size: int | None = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Fields stripped from rows before they're yielded (credentials that must not land in a
+    # warehouse table).
+    redact_fields: list[str] = field(default_factory=list)
 
 
 # Printify REST API v1 list endpoints (https://developers.printify.com). All are full-refresh only:
@@ -51,6 +54,8 @@ PRINTIFY_ENDPOINTS: dict[str, PrintifyEndpointConfig] = {
         path="/shops/{shop_id}/webhooks.json",
         shop_scoped=True,
         primary_keys=["shop_id", "id"],
+        # A webhook's signing secret would let any table reader forge Printify webhook requests.
+        redact_fields=["secret"],
     ),
     "blueprints": PrintifyEndpointConfig(name="blueprints", path="/catalog/blueprints.json"),
     "print_providers": PrintifyEndpointConfig(name="print_providers", path="/catalog/print_providers.json"),
