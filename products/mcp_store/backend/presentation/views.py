@@ -394,7 +394,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     }
 
     # Mutations restricted to the credential owner (installer) on shared rows.
-    _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools"}
+    # Tool approval is included: it gates which tools autonomous runs may execute
+    # under the owner's credential, so a non-owner must not be able to flip it.
+    _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
 
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action in self._USER_SCOPED_ACTIONS:
@@ -423,6 +425,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             and obj.scope == "shared"
             and obj.user_id != request.user.id
         ):
+            raise PermissionDenied("Only the credential owner can modify a shared server.")
+
+    def _assert_shared_mutation_allowed(self, installation: MCPServerInstallation) -> None:
+        """Owner guard for get_or_create-based install/reinstall flows.
+
+        These don't pass through get_object()/check_object_permissions, and a
+        shared row keyed on (team, url) can belong to another member. Without
+        this, any member could re-post the same shared server and overwrite the
+        owner's credentials/OAuth state that agents and the proxy rely on.
+        """
+        if installation.scope == "shared" and installation.user_id != self.request.user.id:
             raise PermissionDenied("Only the credential owner can modify a shared server.")
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -584,6 +597,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": template.auth_type,
             },
         )
+        # A pre-existing shared row may belong to another member; block hijacking its creds.
+        if not created:
+            self._assert_shared_mutation_allowed(installation)
         # Re-link in case a previous install pointed elsewhere (e.g. post-migration reconnect).
         if installation.template_id != template.id:
             installation.template = template
@@ -860,6 +876,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 "auth_type": "oauth",
             },
         )
+        # A pre-existing shared row may belong to another member; block a non-owner
+        # from swapping its DCR client / clearing its tokens via reinstall.
+        if not created:
+            self._assert_shared_mutation_allowed(installation)
         if not created and installation.auth_type != "oauth":
             installation.auth_type = "oauth"
             installation.save(update_fields=["auth_type", "updated_at"])
