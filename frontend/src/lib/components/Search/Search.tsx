@@ -498,6 +498,9 @@ function SearchRoot({
 
     const handleItemClick = useCallback(
         (item: SearchItem) => {
+            if (item.disabledReason) {
+                return
+            }
             if (item.id === SETTINGS_THEME_ITEM_ID) {
                 const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
                 if (record?.themeMode) {
@@ -884,11 +887,21 @@ function SearchResults({
                                                                 return (
                                                                     <div className="px-2">
                                                                         <Link
-                                                                            to={item.href}
-                                                                            buttonProps={{
-                                                                                fullWidth: true,
-                                                                            }}
+                                                                            // No `to` when disabled: Link only applies its
+                                                                            // disabled state and reason tooltip without one
+                                                                            to={
+                                                                                item.disabledReason
+                                                                                    ? undefined
+                                                                                    : item.href
+                                                                            }
+                                                                            disabledReason={item.disabledReason}
+                                                                            buttonProps={{ fullWidth: true }}
                                                                             {...props}
+                                                                            // The button-primitive styles key dimming, the
+                                                                            // not-allowed cursor, and hover suppression off this
+                                                                            aria-disabled={
+                                                                                item.disabledReason ? true : undefined
+                                                                            }
                                                                             tabIndex={-1}
                                                                         >
                                                                             {icon}

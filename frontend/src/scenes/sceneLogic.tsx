@@ -98,6 +98,10 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/integrations',
     // /account-connected/<kind> — return after linking GitHub etc.; /complete/github-link/ redirects here.
     '/account-connected',
+    // /account/* — credential/passkey round-trips (e.g. /account/credential-review) must complete
+    // even when onboarding is incomplete, else finishing security setup bounces straight back to
+    // /onboarding and the user is stuck in a redirect loop.
+    '/account',
     // /oauth/authorize and any /oauth/* callback path.
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
