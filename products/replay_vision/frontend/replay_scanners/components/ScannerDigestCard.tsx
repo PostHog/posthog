@@ -152,7 +152,10 @@ export function ScannerDigestCard({
                 }
             />
             <div className={expanded ? undefined : 'max-h-60 overflow-hidden'}>
-                <LemonMarkdown className="text-sm">{latestRun.synthesized_markdown}</LemonMarkdown>
+                {/* LLM/replay-derived content: render non-PostHog images as links, not auto-fetched <img>s. */}
+                <LemonMarkdown className="text-sm" disableImages>
+                    {latestRun.synthesized_markdown}
+                </LemonMarkdown>
             </div>
             <div className="flex flex-wrap items-center gap-2 border-t pt-2">
                 <LemonButton
