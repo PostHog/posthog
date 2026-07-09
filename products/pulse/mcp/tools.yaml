@@ -1,0 +1,28 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Pulse
+feature: pulse
+url_prefix: /
+tools:
+    query-performance-execute-sql:
+        operation: query_performance_proxy_execute_test_create
+        enabled: true
+        title: Run read-only SQL against the query-performance archive
+        description: >
+            Run read-only ClickHouse SQL against the query-log archive on the autoresearch cluster, for query-performance
+            analysis. The main table is query_log_archive: one row per query execution with team_id, event_time,
+            query_duration_ms, read_rows, read_bytes, memory_usage, exception_code, the raw query text, and typed lc_*
+            attribution columns (lc_kind, lc_product, lc_query__kind, lc_insight_id, lc_dashboard_id, ...). Always filter
+            is_initial_query = 1 so distributed sub-queries are not double-counted. Results are positional row arrays
+            capped at 10000 rows; execution is capped at 60 seconds. Returns 503 when the archive cluster is not
+            configured on this instance.
+        scopes:
+            - clickhouse_test_cluster_perf:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true

@@ -38,6 +38,7 @@ import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
+import { GENERATED_TOOLS as pulse } from './pulse'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as reminders } from './reminders'
 import { GENERATED_TOOLS as replay } from './replay'
@@ -92,6 +93,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...platform_features,
     ...product_analytics,
     ...proxyRecords,
+    ...pulse,
     ...queryWrappers,
     ...reminders,
     ...replay,

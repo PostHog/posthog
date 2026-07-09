@@ -195,3 +195,16 @@ export const PulseOpportunitiesFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .nullable()
         .describe('True marks the item helpful, false marks it not helpful, and null clears your vote.'),
 })
+
+/**
+ * Forwards SQL to the restricted autoresearch ClickHouse user for query-performance analysis (query_log_archive and related tables). Read-only; row and time limited.
+ * @summary Run a read-only query against the autoresearch test cluster
+ */
+export const queryPerformanceProxyExecuteTestCreateBodySqlMax = 65536
+
+export const QueryPerformanceProxyExecuteTestCreateBody = /* @__PURE__ */ zod.object({
+    sql: zod
+        .string()
+        .max(queryPerformanceProxyExecuteTestCreateBodySqlMax)
+        .describe('ClickHouse SQL to run against the test cluster.'),
+})
