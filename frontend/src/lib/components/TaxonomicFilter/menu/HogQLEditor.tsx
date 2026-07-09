@@ -12,7 +12,7 @@
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { Button, DialogFooter, Skeleton } from '@posthog/quill'
+import { Button, DialogFooter, Field, FieldContent, FieldDescription, FieldLabel, Skeleton } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
 
@@ -75,44 +75,53 @@ export function MenuFilterHogQLEditor({
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
-            {/* No category chips on this page — suppress the Tab hint. */}
-            <MenuFilterHeader title="Write SQL expression" onBack={onBack} showTabHint={false} />
+            <MenuFilterHeader title="Write SQL expression" onBack={onBack} />
             <div className="flex flex-col flex-1 min-h-0">
-                <div className="flex flex-col gap-2 p-3 flex-1 min-h-0 overflow-y-auto">
-                    {/* 78px matches the legacy HogQLEditor's inline editor. */}
-                    <Suspense fallback={<Skeleton className="h-[78px] w-full rounded-md" />}>
-                        <CodeEditorInline
-                            value={expression}
-                            onChange={(v) => setExpression(v ?? '')}
-                            language="hogQLExpr"
-                            minHeight="78px"
-                            autoFocus
-                            onPressCmdEnter={(value) => commit(value)}
-                            onMount={(editor, monaco) => {
-                                // Esc → onBack, but only when Monaco
-                                // isn't in a state where Esc has its
-                                // own meaning (suggestions, find,
-                                // snippet) — otherwise we'd swallow
-                                // intellisense dismissal.
-                                editor.addCommand(
-                                    monaco.KeyCode.Escape,
-                                    () => onBack(),
-                                    '!suggestWidgetVisible && !findWidgetVisible && !inSnippetMode'
-                                )
-                            }}
-                        />
-                    </Suspense>
-                    {/* Arbitrary-value size: `text-xs` is rebound to 14px under
-                        the lemon skin, which balloons the hint block. */}
-                    <pre className="text-[0.75rem] text-secondary whitespace-pre-wrap font-mono leading-snug m-0">
-                        {EXAMPLE_HINTS}
-                    </pre>
-                    <div className="flex items-baseline justify-between gap-2 text-[0.75rem]">
-                        <Link to="https://posthog.com/docs/sql" target="_blank">
-                            Learn more about SQL
-                        </Link>
-                        <span className="text-tertiary">Esc goes back · ⌘+Enter saves</span>
-                    </div>
+                <div className="flex flex-col gap-4 p-4 flex-1 min-h-0 overflow-y-auto">
+                    <Field>
+                        <FieldLabel>Expression</FieldLabel>
+                        <FieldContent className="gap-4">
+                            <Suspense fallback={<Skeleton className="h-[120px] w-full rounded-md" />}>
+                                <CodeEditorInline
+                                    value={expression}
+                                    onChange={(v) => setExpression(v ?? '')}
+                                    language="hogQLExpr"
+                                    minHeight="120px"
+                                    autoFocus
+                                    onPressCmdEnter={(value) => commit(value)}
+                                    onMount={(editor, monaco) => {
+                                        // Esc → onBack, but only when Monaco
+                                        // isn't in a state where Esc has its
+                                        // own meaning (suggestions, find,
+                                        // snippet) — otherwise we'd swallow
+                                        // intellisense dismissal.
+                                        editor.addCommand(
+                                            monaco.KeyCode.Escape,
+                                            () => onBack(),
+                                            '!suggestWidgetVisible && !findWidgetVisible && !inSnippetMode'
+                                        )
+                                    }}
+                                />
+                            </Suspense>
+                            <FieldDescription>
+                                <pre className="text-xs text-secondary whitespace-pre-wrap font-mono leading-snug m-0">
+                                    {EXAMPLE_HINTS}
+                                </pre>
+                                <div className="mt-2 text-xs">
+                                    <Link
+                                        to="https://posthog.com/docs/sql"
+                                        target="_blank"
+                                        className="underline text-primary"
+                                    >
+                                        Learn more about SQL
+                                    </Link>
+                                </div>
+                                <div className="mt-2 text-xs text-tertiary">
+                                    Esc goes back without saving. ⌘+Enter saves.
+                                </div>
+                            </FieldDescription>
+                        </FieldContent>
+                    </Field>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={onBack}>

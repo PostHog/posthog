@@ -147,7 +147,7 @@ const QUICK_REOPEN_MS = 3000
 // that produce it — kept as named parts so a change to `MenuFilterHeader`'s
 // spacing or the input row's padding is visibly the thing to keep in sync here.
 const MENU_HEADER_PADDING_Y_PX = 16 // MenuFilterHeader `py-2` (top + bottom)
-const MENU_HEADER_BUTTON_HEIGHT_PX = 26 // "Go back" Button `size="sm"` under lemon-skin (Lemon xsmall; 24 once the skin is off)
+const MENU_HEADER_BUTTON_HEIGHT_PX = 26 // "Go back" Button `size="sm"` under the lemon skin
 const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
 const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
 const PANEL_BORDER_PX = 1 // PopoverContent border
@@ -665,8 +665,6 @@ export function TaxonomicFilterMenu({
                     {triggerAccessory}
                 </span>
                 <PopoverContent
-                    // Lemon-skin the panel (lemon-skin.scss) — the attribute must
-                    // ride on the portaled element itself, wrappers can't reach it
                     data-lemon-skin
                     align="start"
                     side="bottom"
@@ -701,11 +699,6 @@ export function TaxonomicFilterMenu({
                     initialFocus={comboboxOverlaysTrigger ? comboboxInputRef : undefined}
                     className={cn(
                         'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)]',
-                        // The combobox has an internal scroll area, so it wants a
-                        // fixed height to scroll within (and the full width for its
-                        // list + preview columns). The HogQL editor is a short form
-                        // — size it to its content (capped) at a narrower width so
-                        // the panel doesn't dwarf a three-line expression.
                         state.kind === 'hogql-edit'
                             ? '@[720px]/main-content-container:w-[560px] h-auto max-h-[min(600px,80vh)]'
                             : '@[720px]/main-content-container:w-[720px] h-[400px]'

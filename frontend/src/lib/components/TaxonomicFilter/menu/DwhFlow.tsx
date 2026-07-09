@@ -276,8 +276,6 @@ export function MenuFilterDwhConfig({
             }}
         >
             <DialogContent
-                // Lemon-skin the dialog (lemon-skin.scss) — must ride on the
-                // portaled element itself, wrappers can't reach it
                 data-lemon-skin
                 // `nested` because a popover with focus management is
                 // already open underneath; tells base-ui to stack focus
@@ -522,8 +520,6 @@ interface ColumnSelectEntry {
     description?: string
 }
 
-/** Column name with its type inline (`id  integer`) — single-line so combobox
- *  rows and the trigger keep the standard menu-row height. */
 function ColumnLabel({ item }: { item: ColumnSelectEntry }): JSX.Element {
     return (
         <span className="flex min-w-0 items-baseline gap-2">
@@ -577,9 +573,6 @@ function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProp
                 )}
             </Button>
             <ComboboxContent
-                // Portals to <body>, outside the skinned dialog — the skin
-                // attribute must ride on the portaled element itself (same
-                // wiring as the dialog + popover surfaces in this file).
                 data-lemon-skin
                 anchor={triggerRef}
                 className="min-w-(--anchor-width)"
