@@ -1170,13 +1170,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             // `undefined` and the round-trip below fails — keeping their raw ids
                             // out of the list, which is the intent.
                             const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
-                            // Keep `name` as the raw key: consumers persist `item.name` verbatim
-                            // (e.g. ActionFilterRow, universalFiltersLogic), so baking a friendly
-                            // label in here would corrupt the saved value on a no-op re-pick, and
-                            // it would defeat the round-trip guard below for name-keyed groups
-                            // (EventProperties/PersonProperties/SessionProperties `getValue`
-                            // reads `.name`). The renderer already prettifies raw keys at render
-                            // time via PropertyKeyInfo/getCoreFilterDefinition.
+                            // `name` stays the raw key, matching how real rows in name/value-keyed
+                            // groups are shaped: it round-trips through `getValue` below, and
+                            // consumers that persist `item.name` verbatim don't get a friendly
+                            // label baked in. Renderers already prettify raw keys at render time.
                             const synthetic = {
                                 name: String(value),
                                 value,

@@ -1234,30 +1234,32 @@ describe('infiniteListLogic', () => {
             expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
         })
 
-        it('prepends a synthetic selected row keyed by the raw value on the suggested list when the selection is not visible', async () => {
-            const listLogic = mountSuggestedList({ value: '$pageview', groupType: TaxonomicFilterGroupType.Events })
-            await expectLogic(listLogic).toFinishAllListeners()
-            expect(listLogic.values.results[0]).toMatchObject({
-                name: '$pageview',
-                group: TaxonomicFilterGroupType.Events,
-            })
-        })
-
-        it('prepends a synthetic row for a name-keyed property group so the round-trip guard still passes', async () => {
-            const listLogic = mountSuggestedList({
+        it.each([
+            {
+                description: 'default events group',
+                taxonomicGroupTypes: undefined,
+                value: '$pageview',
+                groupType: TaxonomicFilterGroupType.Events,
+            },
+            {
+                description: 'name-keyed property group, so the round-trip guard still passes',
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.SuggestedFilters,
                 ],
                 value: '$browser',
                 groupType: TaxonomicFilterGroupType.EventProperties,
-            })
-            await expectLogic(listLogic).toFinishAllListeners()
-            expect(listLogic.values.results[0]).toMatchObject({
-                name: '$browser',
-                group: TaxonomicFilterGroupType.EventProperties,
-            })
-        })
+            },
+        ])(
+            'prepends a synthetic selected row keyed by the raw value when the selection is not visible ($description)',
+            async ({ taxonomicGroupTypes, value, groupType }) => {
+                const listLogic = mountSuggestedList(
+                    taxonomicGroupTypes ? { taxonomicGroupTypes, value, groupType } : { value, groupType }
+                )
+                await expectLogic(listLogic).toFinishAllListeners()
+                expect(listLogic.values.results[0]).toMatchObject({ name: String(value), group: groupType })
+            }
+        )
 
         it('skips the synthetic row for id-keyed groups where only the raw id could render', async () => {
             const listLogic = mountSuggestedList({
