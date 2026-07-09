@@ -1,438 +1,135 @@
+from contextlib import contextmanager
+
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.helpers.email_utils import ESPSuppressionResult
-from posthog.models.user import User
+from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 
-VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+VERIFY_URL = "/api/login/code-based-verification/"
+RESEND_URL = "/api/login/code-based-verification/resend/"
 
 
 def mock_esp_not_suppressed(*args, **kwargs):
     return ESPSuppressionResult(is_suppressed=False, from_cache=False)
 
 
+@contextmanager
+def enable_code_sending():
+    """Force the code path on (bypass the dev/ESP/email-availability short-circuits) and capture the sent code."""
+    with (
+        patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed),
+        patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
+        patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
+        patch("posthog.tasks.email.send_code_based_verification") as mock_send,
+    ):
+        yield mock_send
+
+
 class TestCodeBasedVerificationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_login_without_totp_triggers_code_based_verification(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
+    def _trigger(self, mock_send) -> str:
+        """Log in with password to trigger the code, returning the 6-digit code that was emailed."""
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        response_data = response.json()
-        self.assertEqual(response_data["code"], "code_based_verification_required")
-        self.assertEqual(response_data["detail"], self.user.email)
-
-        # Assert user is not logged in yet
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-        # Assert email task was called
-        mock_send_email.assert_called_once()
-        call_args = mock_send_email.call_args
-        self.assertEqual(call_args[0][0], self.user.id)
-        self.assertIsNotNone(call_args[0][1])  # Token should be present
-
-    @parameterized.expand(
-        [
-            # A relative `next` (e.g. an /oauth/authorize continuation) is forwarded into the link
-            # so the emailed login-verification link resumes the flow even in a different browser.
-            ("safe_relative_next", "/oauth/authorize/?client_id=x", "/oauth/authorize/?client_id=x"),
-            # An off-origin `next` must be dropped, never embedded into the emailed link.
-            ("unsafe_off_origin_next", "//evil.example.com/steal", None),
-        ]
-    )
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_carries_safe_next(
-        self,
-        _name,
-        next_input,
-        expected,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        self.client.post(
-            "/api/login",
-            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": next_input},
-        )
-        self.assertEqual(mock_send_email.call_args[0][2], expected)
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_resend_reuses_next(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        with freeze_time("2023-01-01T10:00:00"):
-            self.client.post(
-                "/api/login",
-                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": "/oauth/authorize/?client_id=x"},
-            )
-            self.assertEqual(mock_send_email.call_args[0][2], "/oauth/authorize/?client_id=x")
-
-        # A resent link must resume the same destination, recovered from the session.
-        with freeze_time("2023-01-01T10:01:01"):
-            mock_send_email.reset_mock()
-            response = self.client.post("/api/login/code-based-verification/resend/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(mock_send_email.call_args[0][2], "/oauth/authorize/?client_id=x")
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_success_and_always_remembers_device(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        # Trigger email MFA
-        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-
-        # Get the token that was generated
-        token = mock_send_email.call_args[0][1]
-
-        # Verify the token
-        response = self.client.post(
-            "/api/login/code-based-verification/",
-            {"email": self.user.email, "token": token},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
-
-        # Check that remember cookie was ALWAYS set (same as TOTP 2FA behavior)
-        cookies = response.cookies
-        remember_cookie_found = False
-        for cookie_name in cookies.keys():
-            if cookie_name.startswith("remember-cookie_"):
-                remember_cookie_found = True
-                break
-        self.assertTrue(remember_cookie_found, "Remember device cookie should always be set")
-
-        # Assert user is now logged in
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], self.user.email)
-
-        # Logout and try to login again - should NOT require email MFA (remembered for 30 days)
-        self.client.post("/logout", follow=True)
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_with_invalid_token(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        # Trigger email MFA
-        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-
-        # Try to verify with invalid token
-        response = self.client.post(
-            "/api/login/code-based-verification/",
-            {"email": self.user.email, "token": "invalid_token_123"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        response_data = response.json()
-        if isinstance(response_data.get("detail"), dict):
-            self.assertIn("invalid or has expired", response_data["detail"]["token"][0])
-        else:
-            self.assertIn("invalid or has expired", response_data["detail"])
-
-        # Assert user is still not logged in
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_token_expires_after_10_minutes(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        with freeze_time("2023-01-01T10:00:00"):
-            # Trigger email MFA
-            self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-            token = mock_send_email.call_args[0][1]
-
-        # Try to verify after 11 minutes
-        with freeze_time("2023-01-01T10:11:00"):
-            response = self.client.post(
-                "/api/login/code-based-verification/",
-                {"email": self.user.email, "token": token},
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            response_data = response.json()
-            # Check either nested format or flat format
-            if isinstance(response_data.get("detail"), dict):
-                self.assertIn("invalid or has expired", response_data["detail"]["token"][0])
-            else:
-                self.assertIn("invalid or has expired", response_data["detail"])
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_token_invalidated_after_use(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        # Trigger email MFA
-        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        token = mock_send_email.call_args[0][1]
-
-        # Verify the token
-        response = self.client.post(
-            "/api/login/code-based-verification/",
-            {"email": self.user.email, "token": token},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Logout
-        self.client.post("/logout", follow=True)
-
-        # Try to reuse the same token (but should be blocked by remember cookie first)
-        # Clear cookies to test token invalidation
-        self.client.cookies.clear()
-        response = self.client.post(
-            "/api/login/code-based-verification/",
-            {"email": self.user.email, "token": token},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        response_data = response.json()
-        if isinstance(response_data.get("detail"), dict):
-            self.assertIn("invalid or has expired", response_data["detail"]["token"][0])
-        else:
-            self.assertIn("invalid or has expired", response_data["detail"])
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.tasks.email.send_code_based_verification")
-    def test_code_based_verification_with_nonexistent_user(self, mock_send_email):
-        # Try to verify with non-existent user
-        response = self.client.post(
-            "/api/login/code-based-verification/",
-            {"email": "nonexistent@posthog.com", "token": "some_token"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        response_data = response.json()
-        if isinstance(response_data.get("detail"), dict):
-            self.assertIn("invalid or has expired", response_data["detail"]["token"][0])
-        else:
-            self.assertIn("invalid or has expired", response_data["detail"])
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_login_with_totp_does_not_trigger_code_based_verification(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        # Create TOTP device for user
-        TOTPDevice.objects.create(user=self.user, name="default")
-
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-
-        # Should trigger TOTP 2FA, not email MFA
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        self.assertEqual(response.json()["code"], "2fa_required")
-
-        # Email task should not have been called
-        mock_send_email.assert_not_called()
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_resend_success(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        with freeze_time("2023-01-01T10:00:00"):
-            # Trigger email MFA
-            self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-            self.assertEqual(mock_send_email.call_count, 1)
-
-        # Resend after 61 seconds
-        with freeze_time("2023-01-01T10:01:01"):
-            response = self.client.post("/api/login/code-based-verification/resend/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"success": True, "message": "Verification email sent"})
-
-            # Assert email task was called again
-            self.assertEqual(mock_send_email.call_count, 2)
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_resend_throttle(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        with freeze_time("2023-01-01T10:00:00"):
-            # Trigger email MFA - this counts towards the resend throttle
-            self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-            self.assertEqual(mock_send_email.call_count, 1)
-
-            # First resend immediately after should be throttled (initial send already used the 1/minute limit)
-            response = self.client.post("/api/login/code-based-verification/resend/")
-            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-            self.assertIn("Request was throttled", response.json()["detail"])
-
-            # Email task should still only have been called once (resend was blocked)
-            self.assertEqual(mock_send_email.call_count, 1)
-
-        # After 61 seconds, resend should succeed
-        with freeze_time("2023-01-01T10:01:01"):
-            response = self.client.post("/api/login/code-based-verification/resend/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(mock_send_email.call_count, 2)
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.tasks.email.send_code_based_verification")
-    def test_code_based_verification_resend_without_pending_verification(self, mock_send_email):
-        # Try to resend without triggering MFA first
-        response = self.client.post("/api/login/code-based-verification/resend/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("No pending email MFA verification found", response.json()["detail"])
-
-        # Email task should not have been called
-        mock_send_email.assert_not_called()
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_skipped_during_reauth(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_esp_suppression,
-    ):
-        # First, log in normally (triggers email MFA)
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        response_data = response.json()
-        self.assertEqual(response_data["code"], "code_based_verification_required")
-
-        # Verify the first email was sent
-        self.assertEqual(mock_send_email.call_count, 1)
-        token = mock_send_email.call_args[0][1]
-
-        # Complete the email MFA verification to log in
-        response = self.client.post("/api/login/code-based-verification/", {"email": self.user.email, "token": token})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # User is now logged in - verify
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # This covers the case where email MFA is enabled after users are already logged in
-        session = self.client.session
-        session.pop("two_factor_verified", None)
-        session.save()
-
-        # Now try to reauth while already logged in (should skip email MFA)
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Email should still only have been sent once (not a second time for reauth)
-        self.assertEqual(mock_send_email.call_count, 1)
-
-    @pytest.mark.disable_mock_code_based_verifier
-    @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.tasks.email.send_code_based_verification")
-    @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
-    @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-    def test_code_based_verification_enforced_when_different_user_already_authenticated(
-        self,
-        mock_is_http_email_available,
-        mock_is_email_available,
-        mock_send_email,
-        mock_feature_enabled,
-        mock_esp_suppression,
-    ):
-        other_user = User.objects.create_and_join(
-            organization=self.organization,
-            email="user2@posthog.com",
-            password="other-user-password-1337!!",
-        )
-
-        # A different user is already authenticated in this session
-        self.client.force_login(other_user)
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        # Login as the original user with a different session identity
-        response = self.client.post(
-            "/api/login",
-            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
-        )
-
-        # Email MFA must still be enforced
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json()["code"], "code_based_verification_required")
-        mock_send_email.assert_called_once()
+        return mock_send.call_args[0][1]
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_login_without_totp_emails_a_six_digit_code_and_does_not_log_in(self):
+        with enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+
+        self.assertEqual(mock_send.call_args[0][0], self.user.id)
+        self.assertRegex(code, r"^\d{6}$")
+        # Not logged in until the code is verified.
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_correct_code_logs_in_and_remembers_device(self):
+        with enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            response = self.client.post(VERIFY_URL, {"code": code})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"success": True})
+            self.assertTrue(any(name.startswith("remember-cookie_") for name in response.cookies))
+
+            self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+            # Remembered device skips the code on the next login.
+            self.client.post("/logout")
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_wrong_code_is_rejected_but_correct_code_still_works(self):
+        with enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+
+            response = self.client.post(VERIFY_URL, {"code": wrong})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_code")
+            self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+            # A subsequent correct code (still under the attempt cap) succeeds.
+            self.assertEqual(self.client.post(VERIFY_URL, {"code": code}).status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_locks_out_after_max_attempts_even_with_correct_code(self):
+        with enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            wrong = "000000" if code != "000000" else "111111"
+
+            for _ in range(CODE_MAX_ATTEMPTS):
+                self.assertEqual(self.client.post(VERIFY_URL, {"code": wrong}).status_code, status.HTTP_400_BAD_REQUEST)
+
+            # The cap is now hit: even the correct code is refused and the pending state is cleared.
+            response = self.client.post(VERIFY_URL, {"code": code})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "too_many_attempts")
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_expired_code_is_rejected(self):
+        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            frozen.move_to("2024-01-01T10:10:01")  # > 10 minute TTL
+            response = self.client.post(VERIFY_URL, {"code": code})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "invalid_code")
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_verify_without_pending_login_is_rejected(self):
+        response = self.client.post(VERIFY_URL, {"code": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "no_pending_verification")
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_totp_user_gets_2fa_not_code_based_verification(self):
+        TOTPDevice.objects.create(user=self.user, name="default")
+        with enable_code_sending() as mock_send:
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(response.json()["code"], "2fa_required")
+            mock_send.assert_not_called()
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_resend_issues_a_fresh_code_and_invalidates_the_previous_one(self):
+        with freeze_time("2024-01-01T10:00:00") as frozen, enable_code_sending() as mock_send:
+            first_code = self._trigger(mock_send)
+            frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
+            self.assertEqual(self.client.post(RESEND_URL).status_code, status.HTTP_200_OK)
+            second_code = mock_send.call_args[0][1]
+
+            self.assertNotEqual(first_code, second_code)
+            # The superseded code no longer works; the fresh one does.
+            self.assertEqual(
+                self.client.post(VERIFY_URL, {"code": first_code}).status_code, status.HTTP_400_BAD_REQUEST
+            )
+            self.assertEqual(self.client.post(VERIFY_URL, {"code": second_code}).status_code, status.HTTP_200_OK)

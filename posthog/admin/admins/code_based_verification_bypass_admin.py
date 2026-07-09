@@ -22,11 +22,13 @@ from posthog.redis import get_client
 
 
 class CodeBasedVerificationBypassEmailSerializer(serializers.Serializer):
-    email = serializers.EmailField(help_text="Email address to bypass email MFA verification")
+    email = serializers.EmailField(help_text="Email address to bypass code-based verification")
 
 
 class CodeBasedVerificationGlobalDisableSerializer(serializers.Serializer):
-    reason = serializers.CharField(allow_blank=False, help_text="Why email MFA is being disabled globally")
+    reason = serializers.CharField(
+        allow_blank=False, help_text="Why code-based verification is being disabled globally"
+    )
     ttl_seconds = serializers.IntegerField(
         min_value=1,
         max_value=MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS,
@@ -35,7 +37,7 @@ class CodeBasedVerificationGlobalDisableSerializer(serializers.Serializer):
 
 
 class CodeBasedVerificationGlobalDisableViewSet(viewsets.ViewSet):
-    """Completely disable email MFA verification for all users, with a required reason and TTL."""
+    """Completely disable code-based verification for all users, with a required reason and TTL."""
 
     permission_classes = [IsAdminUser]
 
@@ -92,7 +94,7 @@ def code_based_verification_bypass_view(request):
     context = {
         "bypass_emails": bypass_emails,
         "global_disable": get_code_based_verification_global_disable(),
-        "title": "Email MFA bypass",
+        "title": "Code-based verification bypass",
         "has_view_permission": True,
         "site_title": admin.site.site_title,
         "site_header": admin.site.site_header,

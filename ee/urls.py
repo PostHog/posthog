@@ -104,12 +104,12 @@ if settings.ADMIN_PORTAL_ENABLED:
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
     )
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.code_based_verification_bypass_admin import (
         CodeBasedVerificationBypassViewSet,
         CodeBasedVerificationGlobalDisableViewSet,
         code_based_verification_bypass_view,
     )
+    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,

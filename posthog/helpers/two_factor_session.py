@@ -8,13 +8,13 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from django.http import HttpRequest
-from django.utils.crypto import constant_time_compare
-from django.utils.http import base36_to_int
+from django.utils.crypto import constant_time_compare, salted_hmac
 
 import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
@@ -41,7 +41,7 @@ def remove_code_based_verification_bypass(email: str) -> None:
     get_client().srem(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
 
 
-# Global kill-switch: when this Redis key is present, email MFA verification is skipped for every
+# Global kill-switch: when this Redis key is present, code-based verification is skipped for every
 # user (e.g. while transactional email delivery is down and the verification link can't be
 # delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
 # Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
@@ -50,12 +50,14 @@ MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 d
 
 
 def is_code_based_verification_globally_disabled() -> bool:
-    # Fail closed: if Redis is unreachable, keep email MFA enforced (the secure default) rather than
+    # Fail closed: if Redis is unreachable, keep code-based verification enforced (the secure default) rather than
     # silently dropping the second factor — and never let a Redis hiccup break the login flow.
     try:
         return bool(get_client().exists(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY))
     except Exception:
-        mfa_logger.exception("Failed to read email MFA global disable flag; keeping email MFA enforced")
+        mfa_logger.exception(
+            "Failed to read code-based verification global disable flag; keeping code-based verification enforced"
+        )
         return False
 
 
@@ -70,14 +72,14 @@ def get_code_based_verification_global_disable() -> Optional[dict]:
         data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
         return data
     except Exception:
-        mfa_logger.exception("Failed to read email MFA global disable state")
+        mfa_logger.exception("Failed to read code-based verification global disable state")
         return None
 
 
 def set_code_based_verification_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
     reason = (reason or "").strip()
     if not reason:
-        raise ValueError("A reason is required to disable email MFA.")
+        raise ValueError("A reason is required to disable code-based verification.")
     if not 0 < ttl_seconds <= MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS:
         raise ValueError(
             f"TTL must be between 1 second and {MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
@@ -114,14 +116,14 @@ def has_passkeys(user: User) -> bool:
 
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
-
-def _obfuscate_token(token: str | None) -> str:
-    """Return first 5 and last 5 chars of token, with middle obfuscated."""
-    if not token:
-        return ""
-    if len(token) <= 10:
-        return "*" * len(token)
-    return f"{token[:5]}...{token[-5:]}"
+# One counter for the whole code-based login-verification flow, sliced by transition. Lets Grafana
+# derive send volume, delivery failures, completion rate (success / sent), invalid-code rate and
+# lockout rate, and alert on any of them.
+LOGIN_CODE_VERIFICATION_COUNTER = Counter(
+    "login_code_verification_total",
+    "Transitions in the code-based login-verification flow.",
+    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+)
 
 
 # Enforce Two-Factor Authentication only on sessions created after this date
@@ -285,66 +287,39 @@ def is_sso_authentication_backend(request: HttpRequest):
     return request.session.get("_auth_user_backend") in SSO_AUTHENTICATION_BACKENDS
 
 
+CODE_LENGTH = 6
+CODE_TTL_SECONDS = 600  # 10 minutes
+CODE_MAX_ATTEMPTS = 5
+
+
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
-    """
-    Token generator for email-based MFA login verification.
-    Tokens are valid for 10 minutes and become invalid after use or expiration.
-    """
+    """Derive a short numeric login-verification code from the same secret-keyed,
+    per-user hash the framework uses for password-reset tokens. The code is pinned to
+    the login attempt's issuance time, valid for CODE_TTL_SECONDS, and rotates
+    automatically on login, password change, email change, or deactivation."""
 
-    def check_token(self, user, token):
-        """Override to use 10-minute timeout instead of PASSWORD_RESET_TIMEOUT (1 hour)."""
-        if not (user and token):
-            mfa_logger.warning(
-                "Email MFA token check failed: missing user or token",
-                user_id=getattr(user, "pk", None),
-                has_token=bool(token),
-                token=_obfuscate_token(token),
-            )
+    def make_code(self, user: AbstractBaseUser, issued_at: int) -> str:
+        """Deterministic CODE_LENGTH-digit code for this user and issuance time."""
+        digest = salted_hmac(
+            self.key_salt,
+            self._make_hash_value(user, issued_at),
+            secret=self.secret,
+            algorithm=self.algorithm,
+        ).hexdigest()
+        return f"{int(digest, 16) % (10**CODE_LENGTH):0{CODE_LENGTH}d}"
+
+    def check_code(self, user: AbstractBaseUser, code: str, issued_at: int) -> bool:
+        """Constant-time compare against the expected code, rejecting expired codes.
+
+        Brute-force resistance does not come from the code's entropy (6 digits is
+        guessable) but from the caller gating this behind a password-authenticated
+        pending session plus a hard attempt cap.
+        """
+        if not (user and code and issued_at):
             return False
-
-        try:
-            ts_b36, _ = token.split("-")
-            ts = base36_to_int(ts_b36)
-        except ValueError:
-            mfa_logger.warning(
-                "Email MFA token check failed: malformed token",
-                user_id=user.pk,
-                token=_obfuscate_token(token),
-            )
+        if int(time.time()) - issued_at > CODE_TTL_SECONDS:
             return False
-
-        # Validate token signature
-        for secret in [self.secret, *self.secret_fallbacks]:
-            if constant_time_compare(self._make_token_with_timestamp(user, ts, secret), token):
-                break
-        else:
-            mfa_logger.warning(
-                "Email MFA token check failed: signature mismatch (token may have been invalidated by login, password change, email change, or account deactivation)",
-                user_id=user.pk,
-                user_last_login=str(user.last_login) if user.last_login else None,
-                token=_obfuscate_token(token),
-            )
-            return False
-
-        # Check 10-minute timeout (600 seconds)
-        token_age_seconds = self._num_seconds(self._now()) - ts
-        if token_age_seconds > 600:
-            mfa_logger.warning(
-                "Email MFA token check failed: token expired",
-                user_id=user.pk,
-                token_age_seconds=token_age_seconds,
-                max_age_seconds=600,
-                token=_obfuscate_token(token),
-            )
-            return False
-
-        mfa_logger.info(
-            "Email MFA token check successful",
-            user_id=user.pk,
-            token_age_seconds=token_age_seconds,
-            token=_obfuscate_token(token),
-        )
-        return True
+        return constant_time_compare(self.make_code(user, issued_at), code)
 
     def _make_hash_value(self, user: AbstractBaseUser, timestamp: int) -> str:
         """Include last_login and is_active to invalidate tokens after use or deactivation."""
@@ -379,7 +354,7 @@ class CodeBasedVerifier:
             )
         except Exception as e:
             mfa_logger.warning(
-                "Failed to capture email MFA suppression bypass event",
+                "Failed to capture code-based verification suppression bypass event",
                 user_id=user.pk,
                 error=str(e),
             )
@@ -396,7 +371,7 @@ class CodeBasedVerifier:
 
         if not is_http_email_service_available():
             mfa_logger.info(
-                "Email MFA bypassed - HTTP email service not configured",
+                "Code-based verification bypassed - HTTP email service not configured",
                 user_id=user.pk,
             )
             self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
@@ -408,7 +383,7 @@ class CodeBasedVerifier:
             )
 
         if is_code_based_verification_bypass(user.email):
-            mfa_logger.info("Email MFA bypassed via admin bypass list", user_id=user.pk)
+            mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)
@@ -416,7 +391,7 @@ class CodeBasedVerifier:
             reason = suppression_result.reason or ""
             from_cache = suppression_result.from_cache
             mfa_logger.info(
-                "Email MFA bypassed due to ESP suppression",
+                "Code-based verification bypassed due to ESP suppression",
                 user_id=user.pk,
                 reason=reason,
                 cached=from_cache,
@@ -431,8 +406,8 @@ class CodeBasedVerifier:
 
         return CodeBasedVerificationCheckResult(should_send=True)
 
-    def create_token_and_send_code_based_verification(
-        self, request: HttpRequest, user: User, next_url: str | None = None
+    def create_and_send_code_based_verification(
+        self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
         from posthog.tasks import email
 
@@ -440,26 +415,27 @@ class CodeBasedVerifier:
             return False
 
         try:
-            token = code_based_verification_token_generator.make_token(user)
-            email.send_code_based_verification(user.pk, token, next_url)
+            issued_at = int(time.time())
+            code = code_based_verification_token_generator.make_code(user, issued_at)
+            email.send_code_based_verification(user.pk, code)
             request.session["code_based_verification_pending_user_id"] = user.pk
-            request.session["code_based_verification_token_created_at"] = int(time.time())
-            # Stash so the resend endpoint can rebuild a link that resumes the same post-login destination.
-            request.session["code_based_verification_next"] = next_url
+            request.session["code_based_verification_issued_at"] = issued_at
+            request.session["code_based_verification_attempts"] = 0
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="resent" if is_resend else "sent").inc()
             mfa_logger.info(
-                "Email MFA verification email sent",
+                "Code-based verification email sent",
                 user_id=user.pk,
                 user_last_login=str(user.last_login) if user.last_login else None,
-                token=_obfuscate_token(token),
             )
             return True
         except Exception as e:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(
-                "Email MFA verification email failed",
+                "Code-based verification email failed",
                 user_id=user.pk,
                 error=str(e),
             )
-            capture_exception(Exception(f"Email MFA verification email failed: {e}"))
+            capture_exception(Exception(f"Code-based verification email failed: {e}"))
             return False
 
     def has_pending_code_based_verification(self, request: HttpRequest) -> bool:
@@ -469,11 +445,22 @@ class CodeBasedVerifier:
         user_id: int | None = request.session.get("code_based_verification_pending_user_id")
         return user_id
 
-    def get_pending_code_based_verification_token_created_at(self, request: HttpRequest) -> int:
-        return request.session.get("code_based_verification_token_created_at", int(time.time()))
+    def get_pending_code_based_verification_issued_at(self, request: HttpRequest) -> int | None:
+        return request.session.get("code_based_verification_issued_at")
 
-    def check_token(self, user: User, token: str) -> bool:
-        return code_based_verification_token_generator.check_token(user, token)
+    def check_code(self, request: HttpRequest, user: User, code: str) -> bool:
+        issued_at = self.get_pending_code_based_verification_issued_at(request)
+        if not issued_at:
+            return False
+        return code_based_verification_token_generator.check_code(user, code, issued_at)
+
+    def clear_pending(self, request: HttpRequest) -> None:
+        for key in (
+            "code_based_verification_pending_user_id",
+            "code_based_verification_issued_at",
+            "code_based_verification_attempts",
+        ):
+            request.session.pop(key, None)
 
 
 code_based_verifier = CodeBasedVerifier()
