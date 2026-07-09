@@ -22999,18 +22999,28 @@ export namespace Schemas {
       properties?: unknown[];
     }
 
-    export interface FeatureFlagMultivariateVariantSchema {
-      /** Unique key for this variant. */
+    /**
+     * A single multivariate variant. Extra per-variant keys are dropped.
+     */
+    export interface ExperimentFlagVariant {
+      /** Unique variant key. Exactly one variant must use the key 'control' (the baseline). */
       key: string;
-      /** Human-readable name for this variant. */
+      /** Human-readable variant name. */
       name?: string;
-      /** Variant rollout percentage. */
+      /**
+         * Variant rollout percentage (0-100). Across variants these must sum to 100.
+         * @minimum 0
+         * @maximum 100
+         */
       rollout_percentage: number;
     }
 
-    export interface FeatureFlagMultivariateSchema {
-      /** Variant definitions for multivariate feature flags. */
-      variants: FeatureFlagMultivariateVariantSchema[];
+    /**
+     * Multivariate config for the experiment's feature flag.
+     */
+    export interface ExperimentFlagMultivariate {
+      /** Variant definitions. Exactly one variant key must be the literal string 'control'. */
+      variants: ExperimentFlagVariant[];
     }
 
     /**
@@ -23020,8 +23030,8 @@ export namespace Schemas {
     export interface ExperimentFeatureFlagFilters {
       /** Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}]. */
       groups?: ExperimentFlagRolloutGroup[];
-      /** Multivariate configuration for variant-based rollouts. */
-      multivariate?: FeatureFlagMultivariateSchema | null;
+      /** Multivariate variant configuration. */
+      multivariate?: ExperimentFlagMultivariate | null;
       /**
          * Group type index for group-based feature flags.
          * @nullable
@@ -23033,6 +23043,11 @@ export namespace Schemas {
 
     /**
      * Flag config for experiment create/update, sent through the linked feature flag's own shape.
+     *
+     * Validated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime
+     * (``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag
+     * object). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never
+     * reach this validation.
      */
     export interface ExperimentFeatureFlagInput {
       /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
@@ -24798,6 +24813,20 @@ export namespace Schemas {
       variant: string | null;
       /** Analysis of each property in this condition */
       properties: FeatureFlagConditionPropertyAnalysis[];
+    }
+
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
     }
 
     /**
