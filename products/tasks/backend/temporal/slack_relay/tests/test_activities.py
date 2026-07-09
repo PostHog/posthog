@@ -13,10 +13,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
+    _append_unconfirmed_attachment_notice,
     _markdown_to_slack_mrkdwn,
     _neutralize_approx_tildes,
     _repair_link_trailing_markers,
@@ -70,6 +71,12 @@ class TestRelaySlackMessage(TestCase):
             task_run=cls.task_run,
             mentioning_slack_user_id="U123",
         )
+
+    def setUp(self):
+        self.task_run.artifacts = []
+        self.task_run.state = {}
+        self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
 
     @parameterized.expand(
         [
@@ -144,6 +151,153 @@ class TestRelaySlackMessage(TestCase):
 
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].startswith(expected_prefix)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_unconfirmed_attachment_claim_gets_notice(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-unconfirmed-attachment",
+                text=(
+                    "Done. I generated **user_activity_report.pdf** "
+                    "at /tmp/workspace/user_activity_report.pdf and it's attached for you."
+                ),
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "user_activity_report.pdf" in posted
+        assert "no file was attached to Slack for this run" in posted
+
+    @patch("posthog.storage.object_storage.get_presigned_url", return_value="https://example.com/report.pdf")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_confirmed_artifact_claim_does_not_get_notice(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+        mock_presign,
+    ):
+        self.task_run.artifacts = [
+            {
+                "id": "artifact-1",
+                "name": "user_activity_report.pdf",
+                "type": "artifact",
+                "storage_path": "tasks/artifacts/report.pdf",
+            }
+        ]
+        self.task_run.save(update_fields=["artifacts", "updated_at"])
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-confirmed-attachment",
+                text="Done. user_activity_report.pdf is attached.",
+            )
+        )
+
+        mock_post.assert_called_once()
+        posted = mock_post.call_args.args[0]
+        assert "no file was attached to Slack for this run" not in posted
+        assert "<https://example.com/report.pdf|user_activity_report.pdf>" in posted
+        mock_presign.assert_called_once_with("tasks/artifacts/report.pdf")
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_pending_slack_file_upload_uses_final_message(
+        self,
+        mock_delete_progress,
+        mock_post,
+        _mock_update,
+        mock_integration_for_mapping,
+        mock_read_bytes,
+        mock_requests_post,
+        _mock_flag,
+    ):
+        storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/report.v1.xlsx"
+        location = {
+            "kind": "slack_file",
+            "integration_id": self.integration.id,
+            "channel": "C123",
+            "thread_ts": "1111.1",
+            "content_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "storage_path": storage_path,
+            "delivery_status": "pending",
+        }
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            created_by=self.user,
+            name="report.xlsx",
+            artifact_type=TaskArtifact.ArtifactType.SPREADSHEET,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+            location=location,
+            metadata={"delivery_status": "pending"},
+            versions=[
+                {
+                    "version": 1,
+                    "run_id": str(self.task_run.id),
+                    "adapter": TaskArtifact.Adapter.SLACK_FILE,
+                    "location": location,
+                    "content_type": location["content_type"],
+                    "size": 14,
+                    "delivery_status": "pending",
+                }
+            ],
+            current_version=1,
+        )
+        slack = unittest.mock.MagicMock()
+        slack.api_call.side_effect = [
+            {"upload_url": "https://files.slack.test/upload", "file_id": "F123"},
+            {"files": [{"id": "F123", "title": "report.xlsx", "permalink": "https://slack.test/files/F123"}]},
+        ]
+        slack_integration = unittest.mock.MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+        mock_read_bytes.return_value = b"workbook bytes"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-with-file",
+                text="Done. report.xlsx is attached.",
+            )
+        )
+
+        mock_delete_progress.assert_called_once()
+        mock_post.assert_not_called()
+        mock_read_bytes.assert_called_once_with(storage_path, missing_ok=True)
+        self.assertEqual(mock_requests_post.call_args.kwargs["data"], b"workbook bytes")
+        complete_payload = slack.api_call.call_args_list[1].kwargs["data"]
+        self.assertEqual(complete_payload["channel_id"], "C123")
+        self.assertEqual(complete_payload["thread_ts"], "1111.1")
+        self.assertIn("<@U123> Done. report.xlsx is attached.", complete_payload["initial_comment"])
+        self.assertNotIn("no file was attached to Slack", complete_payload["initial_comment"])
+
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
+        self.assertEqual(artifact.location["file_id"], "F123")
+        self.assertEqual(artifact.metadata["slack_file_permalink"], "https://slack.test/files/F123")
+        self.assertEqual(artifact.versions[0]["delivery_status"], "delivered")
+        self.assertEqual(artifact.versions[0]["slack_file_id"], "F123")
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -343,6 +497,26 @@ class TestNeutralizeApproxTildes(unittest.TestCase):
     )
     def test_neutralize(self, _name, text, expected):
         assert _neutralize_approx_tildes(text) == expected
+
+
+class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
+    def test_appends_notice_for_local_file_delivery_claim_without_artifacts(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+
+        assert result.endswith("no file was attached to Slack for this run._")
+
+    def test_skips_notice_for_negated_claim(self):
+        text = "Generated /tmp/workspace/report.pdf, but it is not attached yet."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="slack")
+
+        assert result == text
+
+    def test_skips_notice_for_non_slack_run(self):
+        text = "Generated /tmp/workspace/report.pdf and it is attached."
+        result = _append_unconfirmed_attachment_notice(text, artifacts=[], origin_product="user_created")
+
+        assert result == text
 
 
 class TestSplitTextForSlack(TestCase):
