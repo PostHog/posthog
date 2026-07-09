@@ -64,6 +64,16 @@ service PersonHogService {
   // Person property updates (routed to leader)
   rpc UpdatePersonProperties(personhog.types.v1.UpdatePersonPropertiesRequest) returns (personhog.types.v1.UpdatePersonPropertiesResponse);
 
+  // Person creation. A create is a two-step flow: AllocatePersonIds
+  // reserves ids from the persons DB sequence (routed to replica —
+  // sequence bookkeeping, writes no rows), then CreatePerson routes to
+  // the leader owning the partition derived from the allocated id, which
+  // caches the person and produces it to the changelog for the writer to
+  // persist. Client wrappers hide the two-step; retries must reuse the
+  // allocated id and uuid (see CreatePersonRequest).
+  rpc AllocatePersonIds(personhog.types.v1.AllocatePersonIdsRequest) returns (personhog.types.v1.AllocatePersonIdsResponse);
+  rpc CreatePerson(personhog.types.v1.CreatePersonRequest) returns (personhog.types.v1.CreatePersonResponse);
+
   // Person deletes
   // WARNING: This is a write operation on person data. It should route to the leader
   // once personhog-leader supports deletes. Currently routed through the replica

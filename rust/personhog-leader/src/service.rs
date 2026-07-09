@@ -1,17 +1,19 @@
 use std::sync::Arc;
 
+use chrono::Utc;
 use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::types::v1::{
-    GetPersonRequest, GetPersonResponse, Person, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    CreatePersonRequest, CreatePersonResponse, DistinctIdWithVersion, GetPersonRequest,
+    GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
-use tonic::{Request, Response, Status};
+use tonic::{Code, Request, Response, Status};
+use uuid::Uuid;
 
 use personhog_common::partitioning::partition_for_person;
 
@@ -183,6 +185,9 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
         is_identified: p.is_identified,
         is_user_id: None,
         last_seen_at: None,
+        // Changelog-only field; CreatePerson populates it on the record it
+        // produces, never on a response.
+        initial_distinct_ids: Vec::new(),
     }
 }
 
@@ -351,6 +356,127 @@ impl PersonHogLeader for PersonHogLeaderService {
         Ok(Response::new(UpdatePersonPropertiesResponse {
             person: Some(proto),
             updated: true,
+        }))
+    }
+
+    async fn create_person(
+        &self,
+        request: Request<CreatePersonRequest>,
+    ) -> Result<Response<CreatePersonResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
+        let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
+
+        // Same write admission as updates: a fenced partition has drained
+        // for handoff, so this request can only come from a stale router.
+        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
+            return Err(Status::failed_precondition(format!(
+                "partition {partition} is fenced for handoff; writes are rejected"
+            )));
+        };
+
+        // Validate before acquiring the per-key lock.
+        Uuid::parse_str(&req.uuid)
+            .map_err(|e| Status::invalid_argument(format!("invalid uuid: {e}")))?;
+        if req.distinct_ids.len() > 100 {
+            return Err(Status::invalid_argument(
+                "maximum 100 distinct_ids per create",
+            ));
+        }
+        let properties: serde_json::Value = if req.properties.is_empty() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            serde_json::from_slice(&req.properties)
+                .map_err(|e| Status::invalid_argument(format!("invalid properties JSON: {e}")))?
+        };
+
+        let cache_key = PersonCacheKey {
+            team_id: req.team_id,
+            person_id: req.person_id,
+        };
+        let mutex = self
+            .locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().await;
+
+        // The id may already be taken — in cache or, via the fallback, in
+        // PG. A retry of the same create (matching uuid) is success; a
+        // different uuid means the id was not freshly allocated, which the
+        // AllocatePersonIds contract rules out for honest callers.
+        match self.lookup_or_load_locked(partition, &cache_key).await {
+            Ok(existing) => {
+                return if existing.uuid == req.uuid {
+                    counter!("personhog_leader_creates_total", "outcome" => "idempotent_retry")
+                        .increment(1);
+                    Ok(Response::new(CreatePersonResponse {
+                        person: Some(cached_person_to_proto(&existing)),
+                    }))
+                } else {
+                    Err(Status::already_exists(format!(
+                        "person id {} already exists with a different uuid",
+                        req.person_id
+                    )))
+                };
+            }
+            Err(status) if status.code() == Code::NotFound => {}
+            Err(status) => return Err(status),
+        }
+
+        let created_at = if req.created_at == 0 {
+            Utc::now().timestamp_millis()
+        } else {
+            req.created_at
+        };
+        let created = CachedPerson {
+            id: req.person_id,
+            uuid: req.uuid.clone(),
+            team_id: req.team_id,
+            properties,
+            created_at,
+            version: 0,
+            is_identified: req.is_identified,
+        };
+
+        // The changelog record carries the initial distinct ids for the
+        // writer to insert alongside the person row; the response person
+        // does not (the field is changelog plumbing, not read state).
+        let mut record = cached_person_to_proto(&created);
+        record.initial_distinct_ids = req
+            .distinct_ids
+            .iter()
+            .map(|d| DistinctIdWithVersion {
+                distinct_id: d.clone(),
+                version: Some(0),
+            })
+            .collect();
+
+        // Produce to Kafka first, then populate the cache on success —
+        // readers only ever see durably committed state.
+        if let Err(e) =
+            produce_person_changelog(&self.producer, &self.changelog_topic, partition, &record)
+                .await
+        {
+            tracing::error!(
+                team_id = cache_key.team_id,
+                person_id = cache_key.person_id,
+                error = %e,
+                "failed to produce person create changelog"
+            );
+            return Err(Status::internal(format!(
+                "failed to durably store person: {e}"
+            )));
+        }
+
+        self.cache.put(partition, cache_key, created);
+        counter!("personhog_leader_creates_total", "outcome" => "created").increment(1);
+
+        let mut person = record;
+        person.initial_distinct_ids.clear();
+        Ok(Response::new(CreatePersonResponse {
+            person: Some(person),
         }))
     }
 }

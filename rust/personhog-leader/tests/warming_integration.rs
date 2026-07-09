@@ -37,6 +37,7 @@ fn make_person(team_id: i64, person_id: i64) -> Person {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        initial_distinct_ids: vec![],
     }
 }
 
@@ -361,6 +362,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        initial_distinct_ids: vec![],
     };
     produce_person_to_partition(&producer, 0, &bad).await;
 

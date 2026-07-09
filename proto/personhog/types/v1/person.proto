@@ -16,6 +16,13 @@ message Person {
   bool is_identified = 9;
   optional bool is_user_id = 10;
   optional int64 last_seen_at = 11;
+  // Distinct IDs to create alongside the person. Only populated on
+  // changelog records produced by CreatePerson (the writer inserts a
+  // posthog_persondistinctid row per entry); always empty in read
+  // responses. Lives on Person because the changelog's wire format is
+  // this message, and adding a field is compatible with in-flight
+  // records while a wrapper message would not be.
+  repeated DistinctIdWithVersion initial_distinct_ids = 12;
 }
 
 // DistinctIdWithVersion pairs a distinct_id with its version for consistency tracking
@@ -149,6 +156,62 @@ message UpdatePersonPropertiesResponse {
   optional Person person = 1;
   // Whether any properties were actually changed.
   bool updated = 2;
+}
+
+// AllocatePersonIdsRequest reserves person ids from the persons DB
+// sequence (posthog_person_id_seq). Each returned id is permanently
+// claimed: the sequence never vends a value twice, so no concurrent
+// allocation or row insert can collide with it. Unused ids become
+// harmless gaps. Allocation writes no rows and takes no table locks.
+message AllocatePersonIdsRequest {
+  // Number of ids to reserve. 1..=1000.
+  uint32 count = 1;
+}
+
+message AllocatePersonIdsResponse {
+  // The reserved ids. Exclusively the caller's, but not necessarily
+  // contiguous — concurrent allocations interleave on the sequence.
+  repeated int64 person_ids = 1;
+}
+
+// CreatePersonRequest creates a person through the leader write path:
+// the leader caches the person and produces it to the changelog; the
+// writer inserts the row and its distinct ids into Postgres.
+//
+// `person_id` MUST come from AllocatePersonIds. A fabricated id that the
+// sequence has not vended will eventually collide with a legitimate
+// allocation, and the writer's version guard would silently drop the
+// later create. The id also determines the partition (murmur2 of
+// "team_id:person_id"), so it must be known before routing.
+//
+// Retries must reuse the same person_id and uuid: the writer's upsert
+// and the distinct-id inserts are idempotent for an identical record,
+// and the leader treats a create for an already-cached person with a
+// matching uuid as success.
+message CreatePersonRequest {
+  int64 team_id = 1;
+  // Allocated via AllocatePersonIds. See above.
+  int64 person_id = 2;
+  // Client-generated UUIDv4. The caller guarantees freshness; a reused
+  // uuid creates a second person row (posthog_person has no unique
+  // index on uuid). Existence checks belong to the caller (ingestion's
+  // distinct-id resolution), not this RPC.
+  string uuid = 3;
+  // JSON-encoded initial properties map. Empty means no properties.
+  bytes properties = 4;
+  // Creation timestamp in millis since epoch. Zero means "now" (leader
+  // clock).
+  int64 created_at = 5;
+  bool is_identified = 6;
+  // Distinct IDs to attach at creation, inserted by the writer with
+  // version 0. Conflicting mappings (team_id + distinct_id already
+  // taken) are skipped, not errors.
+  repeated string distinct_ids = 7;
+}
+
+message CreatePersonResponse {
+  // The created person (version 0), as cached by the leader.
+  Person person = 1;
 }
 
 // DeletePersonsRequest deletes persons from Postgres by UUID.

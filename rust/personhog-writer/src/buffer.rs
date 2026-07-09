@@ -1,5 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::mem;
 
 use metrics::{counter, gauge};
 use personhog_proto::personhog::types::v1::Person;
@@ -38,6 +39,14 @@ impl PersonBuffer {
         let key = (person.team_id, person.id);
         match self.entries.entry(key) {
             Entry::Occupied(mut e) => {
+                // Only create records carry initial_distinct_ids; when a
+                // later update for the same person displaces the create in
+                // the buffer, carry the distinct ids forward or they would
+                // never be inserted.
+                let mut person = person;
+                if person.initial_distinct_ids.is_empty() {
+                    person.initial_distinct_ids = mem::take(&mut e.get_mut().initial_distinct_ids);
+                }
                 e.insert(person);
                 counter!("personhog_writer_messages_deduped_total").increment(1);
             }
@@ -77,6 +86,8 @@ impl PersonBuffer {
 
 #[cfg(test)]
 mod tests {
+    use personhog_proto::personhog::types::v1::DistinctIdWithVersion;
+
     use super::*;
 
     fn make_person(team_id: i64, person_id: i64, version: i64) -> Person {
@@ -92,7 +103,34 @@ mod tests {
             is_identified: false,
             is_user_id: None,
             last_seen_at: None,
+            initial_distinct_ids: vec![],
         }
+    }
+
+    fn make_create(team_id: i64, person_id: i64, distinct_id: &str) -> Person {
+        let mut p = make_person(team_id, person_id, 0);
+        p.initial_distinct_ids = vec![DistinctIdWithVersion {
+            distinct_id: distinct_id.to_string(),
+            version: Some(0),
+        }];
+        p
+    }
+
+    #[test]
+    fn dedup_carries_create_distinct_ids_through_later_updates() {
+        let mut buf = PersonBuffer::new(100);
+        buf.insert(make_create(1, 42, "did-42"), 0, 0);
+        buf.insert(make_person(1, 42, 1), 0, 1);
+
+        let (persons, _) = buf.drain();
+        assert_eq!(persons.len(), 1);
+        assert_eq!(persons[0].version, 1, "latest update must win");
+        assert_eq!(
+            persons[0].initial_distinct_ids.len(),
+            1,
+            "the create's distinct ids must survive dedup"
+        );
+        assert_eq!(persons[0].initial_distinct_ids[0].distinct_id, "did-42");
     }
 
     #[test]

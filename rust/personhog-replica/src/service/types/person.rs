@@ -25,6 +25,9 @@ impl From<storage::Person> for Person {
             is_identified: person.is_identified,
             is_user_id: person.is_user_id,
             last_seen_at: person.last_seen_at.map(|t| t.timestamp_millis()),
+            // Changelog-only field (see the proto comment); never set in
+            // read responses.
+            initial_distinct_ids: vec![],
         }
     }
 }

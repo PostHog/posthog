@@ -3,7 +3,7 @@ mod common;
 use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
+    AllocatePersonIdsRequest, CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonlessDistinctIdsBatchForTeamRequest,
     DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
@@ -1447,6 +1447,42 @@ async fn test_set_person_version_floor() {
         .await
         .expect("RPC failed");
     assert!(!response.into_inner().updated);
+
+    ctx.cleanup().await.ok();
+}
+
+// ============================================================
+// Person id allocation tests
+// ============================================================
+
+#[rstest]
+#[case::zero(0)]
+#[case::over_limit(1001)]
+#[tokio::test]
+async fn test_allocate_person_ids_rejects_out_of_bounds_count(#[case] count: u32) {
+    let ctx = ServiceTestContext::new().await;
+
+    let status = ctx
+        .service
+        .allocate_person_ids(Request::new(AllocatePersonIdsRequest { count }))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_allocate_person_ids_returns_requested_count() {
+    let ctx = ServiceTestContext::new().await;
+
+    let response = ctx
+        .service
+        .allocate_person_ids(Request::new(AllocatePersonIdsRequest { count: 3 }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(response.person_ids.len(), 3);
 
     ctx.cleanup().await.ok();
 }

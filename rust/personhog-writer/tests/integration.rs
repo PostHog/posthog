@@ -8,7 +8,7 @@ use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
-use personhog_proto::personhog::types::v1::Person;
+use personhog_proto::personhog::types::v1::{DistinctIdWithVersion, Person};
 use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
@@ -988,4 +988,63 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     }
 
     cleanup_team(&pool, team_id).await;
+}
+
+// ============================================================
+// PG Writer: create-record distinct id insertion
+// ============================================================
+
+#[tokio::test]
+async fn writer_inserts_create_record_distinct_ids() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = 99_005;
+    common::cleanup_team_real_tables(&pool, team_id).await;
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), "posthog_person".to_string()),
+        common::test_store_config(),
+    );
+
+    let mut person = make_person(team_id as i64, 999_099_001, 0);
+    person.initial_distinct_ids = vec![
+        DistinctIdWithVersion {
+            distinct_id: "create-did-1".to_string(),
+            version: Some(0),
+        },
+        DistinctIdWithVersion {
+            distinct_id: "create-did-2".to_string(),
+            version: Some(0),
+        },
+    ];
+
+    assert!(matches!(
+        writer.upsert_batch(vec![person.clone()]).await,
+        BatchOutcome::Success
+    ));
+
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT distinct_id, person_id FROM posthog_persondistinctid
+         WHERE team_id = $1 ORDER BY distinct_id",
+    )
+    .bind(team_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2, "both distinct ids must be inserted");
+    assert!(rows.iter().all(|(_, pid)| *pid == 999_099_001));
+
+    // A create replay (same record) must be idempotent, not an error.
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1")
+            .bind(team_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 2, "replay must not duplicate distinct ids");
+
+    common::cleanup_team_real_tables(&pool, team_id).await;
 }

@@ -19,17 +19,20 @@ use personhog_leader::cache::{CacheLookup, PartitionedCache};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::service::PersonHogLeaderService;
+use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
-    GetPersonRequest, Person, UpdatePersonPropertiesRequest,
+    CreatePersonRequest, GetPersonRequest, Person, UpdatePersonPropertiesRequest,
 };
 use prost::Message;
 use rdkafka::consumer::{BaseConsumer, Consumer};
+use rdkafka::mocking::MockCluster;
+use rdkafka::producer::DefaultProducerContext;
 use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{ClientConfig, Message as KafkaMessage, TopicPartitionList};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tonic::transport::Server;
+use tonic::transport::{Channel, Server};
 use tonic::Request;
 
 /// Wrap a request with the `x-partition` metadata the leader reads in place
@@ -1248,6 +1251,161 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     assert_eq!(updated_person.id, person_id);
     let props: serde_json::Value = serde_json::from_slice(&updated_person.properties).unwrap();
     assert_eq!(props["pg_fallback_test"], "it_works");
+
+    cancel.cancel();
+}
+
+// ============================================================
+// CreatePerson: cache + changelog semantics (no etcd needed)
+// ============================================================
+
+/// Stand up a leader service with mock Kafka and one warmed partition,
+/// returning the client, the mock cluster (for consuming the changelog),
+/// and a cancellation token for the server.
+async fn start_create_test_service() -> (
+    PersonHogLeaderClient<Channel>,
+    MockCluster<'static, DefaultProducerContext>,
+    CancellationToken,
+) {
+    let (mock_cluster, kafka_producer) = create_test_kafka_with_partitions(4).await;
+
+    let cache = Arc::new(PartitionedCache::new(100));
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+    );
+    cache.create_partition(2);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let cancel = CancellationToken::new();
+    let token = cancel.child_token();
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming_shutdown(
+                tokio_stream::wrappers::TcpListenerStream::new(listener),
+                token.cancelled(),
+            )
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    let client = create_leader_client(addr).await;
+    (client, mock_cluster, cancel)
+}
+
+fn create_request(person_id: i64, uuid: &str) -> CreatePersonRequest {
+    CreatePersonRequest {
+        team_id: 1,
+        person_id,
+        uuid: uuid.to_string(),
+        properties: serde_json::to_vec(&serde_json::json!({"plan": "free"})).unwrap(),
+        created_at: 0,
+        is_identified: false,
+        distinct_ids: vec!["created-did-a".to_string(), "created-did-b".to_string()],
+    }
+}
+
+/// The changelog record must carry the initial distinct ids for the writer,
+/// while the response (and subsequent strong reads) must not.
+#[tokio::test]
+async fn create_person_produces_record_with_distinct_ids() {
+    // (team 1, person 2) murmur2-hashes to partition 2 (see the update
+    // produce test for why the explicit-partition produce matters).
+    const PERSON_ID: i64 = 2;
+    assert_eq!(partition_for_person(1, PERSON_ID, NUM_PARTITIONS), 2);
+    let (mut client, mock_cluster, cancel) = start_create_test_service().await;
+
+    let uuid = "00000000-0000-0000-0000-000000000777";
+    let created = client
+        .create_person(with_partition(create_request(PERSON_ID, uuid), 2))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(created.id, PERSON_ID);
+    assert_eq!(created.version, 0);
+    assert!(
+        created.initial_distinct_ids.is_empty(),
+        "responses must not carry the changelog-only field"
+    );
+
+    // The created person is immediately strong-readable from the cache.
+    let read_back = client
+        .get_person(leader_get_request(1, PERSON_ID, 2))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(read_back.uuid, uuid);
+
+    // The changelog record carries the distinct ids.
+    let consumer: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "test-consumer")
+        .create()
+        .expect("failed to create consumer");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(CHANGELOG_TOPIC, 2, rdkafka::Offset::Beginning)
+        .unwrap();
+    consumer.assign(&tpl).unwrap();
+    let msg = consumer
+        .poll(Duration::from_secs(5))
+        .expect("no changelog message")
+        .expect("kafka error");
+    let record = Person::decode(msg.payload().unwrap()).unwrap();
+    assert_eq!(record.version, 0);
+    let dids: Vec<&str> = record
+        .initial_distinct_ids
+        .iter()
+        .map(|d| d.distinct_id.as_str())
+        .collect();
+    assert_eq!(dids, vec!["created-did-a", "created-did-b"]);
+
+    cancel.cancel();
+}
+
+/// A retry with the same id and uuid is success (the client wrapper
+/// re-sends after transient failures); the same id with a different uuid
+/// means the id was not freshly allocated and must fail loudly.
+#[tokio::test]
+async fn create_person_is_idempotent_for_retries_and_rejects_id_reuse() {
+    const PERSON_ID: i64 = 2;
+    let (mut client, _mock_cluster, cancel) = start_create_test_service().await;
+
+    let uuid = "00000000-0000-0000-0000-000000000888";
+    client
+        .create_person(with_partition(create_request(PERSON_ID, uuid), 2))
+        .await
+        .unwrap();
+
+    let retried = client
+        .create_person(with_partition(create_request(PERSON_ID, uuid), 2))
+        .await
+        .unwrap()
+        .into_inner()
+        .person
+        .unwrap();
+    assert_eq!(retried.uuid, uuid);
+    assert_eq!(retried.version, 0);
+
+    let status = client
+        .create_person(with_partition(
+            create_request(PERSON_ID, "00000000-0000-0000-0000-000000000999"),
+            2,
+        ))
+        .await
+        .unwrap_err();
+    assert_eq!(status.code(), tonic::Code::AlreadyExists);
 
     cancel.cancel();
 }

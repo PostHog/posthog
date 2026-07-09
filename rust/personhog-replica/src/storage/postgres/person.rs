@@ -1021,6 +1021,31 @@ impl PersonLookup for PostgresStorage {
 
         Ok(result.rows_affected() > 0)
     }
+
+    async fn allocate_person_ids(&self, count: u32) -> StorageResult<Vec<i64>> {
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            ("operation".to_string(), "allocate_person_ids".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+
+        // Each nextval is atomic; the values are exclusively ours but may
+        // interleave with concurrent allocations (non-contiguous).
+        let ids: Vec<i64> = sqlx::query_scalar!(
+            r#"SELECT nextval('posthog_person_id_seq') AS "id!" FROM generate_series(1, $1)"#,
+            count as i32
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+
+        Ok(ids)
+    }
 }
 
 /// Delete a chunk of persons by integer ID in a single transaction:
