@@ -19,7 +19,7 @@ import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { FORMATTING_TEMPLATES } from '../../types'
 import { conditionalFormattingLogic } from './conditionalFormattingLogic'
 
-const DEFAULT_PICKER_COLORS = [
+export const DEFAULT_PICKER_COLORS = [
     '#FFADAD', // Current default
     '#E8A598',
     '#FFD6A5',

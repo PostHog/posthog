@@ -27,6 +27,10 @@ from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
+from products.metrics.backend.metric_attributes_query_runner import (
+    MetricAttributeKeysQueryRunner,
+    MetricAttributeValuesQueryRunner,
+)
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
@@ -216,6 +220,50 @@ def list_metric_names(
     Raises `ValueError` for an out-of-range limit.
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
+    return runner.run()
+
+
+def list_metric_attribute_keys(
+    *,
+    team: Team,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List distinct attribute keys seen on the team's metrics, most frequent
+    first, for the filter bar's key autocomplete.
+
+    Datapoint and resource attributes are merged into one list (filters run
+    with scope 'auto', so the split doesn't matter to callers); `service_name`
+    is always surfaced when it matches the search. The window defaults to the
+    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
+    out-of-range limit or an inverted window.
+    """
+    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    return runner.run()
+
+
+def list_metric_attribute_values(
+    *,
+    team: Team,
+    key: str,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List observed values for one metric attribute key, most frequent first,
+    for the filter bar's value autocomplete.
+
+    `service_name`/`service.name` read the first-class column, matching how
+    filters on it execute. The window defaults to the last 7 days. Returns
+    `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
+    empty key, an out-of-range limit, or an inverted window.
+    """
+    runner = MetricAttributeValuesQueryRunner(
+        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+    )
     return runner.run()
 
 

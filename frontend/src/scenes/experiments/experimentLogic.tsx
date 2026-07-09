@@ -57,7 +57,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
-    AccessControlLevel,
     BreakdownAttributionType,
     BreakdownType,
     CohortType,
@@ -75,6 +74,7 @@ import {
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    NEW_EXPERIMENT,
     NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
     MetricInsightId,
 } from './constants'
@@ -116,35 +116,6 @@ import {
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from './utils'
-
-export const NEW_EXPERIMENT: Experiment = {
-    id: 'new',
-    name: '',
-    type: 'product',
-    feature_flag_key: '',
-    filters: {},
-    metrics: [],
-    metrics_secondary: [],
-    primary_metrics_ordered_uuids: null,
-    secondary_metrics_ordered_uuids: null,
-    saved_metrics_ids: [],
-    saved_metrics: [],
-    parameters: {
-        feature_flag_variants: [
-            { key: 'control', rollout_percentage: 50 },
-            { key: 'test', rollout_percentage: 50 },
-        ],
-    },
-    secondary_metrics: [],
-    created_at: null,
-    created_by: null,
-    updated_at: null,
-    holdout_id: null,
-    exposure_criteria: {
-        filterTestAccounts: true,
-    },
-    user_access_level: AccessControlLevel.Editor,
-}
 
 export const FORM_MODES = {
     create: 'create',
@@ -609,6 +580,10 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
         pauseExperiment: true,
         resumeExperiment: true,
+        freezeExposure: true,
+        setFreezeExposureLoading: (loading: boolean) => ({ loading }),
+        unfreezeExposure: true,
+        setUnfreezeExposureLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
@@ -1169,6 +1144,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 setEndExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        freezeExposureLoading: [
+            false,
+            {
+                setFreezeExposureLoading: (_, { loading }) => loading,
+            },
+        ],
+        unfreezeExposureLoading: [
+            false,
+            {
+                setUnfreezeExposureLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1236,8 +1223,8 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.touchExperimentField('name')
             actions.touchExperimentField('feature_flag_key')
-            values.experiment.parameters.feature_flag_variants.forEach((_, i) =>
-                actions.touchExperimentField(`parameters.feature_flag_variants.${i}.key`)
+            getExperimentVariants(values.experiment).forEach((_, i) =>
+                actions.touchExperimentField(`feature_flag_config.filters.multivariate.variants.${i}.key`)
             )
 
             if (hasFormErrors(values.experimentErrors)) {
@@ -1463,6 +1450,42 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.closeResumeExperimentModal()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to resume experiment')
+            }
+        },
+        freezeExposure: async () => {
+            if (values.freezeExposureLoading) {
+                return
+            }
+            actions.setFreezeExposureLoading(true)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to freeze exposure')
+            } finally {
+                actions.setFreezeExposureLoading(false)
+            }
+        },
+        unfreezeExposure: async () => {
+            if (values.unfreezeExposureLoading) {
+                return
+            }
+            actions.setUnfreezeExposureLoading(true)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.success('Exposure unfrozen — new users can enroll again')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+            } finally {
+                actions.setUnfreezeExposureLoading(false)
             }
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
@@ -2479,10 +2502,9 @@ export const experimentLogic = kea<experimentLogicType>([
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
-                                parameters: {
-                                    ...response.parameters,
-                                    feature_flag_variants: NEW_EXPERIMENT.parameters.feature_flag_variants,
-                                },
+                                // A duplicate starts as a fresh draft with a new flag: seed default
+                                // draft flag config and drop the source's linked flag.
+                                feature_flag_config: structuredClone(NEW_EXPERIMENT.feature_flag_config),
                                 feature_flag: undefined,
                                 feature_flag_key: '',
                                 archived: false,
@@ -2949,15 +2971,19 @@ export const experimentLogic = kea<experimentLogicType>([
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
-            errors: ({ name, parameters }) => ({
+            errors: ({ name, feature_flag_config }) => ({
                 name: !name && 'Please enter a name',
                 // feature_flag_key is handled asynchronously
-                parameters: {
-                    feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
-                        key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-                            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-                            : undefined,
-                    })),
+                feature_flag_config: {
+                    filters: {
+                        multivariate: {
+                            variants: feature_flag_config?.filters?.multivariate?.variants?.map(({ key }) => ({
+                                key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                                    : undefined,
+                            })),
+                        },
+                    },
                 },
             }),
             submit: () => {
