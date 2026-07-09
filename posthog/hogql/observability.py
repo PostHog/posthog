@@ -111,6 +111,13 @@ OBSERVABILITY_ERRORS_TOTAL = PromCounter(
     "Observability never propagates its own failures into query execution; this counter makes them visible.",
     labelnames=["stage"],
 )
+TYPE_SIMPLIFICATION_TOTAL = PromCounter(
+    "hogql_type_simplification_total",
+    "Operations removed or folded by the type-aware simplifier, by kind. Deliberately unsampled — "
+    "it only increments when typeAwareCastSimplification is enabled, so per-team pilot activity stays "
+    "visible despite the 1% sampling of the other type metrics.",
+    labelnames=["dialect", "kind"],
+)
 
 
 def _log_observability_error(stage: str) -> None:
@@ -138,6 +145,20 @@ def _safe(fn: _F) -> _F:
             return None
 
     return cast(_F, wrapper)
+
+
+_SIMPLIFICATION_KINDS = {
+    "redundant_cast",
+    "nullability_wrapper",
+    "null_fallback",
+    "constant_fold",
+    "json_fold",
+}
+
+
+@_safe
+def record_type_simplification(dialect: str, kind: str) -> None:
+    TYPE_SIMPLIFICATION_TOTAL.labels(dialect=_clean_tag(dialect), kind=_bounded(kind, _SIMPLIFICATION_KINDS)).inc()
 
 
 _UNKNOWN_REASONS = {

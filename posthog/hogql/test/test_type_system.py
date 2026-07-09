@@ -853,6 +853,30 @@ class TestHogQLTypeSystem:
         assert "1 AS d" in sql
         assert "1 AS e" in sql
 
+    def test_type_aware_simplification_records_removal_metrics(self) -> None:
+        # The pilot rollout relies on hogql_type_simplification_total to see whether the simplifier
+        # fires at all; catch the instrumentation silently going dark while removals still happen.
+        from posthog.hogql.observability import TYPE_SIMPLIFICATION_TOTAL
+
+        def counter_value(kind: str) -> float:
+            return TYPE_SIMPLIFICATION_TOTAL.labels(dialect="clickhouse", kind=kind)._value.get()
+
+        kinds = ["redundant_cast", "nullability_wrapper", "null_fallback", "constant_fold"]
+        before = {kind: counter_value(kind) for kind in kinds}
+
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT toString('y') AS a, assumeNotNull(1) AS b, ifNull(1, 2) AS c, 1 + 2 AS d"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse")
+
+        for kind in kinds:
+            assert counter_value(kind) == before[kind] + 1, kind
+
     def test_type_aware_simplification_folds_safe_literal_arithmetic(self) -> None:
         resolved = cast(
             ast.SelectQuery,
