@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
@@ -210,10 +211,9 @@ async def _relay_from_agent_proxy(
             made_progress = False
             error: Exception | None = None
             try:
-                async with httpx.AsyncClient(
-                    # trust_env=False keeps the in-cluster proxy call off the egress proxy, which
-                    # denies private-range hosts with 407 (see posthog/llm/gateway_client.py).
-                    trust_env=False,
+                # internal_httpx_async_client bypasses the egress proxy, which denies the
+                # in-cluster agent-proxy (a private-range host) with 407.
+                async with internal_httpx_async_client(
                     timeout=httpx.Timeout(
                         connect=SSE_CONNECT_TIMEOUT_SECONDS,
                         read=SSE_READ_TIMEOUT_SECONDS,
