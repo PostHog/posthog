@@ -895,15 +895,13 @@ function SearchResults({
                                                                                     : item.href
                                                                             }
                                                                             disabledReason={item.disabledReason}
-                                                                            buttonProps={{
-                                                                                fullWidth: true,
-                                                                                disabled: !!item.disabledReason,
-                                                                                inert: !!item.disabledReason,
-                                                                                className: item.disabledReason
-                                                                                    ? 'opacity-50 cursor-not-allowed'
-                                                                                    : undefined,
-                                                                            }}
+                                                                            buttonProps={{ fullWidth: true }}
                                                                             {...props}
+                                                                            // The button-primitive styles key dimming, the
+                                                                            // not-allowed cursor, and hover suppression off this
+                                                                            aria-disabled={
+                                                                                item.disabledReason ? true : undefined
+                                                                            }
                                                                             tabIndex={-1}
                                                                         >
                                                                             {icon}

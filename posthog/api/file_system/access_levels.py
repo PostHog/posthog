@@ -46,9 +46,11 @@ def _ref_translation_queryset(
             _type=Value(entry_type, output_field=CharField()),
             _ref=Cast(lookup_field, output_field=CharField()),
             _pk=Cast("pk", output_field=CharField()),
+            # Cast rather than Value(None, ...): an untyped NULL lets Postgres resolve the
+            # union column as text and clash with real integer columns (see search.py)
             _created_by_id=F("created_by_id")
             if hasattr(model, "created_by")
-            else Value(None, output_field=BigIntegerField()),
+            else Cast(Value(None), output_field=BigIntegerField()),
         )
         .values_list("_type", "_ref", "_pk", "_created_by_id")
     )
@@ -68,6 +70,11 @@ def bulk_file_system_access_levels(
     AccessControl rows are keyed by the target object's pk, while some file system types
     (insight, notebook, session_recording_playlist) use short_id as their ref, so those refs
     are translated through the registered models - all types UNIONed into a single query.
+
+    Refs that don't resolve to an object still go through resource-level resolution rather
+    than short-circuiting to None: refs can be caller-supplied (shortcuts), and a distinct
+    value for "doesn't exist" would let members probe guessed refs to learn whether a
+    protected object exists.
     """
     results: dict[tuple[str, str], Optional[AccessControlLevel]] = {}
     user_id = user_access_control.user.id
@@ -106,18 +113,15 @@ def bulk_file_system_access_levels(
 
     for entry_type, creator_by_provided_ref in entries_by_type.items():
         resource = cast(APIScopeObject, entry_type)
-        registration = get_file_system_registration(entry_type)
-        lookup_field = registration.lookup_field if registration else "id"
 
         objects: list[tuple[str, Optional[int]]] = []
         ref_by_pk: dict[str, str] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
             row = translated.get((entry_type, ref))
-            pk = ref if lookup_field == "id" else (row[0] if row else None)
-            if pk is None:
-                # The ref no longer resolves to an object - nothing to gate on
-                results[(entry_type, ref)] = None
-                continue
+            # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
+            # so they resolve at resource level exactly like an existing object without object
+            # rows, making guessed refs indistinguishable from real-but-ungranted ones
+            pk = row[0] if row else ref
             ref_by_pk[pk] = ref
             objects.append((pk, provided_creator if provided_creator is not None else (row[1] if row else None)))
 

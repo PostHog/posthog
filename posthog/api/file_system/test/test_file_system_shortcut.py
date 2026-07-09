@@ -12,6 +12,7 @@ from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -268,3 +269,21 @@ class TestFileSystemShortcutAccessLevels(APIBaseTest):
         # Shortcut rows don't store the object's creator - it is resolved from the target model,
         # so the user's own dashboard stays accessible while the blocked one is marked "none"
         self.assertEqual(levels, {"Mine": "manager", "Theirs": "none"})
+
+    def test_unresolved_refs_indistinguishable_from_blocked_objects(self):
+        # Shortcuts accept arbitrary refs, so a guessed ref must not reveal via its access
+        # level whether a protected object exists
+        insight = Insight.objects.create(team=self.team, name="Real", created_by=self.other_user)
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Real", type="insight", ref=insight.short_id
+        )
+        FileSystemShortcut.objects.create(
+            team=self.team, user=self.user, path="Guessed", type="insight", ref="nonexistent"
+        )
+        AccessControl.objects.create(team=self.team, resource="insight", resource_id=None, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system_shortcut/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
+        self.assertEqual(levels, {"Real": "none", "Guessed": "none"})
