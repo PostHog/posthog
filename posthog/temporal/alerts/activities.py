@@ -290,7 +290,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             ):
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
-                    should_gate_notification = bool(alert.investigation_gates_notifications)
+                    is_notebook = alert.investigation_mode != AlertConfiguration.InvestigationMode.POSTHOG_CODE
+                    should_gate_notification = is_notebook and bool(alert.investigation_gates_notifications)
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -300,6 +301,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             should_start_investigation=should_start_investigation,
             should_gate_notification=should_gate_notification,
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
+            investigation_mode=alert.investigation_mode if should_start_investigation else None,
         )
 
     async with Heartbeater():

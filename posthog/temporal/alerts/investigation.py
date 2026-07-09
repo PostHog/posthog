@@ -15,6 +15,12 @@ from posthog.schema import AlertState
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
 INVESTIGATION_COOLDOWN = timedelta(hours=1)
+INVESTIGATION_BACKOFF_CAP = timedelta(hours=24)
+
+_ACTIVE_INVESTIGATION_STATUSES = [
+    InvestigationStatus.PENDING,
+    InvestigationStatus.RUNNING,
+]
 
 
 def should_trigger_investigation(
@@ -30,13 +36,43 @@ def should_trigger_investigation(
     """
     if not alert.investigation_agent_enabled:
         return False
-    if not alert.detector_config:
-        return False
-    if previous_state == AlertState.FIRING:
-        return False
     if new_state != AlertState.FIRING:
         return False
-    return True
+    if alert.investigation_mode == AlertConfiguration.InvestigationMode.POSTHOG_CODE:
+        if previous_state != AlertState.FIRING:
+            return True
+        return bool(alert.investigation_rerun_on_continued_breach)
+    # notebook mode: detector alerts only, transition into FIRING only
+    if not alert.detector_config:
+        return False
+    return previous_state != AlertState.FIRING
+
+
+def _posthog_code_effective_cooldown(alert: AlertConfiguration) -> timedelta:
+    """Compute the exponential backoff cooldown for the current firing episode.
+
+    Episode start is the created_at of the most recent AlertCheck with state != FIRING.
+    Completed = DONE+FAILED investigation checks after that boundary.
+    Cooldown = 1h * 2**min(completed, 5), capped at 24h.
+    """
+    episode_start = (
+        AlertCheck.objects.filter(alert_configuration=alert)
+        .exclude(state=AlertState.FIRING)
+        .order_by("-created_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    completed = AlertCheck.objects.filter(
+        alert_configuration=alert,
+        investigation_status__in=[
+            InvestigationStatus.DONE,
+            InvestigationStatus.FAILED,
+        ],
+    )
+    if episode_start is not None:
+        completed = completed.filter(created_at__gt=episode_start)
+    exponent = min(completed.count(), 5)
+    return min(INVESTIGATION_COOLDOWN * (2**exponent), INVESTIGATION_BACKOFF_CAP)
 
 
 def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:
@@ -47,18 +83,47 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
     marks it SKIPPED and returns False so flappy alerts don't pile up.
 
     Caller must run this inside a transaction so the read-then-write is atomic.
+
+    In posthog_code mode:
+    - FAILED checks also occupy the slot (unlike notebook mode, where FAILED is ignored).
+    - The effective cooldown grows exponentially with the number of completed investigations
+      in the current firing episode (see `_posthog_code_effective_cooldown`).
+    - Active checks (PENDING/RUNNING) always block regardless of window age.
     """
-    cooldown_since = datetime.now(UTC) - INVESTIGATION_COOLDOWN
-    recent = AlertCheck.objects.filter(
-        alert_configuration=alert,
-        created_at__gte=cooldown_since,
-        investigation_status__in=[
-            InvestigationStatus.RUNNING,
-            InvestigationStatus.DONE,
-            InvestigationStatus.PENDING,
-        ],
-    ).exclude(id=alert_check.id)
-    if recent.exists():
+    is_posthog_code = alert.investigation_mode == AlertConfiguration.InvestigationMode.POSTHOG_CODE
+
+    occupying = [
+        InvestigationStatus.PENDING,
+        InvestigationStatus.RUNNING,
+        InvestigationStatus.DONE,
+    ]
+    if is_posthog_code:
+        occupying.append(InvestigationStatus.FAILED)
+
+    cooldown = _posthog_code_effective_cooldown(alert) if is_posthog_code else INVESTIGATION_COOLDOWN
+    window_start = datetime.now(UTC) - cooldown
+
+    # Active statuses (PENDING/RUNNING) always block — they're not window-bounded.
+    active_blocking = (
+        AlertCheck.objects.filter(
+            alert_configuration=alert,
+            investigation_status__in=_ACTIVE_INVESTIGATION_STATUSES,
+        )
+        .exclude(id=alert_check.id)
+        .exists()
+    )
+    # Completed statuses block only within the cooldown window.
+    recent_blocking = (
+        AlertCheck.objects.filter(
+            alert_configuration=alert,
+            investigation_status__in=occupying,
+            created_at__gte=window_start,
+        )
+        .exclude(id=alert_check.id)
+        .exists()
+    )
+
+    if active_blocking or recent_blocking:
         AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.SKIPPED)
         return False
     AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.PENDING)

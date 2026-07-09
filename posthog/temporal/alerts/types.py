@@ -75,6 +75,9 @@ class EvaluateAlertResult:
     # Persisted alert.created_by — the investigation workflow uses this to attribute
     # the resulting Notebook. Optional because legacy alerts may not have it.
     investigation_user_id: int | None = None
+    # Set to alert.investigation_mode only when an investigation was started; None otherwise.
+    # The workflow uses this to route posthog_code vs notebook investigation dispatch.
+    investigation_mode: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
