@@ -2,14 +2,24 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import TestCase, override_settings
+from django.test.client import RequestFactory
+from django.utils import timezone
+
 from parameterized import parameterized
 
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
+from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.services.slack_auth import write_auth_state_ok
 from products.slack_app.backend.slack_link_unfurl import (
     _insight_resource_label,
     handle_posthog_link_unfurl,
@@ -342,3 +352,61 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert ">>>" not in text
+
+
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+class TestLinkUnfurlChannelGate(TestCase):
+    SLACK_TEAM_ID = "TGate01"
+    CHANNEL_ID = "C_EXT"
+
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Gate Org")
+        self.team = Team.objects.create(organization=self.organization, name="Gate Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=self.SLACK_TEAM_ID,
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        # load_integrations calls auth.test on cache miss; pre-seed ok so the resolver short-circuits.
+        write_auth_state_ok(self.integration.id, bot_user_id=None)
+
+    def _event(self) -> dict:
+        return {
+            "type": "link_shared",
+            "channel": self.CHANNEL_ID,
+            "user": "U_SHARER",
+            "message_ts": "1.2",
+            "links": [{"url": "https://us.posthog.com/support/tickets/1"}],
+        }
+
+    def _route(self, *, is_ext_shared_channel: bool) -> str:
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        return route_posthog_code_event_to_relevant_region(
+            request, self._event(), self.SLACK_TEAM_ID, is_ext_shared_channel=is_ext_shared_channel
+        )
+
+    @parameterized.expand(
+        [
+            ("ext_unapproved", True, False, False),
+            ("ext_approved", True, True, True),
+            ("internal_channel", False, False, True),
+        ]
+    )
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    def test_unfurl_gated_on_external_channel_approval(
+        self, _name: str, is_ext_shared: bool, approved: bool, expect_unfurled: bool, mock_unfurl: MagicMock
+    ) -> None:
+        if approved:
+            SlackChannel.objects.create(
+                slack_workspace_id=self.SLACK_TEAM_ID,
+                slack_channel_id=self.CHANNEL_ID,
+                approved_at=timezone.now(),
+            )
+
+        result = self._route(is_ext_shared_channel=is_ext_shared)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_unfurl.called is expect_unfurled
