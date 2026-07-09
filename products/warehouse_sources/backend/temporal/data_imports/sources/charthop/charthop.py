@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -70,6 +70,12 @@ def _to_charthop_date(value: Any) -> Optional[str]:
         return None
     today = datetime.now(UTC).date()
     return min(value, today).isoformat()
+
+
+def _endpoint_path(config: ChartHopEndpointConfig, org_id: str) -> str:
+    # Encode the org id as a single path segment so a crafted value (slashes, query
+    # delimiters) can't redirect the request to a different endpoint with the stored token.
+    return config.path.format(org_id=quote(org_id, safe=""))
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -186,7 +192,7 @@ def check_access(api_key: str, org_id: Optional[str], schema_name: Optional[str]
 
         if schema_name is not None:
             config = CHARTHOP_ENDPOINTS[schema_name]
-            path = config.path.format(org_id=resolved_org_id)
+            path = _endpoint_path(config, resolved_org_id)
             response = session.get(
                 _build_url(path, {"limit": 1, **config.extra_params}),
                 headers=_get_headers(api_key),
@@ -220,7 +226,7 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = CHARTHOP_ENDPOINTS[endpoint]
     fetch_page = _make_page_fetcher(api_key, logger)
-    path = config.path.format(org_id=org_id)
+    path = _endpoint_path(config, org_id)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:

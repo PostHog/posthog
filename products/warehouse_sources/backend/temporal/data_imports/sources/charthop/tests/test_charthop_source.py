@@ -1,5 +1,6 @@
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -58,48 +59,55 @@ class TestChartHopSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["persons", "nope"])
         assert [s.name for s in schemas] == ["persons"]
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: ChartHop API authentication or permission error for url /v1/org",
-            "403 Client Error: ChartHop API authentication or permission error for url x",
-            "ChartHop API token has no access to any organization",
-            "ChartHop API token can access multiple organizations. Set the organization ID or slug on the source.",
-        ],
+            ("bad_token", "401 Client Error: ChartHop API authentication or permission error for url /v1/org"),
+            ("no_permission", "403 Client Error: ChartHop API authentication or permission error for url x"),
+            ("no_org_access", "ChartHop API token has no access to any organization"),
+            (
+                "multiple_orgs",
+                "ChartHop API token can access multiple organizations. Set the organization ID or slug on the source.",
+            ),
+        ]
     )
-    def test_non_retryable_errors_match_credential_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_credential_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "ChartHop API error (retryable): status=503, url=x",
-            "ChartHop API rate limited: status=429, url=x",
-        ],
+            ("server_error", "ChartHop API error (retryable): status=503, url=x"),
+            ("rate_limited", "ChartHop API rate limited: status=429, url=x"),
+        ]
     )
-    def test_non_retryable_errors_ignore_transient_failures(self, unrelated_error: str) -> None:
+    def test_non_retryable_errors_ignore_transient_failures(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, schema_name, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, None, True, None),
-            (401, None, False, "Invalid ChartHop API token"),
-            (403, "persons", False, "Your ChartHop API token does not have permission to read 'persons'"),
-            (403, None, False, "boom"),
-            (0, None, False, "boom"),
-        ],
+            ("ok", 200, None, True, None),
+            ("bad_token", 401, None, False, "Invalid ChartHop API token"),
+            (
+                "schema_forbidden",
+                403,
+                "persons",
+                False,
+                "Your ChartHop API token does not have permission to read 'persons'",
+            ),
+            ("org_forbidden", 403, None, False, "boom"),
+            ("network_error", 0, None, False, "boom"),
+        ]
     )
     @mock.patch(CHECK_ACCESS_PATH)
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         schema_name: str | None,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         mock_check.return_value = (status, "boom")
         is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)

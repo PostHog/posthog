@@ -4,6 +4,8 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.charthop import (
     CHARTHOP_BASE_URL,
     PAGE_SIZE,
@@ -56,19 +58,18 @@ def _manager(can_resume: bool = False, state: Optional[ChartHopResumeConfig] = N
 
 
 class TestToChartHopDate:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
-            (date(2026, 1, 15), "2026-01-15"),
-            (datetime(2026, 1, 15, 12, 30, tzinfo=UTC), "2026-01-15"),
-            (datetime(2026, 1, 15, 12, 30), "2026-01-15"),
-            ("2026-01-15", "2026-01-15"),
-            ("2026-01-15T12:30:00Z", "2026-01-15"),
-            ("not-a-date", None),
-            (12345, None),
-        ],
+            ("date", date(2026, 1, 15), "2026-01-15"),
+            ("aware_datetime", datetime(2026, 1, 15, 12, 30, tzinfo=UTC), "2026-01-15"),
+            ("naive_datetime", datetime(2026, 1, 15, 12, 30), "2026-01-15"),
+            ("date_string", "2026-01-15", "2026-01-15"),
+            ("datetime_string", "2026-01-15T12:30:00Z", "2026-01-15"),
+            ("garbage_string", "not-a-date", None),
+            ("non_date_type", 12345, None),
+        ]
     )
-    def test_coercion(self, value: Any, expected: Optional[str]) -> None:
+    def test_coercion(self, _name: str, value: Any, expected: Optional[str]) -> None:
         assert _to_charthop_date(value) == expected
 
     def test_future_date_clamped_to_today(self) -> None:
@@ -91,6 +92,15 @@ class TestGetRows:
         assert batches == [[{"id": "1"}], [{"id": "2"}]]
         assert session.calls[0] == f"{CHARTHOP_BASE_URL}/v2/org/org-1/job?limit={PAGE_SIZE}"
         assert session.calls[1] == f"{CHARTHOP_BASE_URL}/v2/org/org-1/job?limit={PAGE_SIZE}&from=1"
+
+    def test_org_id_is_encoded_as_single_path_segment(self) -> None:
+        responses = [FakeResponse(json_data={"data": []})]
+        session = FakeSession(responses)
+
+        with mock.patch(SESSION_PATH, return_value=session):
+            list(get_rows("key", "org/../evil?x=1", "jobs", mock.MagicMock(), _manager()))
+
+        assert session.calls[0].startswith(f"{CHARTHOP_BASE_URL}/v2/org/org%2F..%2Fevil%3Fx%3D1/job?")
 
     def test_saves_state_after_yielding_each_page(self) -> None:
         responses = [
@@ -178,7 +188,7 @@ class TestGetRows:
         assert batches == []
         assert "includeAll=true" in session.calls[0]
 
-    @pytest.mark.parametrize("status_code", [401, 403])
+    @parameterized.expand([(401,), (403,)])
     def test_http_auth_errors_raise_matchable_api_error(self, status_code: int) -> None:
         with mock.patch(SESSION_PATH, return_value=FakeSession([FakeResponse(status_code=status_code)])):
             with pytest.raises(ChartHopAPIError) as exc:
@@ -187,8 +197,8 @@ class TestGetRows:
 
 
 class TestResolveOrgId:
-    @pytest.mark.parametrize("configured", ["org-1", "  org-1  "])
-    def test_configured_org_id_skips_lookup(self, configured: str) -> None:
+    @parameterized.expand([("plain", "org-1"), ("padded", "  org-1  ")])
+    def test_configured_org_id_skips_lookup(self, _name: str, configured: str) -> None:
         session = mock.MagicMock()
         with mock.patch(SESSION_PATH, return_value=session):
             assert resolve_org_id("key", configured) == "org-1"
@@ -199,14 +209,13 @@ class TestResolveOrgId:
         with mock.patch(SESSION_PATH, return_value=FakeSession([response])):
             assert resolve_org_id("key", None) == "org-9"
 
-    @pytest.mark.parametrize(
-        "orgs, expected_message",
+    @parameterized.expand(
         [
-            ([], "has no access to any organization"),
-            ([{"id": "a"}, {"id": "b"}], "can access multiple organizations"),
-        ],
+            ("no_orgs", [], "has no access to any organization"),
+            ("multiple_orgs", [{"id": "a"}, {"id": "b"}], "can access multiple organizations"),
+        ]
     )
-    def test_zero_or_multiple_orgs_raise(self, orgs: list[dict[str, Any]], expected_message: str) -> None:
+    def test_zero_or_multiple_orgs_raise(self, _name: str, orgs: list[dict[str, Any]], expected_message: str) -> None:
         response = FakeResponse(json_data={"data": orgs})
         with mock.patch(SESSION_PATH, return_value=FakeSession([response])):
             with pytest.raises(ChartHopAPIError) as exc:
