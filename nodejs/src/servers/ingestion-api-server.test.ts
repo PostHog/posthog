@@ -51,7 +51,7 @@ describe('IngestionApiServer', () => {
                     PLUGIN_SERVER_MODE: PluginServerMode.ingestion_api,
                     INTERNAL_API_SECRET: '',
                 })
-        ).toThrow('INTERNAL_API_SECRET must be configured for ingestion-api in production')
+        ).toThrow('INTERNAL_API_SECRET must be configured for ingestion-api')
     })
 
     it('reports healthy before any failure', () => {

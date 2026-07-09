@@ -208,7 +208,7 @@ export class IngestionApiServer implements NodeServer {
             this.config.PLUGIN_SERVER_MODE === PluginServerMode.ingestion_api &&
             this.config.INTERNAL_API_SECRET.trim() === ''
         ) {
-            throw new Error('INTERNAL_API_SECRET must be configured for ingestion-api in production')
+            throw new Error('INTERNAL_API_SECRET must be configured for ingestion-api')
         }
     }
 
