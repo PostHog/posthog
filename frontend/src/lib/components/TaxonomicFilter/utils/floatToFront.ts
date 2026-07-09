@@ -1,10 +1,11 @@
-/** Move the element at `index` to the front, preserving the order of the rest.
- *  No-op when `index <= 0` (already first, or not found via `findIndex` -> -1).
+/** Move the element at `index` to `offset` (0 by default, or 1 to preserve a leading
+ *  catch-all row), preserving the order of everything else.
+ *  No-op when `index <= offset` (already in place, or not found via `findIndex` -> -1).
  *  Shared by the rebuild menu's `Combobox` and the legacy `infiniteListLogic`
  *  so the committed-selection promotion behaves identically across surfaces. */
-export function floatToFront<T>(list: T[], index: number): T[] {
-    if (index <= 0) {
+export function floatToFront<T>(list: T[], index: number, offset = 0): T[] {
+    if (index <= offset) {
         return list
     }
-    return [list[index], ...list.slice(0, index), ...list.slice(index + 1)]
+    return [...list.slice(0, offset), list[index], ...list.slice(offset, index), ...list.slice(index + 1)]
 }

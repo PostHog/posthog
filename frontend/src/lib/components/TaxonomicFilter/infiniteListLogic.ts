@@ -42,16 +42,7 @@ import {
     pinnedSourceKey,
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
-// Move the element at `index` to `offset` (0, or 1 to preserve a leading catch-all row),
-// preserving the order of everything else. Legacy-only: unlike the rebuild's `floatToFront`
-// (which always floats to the very first row), the legacy own-group/suggested float must not
-// displace a leading null-valued aggregate row — see the invariant in `floatRecentPinned.ts`.
-function floatToOffset<T>(list: T[], index: number, offset: number): T[] {
-    if (index <= offset) {
-        return list
-    }
-    return [...list.slice(0, offset), list[index], ...list.slice(offset, index), ...list.slice(index + 1)]
-}
+import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -1150,19 +1141,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (isSuggested && selectionKey) {
                         // The aggregated list is fully client-side (recents/pinned prefixes),
                         // so both floating and prepending are safe here.
-                        const selectedIndex = orderedBase.findIndex(
-                            (item) =>
-                                item != null &&
-                                !isSkeletonItem(item) &&
-                                (recentSourceKey(item) === selectionKey ||
-                                    pinnedSourceKey(item) === selectionKey ||
-                                    groupItemKey(
-                                        getItemGroup(item, taxonomicGroups, group)?.type ?? listGroupType,
-                                        getItemGroup(item, taxonomicGroups, group)?.getValue?.(item)
-                                    ) === selectionKey)
-                        )
+                        const selectedIndex = orderedBase.findIndex((item) => {
+                            if (item == null || isSkeletonItem(item)) {
+                                return false
+                            }
+                            if (recentSourceKey(item) === selectionKey || pinnedSourceKey(item) === selectionKey) {
+                                return true
+                            }
+                            const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                            return (
+                                groupItemKey(itemGroup?.type ?? listGroupType, itemGroup?.getValue?.(item)) ===
+                                selectionKey
+                            )
+                        })
                         if (selectedIndex >= 0) {
-                            orderedBase = floatToOffset(orderedBase, selectedIndex, leadingCatchAllOffset)
+                            orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
                         } else {
                             // The selection isn't among the visible recents/pinned — prepend a
                             // synthetic row (shaped like a top match, so `getItemGroup` resolves
@@ -1195,11 +1188,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // position would desync the windowed loader's display-index ->
                         // remote-offset mapping. When the selection is paginated past (not
                         // loaded yet), we leave the list alone for the same reason.
-                        if (
-                            selectedIndex > leadingCatchAllOffset &&
-                            orderedBase.slice(0, selectedIndex).every((item) => item != null && !isSkeletonItem(item))
-                        ) {
-                            orderedBase = floatToOffset(orderedBase, selectedIndex, leadingCatchAllOffset)
+                        const rowsAboveSelectionLoaded = (): boolean => {
+                            for (let i = 0; i < selectedIndex; i++) {
+                                if (orderedBase[i] == null || isSkeletonItem(orderedBase[i])) {
+                                    return false
+                                }
+                            }
+                            return true
+                        }
+                        if (selectedIndex > leadingCatchAllOffset && rowsAboveSelectionLoaded()) {
+                            orderedBase = floatToFront(orderedBase, selectedIndex, leadingCatchAllOffset)
                         }
                     }
                 }
