@@ -176,7 +176,7 @@ export function AlertDefinitionSection({
                             value: 'detector',
                             label: 'Anomaly detection',
                             tooltip:
-                                'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
+                                'Automatically detect unusual changes using statistical models. No fixed value threshold is required.',
                         },
                     ]}
                 />

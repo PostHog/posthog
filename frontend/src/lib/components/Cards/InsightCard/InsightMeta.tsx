@@ -5,7 +5,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import {
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from 'lib/components/Alerts/insightAlertsLogic'
 import type { AlertType } from 'lib/components/Alerts/types'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -208,7 +212,7 @@ export function InsightMeta({
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
         funnelAlertsEnabled: !!featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS],
     })
-    const canCreateAnomalyAlertForInsight = areAlertsSupportedForInsight(query, {
+    const canCreateAnomalyAlertForInsight = areAnomalyAlertsSupportedForInsight(query, {
         hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
     })
 
@@ -613,7 +617,8 @@ export function InsightMeta({
                         : 'Duplicate, export, refresh and more…'
                 }
                 extraControls={
-                    surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons ? (
+                    placement !== DashboardPlacement.Public &&
+                    (surveyOpportunityInsight || canShowCreateAnomalyAlert || feedbackButtons) ? (
                         <InsightMetaExtraControls
                             surveyOpportunityInsight={surveyOpportunityInsight}
                             onCreateAnomalyAlert={canShowCreateAnomalyAlert ? onCreateAnomalyAlert : undefined}

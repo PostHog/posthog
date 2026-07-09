@@ -45,7 +45,7 @@ interface EditAlertModalProps {
     insightShortId: InsightShortId
     onEditSuccess: (alertId?: AlertType['id'] | undefined) => void
     onClose?: () => void
-    insightLogicProps?: InsightLogicProps
+    insightLogicProps: InsightLogicProps
     defaultToAnomalyDetection?: boolean
     insightName?: string | null
 }
@@ -72,7 +72,7 @@ export function EditAlertModal({
         [onEditSuccess]
     )
 
-    const trendsLogic = trendsDataLogic({ dashboardItemId: insightShortId })
+    const trendsLogic = trendsDataLogic(insightLogicProps)
     const {
         alertSeries,
         isNonTimeSeriesDisplay,
@@ -81,7 +81,7 @@ export function EditAlertModal({
         interval: trendInterval,
     } = useValues(trendsLogic)
 
-    const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
+    const { query } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
     const isFunnelInsight = funnelSource !== null
@@ -105,7 +105,7 @@ export function EditAlertModal({
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
         insightAlertKind,
-        defaultToAnomalyDetection: !alertId && defaultToAnomalyDetection,
+        defaultToAnomalyDetection: !alertId && !isNonTimeSeriesDisplay && defaultToAnomalyDetection,
         insightName,
         insightIsTrendsFunnel: isTrendsFunnel,
     }
@@ -286,7 +286,9 @@ export function EditAlertModal({
                                             valueColumnOptions: hogqlValueColumnOptions,
                                             labelColumnOptions: hogqlLabelColumnOptions,
                                         }}
-                                        supportsAnomalyDetection={supportsAnomalyDetection(alertForm.config)}
+                                        supportsAnomalyDetection={
+                                            !isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

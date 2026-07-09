@@ -859,6 +859,15 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "not compatible with non time series",
             ),
             (
+                "detector_on_non_time_series",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
+                },
+                "anomaly detection isn't supported for non time series trends",
+            ),
+            (
                 "absolute_with_percentage_threshold",
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
@@ -922,6 +931,31 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert['id']}", overrides)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert expected_error_fragment in str(response.content).lower()
+
+    def test_patch_alert_rejects_detector_for_non_time_series(self) -> None:
+        pie_insight_data = deepcopy(self.default_insight_data)
+        pie_insight_data["query"]["trendsFilter"]["display"] = "ActionsPie"
+        pie_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=pie_insight_data).json()
+
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": pie_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+            },
+        ).json()
+        assert "id" in alert, alert
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+            {"detector_config": {"type": "zscore", "threshold": 0.95, "window": 30}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "anomaly detection isn't supported for non time series trends" in str(response.content).lower()
 
     @parameterized.expand(
         [

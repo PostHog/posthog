@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -48,6 +48,20 @@ export const areAlertsSupportedForInsight = (
         return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+}
+
+export const areAnomalyAlertsSupportedForInsight = (
+    query?: Record<string, any> | null,
+    options: { hogqlAlertsEnabled?: boolean } = {}
+): boolean => {
+    if (!areAlertsSupportedForInsight(query, options)) {
+        return false
+    }
+    if (query && isInsightVizNode(query) && isTrendsQuery(query.source)) {
+        const display = query.source.trendsFilter?.display
+        return !display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(display)
+    }
+    return true
 }
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the

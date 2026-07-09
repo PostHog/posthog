@@ -7,9 +7,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
+import {
+    alertsUnsupportedReason,
+    areAlertsSupportedForInsight,
+    areAnomalyAlertsSupportedForInsight,
+    insightAlertsLogic,
+} from './insightAlertsLogic'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -259,6 +264,22 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
         expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
         expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
+    })
+
+    it.each<[string, ChartDisplayType | undefined, boolean]>([
+        ['line graph', ChartDisplayType.ActionsLineGraph, true],
+        ['default display', undefined, true],
+        ['bold number', ChartDisplayType.BoldNumber, false],
+        ['bar value', ChartDisplayType.ActionsBarValue, false],
+    ])('reports anomaly support for %s trends', (_name, display, expected) => {
+        const query = {
+            ...API_QUERY,
+            source: {
+                ...API_QUERY.source,
+                trendsFilter: display ? { display } : null,
+            },
+        }
+        expect(areAnomalyAlertsSupportedForInsight(query)).toBe(expected)
     })
 })
 

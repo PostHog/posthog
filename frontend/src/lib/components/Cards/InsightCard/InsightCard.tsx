@@ -9,10 +9,10 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import type { AlertType } from 'lib/components/Alerts/types'
-import { EditAlertModal } from 'lib/components/Alerts/views/EditAlertModal'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -50,6 +50,10 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+
+const LazyEditAlertModal = React.lazy(() =>
+    import('lib/components/Alerts/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+)
 
 const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
 
@@ -432,17 +436,19 @@ function InsightCardInternal(
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
             {alertModal && insight.id && insight.short_id ? (
-                <EditAlertModal
-                    isOpen
-                    onClose={closeAlertModal}
-                    alertId={alertModal.alertId}
-                    insightId={insight.id}
-                    insightShortId={insight.short_id as InsightShortId}
-                    onEditSuccess={closeAlertModal}
-                    insightLogicProps={insightLogicProps}
-                    defaultToAnomalyDetection={alertModal.defaultToAnomalyDetection}
-                    insightName={insight.name || insight.derived_name}
-                />
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <LazyEditAlertModal
+                        isOpen
+                        onClose={closeAlertModal}
+                        alertId={alertModal.alertId}
+                        insightId={insight.id}
+                        insightShortId={insight.short_id as InsightShortId}
+                        onEditSuccess={closeAlertModal}
+                        insightLogicProps={insightLogicProps}
+                        defaultToAnomalyDetection={alertModal.defaultToAnomalyDetection}
+                        insightName={insight.name || insight.derived_name}
+                    />
+                </React.Suspense>
             ) : null}
             {children /* RGL react-resizable-handle nodes injected by react-grid-layout */}
         </div>

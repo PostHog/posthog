@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -9,6 +10,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -422,12 +424,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     }
                 }
 
+                const existingAlertId = alert.id
+                const isNewAlert = existingAlertId === undefined
                 let updatedAlert: AlertType
                 try {
-                    updatedAlert =
-                        alert.id === undefined
-                            ? await api.alerts.create(payload)
-                            : await api.alerts.update(alert.id, payload)
+                    updatedAlert = isNewAlert
+                        ? await api.alerts.create(payload)
+                        : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
@@ -448,11 +451,18 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     posthog.captureException(postSaveError)
                 }
 
-                lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
-                if (alert.id === undefined) {
+                if (isNewAlert) {
+                    lemonToast.success('Alert created.', {
+                        button: {
+                            label: 'View all alerts',
+                            action: () => router.actions.push(urls.alerts()),
+                        },
+                    })
                     tryShowMCPHint('alerts.create', {
                         derivedPrompt: alert.name ? `Create an alert called ${alert.name}` : undefined,
                     })
+                } else {
+                    lemonToast.success('Alert saved.')
                 }
 
                 return alertToFormType(updatedAlert, props.insightId)

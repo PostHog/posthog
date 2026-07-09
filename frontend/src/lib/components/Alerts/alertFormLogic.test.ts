@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -9,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -199,7 +201,16 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
-        expect(successToastSpy).toHaveBeenCalledWith('Alert created.')
+        expect(successToastSpy).toHaveBeenCalledWith('Alert created.', {
+            button: {
+                label: 'View all alerts',
+                action: expect.any(Function),
+            },
+        })
+
+        const toastOptions = successToastSpy.mock.calls[0][1] as { button: { action: () => void } }
+        toastOptions.button.action()
+        expect(router.values.location.pathname).toBe(urls.alerts())
     })
 
     // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the
@@ -240,7 +251,7 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(createSpy).toHaveBeenCalledTimes(1)
-        expect(successToastSpy).toHaveBeenCalledWith('Alert created.')
+        expect(successToastSpy).toHaveBeenCalledWith('Alert created.', expect.any(Object))
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(captureExceptionSpy).toHaveBeenCalledWith(postSaveError)
     })

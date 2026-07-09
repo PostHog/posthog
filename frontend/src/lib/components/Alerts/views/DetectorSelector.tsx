@@ -41,13 +41,13 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         value: DetectorType.COPOD,
         label: 'COPOD',
         tooltip:
-            'Scores each point against the historical distribution using copulas. Parameter-free, so it works without tuning a sensitivity threshold.',
+            'Scores each point against the historical distribution using copulas. Useful when you want a distribution-based detector.',
     },
     {
         value: DetectorType.ECOD,
         label: 'ECOD',
         tooltip:
-            'Scores each point against the empirical distribution of past values. Parameter-free and explainable — good when you need to justify why a point was flagged.',
+            'Scores each point against the empirical distribution of past values. Useful when you want an explainable distribution-based detector.',
     },
     {
         value: 'ensemble',
@@ -388,17 +388,12 @@ function SingleDetectorConfigSection({
         <div>
             {(config.type === 'zscore' || config.type === 'mad') && (
                 <div className="grid grid-cols-2 gap-3">
-                    <SensitivityInput
+                    <AnomalyThresholdInput
                         value={
                             (config as ZScoreDetectorConfig | MADDetectorConfig).threshold ??
                             DEFAULT_ANOMALY_DETECTION_THRESHOLD
                         }
                         onChange={(val) => onChange({ ...config, threshold: val } as SingleDetectorConfig)}
-                        tooltip={
-                            config.type === 'zscore'
-                                ? 'Anomaly probability threshold (0-1). Points scoring above this are flagged. Higher = fewer alerts.'
-                                : 'Anomaly probability threshold (0-1). Like Z-Score but uses median, making it robust to outliers. Higher = fewer alerts.'
-                        }
                     />
                     <WindowSizeInput
                         config={config as ZScoreDetectorConfig | MADDetectorConfig}
@@ -474,18 +469,19 @@ function SingleDetectorConfigSection({
     )
 }
 
-function SensitivityInput({
+function AnomalyThresholdInput({
     value,
     onChange,
-    tooltip,
 }: {
     value: number
     onChange: (value: number) => void
-    tooltip: string
 }): JSX.Element {
     return (
         <div>
-            <Label text="Sensitivity" tooltip={tooltip} />
+            <Label
+                text="Anomaly threshold"
+                tooltip="Minimum anomaly probability required to trigger an alert (0-1). Higher values trigger fewer alerts."
+            />
             <LemonInput
                 type="number"
                 min={0.5}
@@ -541,13 +537,12 @@ function ECODConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
-            <p className="text-xs text-muted">Empirical cumulative distribution — parameter-free and interpretable.</p>
+            <p className="text-xs text-muted">Empirical cumulative distribution for interpretable anomaly scoring.</p>
         </div>
     )
 }
@@ -563,13 +558,12 @@ function COPODConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
-            <p className="text-xs text-muted">Copula-based detection — efficient and parameter-free.</p>
+            <p className="text-xs text-muted">Efficient copula-based anomaly scoring.</p>
         </div>
     )
 }
@@ -585,10 +579,9 @@ function IsolationForestConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
                 <Label text="Number of trees" tooltip="More trees = more accurate but slower. 100 is a good default." />
@@ -619,10 +612,9 @@ function KNNConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
                 <Label
@@ -674,10 +666,9 @@ function LOFConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
                 <Label
@@ -713,10 +704,9 @@ function HBOSConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <div>
                 <Label
@@ -750,10 +740,9 @@ function OCSVMConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
@@ -774,10 +763,9 @@ function PCAConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <SensitivityInput
+            <AnomalyThresholdInput
                 value={config.threshold ?? DEFAULT_ANOMALY_DETECTION_THRESHOLD}
                 onChange={(val) => onChange({ ...config, threshold: val })}
-                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
             />
             <WindowSizeInput config={config} onChange={onChange} calculationInterval={calculationInterval} />
             <p className="text-xs text-muted">
