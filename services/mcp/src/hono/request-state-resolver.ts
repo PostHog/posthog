@@ -1,7 +1,7 @@
 import type { GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -179,6 +179,8 @@ export class RequestStateResolver {
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+        const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const isCloud = isCloudApi()
 
         const excludeTools: string[] = []
         if (projectId) {
@@ -195,6 +197,8 @@ export class RequestStateResolver {
             featureFlags: toolFeatureFlags,
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
+            availableFeatures,
+            isCloud,
         }
         const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
         // Scope-gated hints are only consumed by the exec `search` command, which
