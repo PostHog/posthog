@@ -728,17 +728,23 @@ class TestVacuumIfStale:
     async def test_vacuum_cadence(
         self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
     ):
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
         helper = self._helper()
         table = MagicMock()
         table.version = MagicMock(return_value=150)
         with (
             patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
             patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+            patch(f"{module}.posthoganalytics") as ph,
         ):
             result = await helper.vacuum_if_stale(last_version, 100)
 
         assert result == expected_return
         assert vacuum.await_count == (1 if expect_vacuum else 0)
+        # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
+        assert ph.capture.call_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_vacuumed"
 
 
 class TestRunMaintenance:

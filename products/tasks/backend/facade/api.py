@@ -31,12 +31,22 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration import Integration
 
-from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
+from products.tasks.backend.constants import (
+    MAX_CUSTOM_IMAGES_PER_TEAM,
+    MAX_CUSTOM_IMAGES_PER_USER,
+    RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    is_blocked_sandbox_env_key,
+)
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
+from products.tasks.backend.logic.services.image_builder import (
+    ensure_image_builder_task,
+    is_custom_images_enabled,
+    read_spec_from_builder_sandbox,
+)
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
@@ -44,6 +54,7 @@ from products.tasks.backend.models import (
     CodeInviteRedemption,
     CodeWorkflowConfig,
     CodeWorkstream,
+    SandboxCustomImage,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -110,6 +121,8 @@ __all__ = [
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
+    "build_sandbox_custom_image",
+    "create_sandbox_custom_image",
     "create_sandbox_environment",
     "create_task",
     "create_task_automation",
@@ -118,7 +131,9 @@ __all__ = [
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
+    "delete_sandbox_custom_image",
     "delete_sandbox_environment",
+    "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "fail_task_run",
     "finalize_task_run_artifact_uploads",
@@ -129,6 +144,7 @@ __all__ = [
     "get_latest_pr_url_by_task",
     "get_latest_run_by_task",
     "get_resume_snapshot_carry_state",
+    "get_sandbox_custom_image",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
     "get_stale_prewarmed_queued_task_run_ids",
@@ -147,7 +163,9 @@ __all__ = [
     "is_valid_sandbox_env_var_key",
     "latest_task_run_pr_url_subquery",
     "leave_task_presence",
+    "list_sandbox_custom_images",
     "list_sandbox_environments",
+    "sandbox_custom_images_enabled",
     "list_task_automations",
     "list_task_repositories",
     "list_task_runs",
@@ -407,6 +425,9 @@ def _sandbox_env_to_dto(env: SandboxEnvironment) -> contracts.SandboxEnvironment
         created_by=_user_basic_info(env.created_by if env.created_by_id else None),
         created_at=env.created_at,
         updated_at=env.updated_at,
+        custom_image_id=env.custom_image_id,
+        custom_image_name=env.custom_image.name if env.custom_image else None,
+        custom_image_status=env.custom_image.status if env.custom_image else None,
     )
 
 
@@ -981,7 +1002,7 @@ def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
         .filter(Q(private=False) | Q(created_by_id=user_id))
-        .select_related("created_by")
+        .select_related("created_by", "custom_image")
     )
 
 
@@ -996,6 +1017,18 @@ def get_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> c
     return _sandbox_env_to_dto(env) if env is not None else None
 
 
+def _validate_custom_image_id(team_id: int, user_id: int, custom_image_id: str | UUID | None) -> None:
+    if custom_image_id is None:
+        return
+    if not sandbox_custom_images_enabled(team_id, user_id):
+        raise ValueError("Custom sandbox images require the Modal VM runtime, which is not enabled")
+    image = SandboxCustomImage.get_accessible_for_task(
+        image_id=custom_image_id, team_id=team_id, task_created_by_id=user_id
+    )
+    if image is None:
+        raise ValueError(f"Invalid custom_image_id: {custom_image_id}")
+
+
 def create_sandbox_environment(
     team_id: int,
     user_id: int,
@@ -1007,9 +1040,11 @@ def create_sandbox_environment(
     repositories: list[str],
     environment_variables: dict,
     private: bool,
+    custom_image_id: str | None = None,
 ) -> contracts.SandboxEnvironmentDTO:
     """Create a team environment owned by the user and return it as a DTO."""
     _validate_user_sandbox_env_vars(environment_variables)
+    _validate_custom_image_id(team_id, user_id, custom_image_id)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
@@ -1020,8 +1055,9 @@ def create_sandbox_environment(
         repositories=repositories,
         environment_variables=environment_variables,
         private=private,
+        custom_image_id=custom_image_id,
     )
-    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by").get(pk=env.pk))
+    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by", "custom_image").get(pk=env.pk))
 
 
 def update_sandbox_environment(
@@ -1033,10 +1069,12 @@ def update_sandbox_environment(
         return None
     if "environment_variables" in fields:
         _validate_user_sandbox_env_vars(fields["environment_variables"])
+    if "custom_image_id" in fields:
+        _validate_custom_image_id(team_id, user_id, fields["custom_image_id"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
-    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by").get(pk=env.pk))
+    return _sandbox_env_to_dto(SandboxEnvironment.objects.select_related("created_by", "custom_image").get(pk=env.pk))
 
 
 def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -1045,6 +1083,176 @@ def delete_sandbox_environment(env_id: str | UUID, team_id: int, user_id: int) -
     if env is None:
         return False
     env.delete()
+    return True
+
+
+# --- Sandbox custom images (presentation CRUD + builder/build flows) ---
+
+
+def sandbox_custom_images_enabled(team_id: int, user_id: int) -> bool:
+    """Whether custom base images are available for this team (Modal VM runtime flag gate)."""
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    user = User.objects.only("id", "distinct_id").get(id=user_id)
+    return is_custom_images_enabled(
+        distinct_id=user.distinct_id or f"user-{user_id}",
+        organization_id=str(team.organization_id),
+    )
+
+
+def _custom_image_to_dto(
+    image: SandboxCustomImage, *, include_build_log: bool = False
+) -> contracts.SandboxCustomImageDTO:
+    from products.tasks.backend.logic.services.image_spec import spec_json_to_yaml  # noqa: PLC0415
+
+    return contracts.SandboxCustomImageDTO(
+        id=image.id,
+        team_id=image.team_id,
+        name=image.name,
+        description=image.description,
+        repository=image.repository,
+        private=image.private,
+        status=image.status,
+        version=image.version,
+        modal_image_name=image.modal_image_name,
+        error=image.error,
+        spec=image.spec or {},
+        spec_yaml=spec_json_to_yaml(image.spec or {}),
+        scan_result=image.scan_result or {},
+        build_log=image.build_log if include_build_log else "",
+        builder_task_id=image.builder_task_id,
+        created_by=_user_basic_info(image.created_by if image.created_by_id else None),
+        created_at=image.created_at,
+        updated_at=image.updated_at,
+    )
+
+
+def _accessible_custom_images(team_id: int, user_id: int):
+    return (
+        SandboxCustomImage.objects.filter(team_id=team_id)
+        .filter(Q(private=False) | Q(created_by_id=user_id))
+        .select_related("created_by")
+    )
+
+
+def _reload_image_dto(image_pk: UUID) -> contracts.SandboxCustomImageDTO:
+    return _custom_image_to_dto(SandboxCustomImage.objects.select_related("created_by").get(pk=image_pk))
+
+
+def list_sandbox_custom_images(team_id: int, user_id: int) -> list[contracts.SandboxCustomImageDTO]:
+    """Non-archived custom images visible to the user, newest first."""
+    images = (
+        _accessible_custom_images(team_id, user_id)
+        .exclude(status=SandboxCustomImage.Status.ARCHIVED)
+        .order_by("-created_at")
+    )
+    return [_custom_image_to_dto(image) for image in images]
+
+
+def get_sandbox_custom_image(
+    image_id: str | UUID, team_id: int, user_id: int
+) -> contracts.SandboxCustomImageDTO | None:
+    """Single-image detail; the only read that includes the (potentially large) build log."""
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    return _custom_image_to_dto(image, include_build_log=True) if image is not None else None
+
+
+def create_sandbox_custom_image(
+    team_id: int,
+    user_id: int,
+    *,
+    name: str,
+    description: str = "",
+    repository: str | None = None,
+    private: bool = False,
+) -> contracts.SandboxCustomImageDTO:
+    """Create a draft custom image and dispatch its interactive image-builder agent task."""
+    from products.tasks.backend.logic.services.image_spec import validate_image_repository  # noqa: PLC0415
+
+    if repository:
+        validate_image_repository(repository)
+
+    counts = (
+        SandboxCustomImage.objects.filter(team_id=team_id)
+        .exclude(status=SandboxCustomImage.Status.ARCHIVED)
+        .aggregate(team=Count("id"), user=Count("id", filter=Q(created_by_id=user_id)))
+    )
+    if counts["team"] >= MAX_CUSTOM_IMAGES_PER_TEAM:
+        raise ValueError(f"This team already has {MAX_CUSTOM_IMAGES_PER_TEAM} custom images; delete one first")
+    if counts["user"] >= MAX_CUSTOM_IMAGES_PER_USER:
+        raise ValueError(f"You already have {MAX_CUSTOM_IMAGES_PER_USER} custom images; delete one first")
+
+    image = SandboxCustomImage.objects.create(
+        team_id=team_id,
+        created_by_id=user_id,
+        name=name,
+        description=description,
+        repository=repository or "",
+        private=private,
+    )
+    ensure_image_builder_task(image, user_id)
+    return _reload_image_dto(image.pk)
+
+
+def ensure_sandbox_custom_image_builder_task(
+    image_id: str | UUID, team_id: int, user_id: int
+) -> contracts.SandboxCustomImageDTO | None:
+    """Revive (or reuse) the image's builder session; new sessions are seeded with the stored spec."""
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None:
+        return None
+    ensure_image_builder_task(image, user_id)
+    return _reload_image_dto(image.pk)
+
+
+def build_sandbox_custom_image(
+    image_id: str | UUID, team_id: int, user_id: int, *, spec_yaml: str | None = None
+) -> contracts.SandboxCustomImageDTO | None:
+    """Persist the image spec and kick off the scan → build → publish workflow.
+
+    The spec comes from ``spec_yaml`` when provided, otherwise it is read from the
+    builder task's live sandbox. Raises ``ValueError`` on an invalid or empty spec.
+    """
+    from products.tasks.backend.logic.services.image_spec import (  # noqa: PLC0415
+        SandboxImageSpecError,
+        parse_image_spec_json,
+        parse_image_spec_yaml,
+        validate_spec_buildable,
+    )
+    from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
+
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None:
+        return None
+    if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
+        raise ValueError("A build is already in progress for this image")
+
+    try:
+        spec = parse_image_spec_yaml(spec_yaml) if spec_yaml is not None else read_spec_from_builder_sandbox(image)
+    except SandboxImageSpecError as e:
+        # Builder sandbox gone → the stored spec is the only correct rebuild source.
+        if spec_yaml is None and image.spec:
+            spec = parse_image_spec_json(image.spec)
+        else:
+            raise ValueError(str(e))
+    if spec.is_empty:
+        raise ValueError("The image spec is empty; add packages, commands, or env vars before building")
+    validate_spec_buildable(spec, image.repository)
+
+    image.spec = spec.model_dump()
+    image.status = SandboxCustomImage.Status.SCANNING
+    image.error = ""
+    image.save(update_fields=["spec", "status", "error", "updated_at"])
+
+    execute_build_sandbox_image_workflow(str(image.id), team_id)
+    return _reload_image_dto(image.pk)
+
+
+def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
+    """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None:
+        return False
+    image.delete()
     return True
 
 
@@ -2284,6 +2492,7 @@ def bootstrap_task_run(
         "model": model,
         "reasoning_effort": reasoning_effort,
         "home_quick_action": home_quick_action,
+        "rtk_enabled": validated_data.get("rtk_enabled"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -2316,6 +2525,24 @@ def bootstrap_task_run(
     if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
         extra_state = extra_state or {}
         extra_state.update(credential_source)
+
+    custom_image_id = validated_data.get("custom_image_id")
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
+        )
+        if custom_image is None:
+            return contracts.TaskRunCreateResult(
+                error=contracts.TaskRunValidationError(kind="detail", detail="Invalid custom_image_id")
+            )
+        if not custom_image.is_ready:
+            return contracts.TaskRunCreateResult(
+                error=contracts.TaskRunValidationError(
+                    kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
+                )
+            )
+        extra_state = extra_state or {}
+        extra_state["custom_image_id"] = str(custom_image.id)
 
     if sandbox_environment_id is not None:
         sandbox_environment = SandboxEnvironment.get_accessible_for_task(
@@ -2822,6 +3049,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
                 repository=task.repository,
                 created_at=task.created_at,
                 updated_at=task.updated_at,
+                origin_product=task.origin_product,
                 latest_run=latest,
             )
         )
@@ -3457,6 +3685,8 @@ def run_task(
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
+    custom_image_id = validated_data.get("custom_image_id")
+    custom_image_id_supplied_by_user = custom_image_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
     auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
@@ -3488,6 +3718,10 @@ def run_task(
     if initial_permission_mode is not None:
         extra_state = extra_state or {}
         extra_state["initial_permission_mode"] = initial_permission_mode
+    rtk_enabled = validated_data.get("rtk_enabled")
+    if rtk_enabled is not None:
+        extra_state = extra_state or {}
+        extra_state["rtk_enabled"] = rtk_enabled
 
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
@@ -3503,6 +3737,9 @@ def run_task(
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id
+
+        if custom_image_id is None:
+            custom_image_id = (previous_run.state or {}).get("custom_image_id")
 
         for field_name in runtime_state_fields:
             if runtime_state_fields[field_name] is None:
@@ -3569,6 +3806,26 @@ def run_task(
     if credential_source := _github_credential_source_extra_state(pr_authorship_mode, github_user_token):
         extra_state = extra_state or {}
         extra_state.update(credential_source)
+
+    if custom_image_id is not None:
+        custom_image = SandboxCustomImage.get_accessible_for_task(
+            image_id=custom_image_id, team_id=task.team_id, task_created_by_id=task.created_by_id
+        )
+        if custom_image is None:
+            if custom_image_id_supplied_by_user:
+                return contracts.TaskRunResult(
+                    error=contracts.TaskValidationError(kind="detail", detail="Invalid custom_image_id")
+                )
+        elif not custom_image.is_ready:
+            if custom_image_id_supplied_by_user:
+                return contracts.TaskRunResult(
+                    error=contracts.TaskValidationError(
+                        kind="detail", detail=f"Custom image is not ready (status: {custom_image.status})"
+                    )
+                )
+        else:
+            extra_state = extra_state or {}
+            extra_state["custom_image_id"] = str(custom_image.id)
 
     if sandbox_environment_id is not None:
         sandbox_environment = SandboxEnvironment.get_accessible_for_task(

@@ -36,6 +36,9 @@ HYPERCACHE_VERIFY_FIX_COUNTER = Counter(
 # Maximum number of team IDs to store for logging
 MAX_FIXED_TEAM_IDS_TO_LOG = 10
 
+# Maximum number of per-team fix detail logs emitted at INFO per verification run.
+MAX_FIX_DETAIL_INFO_LOGS = 10
+
 
 @dataclass
 class VerificationResult:
@@ -50,6 +53,8 @@ class VerificationResult:
     skipped_for_grace_period: int = 0
     fixed_team_ids: list[int] = field(default_factory=list)
     skipped_team_ids: list[int] = field(default_factory=list)
+    # Per-run logging cap state, not a verification outcome.
+    fix_detail_info_logs_emitted: int = 0
 
     @property
     def total_fixed(self) -> int:
@@ -129,32 +134,36 @@ def verify_and_fix_all_teams(
         batch_number += 1
         batch_start = result.total
         batch_fixes_start = result.total_fixed
+        batch_fix_failures_start = result.fix_failed
 
         _verify_and_fix_batch(teams, config, verify_team_fn, cache_type, result)
 
         batch_verified = result.total - batch_start
         batch_fixed = result.total_fixed - batch_fixes_start
+        batch_fix_failures = result.fix_failed - batch_fix_failures_start
 
         # Log periodically to avoid log spam while still showing progress
+        log_message = None
         if batch_number % PROGRESS_LOG_BATCH_INTERVAL == 0:
-            logger.info(
-                "Verification progress",
-                cache_type=cache_type,
-                batch_number=batch_number,
-                teams_verified_total=result.total,
-                teams_fixed_total=result.total_fixed,
-                last_team_id=teams[-1].id,
-            )
+            log_message = "Verification progress"
         elif batch_fixed > 0:
-            # Always log batches that had fixes
+            log_message = "Batch completed with fixes"
+
+        if log_message:
             logger.info(
-                "Batch completed with fixes",
+                log_message,
                 cache_type=cache_type,
                 batch_number=batch_number,
                 batch_verified=batch_verified,
                 batch_fixed=batch_fixed,
+                batch_fix_failures=batch_fix_failures,
                 teams_verified_total=result.total,
                 teams_fixed_total=result.total_fixed,
+                cache_miss_fixed_total=result.cache_miss_fixed,
+                cache_mismatch_fixed_total=result.cache_mismatch_fixed,
+                expiry_missing_fixed_total=result.expiry_missing_fixed,
+                fix_failures_total=result.fix_failed,
+                last_team_id=teams[-1].id,
             )
 
         last_id = teams[-1].id
@@ -321,7 +330,9 @@ def _fix_and_record(
         log_kwargs["diff_fields"] = verification["diff_fields"]
     if "diff_flags" in verification:
         log_kwargs["diff_flags"] = verification["diff_flags"]
-    logger.info("Fixing cache entry", **log_kwargs)
+    if result.fix_detail_info_logs_emitted < MAX_FIX_DETAIL_INFO_LOGS:
+        logger.info("Fixing cache entry", **log_kwargs)
+        result.fix_detail_info_logs_emitted += 1
 
     try:
         # Use preloaded db_data if available to avoid redundant DB query
