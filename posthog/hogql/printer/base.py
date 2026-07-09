@@ -47,15 +47,6 @@ def get_channel_definition_dict():
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
-def get_geoip_city_postal_dict():
-    """Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): the ip_trie dictionary backing the lookupGeoip* functions.
-
-    The dictionary maps an IP to GeoLite2 `city_name` / `postal_code` and was created manually on the cloud clusters
-    for the incident backfill — it is not part of any migration, so the functions only work where it exists.
-    """
-    return f"{django_settings.CLICKHOUSE_DATABASE}.city_postal_ip_trie"
-
-
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     expr_type = expr.type
     while isinstance(expr_type, ast.FieldAliasType):

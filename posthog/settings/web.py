@@ -554,6 +554,9 @@ SPECTACULAR_SETTINGS = {
         # AgentRevision.state (model ChoiceField) and RevisionNotDraftError.state (the
         # bundle-edit 409 body) share one choice set — pin them to a single named enum.
         "AgentRevisionStateEnum": ["draft", "ready", "live", "archived"],
+        # Tracing's span-filter `type` and attribute-breakdown `breakdownType` share one
+        # choice set (top-level column vs span attribute vs resource attribute).
+        "SpanPropertyTypeEnum": ["span", "span_attribute", "span_resource_attribute"],
         "CustomPropertyDisplayTypeEnum": [
             "text",
             "number",
@@ -571,7 +574,7 @@ SPECTACULAR_SETTINGS = {
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
         "ExperimentTypeEnum": ["web", "product", None],
-        "ExperimentStatusEnum": ["draft", "running", "paused", "stopped"],
+        "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
         # Two `sync_frequency` ChoiceFields with different member sets: warehouse-source schemas
         # accept sub-15min cadences, while saved-query (view) materialization floors at 15min.
         # Pin both to stable names so neither gets a component-prefixed auto-name on collision.
@@ -643,6 +646,7 @@ SPECTACULAR_SETTINGS = {
             "log",
             "log_attribute",
             "log_resource_attribute",
+            "metric_attribute",
             "span",
             "span_attribute",
             "span_resource_attribute",

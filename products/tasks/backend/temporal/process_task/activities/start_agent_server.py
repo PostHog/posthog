@@ -299,6 +299,7 @@ def _invoke_start_agent_server(
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
+            rtk_enabled=ctx.rtk_enabled,
         )
 
         # Mark startup-time token issuance so follow-ups within the next

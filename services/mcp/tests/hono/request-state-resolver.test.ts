@@ -57,6 +57,7 @@ vi.mock('@/hono/request-context', () => {
                         getAiConsentGiven: vi.fn(async () => undefined),
                         getOrFetchGroupTypes: vi.fn(async () => undefined),
                         getEnvironmentPrompt: vi.fn(async () => undefined),
+                        getAvailableFeatures: vi.fn(async () => undefined),
                     },
                 })),
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
@@ -142,18 +143,41 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     it('uses cached session client props when request client detection would resolve differently', async () => {
-        await makeResolver().resolve(makeProps())
+        // Cursor pins tools mode at initialize; a later request self-reporting a
+        // cli-defaulting client must not downgrade the session out of tools mode.
+        await makeResolver().resolve(makeProps({ mcpClientName: 'cursor' }))
 
-        const props = makeProps({ mcpClientName: 'Claude Desktop' })
+        const props = makeProps({ mcpClientName: 'claude-code' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+        expect(props.mcpClientName).toBe('claude-code')
+        expect(result.requestContext.mcpClientName).toBe('claude-code')
+        expect(result.sessionContext?.mcpClientName).toBe('cursor')
+        expect(result.clientProfile.clientName).toBe('cursor')
+    })
+
+    it('auto-selects tools mode from the ChatGPT user-agent', async () => {
+        // ChatGPT's clientInfo.name is generic; the surface only shows up in the
+        // User-Agent. Guards the `userAgent: props.clientUserAgent` profile plumbing.
+        const props = makeProps({ mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' })
+        const result = await makeResolver().resolve(props)
+
+        expect(result.useSingleExec).toBe(false)
+        expect(props.mode).toBe('tools')
+    })
+
+    it('defaults to cli mode when no client hints are present', async () => {
+        const props = makeProps({
+            mcpClientName: undefined,
+            mcpClientVersion: undefined,
+            mcpProtocolVersion: undefined,
+        })
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
         expect(props.mode).toBe('cli')
-        expect(props.mcpClientName).toBe('Claude Desktop')
-        expect(result.requestContext.mcpClientName).toBe('Claude Desktop')
-        expect(result.sessionContext?.mcpClientName).toBe('claude-code')
-        expect(result.clientProfile.clientName).toBe('claude-code')
-        expect(result.clientProfile.isCliModeEnabled()).toBe(true)
     })
 
     it('uses cached session client props for instruction capabilities without overwriting request props', async () => {

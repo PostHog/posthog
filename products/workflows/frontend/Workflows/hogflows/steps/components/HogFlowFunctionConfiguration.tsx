@@ -24,6 +24,7 @@ export function HogFlowFunctionConfiguration({
     mappings,
     setMappings,
     errors,
+    warnings,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -31,6 +32,7 @@ export function HogFlowFunctionConfiguration({
     setInputs: (inputs: Record<string, CyclotronJobInputType>) => void
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
+    warnings?: Record<string, string>
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -129,6 +131,7 @@ export function HogFlowFunctionConfiguration({
         <>
             <CyclotronJobInputs
                 errors={errors}
+                warnings={warnings}
                 configuration={{
                     inputs: inputs as Record<string, CyclotronJobInputType>,
                     inputs_schema: template?.inputs_schema ?? [],

@@ -152,5 +152,5 @@ LLM/Hog jobs that can silently break.
 
 Not a standalone metric — a correlate. When the cost, latency, eval, or tool lens flags a
 change, check `llma-prompt-list` for a version bump (`updated_at` / `version`) in the same
-window. A prompt change is a more direct cause than a generic `activity-log-list` deploy
+window. A prompt change is a more direct cause than a generic `advanced-activity-logs-list` deploy
 and sharpens the finding.

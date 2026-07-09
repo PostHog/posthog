@@ -503,6 +503,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The leading
+            # "pg_readonly:" prefix and trailing docs URL are volatile; "cluster is read-only" is stable.
+            "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly",
+        ],
+    )
+    def test_read_only_cluster_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Read-only cluster error should be non-retryable: {error_msg}"
+
+    def test_read_only_cluster_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "pg_readonly: invalid statement because cluster is read-only. See planetscale.com/docs/postgres/troubleshooting/readonly"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Read-only cluster error should surface an actionable message"
+        assert "read-only mode" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)). The request size
             # and memory-context name are volatile; the "out of memory" text is stable.
             'out of memory DETAIL:  Failed on request of size 12 in memory context "MessageContext".',
