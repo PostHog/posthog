@@ -3,6 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { McpInstallationScope } from '../mcpStoreLogic'
@@ -22,6 +24,15 @@ export function AddCustomServerForm(): JSX.Element {
     const { addCustomServerModalVisible, customServerForm, isCustomServerFormSubmitting, customServerFormPrefilled } =
         useValues(mcpStoreLogic)
     const { setCustomServerFormValue, closeAddCustomServerModal } = useActions(mcpStoreLogic)
+
+    // Shared servers expose the installer's credential to every project member and all
+    // autonomous agents, so creating one is admin-only (enforced again on the backend).
+    // Members see shared servers in the list but can only add personal ones.
+    const sharedRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const canAddShared = !sharedRestrictionReason
 
     const title = customServerFormPrefilled ? `Connect ${customServerForm.name}` : 'Add MCP server'
     const subtitle = customServerFormPrefilled
@@ -62,11 +73,16 @@ export function AddCustomServerForm(): JSX.Element {
                 <LemonField
                     name="scope"
                     label="Visibility"
-                    help="Shared servers are available to all project members and autonomous agents."
+                    help={
+                        canAddShared
+                            ? 'Shared servers are available to all project members and autonomous agents.'
+                            : 'Only project admins can add shared servers.'
+                    }
                 >
                     <LemonSelect
                         onChange={(val) => setCustomServerFormValue('scope', val)}
-                        options={SCOPE_OPTIONS}
+                        options={canAddShared ? SCOPE_OPTIONS : [SCOPE_OPTIONS[0]]}
+                        disabledReason={canAddShared ? undefined : sharedRestrictionReason}
                         fullWidth
                     />
                 </LemonField>

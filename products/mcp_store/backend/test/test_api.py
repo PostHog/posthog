@@ -1641,8 +1641,16 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
 
         assert response.status_code == 200
 
+    def _make_admin(self, user=None) -> None:
+        from posthog.models import OrganizationMembership
+
+        membership = (user or self.user).organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
     @ALLOW_URL
     def test_install_custom_shared(self, _mock) -> None:
+        self._make_admin()
         response = self.client.post(
             self._api_url("install_custom/"),
             data={
@@ -1652,6 +1660,56 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
                 "api_key": "key123",
                 "scope": "shared",
             },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "shared"
+
+    @ALLOW_URL
+    def test_install_custom_shared_requires_admin(self, _mock) -> None:
+        # self.user is a MEMBER by default; shared creation must be admin-gated.
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Shared Custom",
+                "url": "https://mcp.member-shared.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPServerInstallation.objects.filter(
+            url="https://mcp.member-shared.example.com/mcp", scope="shared"
+        ).exists()
+
+    def test_install_template_shared_requires_admin(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Admin Gate Template",
+            url="https://mcp.admin-gate.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "k", "scope": "shared"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not MCPServerInstallation.objects.filter(url=template.url, scope="shared").exists()
+
+    def test_install_template_shared_allowed_for_admin(self) -> None:
+        self._make_admin()
+        template = MCPServerTemplate.objects.create(
+            name="Admin OK Template",
+            url="https://mcp.admin-ok.example.com/mcp",
+            auth_type="api_key",
+            is_active=True,
+        )
+        response = self.client.post(
+            self._api_url("install_template/"),
+            data={"template_id": str(template.id), "api_key": "k", "scope": "shared"},
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -1707,6 +1765,8 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
     def test_non_owner_cannot_hijack_shared_via_install_template(self) -> None:
         from posthog.models import User
 
+        # Admin so the request clears the admin gate and exercises the owner guard.
+        self._make_admin()
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         template = MCPServerTemplate.objects.create(
             name="Shared Template",
@@ -1736,6 +1796,8 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
     def test_non_owner_cannot_hijack_shared_via_install_custom_oauth(self, mock_discover, _allow) -> None:
         from posthog.models import User
 
+        # Admin so the request clears the admin gate and exercises the owner guard.
+        self._make_admin()
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         shared = self._create_installation(
             user=other,
