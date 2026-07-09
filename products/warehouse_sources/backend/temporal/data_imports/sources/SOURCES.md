@@ -549,6 +549,7 @@ doesn't conflict with concurrent PRs.
 - hoorayhr
 - hubplanner
 - hugging_face
+- humanitix
 - hyperspell
 - ikas
 - illumina_basespace
