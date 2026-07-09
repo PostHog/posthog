@@ -74,6 +74,14 @@ def get_batch_audience_count(
     number of dedupe groups (unique emails, plus one group per email-less person).
     Mirrors get_batch_audience_person_ids so the preview matches the actual audience.
     """
+    # Defence-in-depth against a new dedupe key slipping past the endpoint's allowlist:
+    # if we ever add another supported key, this raise forces the caller to teach this
+    # function about it too, rather than silently returning the email-deduped count.
+    if dedupe_key == EMAIL_DEDUPE_KEY:
+        group_expr = _email_dedupe_group_expr()
+    else:
+        raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
+
     cleaned_filter = replace_proxy_properties(team, filters)
 
     where_exprs: list[ast.Expr] = [
@@ -86,7 +94,7 @@ def get_batch_audience_count(
     ]
 
     select_query = ast.SelectQuery(
-        select=[ast.Call(name="count", distinct=True, args=[_email_dedupe_group_expr()])],
+        select=[ast.Call(name="count", distinct=True, args=[group_expr])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
     )

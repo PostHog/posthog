@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -47,6 +48,13 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
 
         assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
+
+    def test_count_rejects_unsupported_dedupe_key(self):
+        # Defence-in-depth: the endpoint's serializer allowlist is the primary gate, but this
+        # raise forces a future maintainer adding a new supported key to teach the count
+        # function about it too, rather than silently returning email-deduped counts.
+        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
+            get_batch_audience_count(self.team, FILTERS, dedupe_key="sms")
 
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
