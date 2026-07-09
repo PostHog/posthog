@@ -97,37 +97,6 @@ export function WorkflowsHealthHeader({
 
             <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                 <HealthKpi
-                    label="Workflows"
-                    value={
-                        truncated ? (
-                            <Tooltip
-                                title={`Showing the top ${summary.workflowCount} workflows by run count. Total runs, CI cost, and the verdict cover these only; lower-volume workflows aren't included.`}
-                            >
-                                <span>{summary.workflowCount.toLocaleString()}+</span>
-                            </Tooltip>
-                        ) : (
-                            summary.workflowCount.toLocaleString()
-                        )
-                    }
-                />
-                <HealthKpi
-                    label="Failing now"
-                    value={summary.failingNow.toLocaleString()}
-                    danger={summary.failingNow > 0}
-                />
-                <HealthKpi
-                    label="Run pass rate"
-                    value={
-                        summary.passRate != null ? (
-                            <Tooltip title="Passes ÷ completed runs across all workflows, weighted by run volume, so busier workflows count for more.">
-                                <span>{percent(summary.passRate)}</span>
-                            </Tooltip>
-                        ) : (
-                            '—'
-                        )
-                    }
-                />
-                <HealthKpi
                     label="Re-runs"
                     value={
                         <Tooltip title="Runs with attempt > 1 in the window. Frequent re-runs usually point to flaky checks.">
