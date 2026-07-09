@@ -3,6 +3,7 @@ from uuid import uuid4
 
 import unittest
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
@@ -10,6 +11,7 @@ from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redsh
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
+from products.data_warehouse.backend.direct_redshift import DIRECT_REDSHIFT_URL_PATTERN
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
@@ -40,7 +42,7 @@ class TestDirectRedshiftQuery(APIBaseTest):
             format="Parquet",
             team=self.team,
             external_data_source=source,
-            url_pattern="",
+            url_pattern=DIRECT_REDSHIFT_URL_PATTERN,
             columns=columns
             or {
                 "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
@@ -142,6 +144,35 @@ class TestDirectRedshiftQuery(APIBaseTest):
         sql, _context = executor.generate_clickhouse_sql()
 
         self.assertRegex(sql, r"\)\s*UNION ALL\s*\(")
+
+    def test_raw_query_result_row_cap(self):
+        # A raw passthrough SELECT with no LIMIT must not load an unbounded result set into
+        # memory; the adapter reads cap+1 rows and errors when the cap is exceeded.
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        cursor = MagicMock()
+        cursor.description = [MagicMock(name="id")]
+        cursor.fetchmany.return_value = [(i,) for i in range(4)]
+        connection = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        implementation = MagicMock()
+        implementation.connect.return_value.__enter__.return_value = connection
+
+        with patch("posthog.hogql.direct_sql.redshift_adapter.DIRECT_REDSHIFT_MAX_ROWS", 3):
+            with patch(
+                "posthog.hogql.direct_sql.redshift_adapter.RedshiftAdapter.validate_source_config",
+                return_value=(implementation, MagicMock()),
+            ):
+                with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
+                    with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
+                        executor.execute()
 
 
 class TestEnsureReadOnlyRawRedshiftStatement(unittest.TestCase):

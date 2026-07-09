@@ -6,7 +6,7 @@ from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.direct_query_metrics import observe_direct_query
+from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.postgres_adapter import postgres_error_to_message, postgres_oid_to_clickhouse_type
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
@@ -23,7 +23,27 @@ if TYPE_CHECKING:
     )
 
 DIRECT_REDSHIFT_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+# Hard backstop against loading an unbounded result set into memory — guards a raw passthrough
+# `SELECT * FROM huge_table` with no LIMIT. HogQL-authored queries already carry a LIMIT from
+# the printer.
+DIRECT_REDSHIFT_MAX_ROWS = 1_000_000
+DIRECT_REDSHIFT_ROW_CAP_ERROR = (
+    f"Redshift query returned more than {DIRECT_REDSHIFT_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
 RAW_REDSHIFT_READ_ONLY_ERROR = "Raw Redshift queries must be read-only SELECT statements."
+
+
+def _fetch_capped_redshift_rows(cursor: psycopg.Cursor) -> list:
+    """Fetch up to the row cap, raising if the result would exceed it.
+
+    Reads one row past the cap so the limit can be enforced without materializing the entire
+    result set first.
+    """
+    rows = cursor.fetchmany(DIRECT_REDSHIFT_MAX_ROWS + 1)
+    if len(rows) > DIRECT_REDSHIFT_MAX_ROWS:
+        DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="redshift").inc()
+        raise ExposedHogQLError(DIRECT_REDSHIFT_ROW_CAP_ERROR)
+    return list(rows)
 
 
 def ensure_read_only_raw_redshift_statement(sql: str) -> str:
@@ -59,9 +79,8 @@ class RedshiftAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["RedshiftImplementation", "RedshiftSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import RedshiftSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 
         if not source.is_direct_redshift:
             raise ExposedHogQLError("Invalid direct Redshift connection.")
@@ -103,19 +122,21 @@ class RedshiftAdapter:
                 # `connect` opens the SSH tunnel (if any) and applies the shared Redshift SSL
                 # conventions in one place.
                 with redshift_implementation.connect(source_config) as connection:
-                    # statement_timeout is a Redshift-settable parameter (milliseconds). The value is
-                    # a validated int, so inlining it is injection-safe.
-                    connection.execute(f"SET statement_timeout TO {int(statement_timeout_ms)}")
+                    # One round trip for the session setup: statement_timeout is a validated int
+                    # (milliseconds) so inlining it is injection-safe, and the search_path
+                    # identifier is escaped. Multi-statement execute is fine with no parameters.
+                    session_setup = f"SET statement_timeout TO {statement_timeout_ms}"
                     if isinstance(source_schema, str) and source_schema.strip():
-                        connection.execute(f"SET search_path TO {escape_postgres_identifier(source_schema.strip())}")
+                        session_setup += f"; SET search_path TO {escape_postgres_identifier(source_schema.strip())}"
+                    connection.execute(session_setup)
                     with connection.cursor() as cursor:
                         cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
                             request.sql, request.values or None
                         )
                         # Utility statements (SET, etc.) leave cursor.description as None; treat them
-                        # as an empty result instead of raising on fetchall(), mirroring Postgres.
+                        # as an empty result instead of raising on fetch, mirroring Postgres.
                         description = cursor.description or []
-                        results = cursor.fetchall() if description else []
+                        results = _fetch_capped_redshift_rows(cursor) if description else []
         except (psycopg.Error, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
