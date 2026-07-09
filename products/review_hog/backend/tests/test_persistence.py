@@ -84,11 +84,11 @@ class TestUpsertReviewReport(BaseTest):
         report_id_1 = upsert_review_report(
             team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
         )
-        finalize_review_report(team_id=self.team.id, report_id=report_id_1, body_markdown="# report")
+        finalize_review_report(team_id=self.team.id, report_id=report_id_1, body_markdown="# report", run_index=1)
         report_id_2 = upsert_review_report(
             team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
         )
-        finalize_review_report(team_id=self.team.id, report_id=report_id_2, body_markdown="# report")
+        finalize_review_report(team_id=self.team.id, report_id=report_id_2, body_markdown="# report", run_index=2)
 
         assert report_id_1 == report_id_2
         reports = ReviewReport.objects.for_team(self.team.id).filter(repository="o/r", pr_number=123)
@@ -97,6 +97,17 @@ class TestUpsertReviewReport(BaseTest):
         assert report.run_count == 2
         assert report.report_markdown == "# report"
         assert report.status == ReviewReport.Status.IDLE
+
+    def test_finalize_is_idempotent_within_a_turn(self) -> None:
+        # build_body_activity retries on worker crash after its finalize committed: the retry must
+        # not double-bump run_count, or run_index != run_count and every latest-turn reader (list
+        # counts, publish, prior-findings scoping) points one turn ahead of the real findings.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+
+        finalize_review_report(team_id=self.team.id, report_id=report_id, body_markdown="# report", run_index=1)
+        finalize_review_report(team_id=self.team.id, report_id=report_id, body_markdown="# report", run_index=1)
+
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).run_count == 1
 
     def test_branch_target_upserts_by_head_branch_and_upgrades_to_pr(self) -> None:
         # A PR-less branch target keys by head_branch (pr_number NULL); the first fetch that finds a

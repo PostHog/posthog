@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, QuerySet
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
@@ -565,11 +565,17 @@ def load_prior_findings_with_verdicts(
     return pairs
 
 
-def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) -> None:
-    """Mark the turn complete: store the rendered review body, bump `run_count`, stamp `last_run_at`."""
-    ReviewReport.objects.for_team(team_id).filter(id=report_id).update(
+def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str, run_index: int) -> None:
+    """Mark the turn complete: store the rendered review body, bump `run_count`, stamp `last_run_at`.
+
+    Idempotent per turn: the update is conditioned on `run_count == run_index - 1` (the turn's fixed
+    starting watermark), so an activity retry whose first attempt already committed matches nothing —
+    a blind `F("run_count") + 1` would double-bump and break the `run_index == run_count` invariant
+    every latest-turn reader relies on.
+    """
+    ReviewReport.objects.for_team(team_id).filter(id=report_id, run_count=run_index - 1).update(
         report_markdown=body_markdown,
-        run_count=F("run_count") + 1,
+        run_count=run_index,
         last_run_at=timezone.now(),
         status=ReviewReport.Status.IDLE,
     )
