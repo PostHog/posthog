@@ -12,8 +12,10 @@ from posthog.rbac.user_access_control import resource_to_display_name
 if TYPE_CHECKING:
     from posthog.schema import AccessControlFilterWarning
 
+    from posthog.scopes import APIScopeObject
 
-def build_access_control_warning(resources: Iterable[str]) -> Optional["AccessControlFilterWarning"]:
+
+def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optional["AccessControlFilterWarning"]:
     """Turn the restricted resources a query referenced into the single user-facing warning.
 
     We can't tell whether rows were actually excluded — the guard is pushed into SQL, so the DB never
@@ -28,7 +30,7 @@ def build_access_control_warning(resources: Iterable[str]) -> Optional["AccessCo
         return None
     display_names = humanize.natural_list([resource_to_display_name(r) for r in sorted_resources])
     return AccessControlFilterWarning(
-        resources=sorted_resources,
+        resources=[str(r) for r in sorted_resources],
         message=f"Results may exclude {display_names} you don't have access to",
     )
 

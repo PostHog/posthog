@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
+    from posthog.scopes import APIScopeObject
 
 
 def _default_modifiers() -> "HogQLQueryModifiers":
@@ -97,7 +98,7 @@ class HogQLContext:
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards
     # and system.dashboard_tiles both scope "dashboard"). Turned into a single AccessControlFilterWarning
     # on the response by build_access_control_warning.
-    access_control_restricted_resources: set[str] = field(default_factory=set)
+    access_control_restricted_resources: set["APIScopeObject"] = field(default_factory=set)
 
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
