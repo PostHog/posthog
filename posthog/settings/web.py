@@ -1090,16 +1090,3 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
     )
 ]
-
-# Teams whose PATHS precompute reads also dual-write into the colocated
-# `web_stats_paths_preaggregated_pathkey` table so its read layout can be
-# A/B-compared (PR #64948). Deliberately narrow — only the named teams pay the
-# extra mirror write — and defaults to the Cloud dogfooding team (project 2)
-# only, same as the precompute lists above. Temporary; removed once the
-# comparison concludes.
-WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS: list[int] = [
-    int(team_id)
-    for team_id in get_list(
-        get_from_env("WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
-    )
-]

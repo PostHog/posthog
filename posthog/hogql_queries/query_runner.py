@@ -1887,7 +1887,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # pydantic validation on the extra key (and poison the cache, which set_cache_data has
             # already written by the time CachedResponse(**dict) raises).
             if warnings_accumulator and "warnings" in CachedResponse.model_fields:
-                fresh_response_dict["warnings"] = [w.model_dump() for w in warnings_accumulator.values()]
+                # The accumulator is authoritative for sync warnings (it collects across every inner
+                # execution), but the shared warnings field also carries other kinds — e.g. access
+                # control warnings attached by HogQLQueryExecutor — which must survive the replace.
+                other_warnings = [
+                    w
+                    for w in (fresh_response_dict.get("warnings") or [])
+                    if (w.get("type") if isinstance(w, dict) else getattr(w, "type", None)) != "warehouse_sync"
+                ]
+                fresh_response_dict["warnings"] = [
+                    w.model_dump() for w in warnings_accumulator.values()
+                ] + other_warnings
 
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)

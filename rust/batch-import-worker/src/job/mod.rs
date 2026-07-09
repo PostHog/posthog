@@ -638,10 +638,13 @@ impl Job {
                         display_msg,
                     } => {
                         // Source-side pause: a human intervenes and may fix the
-                        // source file in place, so sweep staged data — the resume
-                        // must re-download a clean copy, never attach to a stale one.
-                        if let Err(cleanup_err) = self.source.cleanup_after_job().await {
-                            warn!("Failed to cleanup after job: {:?}", cleanup_err);
+                        // source data in place, so the resume must re-download a
+                        // clean copy, never attach to a stale staged one. Staged
+                        // sources quarantine (rather than delete) the staged bytes,
+                        // since they are the exact stream the failing offset points
+                        // into — the evidence for debugging the parse failure.
+                        if let Err(cleanup_err) = self.source.cleanup_after_data_error().await {
+                            warn!("Failed to cleanup after data error: {:?}", cleanup_err);
                         }
                         let mut model = self.model.lock().await;
                         error!(
