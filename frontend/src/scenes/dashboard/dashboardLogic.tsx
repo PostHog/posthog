@@ -3263,9 +3263,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
-    beforeUnload(({ values, actions }) => ({
+    beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            if (values.dashboardMode !== DashboardMode.Edit || !values.hasUnsavedLayoutChanges) {
+            // kea-router's preventUnload retains this callback and can invoke it during
+            // navigation after this keyed logic has already unmounted. Reading values off
+            // an unmounted logic throws "Can not find path ... in the store", so bail early.
+            if (!logic.isMounted()) {
+                return false
+            }
+            if (logic.values.dashboardMode !== DashboardMode.Edit || !logic.values.hasUnsavedLayoutChanges) {
                 return false
             }
             // Ignore in-page navigations such as opening a side panel
@@ -3276,7 +3282,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
         onConfirm: () => {
-            actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 
