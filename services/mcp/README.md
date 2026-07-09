@@ -266,7 +266,9 @@ The example above exposes all flag tools plus `dashboard-get`.
 
 ### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
+The MCP server can register either every PostHog tool individually (**tools** mode) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode).
+**cli is the default for all clients.**
+When the caller does not pin a mode, the server only auto-selects tools mode for a short allow-list of clients that are better served by the full per-tool roster — currently Cursor (matched by its self-reported client name) and ChatGPT (matched by its `openai-mcp … (ChatGPT)` User-Agent).
 
 You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
 
@@ -285,7 +287,8 @@ x-posthog-mcp-mode: tools
 | `tools` | Force tools mode (one MCP tool per PostHog tool).       |
 | `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
-The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+The header wins when both the header and the query parameter are set.
+An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
 ### Consumer attribution
 
