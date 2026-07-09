@@ -119,6 +119,7 @@ the row lists both.
 | clockify                | HTTP                        | requests                                                        | ✅                          |
 | clockodo                | HTTP                        | requests                                                        | ✅                          |
 | close                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| cloudbeds               | HTTP                        | requests                                                        | ✅                          |
 | convertkit              | HTTP                        | requests                                                        | ✅                          |
 | convex                  | HTTP                        | requests                                                        | ✅                          |
 | copper                  | HTTP                        | requests                                                        | ✅                          |
@@ -476,6 +477,7 @@ doesn't conflict with concurrent PRs.
 - clarifai
 - clazar
 - cloudbeds
+- coassemble
 - cockroachdb
 - cody
 - constant_contact
