@@ -3,8 +3,10 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest, BaseTest
 
 from django.contrib.admin.sites import AdminSite
-from django.contrib.messages.storage.fallback import FallbackStorage
-from django.contrib.sessions.backends.db import SessionStore
+from django.contrib.messages import get_messages
+from django.contrib.messages.middleware import MessageMiddleware
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.http import HttpResponse
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -107,6 +109,7 @@ class TestBatchImportModel(BaseTest):
 
         self.assertEqual(reset_key, expected_reset_key)
         batch_import.refresh_from_db()
+        assert batch_import.state is not None
         self.assertEqual(batch_import.state["parts"], expected_parts)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
@@ -121,6 +124,7 @@ class TestBatchImportModel(BaseTest):
         batch_import.resume_after_pause()
 
         batch_import.refresh_from_db()
+        assert batch_import.state is not None
         self.assertEqual(batch_import.state["parts"], self.MIXED_PROGRESS_PARTS)
         self.assertEqual(batch_import.status, BatchImport.Status.RUNNING)
         self.assertIsNone(batch_import.lease_id)
@@ -145,6 +149,7 @@ class TestBatchImportModel(BaseTest):
             getattr(batch_import, method)()
 
         batch_import.refresh_from_db()
+        assert batch_import.state is not None
         self.assertEqual(batch_import.status, status)
         self.assertEqual(batch_import.state["parts"][1]["current_offset"], 8999445)
         self.assertEqual(batch_import.lease_id, "worker-lease")
@@ -376,8 +381,8 @@ class TestBatchImportConfigBuilder(BaseTest):
 class TestBatchImportAdminActions(BaseTest):
     def _request_with_messages(self):
         request = RequestFactory().post("/")
-        request.session = SessionStore()
-        request._messages = FallbackStorage(request)
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        MessageMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user
         return request
 
@@ -404,6 +409,8 @@ class TestBatchImportAdminActions(BaseTest):
 
         paused.refresh_from_db()
         running.refresh_from_db()
+        assert paused.state is not None
+        assert running.state is not None
         self.assertEqual(paused.status, BatchImport.Status.RUNNING)
         self.assertIsNone(paused.lease_id)
         if action_name == "resume_with_inflight_part_reset":
@@ -412,7 +419,7 @@ class TestBatchImportAdminActions(BaseTest):
             self.assertEqual(paused.state["parts"][0]["current_offset"], 42)
         self.assertEqual(running.state["parts"][0]["current_offset"], 42)
 
-        levels = sorted(m.level_tag for m in request._messages)
+        levels = sorted(m.level_tag for m in get_messages(request))
         self.assertEqual(levels, ["success", "warning"])
 
 
