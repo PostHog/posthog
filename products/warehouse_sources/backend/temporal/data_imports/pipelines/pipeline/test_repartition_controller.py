@@ -410,3 +410,37 @@ class TestRepartitionActivity:
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0
+
+    @pytest.mark.parametrize("primitive_error", [ValueError("boom"), RepartitionUnpartitionableError("no keys")])
+    def test_transient_db_error_during_failure_handling_is_swallowed(self, team, primitive_error):
+        # The post-failure bookkeeping (refresh_from_db + flag writes) itself touches the app DB. A pooler
+        # drop there must be swallowed as transient, not escape and fail the activity — otherwise a
+        # repartition failure fails the workflow, breaking the module's core guarantee. Covers both the
+        # generic-failure path (_handle_failure) and the unpartitionable branch.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=primitive_error)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+            patch.object(
+                ExternalDataSchema, "refresh_from_db", side_effect=OperationalError("server closed the connection")
+            ),
+        ):
+            # Must not raise — the transient DB drop during failure handling is swallowed.
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        assert "warehouse_repartition_skipped" not in emitted
+        schema.refresh_from_db()
+        assert schema.repartition_pending is not None
+        assert schema.repartition_pending["attempts"] == 0
