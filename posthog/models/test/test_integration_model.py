@@ -470,6 +470,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "client_secret": "hubspot-client-secret",
                 "refresh_token": "REFRESH",
             },
+            timeout=10,
         )
 
         assert integration.config["expires_in"] == 1000
