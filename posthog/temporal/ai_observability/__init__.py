@@ -51,6 +51,12 @@ from posthog.temporal.ai_observability.run_tagger import (
     execute_tagger_activity,
     fetch_tagger_activity,
 )
+from posthog.temporal.ai_observability.run_trace_evaluation import (
+    RunTraceEvaluationWorkflow,
+    emit_trace_evaluation_event_activity,
+    execute_trace_hog_eval_activity,
+    execute_trace_llm_judge_activity,
+)
 from posthog.temporal.ai_observability.shared_activities import (
     fetch_all_clustering_filters_activity,
     fetch_all_clustering_jobs_activity,
@@ -76,6 +82,7 @@ from products.signals.backend.temporal.emit_eval_signal import emit_eval_signal_
 
 EVAL_WORKFLOWS = [
     RunEvaluationWorkflow,
+    RunTraceEvaluationWorkflow,
 ]
 
 EVAL_ACTIVITIES = [
@@ -88,7 +95,10 @@ EVAL_ACTIVITIES = [
     execute_llm_judge_activity,
     execute_hog_eval_activity,
     execute_sentiment_eval_activity,
+    execute_trace_llm_judge_activity,
+    execute_trace_hog_eval_activity,
     emit_evaluation_event_activity,
+    emit_trace_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
 ]

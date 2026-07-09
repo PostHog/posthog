@@ -93,6 +93,11 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // A request aborted by us (superseded query, unmount, manual cancel) is not a
+                // failure — don't toast, log, or report it.
+                if (error?.name === 'AbortError') {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions
@@ -115,12 +120,30 @@ export function initKea({
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
+                    // Reword the default raw-seconds throttle detail via Retry-After; keep custom messages.
+                    if (
+                        error.status === 429 &&
+                        typeof errorMessage === 'string' &&
+                        errorMessage.startsWith('Request was throttled')
+                    ) {
+                        errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
+                    }
                     if (isTwoFactorError || isSensitiveActionError) {
                         errorMessage = null
                     }
                     if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
+                }
+                // Cooperative cancellation (an aborted fetch, or a query superseded via
+                // `abortController.abort('new query started')` as in the logs/tracing data
+                // logics) is expected control flow, not a failure worth logging or reporting.
+                const isCancellation =
+                    error?.name === 'AbortError' ||
+                    error === 'new query started' ||
+                    error?.message === 'new query started'
+                if (isCancellation) {
+                    return
                 }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })

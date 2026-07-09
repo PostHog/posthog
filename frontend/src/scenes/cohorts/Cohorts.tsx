@@ -3,9 +3,10 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -37,6 +38,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -307,7 +310,7 @@ export function Cohorts(): JSX.Element {
                 isEmpty={shouldShowEmptyState}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
-                customHog={ListHog}
+                customHog={HedgehogGreek}
                 mcpSurfaceKey="cohorts.create"
             />
 

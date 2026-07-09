@@ -5,12 +5,14 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import httpx_sse
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
@@ -415,6 +417,80 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
+    async def test_permission_request_dispatches_to_broker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        permission_event = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "perm-1",
+                    "options": [{"kind": "allow_once", "optionId": "allow"}],
+                    "toolCall": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                },
+            },
+        }
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+        task_run = SimpleNamespace(id="run-id")
+        dispatch_mock = MagicMock()
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(permission_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def fake_to_thread(func, *args):
+            func(*args)
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(relay_sandbox_events_module, "_broker_permission_request", dispatch_mock)
+
+        await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        redis_stream.write_event.assert_any_await(permission_event)
+        dispatch_mock.assert_called_once_with(
+            task_run,
+            {
+                "request_id": "perm-1",
+                "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                "tool_name": "Bash",
+                "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
+            },
+        )
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
     async def test_terminal_run_marks_stream_complete_on_late_relay_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -603,7 +679,7 @@ class TestRelaySandboxEventsErrorHandling:
             fake_mark_error_unless_run_is_terminal,
         )
 
-        with pytest.raises(RuntimeError, match="relay error"):
+        with pytest.raises(ApplicationError, match="relay error") as exc_info:
             await relay_sandbox_events(
                 RelaySandboxEventsInput(
                     run_id="run-id",
@@ -615,6 +691,10 @@ class TestRelaySandboxEventsErrorHandling:
                 )
             )
 
+        # An error sentinel was written to the stream, so the failure must be
+        # non-retryable — a retried attempt would append events past the
+        # sentinel that disconnected consumers never see.
+        assert exc_info.value.non_retryable is True
         redis_stream.mark_complete.assert_not_awaited()
         redis_stream.mark_error.assert_awaited_once_with("relay error")
 

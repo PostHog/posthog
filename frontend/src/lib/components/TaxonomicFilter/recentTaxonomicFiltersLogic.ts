@@ -21,6 +21,7 @@ export const RECENT_FILTER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 const EXCLUDED_RECENT_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     ...META_GROUP_TYPES,
     TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseSourceTables,
     TaxonomicFilterGroupType.DataWarehouseProperties,
     TaxonomicFilterGroupType.DataWarehousePersonProperties,
 ])

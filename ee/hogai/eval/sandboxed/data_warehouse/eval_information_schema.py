@@ -3,9 +3,8 @@
 Each eval seeds a per-case team with hundreds of synthetic warehouse tables,
 data-modeling views, and join relationships (``seed_warehouse_schema``), then grades
 whether the agent uses ``system.information_schema`` to navigate the catalog at scale.
-The ``mcp-sql-schema-discovery`` flag is forced on in the harness, so discovery runs
-through ``execute-sql`` against ``system.information_schema.*`` and the dedicated
-``read-data-warehouse-schema`` tool is gated off.
+Schema discovery runs through ``execute-sql`` against ``system.information_schema.*``;
+there is no dedicated schema tool.
 
 The cases are split into one eval function per capability so each Braintrust
 experiment reports a clean, homogeneous scorecard (a single shared scorer list mixed

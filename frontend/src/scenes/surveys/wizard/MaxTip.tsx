@@ -1,65 +1,83 @@
-import { useState } from 'react'
+import { ComponentType, useState } from 'react'
 
-import { DetectiveHog, MicrophoneHog, ProfessorHog, StarHog } from 'lib/components/hedgehogs'
+import * as einsteinPng from '@posthog/brand/hoggies/png/einstein'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
+
+import { pngHoggie } from 'lib/brand/hoggies'
+import { StarHog } from 'lib/components/hedgehogs'
 
 import { WizardStep } from './surveyWizardLogic'
 
+const HedgehogEinstein = pngHoggie(einsteinPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogReporter = pngHoggie(reporterPng)
+
 interface Tip {
     text: string
-    Hog: typeof MicrophoneHog
+    Hog: ComponentType<{ className?: string }>
 }
 
 // Tips focused on increasing survey completion rates
 const TIPS_BY_STEP: Record<WizardStep, Tip[]> = {
     template: [
         { text: 'NPS is best for measuring overall loyalty. Use it quarterly for meaningful trends.', Hog: StarHog },
-        { text: 'CSAT works great after specific interactions — support, purchase, feature use.', Hog: ProfessorHog },
+        {
+            text: 'CSAT works great after specific interactions — support, purchase, feature use.',
+            Hog: HedgehogEinstein,
+        },
         {
             text: 'PMF surveys help identify your most valuable users and understand your market fit.',
-            Hog: DetectiveHog,
+            Hog: HedgehogMagnifyingGlass,
         },
     ],
     questions: [
         {
             text: 'Shorter surveys get more completions. Every extra question is a chance for someone to drop off.',
-            Hog: ProfessorHog,
+            Hog: HedgehogEinstein,
         },
         { text: 'Lead with your most important question — some users only answer the first one.', Hog: StarHog },
         {
             text: 'Rating scales are easier to answer than open text. Save open-ended questions for the end.',
-            Hog: MicrophoneHog,
+            Hog: HedgehogReporter,
         },
         {
             text: 'Make your first question dead simple. Save harder questions for engaged respondents.',
-            Hog: ProfessorHog,
+            Hog: HedgehogEinstein,
         },
         { text: 'Be specific: "How was checkout?" beats "How was your experience?"', Hog: StarHog },
-        { text: 'Every field is friction. Only ask what you truly need to know.', Hog: DetectiveHog },
+        { text: 'Every field is friction. Only ask what you truly need to know.', Hog: HedgehogMagnifyingGlass },
     ],
     where: [
         { text: 'Surveys work best after someone takes an action — signup, purchase, feature use.', Hog: StarHog },
-        { text: "Landing pages are usually too early. Users haven't formed opinions yet.", Hog: DetectiveHog },
-        { text: 'Returning visitors are more likely to respond than first-time visitors.', Hog: ProfessorHog },
+        {
+            text: "Landing pages are usually too early. Users haven't formed opinions yet.",
+            Hog: HedgehogMagnifyingGlass,
+        },
+        { text: 'Returning visitors are more likely to respond than first-time visitors.', Hog: HedgehogEinstein },
         {
             text: 'Exit-intent surveys on pricing pages can capture valuable "why not buy" feedback.',
-            Hog: DetectiveHog,
+            Hog: HedgehogMagnifyingGlass,
         },
         { text: 'Show NPS surveys after users have experienced value, not immediately after signup.', Hog: StarHog },
         {
             text: 'Dashboard and settings pages catch users who are already engaged with your product.',
-            Hog: MicrophoneHog,
+            Hog: HedgehogReporter,
         },
     ],
     when: [
         {
             text: 'Give users a moment to orient before showing a survey. Immediate popups get dismissed reflexively.',
-            Hog: ProfessorHog,
+            Hog: HedgehogEinstein,
         },
         { text: 'Trigger after success moments — completed tasks, achieved goals, resolved issues.', Hog: StarHog },
-        { text: 'Avoid interrupting active workflows. Survey during natural pauses instead.', Hog: DetectiveHog },
+        {
+            text: 'Avoid interrupting active workflows. Survey during natural pauses instead.',
+            Hog: HedgehogMagnifyingGlass,
+        },
         {
             text: 'Event-based triggers tend to catch users at better moments than time-based ones.',
-            Hog: MicrophoneHog,
+            Hog: HedgehogReporter,
         },
         {
             text: 'Good trigger moments: after purchase, finishing onboarding, or resolving a support ticket.',
@@ -67,7 +85,7 @@ const TIPS_BY_STEP: Record<WizardStep, Tip[]> = {
         },
         {
             text: "Don't survey the same person too often. Quality drops when users feel over-surveyed.",
-            Hog: ProfessorHog,
+            Hog: HedgehogEinstein,
         },
     ],
     appearance: [
@@ -77,11 +95,11 @@ const TIPS_BY_STEP: Record<WizardStep, Tip[]> = {
         },
         {
             text: 'Dark themes work great for developer tools and evening products. Light themes feel friendlier.',
-            Hog: ProfessorHog,
+            Hog: HedgehogEinstein,
         },
         {
             text: 'High contrast between buttons and background makes the next action obvious.',
-            Hog: DetectiveHog,
+            Hog: HedgehogMagnifyingGlass,
         },
     ],
     success: [],

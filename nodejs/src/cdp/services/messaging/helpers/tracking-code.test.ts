@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { EmailTrackingCodeSigner } from './tracking-code'
+import { EmailTrackingCodeSigner, hasEmailSigningKey, trackingCodeMintCounter } from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -275,11 +275,50 @@ describe('email tracking code', () => {
             expect(spacedSigner.parse(code)?.format).toBe('signed')
         })
 
-        it('emits unsigned codes when no signing key is configured', () => {
+        it('fails closed instead of minting an unsigned code when no signing key is configured', () => {
             const unsignedSigner = new EmailTrackingCodeSigner('', TRACKING_URL)
-            const code = unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })
-            expect(code).not.toContain('.')
-            expect(unsignedSigner.parse(code)?.format).toBe('unsigned')
+            expect(() => unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })).toThrow(
+                /no signing key configured/
+            )
+        })
+    })
+
+    describe('mint metric', () => {
+        const mintCount = async (format: string): Promise<number> => {
+            const metric = await trackingCodeMintCounter.get()
+            return metric.values.find((v) => v.labels.format === format)?.value ?? 0
+        }
+
+        it('counts a signed mint when a key is configured', async () => {
+            const before = await mintCount('signed')
+            new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, TRACKING_URL).generate({
+                functionId: 'fn',
+                id: 'inv',
+                teamId: 1,
+            })
+            expect(await mintCount('signed')).toBe(before + 1)
+        })
+
+        // Fail-closed still records the attempt before throwing, so a bypassed boot guard stays attributable.
+        it('records an unsigned mint before failing closed when no key is configured', async () => {
+            const before = await mintCount('unsigned')
+            expect(() =>
+                new EmailTrackingCodeSigner('', TRACKING_URL).generate({ functionId: 'fn', id: 'inv', teamId: 1 })
+            ).toThrow()
+            expect(await mintCount('unsigned')).toBe(before + 1)
+        })
+    })
+
+    describe('hasEmailSigningKey', () => {
+        // Guards the boot-time check: a whitespace/comma-only value must read as "no key" so a keyless
+        // email deployment refuses to start, while a real (possibly space-padded) key reads as present.
+        it.each([
+            { name: 'a configured key', keys: 'a-signing-key-000000000000000000', expected: true },
+            { name: 'a space-padded key in a rotation list', keys: 'first-key-0000, second-key-0000', expected: true },
+            { name: 'an empty string', keys: '', expected: false },
+            { name: 'whitespace and commas only', keys: '  , ', expected: false },
+        ])('is $expected for $name', ({ keys, expected }) => {
+            expect(hasEmailSigningKey(keys)).toBe(expected)
         })
     })
 })

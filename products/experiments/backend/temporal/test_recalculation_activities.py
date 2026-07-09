@@ -12,7 +12,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -756,20 +756,16 @@ class TestMissingRecalcRow:
 
 @contextmanager
 def _record_captures():
-    """Patch ph_scoped_capture so the analytics tests can assert the exact event name + properties
-    without standing up a real PostHog client. Yields the list of captured capture(...) kwargs."""
+    """Patch the global posthoganalytics client so the analytics tests can assert the exact event
+    name + properties without sending anything. Yields the list of captured capture(...) kwargs."""
     captured: list[dict] = []
 
     def _fake_capture(*args, **kwargs) -> None:
         captured.append(kwargs)
 
-    @contextmanager
-    def _fake_scoped():
-        yield _fake_capture
-
     with patch(
-        "products.experiments.backend.temporal.recalculation_logic.ph_scoped_capture",
-        _fake_scoped,
+        "products.experiments.backend.temporal.recalculation_logic.posthoganalytics.capture",
+        _fake_capture,
     ):
         yield captured
 
@@ -889,16 +885,19 @@ class TestRecalculationAnalytics(BaseTest):
         [
             ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
             ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
             ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout"),
             ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory"),
+            ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
+            ("ch_too_many_queries_code", ServerException("too many queries", code=202), "rate_limited"),
             ("other", RuntimeError("kaboom"), "server_error"),
         ]
     )
     def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type):
         # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
-        # with the client-side error_type taxonomy, so recalc failures land on the same dashboards.
-        # Covers both the wrapped exception classes and the raw ServerException code-lookup arm.
+        # with the shared backend error_type taxonomy — including byte_limit (307) and rate_limited (202),
+        # the two real failure modes that used to collapse into server_error and stay invisible.
         exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -915,6 +914,9 @@ class TestRecalculationAnalytics(BaseTest):
         props = captured[0]["properties"]
         assert props["error_type"] == expected_error_type
         assert props["execution_mode"] == "recalculation"
+        assert props["context"] == "ui"
+        assert props["mechanism"] == "orchestrated"
+        assert props["trigger"] == "manual"
 
     def test_results_refresh_completed_event_on_finish(self):
         exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])

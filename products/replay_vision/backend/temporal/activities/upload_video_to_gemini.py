@@ -14,6 +14,7 @@ from google.genai import (
 from temporalio import activity
 
 from posthog.storage import object_storage
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -32,6 +33,12 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 @track_activity()
 async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     """Read the asset's MP4 bytes, upload to Gemini, poll until ACTIVE, return the file reference."""
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    async with Heartbeater(factor=4):
+        return await _upload_video(inputs)
+
+
+async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     workflow_id = activity.info().workflow_id
     if workflow_id is None:
         raise ScannerFailureError("upload_video_to_gemini_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)

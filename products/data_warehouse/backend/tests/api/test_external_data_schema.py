@@ -24,8 +24,9 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.facade.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
 from products.warehouse_sources.backend.facade.models import (
@@ -1413,6 +1414,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
                 "incremental_field_last_value": 1000,
+                "incremental_field_earliest_value": 500,
             },
             table=table,
         )
@@ -1436,9 +1438,12 @@ class TestExternalDataSchema(APIBaseTest):
                 return_value=mock_hog_fn_result,
             ),
         ):
+            # The frontend sends null incremental fields alongside the switch — they must not
+            # wipe the cursor config, or the webhook initial sync degrades to an unbounded
+            # full-history scan with no durable watermark progress.
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-                data={"sync_type": "webhook"},
+                data={"sync_type": "webhook", "incremental_field": None, "incremental_field_type": None},
             )
 
             assert response.status_code == 200
@@ -1451,6 +1456,7 @@ class TestExternalDataSchema(APIBaseTest):
             assert schema.sync_type_config.get("incremental_field") == "created"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
             assert schema.sync_type_config.get("incremental_field_last_value") == 1000
+            assert schema.sync_type_config.get("incremental_field_earliest_value") == 500
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
@@ -2306,6 +2312,131 @@ class TestUpdateExternalDataSchema:
         assert schema.should_sync is False
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
+    def test_update_schema_exposes_direct_snowflake_table_without_sync_type(
+        self, team, user, client: HttpClient, temporal
+    ):
+        # Exercises the Snowflake reproject branch: a non-Postgres direct source must rebuild via the
+        # Snowflake helper (DIRECT_SNOWFLAKE_URL_PATTERN), not silently fall through to the MySQL one.
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "ANALYTICS"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="SALES.ACCOUNTS",
+            should_sync=False,
+            sync_type=None,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "ID", "data_type": "NUMBER", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_catalog": "ANALYTICS",
+                    "source_schema": "SALES",
+                    "source_table_name": "ACCOUNTS",
+                }
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": True,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            schema.refresh_from_db()
+            assert schema.should_sync is True
+            assert schema.table is not None
+            assert schema.table.deleted is False
+            assert schema.table.url_pattern == DIRECT_SNOWFLAKE_URL_PATTERN
+            mock_external_data_workflow_exists.assert_not_called()
+            mock_sync_external_data_job_workflow.assert_not_called()
+
+    def test_update_schema_hides_direct_snowflake_table_when_disabled(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "ANALYTICS"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="SALES.ACCOUNTS",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            url_pattern=DIRECT_SNOWFLAKE_URL_PATTERN,
+            external_data_source=source,
+            columns={"ID": {"clickhouse": "Int64", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="SALES.ACCOUNTS",
+            should_sync=True,
+            sync_type=None,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "ID", "data_type": "NUMBER", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": False,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
     def test_update_schema_cdc_with_blank_source_schema_uses_physical_schema_metadata(
         self, team, user, client: HttpClient, temporal
     ):
@@ -3054,17 +3185,15 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
     @parameterized.expand(
         [
-            # source_type, supports_column_selection_expected
+            # source_type, expected — column selection is available for every registered source
+            # (SQL projects in its SELECT, others drop before the Delta write) EXCEPT managed-schema
+            # sources (Stripe/Paddle/Zendesk), whose canonical HogQL schema needs the full column set.
             (ExternalDataSourceType.POSTGRES, True),
-            (ExternalDataSourceType.MYSQL, True),
-            (ExternalDataSourceType.MSSQL, True),
-            (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
-            (ExternalDataSourceType.REDSHIFT, True),
-            # ClickHouse isn't a SQLSource but opts into column selection.
             (ExternalDataSourceType.CLICKHOUSE, True),
-            # Non-SQL sources stay False
+            (ExternalDataSourceType.HUBSPOT, True),
             (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.ZENDESK, False),
         ]
     )
     def test_source_supports_column_selection_flag(self, source_type: ExternalDataSourceType, expected: bool):
@@ -3075,6 +3204,23 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["supports_column_selection"] is expected
+
+    def test_enabled_columns_rejected_for_managed_schema_source(self):
+        # Stripe/Paddle/Zendesk expose a fixed canonical HogQL schema; dropping a referenced
+        # column makes the s3() structure miss it and the query fails to resolve the field.
+        # Reject the selection at save so column selection can't corrupt those tables.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(name="Payout", team=self.team, source=source)
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["id", "status"]},
+        )
+        assert response.status_code == 400
+        assert "Column selection is not supported" in str(response.json())
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
@@ -3089,12 +3235,14 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            (ExternalDataSourceType.STRIPE, False),
-            (ExternalDataSourceType.POSTGRES, True),
+            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
+            (ExternalDataSourceType.STRIPE, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
     ):
         source, schema = self._create(source_type=source_type)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
@@ -3102,7 +3250,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
-        assert summary["supports_column_selection"] is expected_supports_column_selection
+        assert summary["supports_column_selection"] is expected_column_selection
+        assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
 
     def test_list_omits_source_summary(self):
@@ -3185,36 +3334,35 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["row_filters"] == filters
 
-    def test_unknown_column_rejected(self):
+    @parameterized.expand(
+        [
+            ("unknown_column", [{"column": "does_not_exist", "operator": ">", "value": 1}], "Unknown column"),
+            ("disallowed_operator", [{"column": "id", "operator": "LIKE", "value": 1}], None),
+            ("type_mismatch", [{"column": "id", "operator": ">", "value": "not-an-int"}], None),
+            ("bad_date_value", [{"column": "created_at", "operator": ">", "value": "nope"}], None),
+            ("unsupported_column_type", [{"column": "geom", "operator": "=", "value": "x"}], None),
+        ]
+    )
+    def test_invalid_row_filter_rejected(self, _name, row_filters, expected_message):
         schema = self._create()
-        response = self._patch(schema, [{"column": "does_not_exist", "operator": ">", "value": 1}])
+        response = self._patch(schema, row_filters)
         assert response.status_code == 400
-        assert "Unknown column" in str(response.json())
+        if expected_message:
+            assert expected_message in str(response.json())
 
-    def test_disallowed_operator_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": "LIKE", "value": 1}])
-        assert response.status_code == 400
-
-    def test_type_mismatch_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": ">", "value": "not-an-int"}])
-        assert response.status_code == 400
-
-    def test_bad_date_value_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "created_at", "operator": ">", "value": "nope"}])
-        assert response.status_code == 400
-
-    def test_unsupported_column_type_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
-        assert response.status_code == 400
-
-    def test_row_filters_rejected_for_direct_postgres_source(self):
+    @parameterized.expand(
+        [
+            ("postgres", ExternalDataSourceType.POSTGRES),
+            ("mysql", ExternalDataSourceType.MYSQL),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE),
+        ]
+    )
+    def test_row_filters_rejected_for_direct_query_sources(self, _name, source_type):
+        # No direct-query executor enforces row filters (they all read the table live), so accepting
+        # a filter for any direct engine would silently leave excluded rows visible.
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
@@ -3226,7 +3374,25 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         )
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
-        assert "not supported for direct Postgres" in str(response.json())
+        assert "not supported for direct-query sources" in str(response.json())
+
+    def test_row_filters_rejected_for_source_without_pushdown(self):
+        # Only sources that push filters into their query (SQL WHERE) honor them — accepting a
+        # filter for an API source would save it and then silently sync unfiltered rows.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={"schema_metadata": self.SCHEMA_METADATA},
+        )
+        response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
+        assert response.status_code == 400
+        assert "not supported for this source type" in str(response.json())
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

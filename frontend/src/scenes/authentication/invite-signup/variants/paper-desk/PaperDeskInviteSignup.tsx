@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { type ReactNode, useEffect } from 'react'
 
-import { PostHogLogo } from 'lib/brand/v2'
-import { JudgeHog } from 'lib/components/hedgehogs'
+import * as judgePng from '@posthog/brand/hoggies/png/judge'
+
+import { Logomark } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
@@ -29,6 +31,8 @@ import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite, SSOProvider } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
+
+const HedgehogJudge = pngHoggie(judgePng)
 
 /**
  * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
@@ -116,7 +120,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
                 <span className="PaperDesk__inviteHeader-mark inline-flex opacity-90">
-                    <PostHogLogo wordmark={false} className="h-7 w-auto" />
+                    <Logomark variant="gradient" size="md" />
                 </span>
             </div>
             <div className="text-center">
@@ -436,7 +440,7 @@ function InviteInvalid(): JSX.Element {
         <PaperDeskScene notes={['// hmm', "// this invite isn't right"]}>
             <PaperDeskCard footer={footer}>
                 <div className="flex flex-col items-center text-center">
-                    <JudgeHog className="block w-auto mx-auto h-28" />
+                    <HedgehogJudge className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         {titles[code]}
                     </h1>

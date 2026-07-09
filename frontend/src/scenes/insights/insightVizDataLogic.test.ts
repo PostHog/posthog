@@ -126,6 +126,55 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('clamps exclusion step ranges when a funnel step is removed', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'steps',
+                    exclusions: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$autocapture',
+                            event: '$autocapture',
+                            funnelFromStep: 0,
+                            funnelToStep: 2,
+                        },
+                    ],
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'steps',
+                            exclusions: [
+                                {
+                                    kind: NodeKind.EventsNode,
+                                    name: '$autocapture',
+                                    event: '$autocapture',
+                                    funnelFromStep: 0,
+                                    funnelToStep: 1,
+                                },
+                            ],
+                        },
+                        trendsFilter: {},
+                        version: 2,
+                    },
+                },
+            })
+        })
+
         it('clears a custom lifecycle aggregation target when switching away from a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
@@ -361,6 +410,88 @@ describe('insightVizDataLogic', () => {
                 explicitDate: false,
             })
         })
+
+        it('auto-selects quarter interval for >36-month range when flag is on', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({
+                    date_from: '2020-01-01',
+                    date_to: '2024-01-01',
+                    explicitDate: true,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: expect.objectContaining({
+                            interval: 'quarter',
+                        }),
+                    },
+                })
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
+            })
+        })
+
+        it('auto-selects month interval for >36-month range when flag is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
+            })
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({
+                    date_from: '2020-01-01',
+                    date_to: '2024-01-01',
+                    explicitDate: true,
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: expect.objectContaining({
+                            interval: 'month',
+                        }),
+                    },
+                })
+        })
+
+        it.each([
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', 'minute'],
+            // A bare same-day pair means "that whole day" and must stay hourly, not 1440 minute buckets
+            ['2024-06-10', '2024-06-10', 'hour'],
+            // A time-carrying range over 12 hours must not go sub-hour
+            ['2024-06-10 08:00:00', '2024-06-11 20:00:00', 'hour'],
+            ['2024-06-01', '2024-07-15', 'day'],
+        ])('auto-adjusts interval for absolute range %s..%s to %s', async (dateFrom, dateTo, expectedInterval) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
+    })
+
+    describe('zoomDateRange', () => {
+        it.each([
+            ['2024-06-10', '2024-06-12', false],
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', true],
+        ])('zooms %s..%s with explicitDate=%s', async (dateFrom, dateTo, explicitDate) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.zoomDateRange(dateFrom, dateTo)
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.dateRange).toEqual({
+                date_from: dateFrom,
+                date_to: dateTo,
+                explicitDate,
+            })
+        })
     })
 
     describe('updateBreakdownFilter', () => {
@@ -584,7 +715,30 @@ describe('insightVizDataLogic', () => {
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
+                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
                 },
+            })
+        })
+
+        it('unhides quarter and year when the flag is enabled', () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
+            })
+
+            expect(builtInsightVizDataLogic.values.enabledIntervals.quarter).toEqual({
+                label: 'quarter',
+                newDateFrom: '-3y',
+                hidden: false,
+            })
+            expect(builtInsightVizDataLogic.values.enabledIntervals.year).toEqual({
+                label: 'year',
+                newDateFrom: '-5y',
+                hidden: false,
+            })
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
             })
         })
 
@@ -620,7 +774,42 @@ describe('insightVizDataLogic', () => {
                             'Grouping by month is not supported on insights with weekly active users series.',
                     },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: {
+                        label: 'quarter',
+                        newDateFrom: '-3y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by quarter is not supported on insights with weekly active users series.',
+                    },
+                    year: {
+                        label: 'year',
+                        newDateFrom: '-5y',
+                        hidden: true,
+                        disabledReason:
+                            'Grouping by year is not supported on insights with weekly active users series.',
+                    },
                 },
+            })
+        })
+
+        it('snaps interval to week when switching series to WAU on a quarter-grouped query', () => {
+            builtInsightVizDataLogic.actions.updateQuerySource({
+                interval: 'quarter',
+            } as Partial<TrendsQuery>)
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ interval: 'week' }),
             })
         })
 

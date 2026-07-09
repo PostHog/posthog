@@ -215,7 +215,7 @@ class SearchErrorTrackingIssuesTool(MaxTool):
 
         try:
             utc_now = timezone.now().astimezone(UTC)
-            executor = AssistantQueryExecutor(self._team, utc_now)
+            executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
             query_results = await executor.aexecute_query(query)
         except MaxToolRetryableError:
             raise

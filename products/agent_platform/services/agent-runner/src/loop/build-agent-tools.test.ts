@@ -15,6 +15,7 @@ import {
     S3BundleStore,
     ToolRefSchema,
     wipeTestPrefix,
+    writeToolSourceAndSchema,
 } from '@posthog/agent-shared'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
@@ -211,7 +212,16 @@ describe('buildAgentTools', () => {
         const rev = makeRev(
             [],
             [],
-            [{ id: 'posthog', url: 'https://x/mcp', secrets: [], auth: { provider: 'posthog' } }]
+            [
+                {
+                    kind: 'principal',
+                    id: 'posthog',
+                    url: 'https://x/mcp',
+                    secrets: [],
+                    default_tool_approval: 'allow',
+                    auth: { provider: 'posthog' },
+                },
+            ]
         )
         const built = await buildAgentTools(rev, makeDeps(rev))
         expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
@@ -340,26 +350,38 @@ describe('buildAgentTools', () => {
         await expect(byId(built, 'fetch-acme').execute('c1', {})).rejects.toThrow(/requires a sandbox/)
     })
 
-    it('custom tool description + parameters load from schema.json in the bundle', async () => {
+    it('custom tool parameters survive the writeToolSourceAndSchema → loadCustomSchema round-trip', async () => {
+        // Author through the real writer (typed-bundle.ts writeToolSourceAndSchema)
+        // rather than a hand-written fixture — the janitor's typed pipeline is the
+        // sole production writer of schema.json and writes `{ description, args_schema }`,
+        // so the runner reads that key and nothing else.
         const bundle = makeBundle()
-        await bundle.write(
-            'rev1',
-            'tools/fetch-acme/schema.json',
-            JSON.stringify({
-                description: 'Fetch from Acme',
-                args: { type: 'object', properties: { name: { type: 'string' } } },
-            })
-        )
-        const rev = makeRev([{ kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' }])
+        await writeToolSourceAndSchema('rev1', bundle, {
+            id: 'add-numbers',
+            description: 'Add two numbers',
+            args_schema: { type: 'object', properties: { n: { type: 'number' } }, required: ['n'] },
+            source: '// source',
+        })
+        const rev = makeRev([{ kind: 'custom', id: 'add-numbers', path: 'tools/add-numbers/' }])
         const built = await buildAgentTools(rev, makeDeps(rev, { bundle }))
-        const tool = byId(built, 'fetch-acme')
-        expect(tool.description).toBe('Fetch from Acme')
-        expect(tool.parameters).toEqual({ type: 'object', properties: { name: { type: 'string' } } })
+        const tool = byId(built, 'add-numbers')
+        expect(tool.description).toBe('Add two numbers')
+        expect(tool.parameters).toEqual({
+            type: 'object',
+            properties: { n: { type: 'number' } },
+            required: ['n'],
+        })
     })
 
     describe('mcp tools', () => {
         it('emits one AgentTool per remote tool, name-prefixed with the client prefix', async () => {
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },
                 'list-issues': { description: 'List recent Linear issues.', handler: async () => ({}) },
@@ -371,16 +393,16 @@ describe('buildAgentTools', () => {
             expect(names).toContain('linear__list-issues')
         })
 
-        it('filters remote tools through ref.tools[] bare-string entries (empty/omitted = expose all)', async () => {
-            // Post-PR-7: bare-string entries in `tools[]` preserve the old
-            // `allowlist[]` inclusion semantics. Object-form entries also
-            // count toward inclusion via their `name` field — covered in the
-            // approval-wrap suite (commit B).
+        it('exposes only the tools the author allows (default deny + per-tool allow = allowlist)', async () => {
+            // A curated allowlist in the single model: deny everything by
+            // default, allow the named tools.
             const ref: McpRef = {
+                kind: 'agent',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
-                tools: ['list-issues'],
+                default_tool_approval: 'deny',
+                tools: [{ name: 'list-issues', level: 'allow' }],
             }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },
@@ -393,8 +415,40 @@ describe('buildAgentTools', () => {
             expect(names).not.toContain('linear__create-issue')
         })
 
+        it('exposes connection tools purely by the agent config — installation owner marks are not enforced', async () => {
+            // The agent's per-tool config / default_tool_approval is the sole
+            // authority. The shared installation's owner marks (needs_approval /
+            // do_not_use) are no longer plumbed into the runtime, so an `allow`
+            // default exposes every tool ungated regardless of what the owner set.
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'incident',
+                url: 'https://example.com/incident',
+                connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                default_tool_approval: 'allow',
+                secrets: [],
+            }
+            const mcp = makeFakeMcp('incident', ref, {
+                'list-incidents': { description: 'List incidents.', handler: async () => ({}) },
+                'create-incident': { description: 'Open an incident.', handler: async () => ({}) },
+                'delete-incident': { description: 'Delete an incident.', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            const names = built.tools.map((t) => t.label)
+            expect(names).toContain('incident__list-incidents')
+            expect(names).toContain('incident__create-incident')
+            expect(names).toContain('incident__delete-incident')
+        })
+
         it('execute dispatches through the open client and surfaces structured output', async () => {
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': {
                     description: 'Open a new Linear issue.',
@@ -414,7 +468,13 @@ describe('buildAgentTools', () => {
         })
 
         it('execute throws when the remote returns isError so the loop renders an error tool_result', async () => {
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': {
                     description: 'Open a new Linear issue.',
@@ -433,7 +493,13 @@ describe('buildAgentTools', () => {
             // `create-issue` would collapse to the same exposed id. We keep
             // the first one (the custom tool) and silently skip the duplicate
             // — matches the dup-id semantics of spec.tools[].
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a Linear issue.', handler: async () => ({}) },
             })
@@ -452,14 +518,18 @@ describe('buildAgentTools', () => {
 
         it('walks multiple opened clients and surfaces all their tools', async () => {
             const linearRef: McpRef = {
+                kind: 'agent',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
+                default_tool_approval: 'allow',
             }
             const githubRef: McpRef = {
+                kind: 'agent',
                 id: 'github',
                 url: 'https://example.com/github',
                 secrets: [],
+                default_tool_approval: 'allow',
             }
             const linear = makeFakeMcp('linear', linearRef, {
                 'create-issue': { description: 'd', handler: async () => ({}) },
@@ -475,7 +545,13 @@ describe('buildAgentTools', () => {
         })
 
         it('keeps the provider-safe name map keyed by the prefixed id', async () => {
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'd', handler: async () => ({}) },
             })
@@ -491,7 +567,13 @@ describe('buildAgentTools', () => {
             // Without the wrapping, an SDK-internal error string would surface
             // as the session-failure reason — making it hard to attribute the
             // outage to a specific MCP at triage time.
-            const ref: McpRef = { id: 'flaky', url: 'https://example.com/flaky', secrets: [] }
+            const ref: McpRef = {
+                kind: 'agent',
+                id: 'flaky',
+                url: 'https://example.com/flaky',
+                secrets: [],
+                default_tool_approval: 'allow',
+            }
             const brokenClient: OpenedMcp = {
                 prefix: 'flaky',
                 ref,

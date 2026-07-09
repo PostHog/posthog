@@ -35,10 +35,9 @@ export interface _CompareFilterApi {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  */
-export type _SpanPropertyFilterTypeEnumApi =
-    (typeof _SpanPropertyFilterTypeEnumApi)[keyof typeof _SpanPropertyFilterTypeEnumApi]
+export type SpanPropertyTypeEnumApi = (typeof SpanPropertyTypeEnumApi)[keyof typeof SpanPropertyTypeEnumApi]
 
-export const _SpanPropertyFilterTypeEnumApi = {
+export const SpanPropertyTypeEnumApi = {
     Span: 'span',
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
@@ -80,7 +79,7 @@ export interface _SpanPropertyFilterApi {
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    type: _SpanPropertyFilterTypeEnumApi
+    type: SpanPropertyTypeEnumApi
     /** Comparison operator.
      *
      * * `exact` - exact
@@ -115,17 +114,6 @@ export interface _TracingAggregationRequestApi {
 }
 
 /**
- * * `span_attribute` - span_attribute
- * * `span_resource_attribute` - span_resource_attribute
- */
-export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
-
-export const BreakdownTypeEnumApi = {
-    SpanAttribute: 'span_attribute',
-    SpanResourceAttribute: 'span_resource_attribute',
-} as const
-
-/**
  * * `count` - count
  * * `error_count` - error_count
  */
@@ -138,13 +126,16 @@ export const _TracingAttributeBreakdownQueryBodyOrderByEnumApi = {
 } as const
 
 export interface _TracingAttributeBreakdownQueryBodyApi {
-    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+    /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. For the "span" breakdown type, must be one of the allowlisted top-level columns: "service_name", "status_code". */
     breakdownKey: string
-    /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+    /** Where the key lives: "span" for allowlisted top-level span columns, "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
      *
+     * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute */
-    breakdownType: BreakdownTypeEnumApi
+    breakdownType: SpanPropertyTypeEnumApi
+    /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
+    excludeBreakdownFilter?: boolean
     /** Order rows by span count or error count, descending. Defaults to count.
      *
      * * `count` - count
@@ -223,7 +214,7 @@ export interface _TracingCountResponseApi {
     traceCount: number
 }
 
-export interface _TracingTimeseriesQueryBodyApi {
+export interface _TracingDurationHistogramQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
@@ -232,11 +223,13 @@ export interface _TracingTimeseriesQueryBodyApi {
     statusCodes?: number[]
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
+    rootSpans?: boolean
 }
 
-export interface _TracingTimeseriesRequestApi {
-    /** The sparkline / duration-histogram query to execute. */
-    query: _TracingTimeseriesQueryBodyApi
+export interface _TracingDurationHistogramRequestApi {
+    /** The duration-histogram query to execute. */
+    query: _TracingDurationHistogramQueryBodyApi
 }
 
 export interface _HasSpansResponseApi {
@@ -310,6 +303,24 @@ export interface _TracingQueryBodyApi {
 export interface _TracingQueryRequestApi {
     /** The tracing spans query to execute. */
     query: _TracingQueryBodyApi
+}
+
+export interface _TracingSparklineQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+    /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+    rootSpans?: boolean
+}
+
+export interface _TracingSparklineRequestApi {
+    /** The sparkline query to execute. */
+    query: _TracingSparklineQueryBodyApi
 }
 
 export interface _SymbolStatsSymbolApi {
@@ -467,6 +478,118 @@ export interface _TracingTreeRequestApi {
     query: _TracingTreeQueryBodyApi
 }
 
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+/**
+ * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+ */
+export type TracingViewApiFilters = { [key: string]: unknown }
+
+export interface TracingViewApi {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * Human-readable name shown in the saved views list.
+     * @maxLength 400
+     */
+    name: string
+    /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+    filters?: TracingViewApiFilters
+    /** Whether the view is pinned for quick access. */
+    pinned?: boolean
+    readonly created_at: string
+    /** User who created the view. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedTracingViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TracingViewApi[]
+}
+
+/**
+ * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+ */
+export type PatchedTracingViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedTracingViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * Human-readable name shown in the saved views list.
+     * @maxLength 400
+     */
+    name?: string
+    /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+    filters?: PatchedTracingViewApiFilters
+    /** Whether the view is pinned for quick access. */
+    pinned?: boolean
+    readonly created_at?: string
+    /** User who created the view. */
+    readonly created_by?: UserBasicApi | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
@@ -560,3 +683,14 @@ export const TracingSpansValuesRetrieveAttributeType = {
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
 } as const
+
+export type TracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}

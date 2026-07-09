@@ -501,6 +501,13 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
+# Socket timeouts for the central Redis clients (posthog/redis.py). The connect timeout is kept
+# small so a dead node fails fast. The read timeout must comfortably exceed the largest server-side
+# blocking window on the central client, which is a 15s XREAD BLOCK (notebooks collab_stream);
+# 20s leaves margin so blocking stream reads never spuriously time out.
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 3.0, type_cast=float)
+REDIS_SOCKET_TIMEOUT_SECONDS: float = get_from_env("REDIS_SOCKET_TIMEOUT_SECONDS", 20.0, type_cast=float)
+
 # Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
 # The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
@@ -532,6 +539,8 @@ if not CDP_API_URL:
 # internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
 # running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
 # cause a spurious mismatch; get_list already strips the fallbacks.
+# Do not add new callers or protected endpoints to this shared secret — mint a scoped JWT (see
+# RECORDING_API_JWT_SECRET) or add a dedicated per-purpose secret. See .agents/security.md.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
 INTERNAL_API_SECRET = get_from_env(
     "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
@@ -665,7 +674,10 @@ if TEST:
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)
-MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", False, type_cast=str_to_bool)
+# Default on in TEST: the schema-introspection query behind materialized-column lookups otherwise runs
+# hundreds of times per suite, and the test cache backend is process-local (LocMem) with all column
+# mutations invalidating the key (see ee/clickhouse/materialized_columns/columns.py).
+MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CACHE", TEST, type_cast=str_to_bool)
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)

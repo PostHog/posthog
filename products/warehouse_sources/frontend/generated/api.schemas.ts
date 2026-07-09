@@ -116,6 +116,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -256,6 +257,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -722,6 +724,7 @@ export const CreatedViaEnumApi = {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1023,6 +1026,43 @@ export const CreatedViaEnumApi = {
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
  * * `Baserow` - Baserow
+ * * `Plunk` - Plunk
+ * * `Dub` - Dub
+ * * `AirOps` - AirOps
+ * * `Podium` - Podium
+ * * `Loops` - Loops
+ * * `Redis` - Redis
+ * * `Mercury` - Mercury
+ * * `Gojiberry` - Gojiberry
+ * * `Teachable` - Teachable
+ * * `PeecAI` - PeecAI
+ * * `Healthchecks` - Healthchecks
+ * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1376,6 +1416,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
@@ -1677,6 +1718,43 @@ export const ExternalDataSourceTypeEnumApi = {
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
     Baserow: 'Baserow',
+    Plunk: 'Plunk',
+    Dub: 'Dub',
+    AirOps: 'AirOps',
+    Podium: 'Podium',
+    Loops: 'Loops',
+    Redis: 'Redis',
+    Mercury: 'Mercury',
+    Gojiberry: 'Gojiberry',
+    Teachable: 'Teachable',
+    PeecAI: 'PeecAI',
+    Healthchecks: 'Healthchecks',
+    Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
 } as const
 
 /**
@@ -1694,6 +1772,7 @@ export const AccessMethodEnumApi = {
  * * `duckdb` - duckdb
  * * `postgres` - postgres
  * * `mysql` - mysql
+ * * `snowflake` - snowflake
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1701,6 +1780,7 @@ export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
     Mysql: 'mysql',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1747,7 +1827,8 @@ export interface ExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2129,6 +2210,7 @@ export interface ExternalDataSourceCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -2429,7 +2511,44 @@ export interface ExternalDataSourceCreateApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -2499,7 +2618,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2614,7 +2734,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
 }
 
@@ -2992,6 +3113,7 @@ export interface DatabaseSchemaRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3292,7 +3414,44 @@ export interface DatabaseSchemaRequestApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -3697,6 +3856,7 @@ export interface SourcePreviewRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3997,7 +4157,44 @@ export interface SourcePreviewRequestApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -4390,6 +4587,7 @@ export interface SourceSetupApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -4690,7 +4888,44 @@ export interface SourceSetupApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -5090,6 +5325,7 @@ export interface SourceCredentialCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -5390,7 +5626,44 @@ export interface SourceCredentialCreateApi {
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
      * * `AppLovin` - AppLovin
-     * * `Baserow` - Baserow */
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -5484,6 +5757,11 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRepairCdcCreate200 = {
+    success?: boolean
+    schemas_reset?: number
+}
+
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
     valid?: boolean
     errors?: string[]
@@ -5518,6 +5796,13 @@ export type ExternalDataSourcesStoredCredentialsListParams = {
     search?: string
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string
+}
+
+export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string
 }
