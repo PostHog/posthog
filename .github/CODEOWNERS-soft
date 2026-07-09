@@ -275,8 +275,6 @@ docs/published/handbook/engineering/developing-locally.md @PostHog/team-devex
 frontend/src/scenes/insights/ @PostHog/team-product-analytics
 frontend/src/scenes/trends/ @PostHog/team-product-analytics
 frontend/src/scenes/funnels/ @PostHog/team-product-analytics
-# The journeys flow graph is a Customer analytics surface (products/customer_analytics), not product analytics
-frontend/src/scenes/funnels/FunnelFlowGraph/ @PostHog/team-web-analytics
 frontend/src/scenes/retention/ @PostHog/team-product-analytics
 frontend/src/scenes/paths/ @PostHog/team-product-analytics
 frontend/src/scenes/paths-v2/ @PostHog/team-product-analytics
