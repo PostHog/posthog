@@ -448,6 +448,30 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
+        assert "POSTHOG_RTK=1" in command
+
+    @pytest.mark.parametrize(
+        "rtk_enabled, expected_env",
+        [
+            (True, "POSTHOG_RTK=1"),
+            (False, "POSTHOG_RTK=0"),
+        ],
+    )
+    def test_start_agent_server_rtk_env(self, mock_sandbox: Any, rtk_enabled, expected_env):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            rtk_enabled=rtk_enabled,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert expected_env in command
 
     @pytest.mark.parametrize(
         "keep_stream_open, expected_env_present",

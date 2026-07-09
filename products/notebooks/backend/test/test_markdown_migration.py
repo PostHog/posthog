@@ -214,6 +214,60 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "> ! **Heads** and *note*" in markdown
         assert "[https://app.posthog.com/cohorts/37958](https://app.posthog.com/cohorts/37958)" in markdown
 
+    def test_splits_embedded_cards_and_headings_out_of_blockquotes_and_callouts(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "blockquote",
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Quoted context"}]},
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "query": {"kind": "SavedInsightNode", "shortId": "abc123"},
+                                "hideFilters": True,
+                            },
+                        },
+                        {
+                            "type": "blockquote",
+                            "content": [
+                                {
+                                    "type": "heading",
+                                    "attrs": {"level": 2},
+                                    "content": [{"type": "text", "text": "Where to improve"}],
+                                },
+                                {"type": "ph-python", "attrs": {"code": "print(1)", "hideFilters": True}},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "type": "callout",
+                    "attrs": {"emoji": "!"},
+                    "content": [
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Watch this"}]},
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "query": {"kind": "SavedInsightNode", "shortId": "abc123"},
+                                "hideFilters": True,
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert "> Quoted context" in markdown
+        assert "\n\n<Query " in markdown
+        assert "\n\n## Where to improve" in markdown
+        assert "\n\n<Python " in markdown
+        assert "> ! Watch this" in markdown
+        assert "> <" not in markdown
+
 
 class TestNotebookMarkdownMigration(BaseTest):
     def test_stats_count_all_notebooks_for_optional_team_scope(self) -> None:

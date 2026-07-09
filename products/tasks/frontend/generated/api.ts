@@ -14,6 +14,7 @@ import type {
     CodeInviteRedeemRequestApi,
     ConnectionTokenResponseApi,
     PaginatedChannelDTOListApi,
+    PaginatedSandboxCustomImageDTOListApi,
     PaginatedSandboxEnvironmentDTOListApi,
     PaginatedTaskAutomationDTOListApi,
     PaginatedTaskDetailDTOListApi,
@@ -28,6 +29,10 @@ import type {
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
     RepositoryReadinessResponseApi,
+    SandboxCustomImageBuildApi,
+    SandboxCustomImageDTOApi,
+    SandboxCustomImageWriteApi,
+    SandboxCustomImagesListParams,
     SandboxEnvironmentDTOApi,
     SandboxEnvironmentWriteApi,
     SandboxListParams,
@@ -55,6 +60,11 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunLivingArtifactCreateRequestApi,
+    TaskRunLivingArtifactEditRequestApi,
+    TaskRunLivingArtifactOpenResponseApi,
+    TaskRunLivingArtifactResponseApi,
+    TaskRunLivingArtifactsResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -110,6 +120,140 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+export const getSandboxCustomImagesListUrl = (projectId: string, params?: SandboxCustomImagesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_custom_images/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_custom_images/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesList = async (
+    projectId: string,
+    params?: SandboxCustomImagesListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxCustomImageDTOListApi> => {
+    return apiMutator<PaginatedSandboxCustomImageDTOListApi>(getSandboxCustomImagesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/`
+}
+
+/**
+ * Create a draft custom image and start its interactive image-builder agent task. The returned builder_task_id points at the conversation.
+ */
+export const sandboxCustomImagesCreate = async (
+    projectId: string,
+    sandboxCustomImageWriteApi: SandboxCustomImageWriteApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxCustomImageWriteApi),
+    })
+}
+
+export const getSandboxCustomImagesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxCustomImagesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/`
+}
+
+/**
+ * API for custom sandbox base images, built on top of the VM sandbox base via an image-builder agent.
+ *
+ * Custom images only run on the Modal VM runtime, so every action is gated on the
+ * `tasks-modal-vm-sandbox` flag (org-enabled with `user_created` in its origin_products payload).
+ */
+export const sandboxCustomImagesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSandboxCustomImagesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSandboxCustomImagesBuildCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/build/`
+}
+
+/**
+ * Persist the image spec (from the request body or the builder agent's sandbox), run the security scan, and on pass build and publish the image.
+ */
+export const sandboxCustomImagesBuildCreate = async (
+    projectId: string,
+    id: string,
+    sandboxCustomImageBuildApi?: SandboxCustomImageBuildApi,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesBuildCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxCustomImageBuildApi),
+    })
+}
+
+export const getSandboxCustomImagesBuilderTaskCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_custom_images/${id}/builder_task/`
+}
+
+/**
+ * Revive (or reuse) the image's builder agent session. When the previous session has ended, a fresh one is started seeded with the stored spec — use this to update an existing image.
+ */
+export const sandboxCustomImagesBuilderTaskCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxCustomImageDTOApi> => {
+    return apiMutator<SandboxCustomImageDTOApi>(getSandboxCustomImagesBuilderTaskCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -1168,6 +1312,106 @@ export const tasksRunsStreamTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsLivingArtifactsListUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/`
+}
+
+/**
+ * Returns stable, versioned artifact handles created by the run's task.
+ * @summary List living artifacts for a task run
+ */
+export const tasksRunsLivingArtifactsList = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactsResponseApi[]> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi[]>(
+        getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/`
+}
+
+/**
+ * Create a stable, editable artifact handle from direct markdown/text content or an existing run artifact. Slack adapters deliver into the mapped Slack thread; document artifacts use external connector storage when available.
+ * @summary Create a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsCreate = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    taskRunLivingArtifactCreateRequestApi: TaskRunLivingArtifactCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsCreateUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactCreateRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsOpenUrl = (projectId: string, taskId: string, runId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/`
+}
+
+/**
+ * Return a stable living artifact handle and the current content when the adapter supports reads.
+ * @summary Open a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsOpen = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactOpenResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactOpenResponseApi>(
+        getTasksRunsLivingArtifactsOpenUrl(projectId, taskId, runId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsEditUrl = (projectId: string, taskId: string, runId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/edit/`
+}
+
+/**
+ * Commit a new version to an existing living artifact handle.
+ * @summary Edit a living artifact for a task run
+ */
+export const tasksRunsLivingArtifactsEdit = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    taskRunLivingArtifactEditRequestApi?: TaskRunLivingArtifactEditRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsEditUrl(projectId, taskId, runId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
+        }
+    )
 }
 
 export const getTasksThreadMessagesListUrl = (

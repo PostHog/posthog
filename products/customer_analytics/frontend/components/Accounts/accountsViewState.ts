@@ -40,8 +40,8 @@ export function normalizeRoleFilter(value: unknown): RoleFilterValue {
 }
 
 // Sort persists as a single `["<column> <ASC|DESC>"]` entry using the LOGICAL
-// column name (e.g. `csm`); `deriveAccountsOrderByExpr` re-derives the tuple
-// expression at query-build time.
+// column name (e.g. `csm`) — HogQL resolves it against the SELECT alias at
+// query-build time.
 export function sortOrderToOrderBy(sortOrder: AccountSortOrder): string[] {
     if (!sortOrder) {
         return []

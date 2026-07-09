@@ -253,6 +253,7 @@ const visionScannersObservationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/observations/`,
             query: {
+                labeled: params.labeled,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
