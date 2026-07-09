@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Tag
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
@@ -34,6 +35,7 @@ def _zd_ticket(
     created_at: str = "2020-01-02T03:04:05Z",
     updated_at: str = "2020-01-03T04:05:06Z",
     recipient: str | None = None,
+    tags: list[str] | None = None,
 ) -> dict[str, Any]:
     ticket: dict[str, Any] = {
         "id": tid,
@@ -46,6 +48,8 @@ def _zd_ticket(
     }
     if recipient is not None:
         ticket["recipient"] = recipient
+    if tags is not None:
+        ticket["tags"] = tags
     return ticket
 
 
@@ -332,6 +336,30 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(existing.email_config_id, default.id)
         new_ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=402)
         self.assertEqual(new_ticket.email_config_id, default.id)
+
+    def test_import_applies_zendesk_tags(self) -> None:
+        # Zendesk tags must land as team-scoped Tag rows linked via TaggedItem: normalized
+        # like the live tagging API (lowercase/strip, empties dropped), reusing existing Tag
+        # rows instead of duplicating them, and untagged tickets stay untagged.
+        Tag.objects.create(name="billing", team=self.team)
+
+        self._run_batch(
+            [501, 502, 503],
+            tickets=[
+                _zd_ticket(501, 10, tags=["Billing", " URGENT ", "", "billing"]),
+                _zd_ticket(502, 10, tags=["billing"]),
+                _zd_ticket(503, 10),
+            ],
+            users={10: _zd_user(10, "requester@x.com")},
+            comments_by_ticket={},
+        )
+
+        by_zid = {t.zendesk_ticket_id: t for t in Ticket.objects.filter(team=self.team)}
+        self.assertEqual(set(by_zid[501].tagged_items.values_list("tag__name", flat=True)), {"billing", "urgent"})
+        self.assertEqual(set(by_zid[502].tagged_items.values_list("tag__name", flat=True)), {"billing"})
+        self.assertEqual(by_zid[503].tagged_items.count(), 0)
+        # One Tag row per name per team — the pre-existing "billing" is reused across tickets.
+        self.assertEqual(Tag.objects.filter(team=self.team).count(), 2)
 
     def test_staff_reply_with_unresolved_role_is_not_attributed_to_customer(self) -> None:
         # Reported bug: a public agent reply whose author role can't be resolved (role=None) was
