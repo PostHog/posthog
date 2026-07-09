@@ -16695,6 +16695,72 @@ export namespace Schemas {
      * * `Vapi` - Vapi
      * * `Vespa` - Vespa
      * * `Writesonic` - Writesonic
+     * * `Aiven` - Aiven
+     * * `Aviator` - Aviator
+     * * `Backblaze` - Backblaze
+     * * `Baseten` - Baseten
+     * * `Browserbase` - Browserbase
+     * * `Cohere` - Cohere
+     * * `DenoDeploy` - DenoDeploy
+     * * `DigitalOcean` - DigitalOcean
+     * * `E2B` - E2B
+     * * `Fintoc` - Fintoc
+     * * `Firecrawl` - Firecrawl
+     * * `FireworksAI` - FireworksAI
+     * * `FlyIo` - FlyIo
+     * * `Groq` - Groq
+     * * `GrowthBook` - GrowthBook
+     * * `Gumloop` - Gumloop
+     * * `Hatchet` - Hatchet
+     * * `Helicone` - Helicone
+     * * `Heroku` - Heroku
+     * * `Hetzner` - Hetzner
+     * * `HeyGen` - HeyGen
+     * * `Infisical` - Infisical
+     * * `Inngest` - Inngest
+     * * `KapaAI` - KapaAI
+     * * `Kernel` - Kernel
+     * * `Koyeb` - Koyeb
+     * * `LambdaLabs` - LambdaLabs
+     * * `LangSmith` - LangSmith
+     * * `Linode` - Linode
+     * * `LlamaCloud` - LlamaCloud
+     * * `Mem0` - Mem0
+     * * `Metriport` - Metriport
+     * * `Mintlify` - Mintlify
+     * * `MistralAI` - MistralAI
+     * * `Mono` - Mono
+     * * `Netlify` - Netlify
+     * * `Northflank` - Northflank
+     * * `OpenAI` - OpenAI
+     * * `Pinecone` - Pinecone
+     * * `PlatformSh` - PlatformSh
+     * * `PromptingCompany` - PromptingCompany
+     * * `Qdrant` - Qdrant
+     * * `Render` - Render
+     * * `Replicate` - Replicate
+     * * `RetellAI` - RetellAI
+     * * `Roark` - Roark
+     * * `RunPod` - RunPod
+     * * `ScaleAI` - ScaleAI
+     * * `Scaleway` - Scaleway
+     * * `SigNoz` - SigNoz
+     * * `Sim` - Sim
+     * * `Skyvern` - Skyvern
+     * * `Slash` - Slash
+     * * `Synthesia` - Synthesia
+     * * `Telli` - Telli
+     * * `TerraApi` - TerraApi
+     * * `TriggerDev` - TriggerDev
+     * * `Turso` - Turso
+     * * `TwelveLabs` - TwelveLabs
+     * * `Twenty` - Twenty
+     * * `Unstructured` - Unstructured
+     * * `Upstash` - Upstash
+     * * `Vellum` - Vellum
+     * * `Vultr` - Vultr
+     * * `Windmill` - Windmill
+     * * `Zep` - Zep
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17387,6 +17453,72 @@ export namespace Schemas {
       Vapi: 'Vapi',
       Vespa: 'Vespa',
       Writesonic: 'Writesonic',
+      Aiven: 'Aiven',
+      Aviator: 'Aviator',
+      Backblaze: 'Backblaze',
+      Baseten: 'Baseten',
+      Browserbase: 'Browserbase',
+      Cohere: 'Cohere',
+      DenoDeploy: 'DenoDeploy',
+      DigitalOcean: 'DigitalOcean',
+      E2b: 'E2B',
+      Fintoc: 'Fintoc',
+      Firecrawl: 'Firecrawl',
+      FireworksAI: 'FireworksAI',
+      FlyIo: 'FlyIo',
+      Groq: 'Groq',
+      GrowthBook: 'GrowthBook',
+      Gumloop: 'Gumloop',
+      Hatchet: 'Hatchet',
+      Helicone: 'Helicone',
+      Heroku: 'Heroku',
+      Hetzner: 'Hetzner',
+      HeyGen: 'HeyGen',
+      Infisical: 'Infisical',
+      Inngest: 'Inngest',
+      KapaAI: 'KapaAI',
+      Kernel: 'Kernel',
+      Koyeb: 'Koyeb',
+      LambdaLabs: 'LambdaLabs',
+      LangSmith: 'LangSmith',
+      Linode: 'Linode',
+      LlamaCloud: 'LlamaCloud',
+      Mem0: 'Mem0',
+      Metriport: 'Metriport',
+      Mintlify: 'Mintlify',
+      MistralAI: 'MistralAI',
+      Mono: 'Mono',
+      Netlify: 'Netlify',
+      Northflank: 'Northflank',
+      OpenAI: 'OpenAI',
+      Pinecone: 'Pinecone',
+      PlatformSh: 'PlatformSh',
+      PromptingCompany: 'PromptingCompany',
+      Qdrant: 'Qdrant',
+      Render: 'Render',
+      Replicate: 'Replicate',
+      RetellAI: 'RetellAI',
+      Roark: 'Roark',
+      RunPod: 'RunPod',
+      ScaleAI: 'ScaleAI',
+      Scaleway: 'Scaleway',
+      SigNoz: 'SigNoz',
+      Sim: 'Sim',
+      Skyvern: 'Skyvern',
+      Slash: 'Slash',
+      Synthesia: 'Synthesia',
+      Telli: 'Telli',
+      TerraApi: 'TerraApi',
+      TriggerDev: 'TriggerDev',
+      Turso: 'Turso',
+      TwelveLabs: 'TwelveLabs',
+      Twenty: 'Twenty',
+      Unstructured: 'Unstructured',
+      Upstash: 'Upstash',
+      Vellum: 'Vellum',
+      Vultr: 'Vultr',
+      Windmill: 'Windmill',
+      Zep: 'Zep',
     } as const;
 
     /**
@@ -18092,7 +18224,73 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -24417,7 +24615,73 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -52160,7 +52424,73 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -52892,7 +53222,73 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -53616,7 +54012,73 @@ export namespace Schemas {
        * * `TogetherAI` - TogetherAI
        * * `Vapi` - Vapi
        * * `Vespa` - Vespa
-       * * `Writesonic` - Writesonic */
+       * * `Writesonic` - Writesonic
+       * * `Aiven` - Aiven
+       * * `Aviator` - Aviator
+       * * `Backblaze` - Backblaze
+       * * `Baseten` - Baseten
+       * * `Browserbase` - Browserbase
+       * * `Cohere` - Cohere
+       * * `DenoDeploy` - DenoDeploy
+       * * `DigitalOcean` - DigitalOcean
+       * * `E2B` - E2B
+       * * `Fintoc` - Fintoc
+       * * `Firecrawl` - Firecrawl
+       * * `FireworksAI` - FireworksAI
+       * * `FlyIo` - FlyIo
+       * * `Groq` - Groq
+       * * `GrowthBook` - GrowthBook
+       * * `Gumloop` - Gumloop
+       * * `Hatchet` - Hatchet
+       * * `Helicone` - Helicone
+       * * `Heroku` - Heroku
+       * * `Hetzner` - Hetzner
+       * * `HeyGen` - HeyGen
+       * * `Infisical` - Infisical
+       * * `Inngest` - Inngest
+       * * `KapaAI` - KapaAI
+       * * `Kernel` - Kernel
+       * * `Koyeb` - Koyeb
+       * * `LambdaLabs` - LambdaLabs
+       * * `LangSmith` - LangSmith
+       * * `Linode` - Linode
+       * * `LlamaCloud` - LlamaCloud
+       * * `Mem0` - Mem0
+       * * `Metriport` - Metriport
+       * * `Mintlify` - Mintlify
+       * * `MistralAI` - MistralAI
+       * * `Mono` - Mono
+       * * `Netlify` - Netlify
+       * * `Northflank` - Northflank
+       * * `OpenAI` - OpenAI
+       * * `Pinecone` - Pinecone
+       * * `PlatformSh` - PlatformSh
+       * * `PromptingCompany` - PromptingCompany
+       * * `Qdrant` - Qdrant
+       * * `Render` - Render
+       * * `Replicate` - Replicate
+       * * `RetellAI` - RetellAI
+       * * `Roark` - Roark
+       * * `RunPod` - RunPod
+       * * `ScaleAI` - ScaleAI
+       * * `Scaleway` - Scaleway
+       * * `SigNoz` - SigNoz
+       * * `Sim` - Sim
+       * * `Skyvern` - Skyvern
+       * * `Slash` - Slash
+       * * `Synthesia` - Synthesia
+       * * `Telli` - Telli
+       * * `TerraApi` - TerraApi
+       * * `TriggerDev` - TriggerDev
+       * * `Turso` - Turso
+       * * `TwelveLabs` - TwelveLabs
+       * * `Twenty` - Twenty
+       * * `Unstructured` - Unstructured
+       * * `Upstash` - Upstash
+       * * `Vellum` - Vellum
+       * * `Vultr` - Vultr
+       * * `Windmill` - Windmill
+       * * `Zep` - Zep */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
