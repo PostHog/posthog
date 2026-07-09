@@ -31,12 +31,12 @@ interface TableProps {
 export const DEFAULT_PAGE_SIZE = 500
 
 /**
- * Returns a readable text color (near-black or near-white) for a conditionally-formatted cell's
+ * Returns a text color utility class that stays readable on a conditionally-formatted cell's
  * background. Accepts either a hex string ('#RRGGBB') or an 'rgb(r,g,b)' string (the dark/light
- * adjustment path returns the latter). Uses relative luminance so text stays legible regardless
- * of the current theme.
+ * adjustment path returns the latter). Uses relative luminance so the class contrasts with the
+ * cell background regardless of the current theme.
  */
-function getContrastingTextColor(background: string): '#111111' | '#ffffff' {
+function getContrastingTextClass(background: string): 'text-white' | 'text-black' {
     let r: number
     let g: number
     let b: number
@@ -50,7 +50,7 @@ function getContrastingTextColor(background: string): '#111111' | '#ffffff' {
 
     // Perceived luminance (0-255). Below the midpoint, use light text; otherwise dark text.
     const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return luminance < 140 ? '#ffffff' : '#111111'
+    return luminance < 140 ? 'text-white' : 'text-black'
 }
 
 function formatColumnTitle(title: string): React.ReactNode {
@@ -119,6 +119,61 @@ export const Table = (props: TableProps): JSX.Element => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
             const columnTitle = settings?.display?.label || title || column.name
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
+
+            const resolveConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
+                const cell = data[index]
+
+                if (cell.isTransposedHeader) {
+                    return undefined
+                }
+
+                const sourceColumnName = cell.sourceColumnName ?? column.name
+                const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
+                const conditionalFormattingMatches = conditionalFormattingRules
+                    .filter((n) => n.columnName === sourceColumnName)
+                    .filter((n) => {
+                        const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
+                        if (!isValidHog) {
+                            posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
+                                formatRule: n,
+                            })
+                        }
+
+                        return isValidHog
+                    })
+                    .map((n) => ({
+                        rule: n,
+                        result: execHog(n.bytecode, {
+                            globals: {
+                                value: cell.value,
+                                input: convertTableValue(n.input, sourceColumnType),
+                            },
+                            functions: {},
+                            maxAsyncSteps: 0,
+                        }).result,
+                    }))
+                    .find((n) => Boolean(n.result))
+
+                if (!conditionalFormattingMatches) {
+                    return undefined
+                }
+
+                const ruleColor = conditionalFormattingMatches.rule.color
+                const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
+
+                // If the color mode matches the current theme, use the color as it was saved
+                if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
+                    return ruleColor
+                }
+
+                // If the color mode is dark, but we're in light mode - then lighten the color
+                if (colorMode === 'dark' && !isDarkModeOn) {
+                    return lightenDarkenColor(ruleColor, 30)
+                }
+
+                // If the color mode is light, but we're in dark mode - then darken the color
+                return lightenDarkenColor(ruleColor, -30)
+            }
 
             return {
                 ...columnMeta,
@@ -193,70 +248,14 @@ export const Table = (props: TableProps): JSX.Element => {
                     )
                 },
                 style: (_, data) => {
-                    const cell = data[index]
-
-                    if (cell.isTransposedHeader) {
-                        return undefined
-                    }
-
-                    const sourceColumnName = cell.sourceColumnName ?? column.name
-                    const sourceColumnType =
-                        sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-                    const cf = conditionalFormattingRules
-                        .filter((n) => n.columnName === sourceColumnName)
-                        .filter((n) => {
-                            const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                            if (!isValidHog) {
-                                posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                                    formatRule: n,
-                                })
-                            }
-
-                            return isValidHog
-                        })
-                        .map((n) => {
-                            const res = execHog(n.bytecode, {
-                                globals: {
-                                    value: cell.value,
-                                    input: convertTableValue(n.input, sourceColumnType),
-                                },
-                                functions: {},
-                                maxAsyncSteps: 0,
-                            })
-
-                            return {
-                                rule: n,
-                                result: res.result,
-                            }
-                        })
-
-                    const conditionalFormattingMatches = cf.find((n) => Boolean(n.result))
-
-                    if (conditionalFormattingMatches) {
-                        const ruleColor = conditionalFormattingMatches.rule.color
-                        const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-                        let backgroundColor: string
-                        if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                            // The color mode matches the current theme, use it as it was saved
-                            backgroundColor = ruleColor
-                        } else if (colorMode === 'dark' && !isDarkModeOn) {
-                            // The color mode is dark, but we're in light mode - lighten the color
-                            backgroundColor = lightenDarkenColor(ruleColor, 30)
-                        } else {
-                            // The color mode is light, but we're in dark mode - darken the color
-                            backgroundColor = lightenDarkenColor(ruleColor, -30)
-                        }
-
-                        // Pin the text color to the cell background rather than inheriting the theme's
-                        // text color, which is near-white in dark mode and unreadable on light backgrounds
-                        return {
-                            backgroundColor,
-                            color: getContrastingTextColor(backgroundColor),
-                        }
-                    }
-
-                    return undefined
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    return backgroundColor ? { backgroundColor } : undefined
+                },
+                className: (_, data) => {
+                    const backgroundColor = resolveConditionalFormattingBackground(data)
+                    // Pin the text color to the cell background rather than inheriting the theme's text
+                    // color, which is near-white in dark mode and unreadable on light backgrounds
+                    return backgroundColor ? getContrastingTextClass(backgroundColor) : ''
                 },
             }
         }
