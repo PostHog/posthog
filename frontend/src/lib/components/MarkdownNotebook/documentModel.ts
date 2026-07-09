@@ -122,7 +122,10 @@ export function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBl
 export function isGroupedBlockquoteNode(
     node: NotebookBlockNode
 ): node is NotebookTextBlockNode | NotebookListBlockNode {
-    return (isTextBlockNode(node) && node.type === 'blockquote') || (node.type === 'list' && !!node.blockquote)
+    return (
+        (isTextBlockNode(node) && (node.type === 'blockquote' || !!node.blockquote)) ||
+        (node.type === 'list' && !!node.blockquote)
+    )
 }
 
 export function isPromptComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
@@ -318,7 +321,7 @@ export function getPromptSource(value: NotebookPropValue | undefined): 'slash' |
 }
 
 export function textBlocksShareContinuationStyle(left: NotebookTextBlockNode, right: NotebookTextBlockNode): boolean {
-    if (left.type !== right.type) {
+    if (left.type !== right.type || !!left.blockquote !== !!right.blockquote) {
         return false
     }
 
@@ -458,6 +461,8 @@ export function getTextBlockShortcutReplacement(
                     id: node.id,
                     type: 'heading',
                     level: headingShortcut,
+                    // A heading typed inside a quote stays part of the quote
+                    blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
                     children: [],
                 },
             ],
