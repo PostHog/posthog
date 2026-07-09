@@ -4,7 +4,9 @@ This package builds a small sidecar that is installed alongside the image scrubb
 
 It is intentionally kept separate from the root pnpm workspace, as the ML deps are several hundred MB. I did not want to add this to every CI run, every dev's local machine's worktree, etc
 
-It runs a simple http server, receives an image and replies with the scrubbed image. The interface is fully trusted as it only communicates with the kafka consumer in the same pod. It binds loopback only, so it must run as a sidecar container sharing the consumer's network namespace, not as its own service.
+It runs a simple http server, receives an image and replies with the scrubbed image. The `/scrub` interface is fully trusted as it only communicates with the kafka consumer in the same pod. It binds loopback only, so it must run as a sidecar container sharing the consumer's network namespace, not as its own service.
+
+`/metrics` and the health probes are served on a separate listener bound to all interfaces (default port `9011`, `IMAGE_SCRUB_METRICS_PORT`) so Prometheus and the kubelet can reach them on the pod IP. That listener exposes no image bytes, only counters and probes.
 
 ## HTTP contract
 
