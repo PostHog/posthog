@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "sql": {
+            "description": "ClickHouse SQL to run against the test cluster.",
+            "maxLength": 65536,
+            "type": "string"
+        }
+    },
+    "required": ["sql"],
+    "type": "object"
+}
