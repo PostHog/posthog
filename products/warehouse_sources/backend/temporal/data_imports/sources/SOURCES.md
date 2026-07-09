@@ -131,6 +131,7 @@ the row lists both.
 | devin_ai                | HTTP                        | requests                                                        | ✅                          |
 | ding_connect            | HTTP                        | requests                                                        | ✅                          |
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
+| dockerhub               | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
 | dropbox_sign            | HTTP                        | requests                                                        | ✅                          |
@@ -491,7 +492,6 @@ doesn't conflict with concurrent PRs.
 - deepgram
 - deputy
 - display_video_360
-- dockerhub
 - docusign
 - dolibarr
 - dremio
