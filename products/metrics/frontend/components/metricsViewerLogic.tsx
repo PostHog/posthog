@@ -5,7 +5,11 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
+import { type SparklineTimeSeries } from 'lib/components/Sparkline'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,6 +17,8 @@ import { urls } from 'scenes/urls'
 
 import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
+
+import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 import type {
@@ -23,6 +29,7 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
@@ -56,22 +63,74 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     exponential_histogram: 'p95',
 }
 const DEFAULT_DATE_FROM = '-1h'
-const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, cancelling the previous one'
+
+// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
+// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
+// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
+const isUserInitiatedError = (error: unknown): boolean => {
+    const errorStr = String(error).toLowerCase()
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+}
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
-// Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
-const parseFilter = (raw: string): _MetricFilterApi | null => {
-    const eq = raw.indexOf('=')
-    if (eq <= 0) {
-        return null
-    }
-    return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
+// The metrics backend speaks Prometheus-style label matchers, not the full PropertyOperator set.
+export const METRIC_FILTER_OPERATOR_ALLOWLIST: PropertyOperator[] = [
+    PropertyOperator.Exact,
+    PropertyOperator.IsNot,
+    PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
+]
+
+const OPERATOR_TO_FILTER_OP: Partial<Record<PropertyOperator, _MetricFilterApi['op']>> = {
+    [PropertyOperator.Exact]: 'eq',
+    [PropertyOperator.IsNot]: 'neq',
+    [PropertyOperator.Regex]: 'regex',
+    [PropertyOperator.NotRegex]: 'not_regex',
 }
 
-const resolveDate = (value: string | null | undefined): string | null => {
+const toValueStrings = (value: unknown): string[] => {
+    const raw = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value]
+    return raw.map((item) => String(item)).filter((item) => item.length > 0)
+}
+
+// Convert one filter-bar chip into the backend's `{key, op, value}` matcher. Filters run with
+// scope 'auto' (resource attributes first, datapoint attributes as fallback), so scope is omitted.
+// Returns null for chips still being edited (no key/value) or unsupported operators.
+const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilterApi | null => {
+    const key = 'key' in filter && filter.key ? String(filter.key) : ''
+    const operator = 'operator' in filter && filter.operator ? filter.operator : PropertyOperator.Exact
+    // A non-PropertyOperator value (e.g. an ActionFilter's fields) simply isn't in the map -> null.
+    const op = OPERATOR_TO_FILTER_OP[operator as PropertyOperator]
+    if (!key || !op) {
+        return null
+    }
+    const values = toValueStrings('value' in filter ? filter.value : null)
+    if (values.length === 0) {
+        return null
+    }
+    if (values.length === 1) {
+        return { key, op, value: values[0] }
+    }
+    // Multi-value chips become Prometheus-style alternations: eq/neq turn into an anchored
+    // (not-)regex over the escaped literals; regex operators just OR the patterns together.
+    if (op === 'eq' || op === 'neq') {
+        return {
+            key,
+            op: op === 'eq' ? 'regex' : 'not_regex',
+            value: `^(?:${values.map(escapeRegex).join('|')})$`,
+        }
+    }
+    return { key, op, value: values.map((pattern) => `(?:${pattern})`).join('|') }
+}
+
+const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
+    group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
+
+export const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
     }
@@ -93,7 +152,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
-        setFilterStrings: (filterStrings: string[]) => ({ filterStrings }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -113,11 +172,23 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
-        // Raw "key=value" filter chips; parsed into query filters by the `queryFilters` selector.
-        filterStrings: [[] as string[], { setFilterStrings: (_, { filterStrings }) => filterStrings }],
+        // The filter bar's UniversalFilters group; converted into backend matchers by `queryFilters`.
+        filterGroup: [DEFAULT_UNIVERSAL_GROUP_FILTER, { setFilterGroup: (_, { filterGroup }) => filterGroup }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
+        ],
+        // A real query failure (bad regex, 500, timeout) — surfaced as a banner so it isn't mistaken
+        // for the empty-result state. Cleared when a new query starts or one succeeds; an aborted
+        // (superseded) query leaves the previous state untouched so refetches don't flash an error.
+        queryError: [
+            null as string | null,
+            {
+                fetchQueryResults: () => null,
+                fetchQueryResultsSuccess: () => null,
+                fetchQueryResultsFailure: (state, { error }) =>
+                    isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
+            },
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -135,7 +206,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
-                values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                // An AbortError-named DOMException (not a bare string) is what api.ts and the global
+                // loader onFailure recognize as a cancellation, so a superseded query is swallowed
+                // rather than logged/captured as a real error.
+                values.queryAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setQueryAbortController(controller)
         },
@@ -293,15 +367,39 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         queryFilters: [
-            (s) => [s.filterStrings],
-            (filterStrings: string[]): _MetricFilterApi[] =>
-                filterStrings.map(parseFilter).filter((f): f is _MetricFilterApi => f !== null),
+            (s) => [s.filterGroup],
+            (filterGroup: UniversalFiltersGroup): _MetricFilterApi[] =>
+                flattenFilterValues(filterGroup)
+                    .map(propertyFilterToMetricFilter)
+                    .filter((f): f is _MetricFilterApi => f !== null),
+        ],
+        // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
+        // taxonomic endpoints as query params.
+        attributeEndpointFilters: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom, dateTo): Record<string, string> => ({
+                ...(resolveDate(dateFrom) ? { dateFrom: resolveDate(dateFrom) as string } : {}),
+                ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
+            }),
         ],
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
         currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
+        // All series rendered as chart lines (a group-by query returns one series per label combination).
+        // The x-axis labels come from `sparklineLabels` (the backend grids every series onto one time axis).
+        chartSeries: [
+            (s) => [s.queryResults, s.metricName],
+            (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
+                results.map((series, index) => ({
+                    name: formatSeriesName(series, metricName),
+                    // A null value is a gap (non-representable aggregate); Sparkline
+                    // takes plain numbers, so gaps chart as 0 for now.
+                    values: series.points.map((p) => p.value ?? 0),
+                    color: seriesColor(index),
+                })),
+        ],
         sparklineValues: [
             (s) => [s.currentSeries],
-            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),
+            (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value ?? 0),
         ],
         sparklineLabels: [
             (s) => [s.currentSeries],

@@ -182,8 +182,10 @@ export function EditableTextBlock({
 
             return {
                 ...currentNode,
-                type: 'paragraph',
+                // A quoted heading downgrades to quote text, staying in the quote
+                type: currentNode.blockquote ? 'blockquote' : 'paragraph',
                 level: undefined,
+                blockquote: undefined,
                 children: currentNode.children,
             }
         })

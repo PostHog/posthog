@@ -1,10 +1,34 @@
-import api from 'lib/api'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
+
+import { metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic } from './metricsViewerLogic'
+import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+
+jest.mock('products/metrics/frontend/generated/api', () => ({
+    ...jest.requireActual('products/metrics/frontend/generated/api'),
+    metricsValuesRetrieve: jest.fn(),
+}))
+
+const filterGroupWith = (filters: Record<string, any>[]): UniversalFiltersGroup => ({
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: FilterLogicalOperator.And,
+            values: filters.map(
+                (filter) => ({ type: PropertyFilterType.MetricAttribute, ...filter }) as UniversalFiltersGroupValue
+            ),
+        },
+    ],
+})
 
 const PICKER_ITEMS = [
     { name: 'requests_total', metric_type: 'sum' },
@@ -18,7 +42,7 @@ describe('metricsViewerLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.metrics, 'values').mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         logic = metricsViewerLogic()
         logic.mount()
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
@@ -54,12 +78,14 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.aggregation).toBe('increase')
     })
 
-    // metricsQueryNode is what "Save as insight" persists — a wrong mapping here
+    // metricsQueryNode is what "Save as insight" persists: a wrong mapping here
     // silently saves insights that re-run a different query than the viewer showed.
     it('maps viewer state to a MetricsQuery node, translating p95 to quantile', () => {
         logic.actions.setMetricName('request_duration')
         logic.actions.setGroupByKeys(['container'])
-        logic.actions.setFilterStrings(['namespace=posthog'])
+        logic.actions.setFilterGroup(
+            filterGroupWith([{ key: 'namespace', operator: PropertyOperator.Exact, value: ['posthog'] }])
+        )
         logic.actions.setDateFrom('-24h')
 
         expect(logic.values.aggregation).toBe('p95')
@@ -81,5 +107,74 @@ describe('metricsViewerLogic', () => {
 
     it('produces no MetricsQuery node without a metric name', () => {
         expect(logic.values.metricsQueryNode).toBeNull()
+    })
+
+    // A failed query (bad regex, 500) used to render the same "No data" empty state as a genuinely
+    // empty result. The failure records the message so the viewer can show a real error instead.
+    // kea-loaders dispatches `<key>Failure(error.message, error)`, so the reducer reads the message.
+    it('records a real query failure in queryError', () => {
+        logic.actions.fetchQueryResultsFailure('Invalid regex pattern', new Error('Invalid regex pattern'))
+        expect(logic.values.queryError).toBe('Invalid regex pattern')
+    })
+
+    // The debounced viewer aborts the in-flight query on every change; that cancellation rejects with
+    // NEW_QUERY_STARTED_ERROR_MESSAGE (whose text has no "abort"), and must not become an error banner.
+    it('does not record an aborted (superseded) query as an error', () => {
+        logic.actions.fetchQueryResultsFailure(
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
+        )
+        expect(logic.values.queryError).toBeNull()
+    })
+
+    // The filter bar's property filters must translate into the backend's Prometheus-style
+    // matchers: operator mapping, multi-value alternation (with regex escaping), and skipping
+    // chips that are still being edited. A bad mapping silently filters the chart wrong.
+    it.each([
+        [
+            'exact -> eq',
+            { key: 'env', operator: PropertyOperator.Exact, value: ['prod'] },
+            { key: 'env', op: 'eq', value: 'prod' },
+        ],
+        [
+            'is_not -> neq',
+            { key: 'env', operator: PropertyOperator.IsNot, value: ['prod'] },
+            { key: 'env', op: 'neq', value: 'prod' },
+        ],
+        [
+            'regex -> regex',
+            { key: 'svc', operator: PropertyOperator.Regex, value: ['checkout.*'] },
+            { key: 'svc', op: 'regex', value: 'checkout.*' },
+        ],
+        [
+            'not_regex -> not_regex',
+            { key: 'path', operator: PropertyOperator.NotRegex, value: ['/health'] },
+            { key: 'path', op: 'not_regex', value: '/health' },
+        ],
+        [
+            'multi-value exact -> anchored, escaped regex',
+            { key: 'pod', operator: PropertyOperator.Exact, value: ['api.1', 'api.2'] },
+            { key: 'pod', op: 'regex', value: '^(?:api\\.1|api\\.2)$' },
+        ],
+        [
+            'multi-value is_not -> anchored not_regex',
+            { key: 'pod', operator: PropertyOperator.IsNot, value: ['a', 'b'] },
+            { key: 'pod', op: 'not_regex', value: '^(?:a|b)$' },
+        ],
+    ])('maps filter bar chip (%s) to a backend matcher', (_name, propertyFilter, expected) => {
+        logic.actions.setFilterGroup(filterGroupWith([propertyFilter]))
+        expect(logic.values.queryFilters).toEqual([expected])
+    })
+
+    it('skips chips that are still being edited or use unsupported operators', () => {
+        logic.actions.setFilterGroup(
+            filterGroupWith([
+                { key: 'env', operator: PropertyOperator.Exact, value: [] }, // value not picked yet
+                { key: '', operator: PropertyOperator.Exact, value: ['x'] }, // no key
+                { key: 'env', operator: PropertyOperator.IContains, value: ['pr'] }, // unsupported operator
+                { key: 'env', operator: PropertyOperator.Exact, value: ['prod'] },
+            ])
+        )
+        expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
     })
 })

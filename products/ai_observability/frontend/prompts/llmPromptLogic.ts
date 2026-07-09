@@ -91,6 +91,8 @@ export interface PublishConflict {
     latestVersion: number | null
 }
 
+export type PromptSnippetLanguage = 'python' | 'node'
+
 async function fetchResolvedPrompt(
     promptName: string,
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
@@ -168,6 +170,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         openPublishReview: true,
         closePublishReview: true,
         setVersionDescription: (versionDescription: string) => ({ versionDescription }),
+        setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
     }),
 
     reducers(({ props }) => ({
@@ -257,6 +260,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 submitPromptFormSuccess: () => '',
                 closePublishReview: () => '',
                 setMode: () => '',
+            },
+        ],
+        snippetLanguage: [
+            'python' as PromptSnippetLanguage,
+            {
+                setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
             },
         ],
     })),

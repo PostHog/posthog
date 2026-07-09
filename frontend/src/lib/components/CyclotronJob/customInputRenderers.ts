@@ -29,4 +29,8 @@ export const CUSTOM_INPUT_RENDERERS: Record<
         () =>
             import('products/customer_analytics/frontend/components/AccountPropertiesInput/CyclotronJobInputAccountProperties')
     ),
+    customer_analytics_account_relationships: lazy(
+        () =>
+            import('products/customer_analytics/frontend/components/AccountRelationshipsInput/CyclotronJobInputAccountRelationships')
+    ),
 }

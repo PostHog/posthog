@@ -22,6 +22,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { ExperimentConclusion } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
+import { hasFrozenExposureStamps } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { VariantTag } from './VariantTag'
@@ -301,6 +302,13 @@ export function FinishExperimentModal(): JSX.Element {
                         </div>
                     ) : (
                         <>
+                            {hasFrozenExposureStamps(experiment) && (
+                                <LemonBanner type="info">
+                                    Exposure is frozen for this experiment. If you end it without shipping a variant,
+                                    the feature flag keeps serving variants only to the frozen snapshot of
+                                    already-enrolled users. Shipping a variant removes the freeze.
+                                </LemonBanner>
+                            )}
                             <div>
                                 <LemonLabel showOptional>Variant to keep</LemonLabel>
                                 <div className="text-xs text-muted mb-1">

@@ -5,6 +5,7 @@ allowed to import. Internal modules (query runners) stay behind this seam
 so import-linter's strict-mode contract holds.
 """
 
+import math
 import datetime as dt
 from typing import Any
 
@@ -26,6 +27,10 @@ from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
+from products.metrics.backend.metric_attributes_query_runner import (
+    MetricAttributeKeysQueryRunner,
+    MetricAttributeValuesQueryRunner,
+)
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
@@ -57,7 +62,7 @@ def _assemble_series(
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps."""
-    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
+    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float | None]] = {}
     for row in rows:
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
@@ -66,7 +71,9 @@ def _assemble_series(
     # high-cardinality group-by never materializes label_sets x grid points
     # only to throw most of them away. Zero-filled points contribute nothing
     # to the magnitude, so the ranking is identical either way.
-    ranked = sorted(by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values()), item[0]))
+    ranked = sorted(
+        by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values() if v is not None), item[0])
+    )
     return [
         MetricSeries(
             labels=dict(key),
@@ -86,6 +93,22 @@ def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
     if clause.aggregation in _RUNNER_AGGREGATIONS:
         return _RUNNER_AGGREGATIONS[clause.aggregation]
     raise ValueError(f"aggregation {clause.aggregation.value!r} is not supported yet")
+
+
+def _evaluate_formula_point(
+    node: Any, per_clause_points: dict[str, tuple[MetricPoint, ...]], index: int
+) -> float | None:
+    """One formula grid point. A null (gap) in any input propagates as a
+    gap, and a result the formula overflowed to inf/NaN becomes a gap too —
+    same policy as the per-clause aggregates."""
+    values: dict[str, float] = {}
+    for name, pts in per_clause_points.items():
+        value = pts[index].value
+        if value is None:
+            return None
+        values[name] = value
+    result = evaluate(node, values)
+    return result if math.isfinite(result) else None
 
 
 def _evaluate_formula(
@@ -122,10 +145,7 @@ def _evaluate_formula(
             for name in series_by_clause
         }
         points = tuple(
-            MetricPoint(
-                time=time,
-                value=evaluate(node, {name: pts[index].value for name, pts in per_clause_points.items()}),
-            )
+            MetricPoint(time=time, value=_evaluate_formula_point(node, per_clause_points, index))
             for index, time in enumerate(grid)
         )
         result.append(MetricSeries(labels=dict(label_set), points=points, metric_name=None, clause="formula"))
@@ -199,6 +219,50 @@ def list_metric_names(
     Raises `ValueError` for an out-of-range limit.
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
+    return runner.run()
+
+
+def list_metric_attribute_keys(
+    *,
+    team: Team,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List distinct attribute keys seen on the team's metrics, most frequent
+    first, for the filter bar's key autocomplete.
+
+    Datapoint and resource attributes are merged into one list (filters run
+    with scope 'auto', so the split doesn't matter to callers); `service_name`
+    is always surfaced when it matches the search. The window defaults to the
+    last 7 days. Returns `{"name": str}` dicts. Raises `ValueError` for an
+    out-of-range limit or an inverted window.
+    """
+    runner = MetricAttributeKeysQueryRunner(team=team, search=search, date_from=date_from, date_to=date_to, limit=limit)
+    return runner.run()
+
+
+def list_metric_attribute_values(
+    *,
+    team: Team,
+    key: str,
+    search: str = "",
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List observed values for one metric attribute key, most frequent first,
+    for the filter bar's value autocomplete.
+
+    `service_name`/`service.name` read the first-class column, matching how
+    filters on it execute. The window defaults to the last 7 days. Returns
+    `{"id": str, "name": str, "count": int}` dicts. Raises `ValueError` for an
+    empty key, an out-of-range limit, or an inverted window.
+    """
+    runner = MetricAttributeValuesQueryRunner(
+        team=team, key=key, search=search, date_from=date_from, date_to=date_to, limit=limit
+    )
     return runner.run()
 
 
