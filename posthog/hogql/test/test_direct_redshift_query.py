@@ -11,7 +11,6 @@ from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redsh
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.direct_redshift import DIRECT_REDSHIFT_URL_PATTERN
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
@@ -42,7 +41,7 @@ class TestDirectRedshiftQuery(APIBaseTest):
             format="Parquet",
             team=self.team,
             external_data_source=source,
-            url_pattern=DIRECT_REDSHIFT_URL_PATTERN,
+            url_pattern="direct://redshift",
             columns=columns
             or {
                 "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
