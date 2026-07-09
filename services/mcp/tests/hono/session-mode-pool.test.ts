@@ -4,15 +4,14 @@
 // `x-anthropic-client` header. The server caches the initial raw session
 // identity hints and derives mode from those cached-first hints; a later
 // `tools/call` carrying a different vendor must NOT flip the resolved
-// mode/version.
+// mode/version. The same pinning protects a tools-mode session (Cursor) from
+// being dragged back to the cli default by a mid-session vendor header.
 //
 // To probe the resolved mode DIRECTLY we issue a raw `tools/list` on the pooled
 // session: cli (single-exec) mode collapses the wire roster to a single `exec`
-// tool, while tools mode exposes the full multi-tool roster. If cli mode
-// survives the vendor flip, a `tools/list` carrying the flipped vendor still
-// returns just `[exec]`; if mode flipped to tools, it would return the full
-// roster. That's a direct observable for "the resolved mode at headers_2 equals
-// the resolved mode at headers_1".
+// tool, while tools mode exposes the full multi-tool roster. That's a direct
+// observable for "the resolved mode at headers_2 equals the resolved mode at
+// headers_1".
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { setupServer } from 'msw/node'
@@ -103,18 +102,13 @@ async function listToolsOnSession(sessionId: string, vendorClient: string): Prom
 }
 
 describe('Resolved mode is preserved across pooled-transport vendor flips', () => {
-    it('cli init via x-anthropic-client survives a non-coding-agent vendor on the same session', async () => {
-        // headers_1 — clientInfo.name is the new Claude Desktop-style vendor-prefixed
-        // shape (NOT a coding-agent fragment), while the per-request vendor header
-        // identifies the inner client as Claude Code. This is the production-pool
-        // scenario where the body identifies the transport-owner and the header
-        // identifies the live consumer.
-        //
-        // Without reading the vendor header, the resolver picks tools mode at
-        // init (because `Anthropic/ClaudeAI` doesn't match any coding-agent
-        // fragment) and the SDK gets the full multi-tool roster. With vendor
-        // reading + cached session hints, the resolver picks cli mode at init
-        // and the SDK gets the wrapped `[exec]` roster.
+    it('cli init via x-anthropic-client survives a vendor flip on the same session', async () => {
+        // headers_1 — clientInfo.name is the vendor-prefixed pool-owner shape, while
+        // the per-request vendor header identifies the inner client as Claude Code.
+        // This is the production-pool scenario where the body identifies the
+        // transport-owner and the header identifies the live consumer. Neither
+        // matches the tools-mode allow-list, so the session resolves to the cli
+        // default and the SDK gets the wrapped `[exec]` roster at init.
         const transportA = new StreamableHTTPClientTransport(new URL('/mcp', BASE_URL), {
             fetch: fetchViaApp,
             requestInit: {
@@ -136,15 +130,43 @@ describe('Resolved mode is preserved across pooled-transport vendor flips', () =
         const cachedTools = await clientA.listTools()
         expect(cachedTools.tools.map((t) => t.name).sort()).toEqual(['exec'])
 
-        // headers_2 — pool member flipping to a different Anthropic vendor.
-        // `ClaudeAI` is itself an Anthropic client, so it resolves to cli mode on
-        // its own merits; combined with the cached session hints from init, the
-        // request stays in cli mode and the roster still collapses to the `exec`
-        // umbrella tool. Every Anthropic vendor (the `x-anthropic-client` header)
-        // runs in cli mode, so no pooled vendor flip can downgrade to tools mode.
+        // headers_2 — pool member flipping to a different Anthropic vendor. The
+        // vendor header never participates in tools-mode detection, so the request
+        // stays in cli mode and the roster still collapses to the `exec` umbrella
+        // tool.
         const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeAI')
         expect(pooledRoster.map((t) => t.name).sort()).toEqual(['exec'])
 
         await clientA.close()
+    })
+
+    it('tools init via the Cursor client name survives an Anthropic vendor flip on the same session', async () => {
+        // Cursor pins tools mode through its self-reported clientInfo.name at init.
+        // A later request on the pooled session carrying an Anthropic vendor header
+        // must not flip the session to the cli default: `isToolsModeClient` reads
+        // only the session-pinned client name and user-agent, never the vendor.
+        const transport = new StreamableHTTPClientTransport(new URL('/mcp', BASE_URL), {
+            fetch: fetchViaApp,
+            requestInit: {
+                headers: { Authorization: `Bearer ${TOKEN}` },
+            },
+        })
+        const client = new Client({ name: 'cursor', version: '1.0.0' }, { capabilities: {} })
+        await client.connect(transport as ConnectableTransport)
+
+        const sessionId = transport.sessionId
+        expect(sessionId).toBeTruthy()
+
+        // Tools mode exposes the full multi-tool roster on the wire.
+        const initRoster = await client.listTools()
+        expect(initRoster.tools.length).toBeGreaterThan(1)
+        expect(initRoster.tools.map((t) => t.name)).not.toContain('exec')
+
+        // The vendor flip keeps the pinned tools mode.
+        const pooledRoster = await listToolsOnSession(sessionId!, 'ClaudeCode')
+        expect(pooledRoster.length).toBeGreaterThan(1)
+        expect(pooledRoster.map((t) => t.name)).not.toContain('exec')
+
+        await client.close()
     })
 })
