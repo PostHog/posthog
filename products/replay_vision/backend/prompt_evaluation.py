@@ -33,8 +33,12 @@ def evaluation_supported(scanner: ReplayScanner) -> bool:
     return scanner.scanner_type in EVALUATION_SUPPORTED_TYPES
 
 
-def select_evaluation_observations(scanner: ReplayScanner) -> list[ReplayObservation]:
-    """Thumbs-down first (what the rewrite must fix), newest first, then thumbs-up to fill the cap."""
+def select_evaluation_observations(scanner: ReplayScanner, session_limit: int | None = None) -> list[ReplayObservation]:
+    """Thumbs-down first (what the rewrite must fix), newest first, then thumbs-up to fill the cap.
+
+    `session_limit` lets the caller re-run fewer sessions than the cap; it can never raise it.
+    """
+    cap = min(EVALUATION_SESSION_CAP, session_limit) if session_limit else EVALUATION_SESSION_CAP
     rated = (
         ReplayObservation.objects.filter(
             team_id=scanner.team_id,
@@ -45,8 +49,8 @@ def select_evaluation_observations(scanner: ReplayScanner) -> list[ReplayObserva
         .select_related("label")
         .order_by("-created_at")
     )
-    down = list(rated.filter(label__is_correct=False)[:EVALUATION_SESSION_CAP])
-    up = list(rated.filter(label__is_correct=True)[: EVALUATION_SESSION_CAP - len(down)])
+    down = list(rated.filter(label__is_correct=False)[:cap])
+    up = list(rated.filter(label__is_correct=True)[: cap - len(down)])
     return down + up
 
 

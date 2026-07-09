@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -69,6 +69,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         evaluateSuggestion: (suggestionId: string) => ({ suggestionId }),
         evaluateSuggestionSuccess: (suggestion: ReplayScannerPromptSuggestionApi) => ({ suggestion }),
         evaluateSuggestionFailure: true,
+        setTestSessionLimit: (limit: number | null) => ({ limit }),
         loadSuggestionHistory: true,
         loadSuggestionHistorySuccess: (history: ReplayScannerPromptSuggestionApi[]) => ({ history }),
         loadSuggestionHistoryFailure: true,
@@ -164,6 +165,13 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.evaluation_session_cap ?? 0,
             },
         ],
+        // The user's chosen test size; null means "as many as allowed".
+        testSessionLimit: [
+            null as number | null,
+            {
+                setTestSessionLimit: (_, { limit }) => limit,
+            },
+        ],
         suggestionLoading: [
             true,
             {
@@ -216,6 +224,20 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadSuggestionHistory: () => true,
                 loadSuggestionHistorySuccess: () => false,
                 loadSuggestionHistoryFailure: () => false,
+            },
+        ],
+    }),
+
+    selectors({
+        // How many rated sessions the next test will re-run, and so how many observations it will charge.
+        plannedTestSessions: [
+            (s) => [s.evaluationSessionCap, s.ratedCount, s.testSessionLimit],
+            (evaluationSessionCap: number, ratedCount: number, testSessionLimit: number | null): number => {
+                const maxAllowed = Math.min(evaluationSessionCap, ratedCount)
+                if (maxAllowed <= 0) {
+                    return 0
+                }
+                return Math.max(1, Math.min(maxAllowed, testSessionLimit ?? maxAllowed))
             },
         ],
     }),
@@ -336,7 +358,8 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 const suggestion = await visionScannersPromptSuggestionsEvaluateCreate(
                     String(teamId),
                     props.scannerId,
-                    suggestionId
+                    suggestionId,
+                    values.plannedTestSessions > 0 ? { session_limit: values.plannedTestSessions } : undefined
                 )
                 actions.evaluateSuggestionSuccess(suggestion)
             } catch (error: any) {

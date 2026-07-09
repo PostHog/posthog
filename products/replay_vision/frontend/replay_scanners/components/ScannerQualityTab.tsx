@@ -11,6 +11,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonModal,
     LemonSegmentedButton,
     LemonTable,
@@ -315,6 +316,7 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         suggestionStale,
         ratedCount,
         evaluationSessionCap,
+        plannedTestSessions,
         suggestionLoading,
         generating,
         applying,
@@ -323,14 +325,19 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         suggestionHistory,
         suggestionHistoryLoading,
     } = useValues(logic)
-    const { generateSuggestion, applySuggestion, dismissSuggestion, evaluateSuggestion, loadSuggestionHistory } =
-        useActions(logic)
+    const {
+        generateSuggestion,
+        applySuggestion,
+        dismissSuggestion,
+        evaluateSuggestion,
+        setTestSessionLimit,
+        loadSuggestionHistory,
+    } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     // Only scanner types with a discrete outcome (verdict, tags) can be diffed against ratings.
     const evaluationSupported = scanner?.scanner_type === 'monitor' || scanner?.scanner_type === 'classifier'
-    const plannedTestSessions = Math.min(evaluationSessionCap, ratedCount)
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -409,9 +416,11 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted
                                           ? `Monthly Replay Vision quota of ${quota.monthly_quota.toLocaleString()} observations reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
-                                          : undefined)
+                                          : quota && plannedTestSessions > quota.remaining
+                                            ? `Only ${quota.remaining.toLocaleString()} observations left this month. Lower the test session count.`
+                                            : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota."
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session uses one observation of your monthly Replay Vision quota; pick how many below."
                                 onClick={() => evaluateSuggestion(currentSuggestion.id)}
                                 data-attr="vision-quality-evaluate-suggestion"
                             >
@@ -446,13 +455,27 @@ function PromptRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                     </div>
                 </div>
                 {currentSuggestion.status === 'pending' && evaluationSupported && plannedTestSessions > 0 && (
-                    <div className="text-xs text-muted text-right">
-                        Testing re-runs up to {plannedTestSessions} rated session{plannedTestSessions === 1 ? '' : 's'}{' '}
-                        and uses one observation of monthly Replay Vision quota each
-                        {quota
-                            ? ` (${quota.remaining.toLocaleString()} of ${quota.monthly_quota.toLocaleString()} left this month)`
-                            : ''}
-                        .
+                    <div className="flex items-center justify-end gap-1.5 text-xs text-muted">
+                        <span>Testing re-runs</span>
+                        <LemonInput
+                            type="number"
+                            size="xsmall"
+                            min={1}
+                            max={Math.min(evaluationSessionCap, ratedCount)}
+                            value={plannedTestSessions}
+                            onChange={(value) => setTestSessionLimit(value ?? null)}
+                            className="w-14"
+                            data-attr="vision-quality-test-session-limit"
+                        />
+                        <span>
+                            of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
+                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, using {plannedTestSessions}{' '}
+                            observation{plannedTestSessions === 1 ? '' : 's'} of quota
+                            {quota
+                                ? ` (${quota.remaining.toLocaleString()} of ${quota.monthly_quota.toLocaleString()} left this month)`
+                                : ''}
+                            .
+                        </span>
                     </div>
                 )}
             </div>

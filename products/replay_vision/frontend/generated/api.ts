@@ -12,6 +12,7 @@ import type {
     CurrentPromptSuggestionApi,
     EstimateRequestApi,
     EstimateResponseApi,
+    EvaluatePromptSuggestionRequestApi,
     ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
@@ -716,12 +717,13 @@ export const getVisionScannersPromptSuggestionsEvaluateCreateUrl = (
 }
 
 /**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field; poll `current` while status is running. Each successful re-run consumes one observation of the monthly Replay Vision quota (up to `evaluation_session_cap` per test); the request is refused with 402 when the quota is exhausted. Only monitor and classifier scanners are supported. Requires session recording edit access.
+ * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field; poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run consumes one observation of the monthly Replay Vision quota; the request is refused with 402 when the planned re-runs exceed what is left. Only monitor and classifier scanners are supported. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsEvaluateCreate = async (
     projectId: string,
     scannerId: string,
     id: string,
+    evaluatePromptSuggestionRequestApi?: EvaluatePromptSuggestionRequestApi,
     options?: RequestInit
 ): Promise<ReplayScannerPromptSuggestionApi> => {
     return apiMutator<ReplayScannerPromptSuggestionApi>(
@@ -729,6 +731,8 @@ export const visionScannersPromptSuggestionsEvaluateCreate = async (
         {
             ...options,
             method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(evaluatePromptSuggestionRequestApi),
         }
     )
 }

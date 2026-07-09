@@ -78,7 +78,9 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
     async def run(self, inputs: EvaluatePromptSuggestionInputs) -> None:
         selection: SelectEvaluationSessionsOutput = await wf.execute_activity(
             select_evaluation_sessions_activity,
-            SelectEvaluationSessionsInputs(suggestion_id=inputs.suggestion_id, team_id=inputs.team_id),
+            SelectEvaluationSessionsInputs(
+                suggestion_id=inputs.suggestion_id, team_id=inputs.team_id, session_limit=inputs.session_limit
+            ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=_STATE_RETRY,
         )

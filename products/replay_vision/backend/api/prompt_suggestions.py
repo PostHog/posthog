@@ -151,6 +151,20 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
         }
 
 
+class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
+    session_limit = serializers.IntegerField(
+        required=False,
+        default=EVALUATION_SESSION_CAP,
+        min_value=1,
+        max_value=EVALUATION_SESSION_CAP,
+        help_text=(
+            "How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one "
+            "observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is "
+            "also the maximum."
+        ),
+    )
+
+
 class CurrentPromptSuggestionSerializer(serializers.Serializer):
     suggestion = ReplayScannerPromptSuggestionSerializer(
         allow_null=True,
@@ -313,15 +327,16 @@ class ReplayScannerPromptSuggestionViewSet(
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
-        request=None,
+        request=EvaluatePromptSuggestionRequestSerializer,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Test this suggestion before applying it: re-run the scanner with the suggested prompt against "
             "already-rated sessions in the background and compare each fresh output with the stored one. "
             "Results land on the suggestion's `evaluation` field; poll `current` while status is running. "
-            "Each successful re-run consumes one observation of the monthly Replay Vision quota (up to "
-            "`evaluation_session_cap` per test); the request is refused with 402 when the quota is exhausted. "
-            "Only monitor and classifier scanners are supported. Requires session recording edit access."
+            "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
+            "`evaluation_session_cap`). Each successful re-run consumes one observation of the monthly "
+            "Replay Vision quota; the request is refused with 402 when the planned re-runs exceed what is "
+            "left. Only monitor and classifier scanners are supported. Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
@@ -329,22 +344,29 @@ class ReplayScannerPromptSuggestionViewSet(
         scanner = self._scanner_for_url()
         self._require_editor()
         suggestion = self.get_object()
+        input_serializer = EvaluatePromptSuggestionRequestSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        session_limit = input_serializer.validated_data["session_limit"]
         if suggestion.status != SuggestionStatus.PENDING:
             raise ValidationError("Only the current pending suggestion can be tested.")
         if not evaluation_supported(scanner):
             raise ValidationError("Testing is available for monitor and classifier scanners.")
-        if self._rated_count(scanner) == 0:
+        rated_count = self._rated_count(scanner)
+        if rated_count == 0:
             raise ValidationError("Rate some results first; they are what the suggestion is tested against.")
         # A test already in flight keeps reporting its state even if quota ran out meanwhile.
         if evaluation_in_flight(suggestion.evaluation):
             return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # The workflow writes a usage receipt per re-run session, so refuse to start when quota is out.
+        # The workflow writes a usage receipt per re-run session, so refuse to start a test that would
+        # spend more than what is left. The user can lower session_limit instead.
+        planned = min(session_limit, rated_count)
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if quota.exhausted:
+        if planned > quota.remaining:
             raise QuotaLimitExceeded(
                 detail=(
-                    f"Monthly Replay Vision quota of {quota.monthly_quota:,} observations reached. "
-                    f"Resets {quota.period_end.strftime('%b')} {quota.period_end.day}."
+                    f"This test would use {planned} observations but only {quota.remaining:,} of the monthly "
+                    f"Replay Vision quota of {quota.monthly_quota:,} remain. Lower the test session count or "
+                    f"wait for the reset on {quota.period_end.strftime('%b')} {quota.period_end.day}."
                 )
             )
 
@@ -357,7 +379,9 @@ class ReplayScannerPromptSuggestionViewSet(
             client = sync_connect()
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,  # type: ignore[arg-type]
-                EvaluatePromptSuggestionInputs(suggestion_id=suggestion.id, team_id=scanner.team_id),  # type: ignore[arg-type]
+                EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
+                    suggestion_id=suggestion.id, team_id=scanner.team_id, session_limit=session_limit
+                ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 execution_timeout=EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT,

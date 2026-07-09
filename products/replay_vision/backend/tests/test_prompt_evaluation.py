@@ -116,6 +116,14 @@ class TestPromptEvaluation(_VisionAPITestCase):
         self.assertEqual([o.session_id for o in selected[:2]], [newest_down.session_id, oldest_down.session_id])
         self.assertTrue(all(o.session_id.startswith("up-") for o in selected[2:]))
 
+        # A session_limit lowers the cap and keeps the thumbs-down priority; it can never raise the cap.
+        limited = select_evaluation_observations(self.scanner, session_limit=1)
+        self.assertEqual([o.session_id for o in limited], [newest_down.session_id])
+        self.assertEqual(
+            len(select_evaluation_observations(self.scanner, session_limit=EVALUATION_SESSION_CAP + 5)),
+            EVALUATION_SESSION_CAP,
+        )
+
     def test_select_activity_builds_suggested_prompt_snapshot_and_marks_running(self) -> None:
         self._create_rated("sess-1", False)
         # The scanner moved on since the rated observation: the snapshot must reflect current config.
@@ -252,11 +260,11 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         defaults.update(overrides)
         return ReplayScannerPromptSuggestion.objects.create(**defaults)
 
-    def _create_rated(self) -> None:
+    def _create_rated(self, session_id: str = "sess-1") -> None:
         observation = ReplayObservation.objects.create(
             scanner=self.scanner,
             team=self.team,
-            session_id="sess-1",
+            session_id=session_id,
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
             triggered_by=ObservationTrigger.ON_DEMAND,
@@ -280,6 +288,8 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(resp.json()["evaluation"]["status"], "running")
         client.start_workflow.assert_awaited_once()
         self.assertIn(str(suggestion.id), client.start_workflow.await_args.kwargs["id"])
+        # Without an explicit session_limit the test runs up to the cap.
+        self.assertEqual(client.start_workflow.await_args.args[1].session_limit, EVALUATION_SESSION_CAP)
 
     def test_evaluate_while_running_does_not_restart(self) -> None:
         self._create_rated()
@@ -335,7 +345,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     def test_evaluate_refuses_when_quota_exhausted(self) -> None:
         self._create_rated()
         suggestion = self._create_pending_suggestion()
-        quota = MagicMock(exhausted=True, monthly_quota=100, period_end=timezone.now())
+        quota = MagicMock(remaining=0, monthly_quota=100, period_end=timezone.now())
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
@@ -347,6 +357,37 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         client.start_workflow.assert_not_awaited()
         suggestion.refresh_from_db()
         self.assertIsNone(suggestion.evaluation)
+
+    def test_evaluate_refuses_when_planned_sessions_exceed_remaining_quota(self) -> None:
+        for i in range(3):
+            self._create_rated(f"sess-{i}")
+        suggestion = self._create_pending_suggestion()
+        quota = MagicMock(remaining=2, monthly_quota=100, period_end=timezone.now())
+        connect_patch, client = self._mock_temporal()
+        with (
+            connect_patch,
+            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+        ):
+            # The default limit plans 3 re-runs but only 2 observations remain this month.
+            resp = self.client.post(self._url(suggestion.id))
+            self.assertEqual(resp.status_code, 402)
+            client.start_workflow.assert_not_awaited()
+
+            # Lowering the session count to what is left starts the test with that limit.
+            resp = self.client.post(self._url(suggestion.id), {"session_limit": 2}, format="json")
+            self.assertEqual(resp.status_code, 200, resp.json())
+            self.assertEqual(client.start_workflow.await_args.args[1].session_limit, 2)
+
+    @parameterized.expand([("zero", 0), ("above_cap", EVALUATION_SESSION_CAP + 1)])
+    def test_evaluate_rejects_out_of_range_session_limit(self, _name: str, limit: int) -> None:
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id), {"session_limit": limit}, format="json")
+
+        self.assertEqual(resp.status_code, 400)
+        client.start_workflow.assert_not_awaited()
 
     @parameterized.expand(
         [

@@ -57,7 +57,7 @@ def select_evaluation_sessions_activity(inputs: SelectEvaluationSessionsInputs) 
     if suggestion.status != SuggestionStatus.PENDING:
         raise ApplicationError(f"Suggestion is {suggestion.status}, not pending", non_retryable=True)
 
-    observations = select_evaluation_observations(scanner)
+    observations = select_evaluation_observations(scanner, session_limit=inputs.session_limit)
     sessions = [
         EvaluationSession(
             observation_id=o.id,

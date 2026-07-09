@@ -161,9 +161,43 @@ describe('scannerQualityLogic', () => {
         logic.actions.evaluateSuggestion('sug-1')
         await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
 
-        expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1')
+        // Defaults to every allowed session: min(cap 10, rated 3).
+        expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
+            session_limit: 3,
+        })
         expect(logic.values.currentSuggestion?.evaluation).toEqual(runningEvaluation)
         expect(logic.values.evaluating).toBe(false)
+    })
+
+    it('evaluate sends the chosen test session count so the quota cost matches what the UI shows', async () => {
+        ;(visionScannersPromptSuggestionsEvaluateCreate as jest.Mock).mockResolvedValue(PENDING_SUGGESTION)
+        await mountLogic()
+        logic.actions.setTestSessionLimit(2)
+        logic.actions.evaluateSuggestion('sug-1')
+        await expectLogic(logic).toDispatchActions(['evaluateSuggestionSuccess'])
+
+        expect(visionScannersPromptSuggestionsEvaluateCreate).toHaveBeenCalledWith(TEAM_ID, 'scan-1', 'sug-1', {
+            session_limit: 2,
+        })
+    })
+
+    it.each<[string, number, number | null, number]>([
+        // [case, rated_count, chosen limit, planned]
+        ['defaults to every allowed session', 3, null, 3],
+        ['a chosen limit lowers the plan', 3, 2, 2],
+        ['the rated count caps the plan', 3, 50, 3],
+        ['the session cap bounds large rated sets', 25, null, 10],
+    ])('plannedTestSessions %s', async (_name, ratedCount, limit, expected) => {
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: PENDING_SUGGESTION,
+            stale: false,
+            rated_count: ratedCount,
+            evaluation_session_cap: 10,
+        })
+        await mountLogic()
+        logic.actions.setTestSessionLimit(limit)
+
+        expect(logic.values.plannedTestSessions).toBe(expected)
     })
 
     it('a running test refreshes the quota snapshot on every poll', async () => {

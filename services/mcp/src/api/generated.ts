@@ -21112,6 +21112,15 @@ export namespace Schemas {
       sampling_rate: number;
     }
 
+    export interface EvaluatePromptSuggestionRequest {
+      /**
+         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run consumes one observation of the monthly Replay Vision quota. Defaults to `evaluation_session_cap`, which is also the maximum.
+         * @minimum 1
+         * @maximum 10
+         */
+      session_limit?: number;
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
