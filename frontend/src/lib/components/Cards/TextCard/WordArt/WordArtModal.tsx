@@ -43,7 +43,8 @@ export function WordArtModal({
     // Mounted only while open, so this fires once per gallery open
     useEffect(() => {
         posthog.capture('dashboard text tile word art gallery opened', { is_editing: isEditing })
-    }, [isEditing])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     const trimmedText = text.trim()
     const previewText = trimmedText || 'Your text here'
