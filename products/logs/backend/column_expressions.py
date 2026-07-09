@@ -48,6 +48,35 @@ def parse_shorthand(text: str) -> ast.Expr | None:
     return path_to_expr(source, path)
 
 
+# ClickHouse functions that emit more than one row per input row. They have no place in a per-row
+# custom column: a reader could submit e.g. `arrayJoin(range(1000000000))` and force the logs query
+# to expand every matching row into billions, a low-friction availability hit. Matched case-insensitively.
+# Mirrors posthog.hogql.database.schema.util.where_clause_extractor._ROW_MULTIPLYING_FUNCTIONS.
+_ROW_MULTIPLYING_FUNCTIONS = {"arrayjoin"}
+
+# ClickHouse functions whose output size is driven by a (typically constant) size argument rather than by
+# the row's own data — a reader could submit e.g. `range(1000000000)` or `repeat(body, 1000000000)` and make
+# ClickHouse build a huge array/string for every matching row without multiplying rows, a low-friction
+# availability hit that the row-multiplier check above does not cover. They have no legitimate use in a
+# per-row log column, so we reject them outright rather than trying to bound their argument. Matched
+# case-insensitively.
+_VALUE_GENERATING_FUNCTIONS = {
+    "range",
+    "arraywithconstant",
+    "arrayresize",
+    "repeat",
+    "space",
+    "randomstring",
+    "randomstringutf8",
+    "randomprintableascii",
+    "randomfixedstring",
+    "leftpad",
+    "rightpad",
+    "leftpadutf8",
+    "rightpadutf8",
+}
+
+
 class _ScalarValidator(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         raise ValueError("Custom columns cannot contain subqueries")
@@ -58,14 +87,28 @@ class _ScalarValidator(TraversingVisitor):
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         raise ValueError("Custom columns cannot contain placeholders")
 
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        # Window functions (e.g. `row_number() over (order by timestamp)`) evaluate over a frame of
+        # rows, not per-row, forcing ClickHouse to process every matching log before the page limit
+        # applies — the same availability risk as aggregations, which we already reject.
+        raise ValueError("Custom columns cannot contain window functions")
+
     def visit_call(self, node: ast.Call) -> None:
+        name = node.name.lower()
         if find_hogql_aggregation(node.name) is not None:
             raise ValueError(f"Custom columns must be per-row: aggregation {node.name!r} is not allowed")
+        if name in _ROW_MULTIPLYING_FUNCTIONS:
+            raise ValueError(f"Custom columns must be per-row: {node.name!r} can multiply rows and is not allowed")
+        if name in _VALUE_GENERATING_FUNCTIONS:
+            raise ValueError(
+                f"Custom columns must be bounded: {node.name!r} can generate arbitrarily large values and is not allowed"
+            )
         super().visit_call(node)
 
 
 def _validate_scalar(expr: ast.Expr) -> None:
-    """Reject subqueries, aggregations, and unresolved placeholders anywhere in `expr`.
+    """Reject subqueries, aggregations, row-multiplying and value-generating functions, and unresolved
+    placeholders anywhere in `expr`.
 
     Scalar function calls, field access, arithmetic, conditionals, and constants all
     pass. This is an AST check — the expression is never inspected as a string.

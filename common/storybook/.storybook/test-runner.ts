@@ -542,7 +542,21 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
         await page.waitForLoadState('networkidle').catch(() => undefined)
     }
 
-    await page.evaluate(() => document.fonts.ready)
+    // `document.fonts.ready` only covers fonts that have already been *requested* — a story that
+    // renders no text until async data arrives (loaders, mocked API calls) requests RoundHog/Inter
+    // only close to capture time, and the screenshot races the font-display:swap repaint. Kicking
+    // the loads off explicitly here means late-mounted text renders in the real fonts directly, so
+    // there is no swap left to race. No-op once the fonts are cached.
+    await page
+        .evaluate(() =>
+            Promise.all(
+                ['400', '500', '700', '800'].flatMap((weight) => [
+                    document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`${weight} 16px Inter`),
+                ])
+            ).then(() => document.fonts.ready)
+        )
+        .catch(() => undefined)
 }
 
 function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {

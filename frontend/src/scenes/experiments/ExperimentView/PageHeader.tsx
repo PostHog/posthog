@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconEye,
     IconFlask,
+    IconLock,
     IconPause,
     IconPlay,
     IconPlusSmall,
@@ -35,7 +36,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
-import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
+import {
+    canArchiveExperiment,
+    canFreezeExposure,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+    confirmFreezeExposure,
+    hasFrozenExposureStamps,
+} from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -53,6 +61,7 @@ export function PageHeaderCustom(): JSX.Element {
         isCreatingExperimentDashboard,
         experimentLoading,
         launchExperimentLoading,
+        freezeExposureLoading,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -62,6 +71,7 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
+        freezeExposure,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -248,14 +258,28 @@ export function PageHeaderCustom(): JSX.Element {
                                             <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ) : (
-                                        <ButtonPrimitive
-                                            variant="danger"
-                                            menuItem
-                                            data-attr="pause-experiment"
-                                            onClick={() => openPauseExperimentModal()}
-                                        >
-                                            <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
+                                        <>
+                                            {canFreezeExposure(experiment) && (
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    data-attr="freeze-exposure"
+                                                    onClick={() => confirmFreezeExposure(freezeExposure)}
+                                                    disabledReasons={{
+                                                        'Freezing exposure...': freezeExposureLoading,
+                                                    }}
+                                                >
+                                                    <IconLock /> Freeze exposure
+                                                </ButtonPrimitive>
+                                            )}
+                                            <ButtonPrimitive
+                                                variant="danger"
+                                                menuItem
+                                                data-attr="pause-experiment"
+                                                onClick={() => openPauseExperimentModal()}
+                                            >
+                                                <IconPause /> Pause experiment
+                                            </ButtonPrimitive>
+                                        </>
                                     ))}
 
                                 <ResetButton />
@@ -345,9 +369,16 @@ const ResetButton = (): JSX.Element => {
                             All events collected thus far will still exist, but won't be applied to the experiment
                             unless you manually change the start date after launching the experiment again.
                         </p>
-                        <p>
-                            The <b>feature flag remains untouched</b>, so variants stay visible to users.
-                        </p>
+                        {hasFrozenExposureStamps(experiment) ? (
+                            <p>
+                                The <b>exposure freeze is removed</b>: the flag serves its original release conditions
+                                again and the snapshot cohort is deleted. Everything else on the flag stays untouched.
+                            </p>
+                        ) : (
+                            <p>
+                                The <b>feature flag remains untouched</b>, so variants stay visible to users.
+                            </p>
+                        )}
                     </div>
                     {experiment.archived && (
                         <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>

@@ -26,7 +26,7 @@ import {
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -397,10 +397,13 @@ function DescriptionBlock({
 
 function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
     return {
-        yAxis: { showGrid: false, ...yAxis },
+        curve: 'monotone',
         showAxisLines: true,
-        xAxis: { interval: 'day', timezone },
+        showTickMarks: true,
         showCrosshair: true,
+        showGrid: true,
+        yAxis,
+        xAxis: { interval: 'day', timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -505,8 +508,11 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useMemo(() => trendChartConfig(timezone), [timezone])
-    const latencyConfig = useMemo(() => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const latencyConfig = useChartConfig(
+        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
+        [timezone]
+    )
 
     return (
         <SceneContent>

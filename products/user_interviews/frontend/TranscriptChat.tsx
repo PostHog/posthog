@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 
-import { HedgehogRoboHog } from '@posthog/brand/hoggies'
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { PersonIcon } from 'scenes/persons/PersonDisplay'
@@ -9,6 +10,8 @@ import { PersonIcon } from 'scenes/persons/PersonDisplay'
 import { PersonType } from '~/types'
 
 import { TranscriptTurn, parseTranscript } from './parseTranscript'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
 
 interface TranscriptChatProps {
     transcript: string

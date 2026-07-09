@@ -1,6 +1,5 @@
-import { SignalSourceProduct } from '~/queries/schema/schema-signals'
-
 import { DataWarehouseSource } from '../../signalSourcesLogic'
+import { SignalSourceProduct } from '../../types'
 
 /**
  * Stable string keys for the agent roster, aligned with the source-product
@@ -45,7 +44,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
         agents: [
             {
                 source: 'error_tracking',
-                sourceProduct: SignalSourceProduct.ERROR_TRACKING,
+                sourceProduct: SignalSourceProduct.ErrorTracking,
                 label: 'Error tracking',
                 description: 'Bugs surfaced as new errors, regressions, and spikes.',
                 docsUrl: 'https://posthog.com/docs/error-tracking',
@@ -53,7 +52,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
             },
             {
                 source: 'conversations',
-                sourceProduct: SignalSourceProduct.CONVERSATIONS,
+                sourceProduct: SignalSourceProduct.Conversations,
                 label: 'Support',
                 description: 'Problems customers raise in support.',
                 docsUrl: 'https://posthog.com/docs/support',
@@ -61,7 +60,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
             },
             {
                 source: 'session_replay',
-                sourceProduct: SignalSourceProduct.SESSION_REPLAY,
+                sourceProduct: SignalSourceProduct.SessionReplay,
                 label: 'Session replay',
                 description: 'UX problems found in session recordings.',
                 docsUrl: 'https://posthog.com/docs/session-replay',
@@ -70,7 +69,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
             },
             {
                 source: 'llm_analytics',
-                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                sourceProduct: SignalSourceProduct.LlmAnalytics,
                 label: 'AI observability',
                 description: 'Findings from evaluation reports on your LLM traffic.',
                 docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
@@ -83,28 +82,28 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
         agents: [
             {
                 source: 'github',
-                sourceProduct: SignalSourceProduct.GITHUB,
+                sourceProduct: SignalSourceProduct.Github,
                 label: 'GitHub Issues',
                 description: 'Issues filed in GitHub.',
                 dataWarehouseSource: 'Github',
             },
             {
                 source: 'linear',
-                sourceProduct: SignalSourceProduct.LINEAR,
+                sourceProduct: SignalSourceProduct.Linear,
                 label: 'Linear',
                 description: 'Issues tracked in Linear.',
                 dataWarehouseSource: 'Linear',
             },
             {
                 source: 'zendesk',
-                sourceProduct: SignalSourceProduct.ZENDESK,
+                sourceProduct: SignalSourceProduct.Zendesk,
                 label: 'Zendesk',
                 description: 'Incoming Zendesk tickets.',
                 dataWarehouseSource: 'Zendesk',
             },
             {
                 source: 'pganalyze',
-                sourceProduct: SignalSourceProduct.PGANALYZE,
+                sourceProduct: SignalSourceProduct.Pganalyze,
                 label: 'pganalyze',
                 description: 'Postgres performance problems – slow queries and bad indexes.',
                 dataWarehouseSource: 'PgAnalyze',

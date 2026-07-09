@@ -1,6 +1,7 @@
 import os
 import json
 import base64
+import tempfile
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
@@ -13,7 +14,7 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils.timezone import now
 
@@ -33,6 +34,7 @@ from posthog.utils import (
     HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
     PotentialSecurityProblemException,
     _build_flag_provider,
+    _read_preload_manifest,
     absolute_uri,
     base64_decode,
     filters_override_requested_by_client,
@@ -379,6 +381,32 @@ class TestRelativeDateParse(TestCase):
         self.assertEqual(
             relative_date_parse("-2mEnd", ZoneInfo("UTC")).strftime("%Y-%m-%d"),
             "2019-11-30",
+        )
+
+    @parameterized.expand(
+        [
+            ("minus_one", "-1q", "2019-10-31"),
+            ("minus_two", "-2q", "2019-07-31"),
+            ("current_start", "qStart", "2020-01-01"),
+            ("current_end", "qEnd", "2020-03-31"),
+            ("minus_one_start", "-1qStart", "2019-10-01"),
+            ("minus_two_start", "-2qStart", "2019-07-01"),
+            ("minus_one_end", "-1qEnd", "2019-12-31"),
+            ("minus_two_end", "-2qEnd", "2019-09-30"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_quarter(self, _name, input, expected_date):
+        self.assertEqual(
+            relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
+    @freeze_time("2020-01-31")
+    def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
+        self.assertEqual(
+            relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
+            "2019-11-01",
         )
 
     @freeze_time("2020-01-31")
@@ -1298,3 +1326,59 @@ class TestBuildFlagProvider(TestCase):
         os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
 
         assert _build_flag_provider()._resolve_team_id() == 2
+
+
+VALID_PRELOAD_MANIFEST = {
+    "css": "static/index-ABC123.css",
+    "font": "static/assets/Inter-DEF456.woff2",
+    "js": ["static/index-GHI789.js", "static/chunk-APP111.js"],
+    "authenticatedJs": ["static/chunk-SHELL222.js", "static/chunk-APP111.js"],
+}
+
+
+class TestReadPreloadManifest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp_dir = tmp.name
+
+    def _write_manifest(self, content: str) -> str:
+        path = os.path.join(self.tmp_dir, "preload-manifest.json")
+        with open(path, "w") as f:
+            f.write(content)
+        return path
+
+    def test_resolves_unauthenticated_urls_as_written_by_the_build(self):
+        path = self._write_manifest(json.dumps(VALID_PRELOAD_MANIFEST))
+
+        assert _read_preload_manifest(path, include_authenticated_shell=False) == (
+            "static/index-ABC123.css",
+            ("static/index-GHI789.js", "static/chunk-APP111.js"),
+            "static/assets/Inter-DEF456.woff2",
+        )
+
+    def test_appends_authenticated_chunks_deduplicated(self):
+        path = self._write_manifest(json.dumps(VALID_PRELOAD_MANIFEST))
+
+        _, js_urls, _ = _read_preload_manifest(path, include_authenticated_shell=True)
+
+        assert js_urls == ("static/index-GHI789.js", "static/chunk-APP111.js", "static/chunk-SHELL222.js")
+
+    def test_missing_manifest_resolves_empty(self):
+        missing = os.path.join(self.tmp_dir, "missing.json")
+
+        assert _read_preload_manifest(missing, include_authenticated_shell=True) == ("", (), "")
+
+    @parameterized.expand(
+        [
+            ("corrupt_json", '{"css": "static/index.css", "js": ['),
+            ("js_not_a_list", json.dumps({**VALID_PRELOAD_MANIFEST, "js": "static/index.js"})),
+            ("js_entry_not_a_string", json.dumps({**VALID_PRELOAD_MANIFEST, "js": [{"file": "chunk.js"}]})),
+            ("css_not_a_string", json.dumps({**VALID_PRELOAD_MANIFEST, "css": ["static/index.css"]})),
+        ]
+    )
+    def test_malformed_manifest_resolves_empty_instead_of_garbage(self, _name: str, content: str) -> None:
+        path = self._write_manifest(content)
+
+        assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")

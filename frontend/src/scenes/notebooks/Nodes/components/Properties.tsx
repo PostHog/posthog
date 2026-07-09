@@ -102,6 +102,7 @@ export function Properties({
                                         type={type}
                                         embedded
                                         sortProperties={false}
+                                        collapsible
                                     />
                                 </div>
                             </div>

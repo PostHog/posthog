@@ -18,8 +18,9 @@ export function resolveFrameTimestamp(
     roughAnimationFPS: number,
     previousState: FrameState
 ): FrameResult {
+    // An undefined rrweb time (replayer constructed but not yet started) counts as stuck too, or the manual-advance recovery below could never engage for it.
     let stuckFrames: number
-    if (rrwebTimestamp !== undefined && rrwebTimestamp === previousState.lastAnimTimestamp) {
+    if (rrwebTimestamp === previousState.lastAnimTimestamp) {
         stuckFrames = previousState.stuckFrames + 1
     } else {
         stuckFrames = 0
