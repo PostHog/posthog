@@ -114,21 +114,20 @@ describe('sqlLineGraphAdapter', () => {
             )
         })
 
-        // Trend lines force the legacy fallback on the bar path because quill's
-        // TimeSeriesBarChart has no trend-line support — keep this until it does.
+        // Trend lines render natively via TrendLineOverlay — no fallback needed.
         it.each([
             ['a plain series', [ySeries('a', [1], { display: { trendLine: true } })]],
             ['a breakdown series', [breakdownSeries('chrome', [1], { display: { trendLine: true } })]],
-        ])('falls back when %s has a trend line', (_name, yData) => {
+        ])('renders natively when %s has a trend line', (_name, yData) => {
             expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
-                false
+                true
             )
         })
 
-        it('falls back when any series targets the right y-axis', () => {
+        it('renders natively when any series targets the right y-axis', () => {
             const yData = [ySeries('a', [1], { display: { yAxisPosition: 'right' } })]
             expect(canRenderSqlBarGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
-                false
+                true
             )
         })
     })
@@ -220,17 +219,35 @@ describe('sqlLineGraphAdapter', () => {
             ).toBe(false)
         })
 
-        it('falls back when any series has a trend line (no combo trend-line support)', () => {
+        it('renders natively when any series has a trend line (TrendLineOverlay handles it)', () => {
             const yData = [
                 ySeries('a', [1], { display: { displayType: 'bar' } }),
                 ySeries('b', [2], { display: { displayType: 'line', trendLine: true } }),
             ]
             expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
-                false
+                true
             )
         })
 
-        it('falls back for percent-stacked bars (unsupported by ComboChart)', () => {
+        it('renders natively for percent-stacked bars when the line is on the right axis', () => {
+            const yData = [
+                ySeries('a', [1], { display: { displayType: 'line', yAxisPosition: 'right' } }),
+                ySeries('b', [2], { display: { displayType: 'bar' } }),
+            ]
+            expect(
+                canRenderSqlComboGraph(
+                    baseProps({
+                        visualizationType: ChartDisplayType.ActionsStackedBar,
+                        yData,
+                        chartSettings: { stackBars100: true },
+                    })
+                )
+            ).toBe(true)
+        })
+
+        it("falls back for percent-stacked bars when a line shares the bars' axis", () => {
+            // The bars' axis clamps to [0, 1] in percent mode — a line on the same (default/left)
+            // axis has no way to plot its raw values there, so the combo path is unavailable.
             expect(
                 canRenderSqlComboGraph(
                     baseProps({
@@ -241,25 +258,21 @@ describe('sqlLineGraphAdapter', () => {
                 )
             ).toBe(false)
         })
-
-        it('falls back when any series targets the right y-axis', () => {
-            const yData = [
-                ySeries('a', [1], { display: { displayType: 'bar' } }),
-                ySeries('b', [2], { display: { displayType: 'line', yAxisPosition: 'right' } }),
-            ]
-            expect(canRenderSqlComboGraph(baseProps({ visualizationType: ChartDisplayType.ActionsBar, yData }))).toBe(
-                false
-            )
-        })
     })
 
     describe('comboBarLayoutForDisplay', () => {
         it.each([
-            ['stacked for a stacked bar graph', ChartDisplayType.ActionsStackedBar, 'stacked'],
-            ['grouped for a bar graph', ChartDisplayType.ActionsBar, 'grouped'],
-            ['grouped for a line graph', ChartDisplayType.ActionsLineGraph, 'grouped'],
-        ])('returns %s', (_name, visualizationType, expected) => {
-            expect(comboBarLayoutForDisplay(visualizationType)).toBe(expected)
+            ['stacked for a stacked bar graph', ChartDisplayType.ActionsStackedBar, {}, 'stacked'],
+            ['grouped for a bar graph', ChartDisplayType.ActionsBar, {}, 'grouped'],
+            ['grouped for a line graph', ChartDisplayType.ActionsLineGraph, {}, 'grouped'],
+            [
+                'percent for a stacked bar graph when stackBars100 is on',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                'percent',
+            ],
+        ])('returns %s', (_name, visualizationType, chartSettings, expected) => {
+            expect(comboBarLayoutForDisplay(visualizationType, chartSettings as ChartSettings)).toBe(expected)
         })
     })
 
@@ -562,6 +575,27 @@ describe('sqlLineGraphAdapter', () => {
             expect(Array.isArray(config.yAxis)).toBe(false)
         })
 
+        it.each([
+            ['leaves showAxisLines unset when both borders are on (app style default applies)', {}, undefined],
+            [
+                'turns off the x axis line when showXAxisBorder is off',
+                { showXAxisBorder: false },
+                { x: false, y: true },
+            ],
+            [
+                'turns off the y axis line when showYAxisBorder is off',
+                { showYAxisBorder: false },
+                { x: true, y: false },
+            ],
+        ])('%s', (_name, chartSettings, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: chartSettings as ChartSettings,
+                timezone: 'UTC',
+            })
+            expect(config.showAxisLines).toEqual(expected)
+        })
+
         it('emits a per-axis array honoring each column settings when a series targets the right axis', () => {
             const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
             const chartSettings: ChartSettings = {
@@ -670,6 +704,7 @@ describe('sqlLineGraphAdapter', () => {
             const ctx = (rawValue: number): ValueLabelContext => ({
                 rawValue,
                 bandValues: [rawValue],
+                previousBandValues: [],
                 isPercent: false,
             })
             // The label reads context.rawValue (not the percent-fraction `value` arg) with each series' settings.
@@ -707,7 +742,32 @@ describe('sqlLineGraphAdapter', () => {
                 timezone: 'UTC',
                 visualizationType: ChartDisplayType.ActionsStackedBar,
             })
-            expect(config.yAxis?.scale).toBe('linear')
+            expect((config.yAxis as YAxisConfig)?.scale).toBe('linear')
+        })
+
+        it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
+            ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
+        ])('%s', (_name, visualizationType, chartSettings, expected) => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings,
+                timezone: 'UTC',
+                visualizationType,
+                ySeriesData: [ySeries('a', [1, -2])],
+            })
+            expect(config.divergingStack).toBe(expected)
         })
 
         it('formats y-axis ticks with the first series column settings for plain bars', () => {
@@ -718,7 +778,7 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
                 ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
             })
-            expect(config.yAxis?.tickFormatter?.(1200)).toBe('$1200')
+            expect((config.yAxis as YAxisConfig)?.tickFormatter?.(1200)).toBe('$1200')
         })
 
         it('skips the column tick formatter for percent-stacked bars (the axis is 0–100%)', () => {
@@ -729,10 +789,10 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsStackedBar,
                 ySeriesData: [ySeries('revenue', [1200], { formatting: { prefix: '$' } })],
             })
-            expect(config.yAxis?.tickFormatter).toBeUndefined()
+            expect((config.yAxis as YAxisConfig)?.tickFormatter).toBeUndefined()
         })
 
-        it('never emits trend lines (quill bar charts have no trend-line support)', () => {
+        it('emits trend line config so TrendLineOverlay can render it', () => {
             const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
             const config = buildBarChartConfig({
                 xData: dateXData,
@@ -741,7 +801,57 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
                 ySeriesData,
             })
-            expect('trendLines' in config).toBe(false)
+            expect(config.trendLines?.length).toBeGreaterThan(0)
+        })
+
+        it('skips trend lines for percent-stacked bars, where they would render off-scale', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            expect(config.trendLines).toEqual([])
+        })
+
+        it('maps the axis-border toggles to per-edge showAxisLines for bars', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showXAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: false, y: true })
+        })
+
+        it('builds the shared SQL tooltip so bars honor showTotalRow and per-column formatting', () => {
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { showTotalRow: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData: [ySeries('a', [1]), ySeries('b', [2])],
+            })
+            expect(config.tooltip).toMatchObject({ showTotal: false })
+            expect(config.tooltip!.valueFormatter).toBeInstanceOf(Function)
+        })
+
+        it('emits a per-axis array with forceLinear threaded through both gutters when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true, leftYAxisSettings: { scale: 'logarithmic' } },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            // forceLinear (percent layout) overrides the logarithmic setting on both gutters.
+            expect(config.yAxis).toMatchObject([
+                { id: 'left', position: 'left', scale: 'linear' },
+                { id: 'right', position: 'right', scale: 'linear' },
+            ])
         })
     })
 
@@ -765,6 +875,16 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.barLayout).toBe(expected)
         })
 
+        it('maps the axis-border toggles to per-edge showAxisLines for combo', () => {
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { showYAxisBorder: false },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+            })
+            expect(config.showAxisLines).toEqual({ x: true, y: false })
+        })
+
         it('wires goal lines, legend, and a date x-axis formatter', () => {
             const config = buildComboChartConfig({
                 xData: dateXData,
@@ -779,14 +899,26 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.tooltip).toMatchObject({ enabled: true, pinnable: true })
         })
 
-        it('never emits trend lines (combo charts have no trend-line support)', () => {
+        it('emits trendLines config (TrendLineOverlay renders them on combo charts)', () => {
             const config = buildComboChartConfig({
                 xData: dateXData,
                 chartSettings: {},
                 timezone: 'UTC',
                 visualizationType: ChartDisplayType.ActionsBar,
             })
-            expect('trendLines' in config).toBe(false)
+            expect('trendLines' in config).toBe(true)
+        })
+
+        it('skips trend lines for percent-stacked bars, where they would render off-scale', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            expect(config.trendLines).toEqual([])
         })
 
         it('honors leftYAxisSettings for the single y-axis', () => {
@@ -800,6 +932,21 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
             })
             expect(config.yAxis).toEqual({ label: 'Combo Left', scale: 'log', showGrid: false, hide: false })
+        })
+
+        it('emits a per-axis array when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData,
+            })
+            expect(config.yAxis).toMatchObject([
+                { id: 'left', position: 'left' },
+                { id: 'right', position: 'right' },
+            ])
         })
     })
 })

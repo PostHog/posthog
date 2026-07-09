@@ -227,6 +227,18 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
     })
 
+    it('supports steps and trends funnels but not time-to-convert or flow', () => {
+        const withViz = (funnelVizType?: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const opts = { funnelAlertsEnabled: true }
+        expect(areAlertsSupportedForInsight(withViz('steps'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
+    })
+
     it('returns false when trendsFilter is null', () => {
         const query = {
             ...API_QUERY,
@@ -249,5 +261,23 @@ describe('alertsUnsupportedReason', () => {
         const reason = alertsUnsupportedReason(options)
         expect(included.every((type) => reason.includes(type))).toBe(true)
         expect(excluded.every((type) => !reason.includes(type))).toBe(true)
+    })
+
+    // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
+    // copy reads as a contradiction; the reason should name the real cause instead.
+    it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
+        const funnelWithViz = (funnelVizType: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const options = { funnelAlertsEnabled: true }
+        for (const viz of ['time_to_convert', 'flow']) {
+            const reason = alertsUnsupportedReason(options, funnelWithViz(viz))
+            expect(reason).toContain('conversion rate')
+            expect(reason).toContain('steps or trends')
+            expect(reason).not.toContain('only available for')
+        }
+        // No query → backward-compatible generic copy.
+        expect(alertsUnsupportedReason(options)).toContain('only available for')
     })
 })

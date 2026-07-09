@@ -43,7 +43,6 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
@@ -383,9 +382,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     else "replica"
 )
 
-# Use centralized database routing constant
-READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
-
 flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
@@ -555,7 +551,7 @@ def update_flag_caches(team: Team):
         emit_cache_sync_metrics(result, "feature_flags", "flags_without_cohorts.json", size=size_without_cohorts)
 
 
-def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
+def clear_flag_definition_caches(team: Team | int, kinds: list[str] | None = None):
     """
     Clear the flag definitions cache for a team.
 
@@ -786,6 +782,12 @@ FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flag_definitions",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # The Rust /flags/definitions reader has no DB fallback, so a miss must be
+    # repaired even during the grace period rather than 503 until the next sweep.
+    repair_miss_during_grace_period=True,
+    # Guard the verifier's direct db_data write against caching an emptied
+    # group_type_mapping (personhog lag), same as the signal-driven write path.
+    should_skip_write=_skip_write_if_group_mapping_emptied,
 )
 
 FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
@@ -794,6 +796,8 @@ FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementC
     cache_name="flag_definitions_no_cohorts",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    repair_miss_during_grace_period=True,
+    should_skip_write=_skip_write_if_group_mapping_emptied,
 )
 
 

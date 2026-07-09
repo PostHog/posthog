@@ -53,6 +53,19 @@ class TestAggregateAddActionStats:
         assert stats["amount"].max_value == "15"
         assert stats["amount"].has_min_max is True
 
+    def test_accepts_arro3_record_batch_from_deltalake(self) -> None:
+        # deltalake>=1.x returns an arro3 RecordBatch (no `to_pydict`) from get_add_actions; the helper
+        # must normalize it to pyarrow rather than crash with AttributeError.
+        from arro3.core import RecordBatch
+
+        pa_table = pa.table({"num_records": [10, 20], "null_count.amount": [1, 2], "min.amount": [5, 3]})
+        arro3_batch = RecordBatch.from_arrow(pa_table.to_batches()[0])
+
+        row_count, stats = _aggregate_add_action_stats(arro3_batch, {"amount": "Int64"})
+        assert row_count == 30
+        assert stats["amount"].null_count == 3
+        assert stats["amount"].min_value == "3"
+
     def test_column_without_log_stats_marks_has_min_max_false(self) -> None:
         # A column present in the table but with no min/max/null in the Delta log (e.g. nested type).
         add_actions = pa.table({"num_records": [5]})

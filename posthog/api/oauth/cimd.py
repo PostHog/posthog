@@ -38,7 +38,7 @@ from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
-from .dcr import validate_client_name
+from .client_name import sanitize_client_name, validate_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -395,6 +395,8 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         validate_client_name(client_name)
     except Exception:
         client_name = "CIMD Client"
+    # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
+    client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
@@ -449,7 +451,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if client_name:
         try:
             validate_client_name(client_name)
-            app.name = client_name
+            app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
 

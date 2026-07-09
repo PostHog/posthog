@@ -50,17 +50,17 @@ import {
 } from '~/ingestion/pipelines/analytics'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
-import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
-import { IngestionConsumerConfig } from './config'
 import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
-} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
+} from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
+import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
+import { IngestionConsumerConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
@@ -104,13 +104,6 @@ export const latestOffsetTimestampGauge = new Gauge({
 const backgroundTaskProducesDuration = new Histogram({
     name: 'ingestion_background_task_produces_duration_seconds',
     help: 'Time waiting for scheduled Kafka produces in the background task',
-    labelNames: ['groupId'],
-    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-})
-
-const backgroundTaskHogTransformerDuration = new Histogram({
-    name: 'ingestion_background_task_hog_transformer_duration_seconds',
-    help: 'Time waiting for hog transformer invocation results in the background task',
     labelNames: ['groupId'],
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
@@ -184,21 +177,25 @@ export class IngestionConsumer {
             redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
         })
 
-        // Create overflow redirect service only when overflow is enabled (main lane)
-        if (this.overflowEnabled()) {
+        // Overflow role for this consumer (redirect / consume / disabled).
+        const overflowMode = this.config.INGESTION_OVERFLOW_MODE
+
+        // Redirect hot partitions to the overflow topic (main lane).
+        if (overflowMode === 'redirect') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                overflowType: 'events',
             })
         }
 
-        // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        // Drain the overflow topic and refresh stateful TTLs (overflow lane).
+        if (overflowMode === 'consume') {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'events',
             })
         }
 
@@ -272,7 +269,7 @@ export class IngestionConsumer {
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
@@ -424,12 +421,9 @@ export class IngestionConsumer {
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
-                await Promise.all([
-                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
-                    timedHistogram(backgroundTaskHogTransformerDuration, labels, () =>
-                        this.hogTransformer.processInvocationResults()
-                    ),
-                ])
+                // Drains scheduled produces and the hog transformer invocation results, which
+                // the pipeline's afterBatch flush step schedules as a side effect.
+                await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
             }),
         }
     }
@@ -450,13 +444,6 @@ export class IngestionConsumer {
             }
             result = await this.joinedPipeline.next()
         }
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }
 

@@ -24,7 +24,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from posthog.hogql.metadata import get_table_names  # noqa: PLC0415
     from posthog.hogql.parser import parse_select  # noqa: PLC0415
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
@@ -54,7 +54,17 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
             for table in (
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
+                # clear the manager's created_by/schema eager-loads: select_related chains additively,
+                # so without this the .only() below raises FieldError (created_by deferred + traversed)
+                .select_related(None)
+                .prefetch_related(None)
                 .select_related("external_data_source")
+                .only(
+                    "name",
+                    "external_data_source__source_type",
+                    "external_data_source__prefix",
+                    "external_data_source__access_method",
+                )
             ):
                 warehouse_table_names.add(table.name)
                 warehouse_table_names.add(get_data_warehouse_table_name(table.external_data_source, table.name))

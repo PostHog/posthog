@@ -1,0 +1,292 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    .notebook-migration-layout {
+        display: grid;
+        gap: 16px;
+        max-width: 960px;
+    }
+    .notebook-migration-card {
+        background: var(--body-bg);
+        border: 1px solid var(--hairline-color);
+        border-radius: 4px;
+        padding: 16px;
+    }
+    .notebook-migration-stats {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        margin-top: 12px;
+    }
+    .notebook-migration-stat {
+        border: 1px solid var(--hairline-color);
+        border-radius: 4px;
+        padding: 12px;
+    }
+    .notebook-migration-stat strong {
+        display: block;
+        font-size: 24px;
+        line-height: 1.2;
+    }
+    .notebook-migration-row {
+        margin-bottom: 14px;
+    }
+    .notebook-migration-row label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+    }
+    .notebook-migration-help {
+        color: var(--body-quiet-color);
+        font-size: 12px;
+        margin: 4px 0 0;
+    }
+    .notebook-migration-actions {
+        align-items: center;
+        display: flex;
+        gap: 8px;
+        margin-top: 16px;
+    }
+    .notebook-migration-message {
+        border-radius: 4px;
+        display: none;
+        margin-top: 12px;
+        padding: 10px;
+        white-space: pre-wrap;
+    }
+    .notebook-migration-message.is-visible {
+        display: block;
+    }
+    .notebook-migration-message.is-error {
+        background: #fdecea;
+        border: 1px solid #f5c2c7;
+        color: #842029;
+    }
+    .notebook-migration-message.is-success {
+        background: #eaf7ea;
+        border: 1px solid #b8dfb8;
+        color: #1f5f1f;
+    }
+    .notebook-migration-previews {
+        margin-top: 16px;
+    }
+    .notebook-migration-preview {
+        border-top: 1px solid var(--hairline-color);
+        padding: 12px 0;
+    }
+    .notebook-migration-preview pre {
+        max-height: 180px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="notebook-migration-layout">
+    <div class="notebook-migration-card">
+        <h2>Migration status</h2>
+        <p>
+            Counts include every notebook row in scope, including internal, account-linked, and deleted notebooks.
+        </p>
+        <div class="notebook-migration-actions">
+            <button type="button" class="button" id="notebook-migration-refresh">Refresh</button>
+            <span id="notebook-migration-status">Loading…</span>
+        </div>
+        <div class="notebook-migration-stats">
+            <div class="notebook-migration-stat">
+                <span>Total notebooks</span>
+                <strong id="notebook-migration-total">-</strong>
+            </div>
+            <div class="notebook-migration-stat">
+                <span>Converted</span>
+                <strong id="notebook-migration-converted">-</strong>
+            </div>
+            <div class="notebook-migration-stat">
+                <span>Pending</span>
+                <strong id="notebook-migration-pending">-</strong>
+            </div>
+        </div>
+    </div>
+
+    <div class="notebook-migration-card">
+        <h2>Run migration</h2>
+        <p>
+            This rewrites rich notebooks into the markdown notebook format using the backend converter,
+            increments the notebook version, publishes an update event, and writes a notebook history entry
+            with the before/after content diff.
+        </p>
+        <form id="notebook-migration-form">
+            {% csrf_token %}
+            <div class="notebook-migration-row">
+                <label for="{{ form.team_id.id_for_label }}">{{ form.team_id.label }}</label>
+                {{ form.team_id }}
+                <p class="notebook-migration-help">{{ form.team_id.help_text }}</p>
+            </div>
+            <div class="notebook-migration-row">
+                <label for="{{ form.dry_run.id_for_label }}">
+                    {{ form.dry_run }}
+                    {{ form.dry_run.label }}
+                </label>
+                <p class="notebook-migration-help">{{ form.dry_run.help_text }}</p>
+            </div>
+            <div class="notebook-migration-row">
+                <label for="{{ form.batch_size.id_for_label }}">{{ form.batch_size.label }}</label>
+                {{ form.batch_size }}
+                <p class="notebook-migration-help">{{ form.batch_size.help_text }}</p>
+            </div>
+            <div class="notebook-migration-actions">
+                <button type="submit" class="default" id="notebook-migration-submit">Run batch</button>
+            </div>
+        </form>
+        <div id="notebook-migration-message" class="notebook-migration-message"></div>
+        <div id="notebook-migration-previews" class="notebook-migration-previews"></div>
+    </div>
+</div>
+
+<script nonce="{{ request.csp_nonce }}">
+    (function () {
+        const statsUrl = "{% url 'notebook-markdown-migration-stats' %}"
+        const runUrl = "{% url 'notebook-markdown-migration-run' %}"
+        const form = document.getElementById("notebook-migration-form")
+        const teamInput = document.getElementById("id_team_id")
+        const dryRunInput = document.getElementById("id_dry_run")
+        const batchSizeInput = document.getElementById("id_batch_size")
+        const refreshButton = document.getElementById("notebook-migration-refresh")
+        const submitButton = document.getElementById("notebook-migration-submit")
+        const status = document.getElementById("notebook-migration-status")
+        const message = document.getElementById("notebook-migration-message")
+        const previews = document.getElementById("notebook-migration-previews")
+
+        function csrfToken() {
+            return document.querySelector("[name=csrfmiddlewaretoken]").value
+        }
+
+        function teamQuery() {
+            const value = teamInput.value.trim()
+            return value ? "?team_id=" + encodeURIComponent(value) : ""
+        }
+
+        function setMessage(text, isError) {
+            message.textContent = text
+            message.classList.toggle("is-visible", !!text)
+            message.classList.toggle("is-error", !!isError)
+            message.classList.toggle("is-success", !!text && !isError)
+        }
+
+        async function readJson(response) {
+            const responseText = await response.text()
+            const contentType = response.headers.get("content-type") || ""
+            if (!contentType.includes("application/json")) {
+                throw new Error(
+                    `Migration endpoint returned HTTP ${response.status} instead of JSON.\n${responseText.slice(0, 500)}`
+                )
+            }
+            return JSON.parse(responseText)
+        }
+
+        function renderStats(data) {
+            document.getElementById("notebook-migration-total").textContent = data.total
+            document.getElementById("notebook-migration-converted").textContent = data.converted
+            document.getElementById("notebook-migration-pending").textContent = data.pending
+        }
+
+        function renderPreviews(items) {
+            previews.innerHTML = ""
+            if (!items || !items.length) {
+                return
+            }
+            const heading = document.createElement("h3")
+            heading.textContent = "Dry-run preview"
+            previews.appendChild(heading)
+            for (const item of items) {
+                const wrapper = document.createElement("div")
+                wrapper.className = "notebook-migration-preview"
+                const title = document.createElement("strong")
+                title.textContent = `${item.short_id} · ${item.title || "Untitled"} · version ${item.before_version}`
+                const pre = document.createElement("pre")
+                pre.textContent = item.markdown_preview
+                wrapper.appendChild(title)
+                wrapper.appendChild(pre)
+                previews.appendChild(wrapper)
+            }
+        }
+
+        async function refreshStats() {
+            status.textContent = "Loading…"
+            refreshButton.disabled = true
+            try {
+                const response = await fetch(statsUrl + teamQuery(), { headers: { "Accept": "application/json" } })
+                const data = await readJson(response)
+                if (!response.ok) {
+                    status.textContent = "Could not load stats"
+                    setMessage(data.error || "Could not load migration stats.", true)
+                    return
+                }
+                renderStats(data)
+                status.textContent = "Updated"
+            } catch (error) {
+                status.textContent = "Could not load stats"
+                setMessage(String(error), true)
+            } finally {
+                refreshButton.disabled = false
+            }
+        }
+
+        refreshButton.addEventListener("click", refreshStats)
+        teamInput.addEventListener("change", refreshStats)
+        form.addEventListener("submit", async function (event) {
+            event.preventDefault()
+            setMessage("", false)
+            previews.innerHTML = ""
+            submitButton.disabled = true
+            submitButton.textContent = "Running…"
+            try {
+                const response = await fetch(runUrl, {
+                    method: "POST",
+                    headers: {
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": csrfToken(),
+                    },
+                    body: JSON.stringify({
+                        team_id: teamInput.value.trim(),
+                        dry_run: dryRunInput.checked,
+                        batch_size: batchSizeInput.value.trim(),
+                    }),
+                })
+                const data = await readJson(response)
+                if (!response.ok) {
+                    setMessage(data.error || "Migration failed.", true)
+                    return
+                }
+                const details = [
+                    data.message,
+                    `Total: ${data.total}`,
+                    `Already converted: ${data.already_converted}`,
+                    `Pending before batch: ${data.pending_before}`,
+                    `Pending after batch: ${data.pending_after}`,
+                    `Batch size: ${data.batch_size || "All pending"}`,
+                    `${data.dry_run ? "Would convert" : "Converted"}: ${data.converted}`,
+                    `Skipped: ${data.skipped}`,
+                    `Errored: ${data.errored}`,
+                    ...(data.errors || []),
+                ].join("\n")
+                setMessage(details, data.errored > 0)
+                renderPreviews(data.previews)
+                await refreshStats()
+            } catch (error) {
+                setMessage(String(error), true)
+            } finally {
+                submitButton.disabled = false
+                submitButton.textContent = "Run batch"
+            }
+        })
+
+        refreshStats()
+    })()
+</script>
+{% endblock %}

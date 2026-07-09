@@ -35,23 +35,26 @@ If you cannot answer the user's PostHog related request or question using other 
 
 ### Tool search
 
-**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <regex>` with a short, targeted pattern to find what you need.
+**Always prefer `search` over `tools`** — `tools` returns every tool and wastes tokens. Use `search <query>` to find what you need.
 
-Write focused patterns that match 1-5 tools. The regex matches against tool name, title, and description.
+`search` understands two kinds of query:
 
-**Good patterns** (specific, narrow):
+- **Plain words** (including multiple words / natural language) — ranked by relevance across tool name, title, and description, with name matches weighted highest. `search create dashboard insight` surfaces `dashboard-create` / `insight-create` at the top. Results are capped to the top matches; narrow the query if you see a truncation note.
+- **Regex** — a query containing regex metacharacters (`- | ( ) [ ] \ . * + ^ $ ?`) is treated as a single case-insensitive regular expression, matched against name/title/description. Use this for precise, narrow patterns.
 
-- `search feature-flag` — tools for feature flags
+**Good queries:**
+
+- `search create dashboard insight` — plain words, ranked: dashboard/insight creation tools first
+- `search feature-flag` — regex (`-`): tools for feature flags
 - `search dashboard` — dashboard CRUD tools
-- `search query-` — all insight query tools
+- `search query-` — regex (`-`): all insight query tools
 - `search experiment` — experiment tools
 - `search survey` — survey tools
 
-**Bad patterns** (too broad, match dozens of tools):
+**Avoid queries that are too broad** (match dozens of tools):
 
 - `search data` — matches almost everything
-- `search get|list|create` — matches action verbs across all domains
-- `search pageview_trends` — search is too focused
+- `search get list create` — action verbs across all domains
 - `search pageview|email@address.com` — unrelated to tools
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
@@ -81,17 +84,16 @@ When you do use `execute-sql`, run `info execute-sql` first for the full discove
 
 "find / which / do we have / what's our X chart" questions about PostHog-created entities are SQL searches against `system.*` (`system.insights`, `system.dashboards`, `system.cohorts`, `system.feature_flags`, `system.experiments`, `system.surveys`, `system.notebooks`), **not** `*-list` walks.
 
-Required order on every run, no shortcuts:
+Required order on every run, no shortcuts — schema first, every run:
 
-1. `info execute-sql` AND `info read-data-warehouse-schema` — load both tool guides, even if a skill is already loaded.
-2. `read-data-warehouse-schema` — confirms the table's columns. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — call the tool.
-3. `execute-sql` against `system.*` — uses only columns confirmed in step 2.
-4. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
+1. Confirm the table's columns with an `execute-sql` against `system.information_schema.columns`, e.g. `SELECT column_name, data_type, description FROM system.information_schema.columns WHERE table_name = 'system.insights'`. Schema markdown in skills/references (`models-*.md`, `querying-posthog-data` docs) is documentation, **not** a substitute — query the schema.
+2. `execute-sql` against `system.*` — uses only columns confirmed in step 1.
+3. `<entity>-get` (e.g. `insight-get`, `dashboard-get`) — verifies the entity shape; do NOT re-`execute-sql` by ID.
 
 <bad-example>
 User: rename / find / list … (any `system.*` question)
-Assistant: [Calls `execute-sql` against `system.insights` without first running `read-data-warehouse-schema` — OR runs `read-data-warehouse-schema` partway through, only after several `execute-sql` calls thrashed]
-WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against `system.*` MUST be preceded by `read-data-warehouse-schema` in the same run. Same for `info read-data-warehouse-schema` before the first `read-data-warehouse-schema` call. Skipping or postponing either step is a hard violation.
+Assistant: [Calls `execute-sql` against `system.insights` without first confirming its columns via `system.information_schema.columns` — OR checks the schema partway through, only after several `execute-sql` calls thrashed]
+WRONG — the rule is "schema first, every run, no shortcuts." Even if early SQL happens to work (or the search is thrashing on `WHERE name ILIKE …` variants), you've already failed: every successful `execute-sql` against a `system.*` entity table MUST be preceded by an `execute-sql` against `system.information_schema.columns` for that table in the same run. Skipping or postponing the schema check is a hard violation.
 </bad-example>
 
 #### Available insight query tools
@@ -198,7 +200,7 @@ For complex investigations, combine multiple query types. For example, use `quer
 
 Defined group types: organization, project
 
-You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).
+You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
 Project timezone: America/New_York.
 The user's name is Jane Doe (jane@acme.com).
 

@@ -95,20 +95,19 @@ def _set_session_table_version(team, version):
 class TestSessionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        s1 = str(uuid7())
-
+        # Two distinct sessions: a single session's two utm_sources collapse to the argMin entry value once raw_sessions parts merge.
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "google"},
+            properties={"$session_id": str(uuid7()), "utm_source": "google"},
             event_uuid=(uuid.uuid4()),
         )
         create_event(
             team=self.team,
             event="$pageview",
             distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "youtube"},
+            properties={"$session_id": str(uuid7()), "utm_source": "youtube"},
             event_uuid=(uuid.uuid4()),
         )
 

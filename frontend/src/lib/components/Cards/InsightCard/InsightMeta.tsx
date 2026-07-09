@@ -633,6 +633,7 @@ export function InsightMeta({
                     canCreateAlertForInsight={canCreateAlertForInsight}
                     onCreateAlert={onCreateAlert}
                     onEditAlert={onEditAlert}
+                    insightQuery={query}
                     deferInitialAlertsLoad
                 />
             ) : null}

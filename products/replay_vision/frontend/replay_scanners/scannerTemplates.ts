@@ -11,17 +11,7 @@ import type {
 } from './types'
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from './types'
 
-export type ScannerTemplateIcon =
-    | 'bolt'
-    | 'warning'
-    | 'notebook'
-    | 'target'
-    | 'thumbs-down'
-    | 'star'
-    | 'search'
-    | 'magic'
-    | 'bug'
-    | 'check'
+export type ScannerTemplateIcon = 'warning' | 'notebook' | 'target' | 'thumbs-down' | 'check'
 
 interface BaseTemplate {
     key: string
@@ -135,6 +125,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         id: 'new',
         enabled: true,
         sampling_rate: 1,
+        sampling_mode: 'comprehensive' as const,
         query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -144,6 +135,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         created_at: dayjs().toISOString(),
         updated_at: dayjs().toISOString(),
         created_by: null,
+        estimated_monthly_observations: null,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)
@@ -153,7 +145,8 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
             name: template.scanner_name,
             description: template.scanner_description,
             scanner_type: template.scanner_type,
-            scanner_config: template.scanner_config,
+            // Cloned so an in-place form mutation can never corrupt the module-level template.
+            scanner_config: structuredClone(template.scanner_config),
         } as ReplayScanner
     }
     return {

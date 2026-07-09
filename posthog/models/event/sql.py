@@ -342,7 +342,7 @@ def EVENTS_RECENT_TABLE_SQL(on_cluster=False):
             sharding_key="sipHash64(distinct_id)",
             cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
@@ -358,7 +358,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=False):
             sharding_key="sipHash64(distinct_id)",
             cluster=settings.CLICKHOUSE_PRIMARY_REPLICA_CLUSTER,
         ),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_NOT_NULLABLE_COLUMN,
         dynamically_materialized_columns="",
         materialized_columns="",
         indexes="",
@@ -564,22 +564,6 @@ VALUES
 """
 )
 
-
-SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    events
-WHERE
-    team_id = %(team_id)s
-    {property_exists_filter}
-    {parsed_date_from}
-    {parsed_date_to}
-    {event_filter}
-    {value_filter}
-{order_by_clause}
-LIMIT 10
-"""
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range

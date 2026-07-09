@@ -79,6 +79,7 @@ def setup_migrations():
     LATEST_VERSIONS[NodeKind.INSIGHT_VIZ_NODE] = 4
     LATEST_VERSIONS[NodeKind.TRENDS_QUERY] = 6
     LATEST_VERSIONS[NodeKind.EVENTS_NODE] = 8
+    schema_migrations_module._migrations_discovered = True
 
     # Mark discovery as already done so only the mock registry above is used.
     # Without this, anything that calls upgrade() mid-test (for example, saving
@@ -211,6 +212,18 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id]
         assert sorted(result.insight_ids) == expected_ids
         assert result.last_id == i8.id
+
+    @pytest.mark.django_db
+    def test_get_insights_to_migrate_activity_with_no_migrations(self, activity_environment, team):
+        # On a fresh worker LATEST_VERSIONS can be empty; the activity must not
+        # emit `WHERE ()` (a Postgres syntax error) and should return no ids.
+        setup_insights(team)
+        LATEST_VERSIONS.clear()
+
+        result = activity_environment.run(get_insights_to_migrate, GetInsightsToMigrateActivityInputs())
+
+        assert result.insight_ids == []
+        assert result.last_id is None
 
     @pytest.mark.django_db
     def test_migrate_insights_batch_activity(self, activity_environment, team):

@@ -5,6 +5,7 @@ from django.db import OperationalError as DjangoOperationalError
 
 import structlog
 from psycopg import OperationalError
+from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
@@ -62,6 +63,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
 log = logging.getLogger(__name__)
+
+_HOST_IS_URL_ERROR = (
+    "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
+    "connection string. Remove any scheme (like http:// or postgres://) and any username, "
+    "password, port, or path."
+)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -133,6 +140,15 @@ RLS_WARNING_MESSAGE = (
     "Row-level security is active on this table for the sync role, so PostHog can only read "
     "rows the policy permits, and cannot detect how many rows are hidden. "
     "Granting the sync role BYPASSRLS will silence the check."
+)
+
+# Stable, classifiable message for a postgres_fdw foreign-server connection failure surfaced during
+# setup. Kept clear of the connect-time substrings in `get_non_retryable_errors` so the condition
+# stays retryable — see `ForeignServerUnreachableError`.
+_FOREIGN_SERVER_UNREACHABLE_ERROR = (
+    "A table selected for sync is a postgres_fdw foreign table and PostHog could not connect to the "
+    "foreign server it points at. This is usually a transient outage of that downstream server; if it "
+    "persists, check that the foreign server is running and reachable from your source database."
 )
 
 
@@ -361,6 +377,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
                 "view that uses it from the sync, then re-enable the sync."
             ),
+            # A selected table lives in a schema the connecting role can't access (SQLSTATE 42501,
+            # "permission denied for schema <name>") — most often a non-public schema like `extensions`
+            # holding an extension's objects. USAGE on the schema is a prerequisite for reading anything
+            # inside it, so granting SELECT on the table alone won't help — distinct from the table/view
+            # SELECT denial below, and it must precede the generic "permission denied for" so this
+            # USAGE-oriented message is the one selected.
+            "permission denied for schema": (
+                "PostHog's database role isn't allowed to access a schema that contains one or more of the "
+                'tables you selected to sync (PostgreSQL reported "permission denied for schema"). Grant the '
+                "connecting role USAGE on that schema and SELECT on the tables in it (for example: "
+                "GRANT USAGE ON SCHEMA <schema> TO <role>), or remove those tables from the sync, then "
+                "re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
@@ -442,6 +471,32 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # The provider has put the cluster into read-only mode, so it rejects our read (the
+            # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
+            # pg_readonly reports "invalid statement because cluster is read-only"; the cluster only
+            # leaves this state once the customer restores write access (free up storage, upgrade the
+            # plan), so a whole-activity retry re-reads into the same wall. Match the stable phrase and
+            # exclude the volatile leading "pg_readonly:" prefix and trailing docs URL.
+            "cluster is read-only": (
+                "Your database provider has put the database cluster into read-only mode, so it's "
+                'rejecting PostHog\'s queries ("cluster is read-only"). Providers such as PlanetScale '
+                "do this when a storage or usage limit is exceeded. Restore write access to the cluster "
+                "(for example free up storage or upgrade your plan), then re-enable the sync."
+            ),
+            # A physical standby / read replica started with `hot_standby = off` refuses every
+            # connection while in recovery, raising SQLSTATE 57P03 "FATAL: the database system is not
+            # accepting connections / DETAIL: Hot standby mode is disabled". It will never serve read
+            # queries until hot_standby is enabled (a config change + restart) or the replica is
+            # promoted to primary, so a whole-activity retry re-hits the same wall every time. Match
+            # the stable DETAIL, NOT the broad "the database system is not accepting connections" — that
+            # message also fires transiently while a server is starting up, shutting down, or failing
+            # over and must stay retryable (see the "the database system is starting up" mapping above).
+            "Hot standby mode is disabled": (
+                "PostHog connected to a PostgreSQL standby (read replica) that isn't accepting "
+                'connections because hot standby is turned off ("Hot standby mode is disabled"). '
+                "Enable hot_standby on the replica and restart it, or point this source at the primary "
+                "database, then re-enable the sync."
+            ),
             # A single recovery conflict ("conflict with recovery") is transient and retried in-process,
             # so it stays retryable. This abort is only raised once those retries are exhausted — by then
             # the condition is sustained and a whole-activity retry just re-reads from offset 0 into the
@@ -518,6 +573,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation is a postgres_fdw foreign table and the connecting role has no user
+            # mapping for the foreign server it points at, so every SELECT fails with
+            # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
+            # 42704). The mapping is fixed server-side config only the customer can create, so
+            # retrying re-reads into the same wall. Match the stable fragment and exclude the volatile
+            # user/server names.
+            "user mapping not found for": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw), and "
+                "PostHog's database role has no user mapping for the foreign server it points at "
+                '(PostgreSQL reported "user mapping not found"). Create a user mapping for the '
+                "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
+                "foreign table from the sync, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(
@@ -572,7 +640,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     ) -> list[SourceSchema]:
         schemas = []
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_postgres_schemas(
                 host=host,
                 port=port,
@@ -788,6 +856,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if not is_ssh_valid:
             return is_ssh_valid, ssh_valid_errors
 
+        # A pasted URL or connection string in the host field otherwise fails DNS resolution with a
+        # misleading "check the spelling" message that echoes the raw value back (which can embed
+        # credentials). Catch it early with an actionable message that never reflects the input.
+        if "://" in config.host:
+            return False, _HOST_IS_URL_ERROR
+
         valid_host, host_errors = self.is_database_host_valid(
             config.host, team_id, using_ssh_tunnel=config.ssh_tunnel.enabled if config.ssh_tunnel else False
         )
@@ -830,7 +904,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
     def get_connection_metadata(
         self, config: PostgresSourceConfig, team_id: int, require_ssl: bool = False
     ) -> dict[str, object]:
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             return get_postgres_connection_metadata(
                 host=host,
                 port=port,
@@ -887,10 +961,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
             CDCHandledExternally,
+            ForeignServerUnreachableError,
             PostHogDatabaseConnectionError,
         )
 
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
+        ssh_tunnel = self.make_ssh_tunnel_func(config, inputs.team_id)
 
         # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
         # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
@@ -930,31 +1005,40 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
         # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
-        response = postgres_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            sslmode="prefer",
-            schema=source_schema or config.schema or "public",
-            table_names=[source_table_name or inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            chunk_size_override=schema.chunk_size_override,
-            team_id=inputs.team_id,
-            require_ssl=require_ssl,
-            is_initial_sync=not schema.initial_sync_complete,
-            enabled_columns=inputs.enabled_columns,
-            row_filters=inputs.row_filters,
-            # xmin state is read straight off the schema here (the generic `SourceInputs` stays
-            # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
-            is_xmin=schema.is_xmin,
-            xmin_last_value=schema.xmin_last_value,
-            xmin_num_wraparound=schema.xmin_num_wraparound,
-        )
+        try:
+            response = postgres_source(
+                tunnel=ssh_tunnel,
+                user=config.user,
+                password=config.password,
+                database=config.database,
+                sslmode="prefer",
+                schema=source_schema or config.schema or "public",
+                table_names=[source_table_name or inputs.schema_name],
+                should_use_incremental_field=inputs.should_use_incremental_field,
+                logger=inputs.logger,
+                incremental_field=inputs.incremental_field,
+                incremental_field_type=inputs.incremental_field_type,
+                db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+                chunk_size_override=schema.chunk_size_override,
+                team_id=inputs.team_id,
+                require_ssl=require_ssl,
+                is_initial_sync=not schema.initial_sync_complete,
+                enabled_columns=inputs.enabled_columns,
+                row_filters=inputs.row_filters,
+                # xmin state is read straight off the schema here (the generic `SourceInputs` stays
+                # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
+                is_xmin=schema.is_xmin,
+                xmin_last_value=schema.xmin_last_value,
+                xmin_num_wraparound=schema.xmin_num_wraparound,
+            )
+        except SqlclientUnableToEstablishSqlconnection as e:
+            # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the
+            # foreign server it points at refused/failed the connection (SQLSTATE 08001). libpq embeds
+            # the downstream error verbatim (e.g. "... Connection refused"), which would otherwise
+            # collide with the connect-time non-retryable rules meant for the direct connection and
+            # permanently disable the sync on a transient foreign-server blip. Re-raise clear of those
+            # substrings so it stays retryable.
+            raise ForeignServerUnreachableError(_FOREIGN_SERVER_UNREACHABLE_ERROR) from e
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
         storage_schema_name = schema.resolved_s3_folder_name or inputs.schema_name

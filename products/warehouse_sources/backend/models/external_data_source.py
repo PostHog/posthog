@@ -1,7 +1,7 @@
-from datetime import datetime
 from uuid import UUID
 
 from django.db import models
+from django.utils import timezone
 
 import structlog
 
@@ -90,6 +90,10 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.is_direct_query and self.source_type == ExternalDataSourceType.MYSQL
 
     @property
+    def is_direct_snowflake(self) -> bool:
+        return self.is_direct_query and self.source_type == ExternalDataSourceType.SNOWFLAKE
+
+    @property
     def direct_engine(self) -> str | None:
         """The direct-SQL engine for this source's type, or None if no engine maps to it.
 
@@ -124,7 +128,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def soft_delete(self):
         self.deleted = True
-        self.deleted_at = datetime.now()
+        self.deleted_at = timezone.now()
         self.save()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.

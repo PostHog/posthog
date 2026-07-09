@@ -10,14 +10,19 @@ from posthog.schema import (
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
+    NeighborDirection,
 )
 
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolDailyStatsQueryRunner,
     MCPToolDescriptionsQueryRunner,
     MCPToolFailuresQueryRunner,
+    MCPToolNeighborsQueryRunner,
+    MCPToolSampleIntentsQueryRunner,
     MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
@@ -206,7 +211,9 @@ def _emit_tool_call(
     is_error: bool = False,
     duration_ms: float | None = None,
     intent: str | None = None,
+    intent_source: str | None = None,
     description: str | None = None,
+    client_name: str | None = None,
     session_id: str | None = None,
     exec_tool: str | None = None,
     timestamp: datetime | None = None,
@@ -218,8 +225,12 @@ def _emit_tool_call(
         properties["$mcp_duration_ms"] = duration_ms
     if intent is not None:
         properties["$mcp_intent"] = intent
+    if intent_source is not None:
+        properties["$mcp_intent_source"] = intent_source
     if description is not None:
         properties["$mcp_tool_description"] = description
+    if client_name is not None:
+        properties["$mcp_client_name"] = client_name
     if session_id is not None:
         properties["$mcp_session_id"] = session_id
     if exec_tool is not None:
@@ -322,3 +333,69 @@ class TestMCPToolDescriptionsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         rows = self._run()
 
         assert [r.description for r in rows] == ["real"]
+
+
+class TestMCPToolSampleIntentsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _run(self, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolSampleIntentsQueryRunner(
+            query=MCPToolSampleIntentsQuery(toolName=tool_name, dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    def test_resolves_harness_label_and_carries_source(self) -> None:
+        _emit_tool_call(
+            self.team, intent='{"goal":"x"}', intent_source="llm", client_name="claude-ai (via mcp-remote 0.1.37)"
+        )
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert len(rows) == 1
+        assert rows[0].harness == "Claude.ai"
+        assert rows[0].intent_source == "llm"
+        # intent round-trips through ClickHouse JSON storage (re-serialized), so assert content not bytes.
+        assert "goal" in rows[0].intent
+
+    def test_excludes_empty_or_blank_intent(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", intent="", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d2", intent="{}", client_name="claude-ai")
+        _emit_tool_call(self.team, distinct_id="d3", intent='{"goal":"y"}', client_name="claude-ai")
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert len(rows) == 1
+        assert "goal" in rows[0].intent
+
+
+class TestMCPToolNeighborsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _run(self, direction: NeighborDirection, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolNeighborsQueryRunner(
+            query=MCPToolNeighborsQuery(
+                toolName=tool_name, neighborDirection=direction, dateRange=DateRange(date_from="-7d")
+            ),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    @parameterized.expand(
+        [
+            ("before", NeighborDirection.BEFORE, "tool_a"),
+            ("after", NeighborDirection.AFTER, "tool_b"),
+        ]
+    )
+    def test_finds_adjacent_tool_in_conversation(
+        self, _name: str, direction: NeighborDirection, expected_neighbor: str
+    ) -> None:
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(self.team, tool_name="tool_a", session_id="conv1", timestamp=now - timedelta(minutes=2))
+        _emit_tool_call(self.team, tool_name="query_run", session_id="conv1", timestamp=now - timedelta(minutes=1))
+        _emit_tool_call(self.team, tool_name="tool_b", session_id="conv1", timestamp=now)
+        flush_persons_and_events()
+
+        rows = self._run(direction)
+
+        assert len(rows) == 1
+        assert rows[0].neighbor_tool == expected_neighbor
+        assert rows[0].co_occurrences == 1

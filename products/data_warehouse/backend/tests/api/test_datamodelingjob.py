@@ -4,8 +4,7 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
 
 class TestDataModelingJob(APIBaseTest):

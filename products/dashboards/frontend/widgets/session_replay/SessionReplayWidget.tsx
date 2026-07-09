@@ -3,9 +3,11 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
+import * as directorPng from '@posthog/brand/hoggies/png/director'
+
 import api from 'lib/api'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { toParams } from 'lib/utils/url'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -30,6 +32,8 @@ import type { DashboardWidgetTopHeadingProps } from '../../components/WidgetCard
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSavedFiltersLogic'
+
+const HedgehogDirector = pngHoggie(directorPng)
 
 type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]
@@ -136,7 +140,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="session-replay-widget-empty-state"
                     >
-                        <FilmCameraHog className="size-20 shrink-0" />
+                        <HedgehogDirector className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
                         <p className="m-0 text-sm text-muted">No session recordings matched your filters.</p>
                     </div>

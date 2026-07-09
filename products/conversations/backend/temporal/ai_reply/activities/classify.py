@@ -9,7 +9,12 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPES, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
+from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_text,
+    create_message,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.schemas import ClassifyInput, ClassifyOutput
 
 logger = structlog.get_logger(__name__)
@@ -19,18 +24,18 @@ logger = structlog.get_logger(__name__)
 async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
     """One-shot LLM triage of a ticket into a type + diagnostics flag + seed search queries."""
     async with Heartbeater():
-        return await _classify(input.team_id, input.ticket_context)
+        return await _classify(input.team_id, input.ticket_context, input.trace_id, input.ticket_id)
 
 
-async def _classify(team_id: int, ticket_context: str) -> ClassifyOutput:
-    system = """You triage incoming customer support tickets for a SaaS analytics product.
+async def _classify(team_id: int, ticket_context: str, trace_id: str = "", ticket_id: str = "") -> ClassifyOutput:
+    system = """You triage incoming customer support tickets for a product.
 Classify the ticket into exactly one type and propose search queries to start retrieval.
 
 ticket_type — one of:
-- how_to: a usage/"how do I X" question answerable from documentation or the team's knowledge base.
+- how_to: any question the customer wants answered that can be addressed from documentation or the team's knowledge base — product usage ("how do I X"), as well as questions about the company, its policies, security/vulnerability reporting, legal/terms, pricing info, and similar. When in doubt between how_to and unactionable, choose how_to.
 - diagnostic: the customer reports something broken, failing, or behaving unexpectedly for their account; answering it requires investigating their actual data.
 - account_billing: a question about the customer's plan, usage, limits, invoices, or billing.
-- unactionable: spam, bare feedback/thanks, automated noise, or no answerable support question at all.
+- unactionable: ONLY spam, bare feedback/thanks with no question, or automated noise. If the customer is asking anything they want answered, do NOT use this type.
 
 Return a JSON object with these keys:
 - ticket_type: one of how_to | diagnostic | account_billing | unactionable.
@@ -51,6 +56,7 @@ classify the customer's support question."""
         max_tokens=512,
         system=system,
         messages=[{"role": "user", "content": user_content}],
+        **tracing_kwargs(trace_id, ticket_id),
     )
     content = anthropic_text(message)
 

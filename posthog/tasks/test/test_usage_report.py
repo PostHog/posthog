@@ -22,6 +22,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
+from django.apps import apps
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -76,8 +77,7 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -90,6 +90,8 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 logger = structlog.get_logger(__name__)
 
@@ -4383,6 +4385,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             ("product_analytics",),
             ("surveys",),
             ("subscriptions",),
+            ("replay_vision",),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")
@@ -4519,12 +4522,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
-        # posthog_code: 2.0 USD * 100 * 1.2 = 240 — only the posthog_code event, not the signals one.
-        self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 240)])
+        # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
+        # posthog_code event, not the signals one.
+        self.assertEqual(posthog_code_result, [(self.org_1_team_1.id, 200)])
 
     @parameterized.expand(
         [
-            ("billable", True, 480),
+            ("billable", True, 400),
             ("non_billable", False, None),
         ]
     )
@@ -4556,7 +4560,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
-                "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.2 = 480 credits
+                "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.0 (no markup) = 400 credits
                 "$ai_billable": billable,
                 "ai_product": "posthog_code",
                 "$group_1": "https://us.posthog.com",

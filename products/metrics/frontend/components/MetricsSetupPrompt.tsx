@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { ListHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { metricsIngestionLogic } from '../metricsIngestionLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 const POLLING_INTERVAL_MS = 5000
 
@@ -76,7 +79,7 @@ const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | n
             isEmpty={true}
             productKey={ProductKey.METRICS}
             className={className}
-            customHog={ListHog}
+            customHog={HedgehogGreek}
             actionElementOverride={
                 <div className="flex flex-col items-start gap-4">
                     <p className="text-sm text-secondary m-0">

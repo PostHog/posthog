@@ -60,6 +60,9 @@ DEPRECATED_ATTRS = (
     "event_properties",
     "event_properties_with_usage",
     "event_properties_numerical",
+    # Replaced by the `revenue_analytics_config` extension; only the raw-SQL Postgres->ClickHouse
+    # ETL still reads the column, and that bypasses this manager.
+    "revenue_tracking_config",
 )
 
 # Django requires a list of tuples for choices
@@ -125,12 +128,22 @@ class TeamManager(models.Manager):
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
-        # Create default dashboards (A/B via starter-dashboard-v2; demo projects skip above)
-        from posthog.helpers.signup_dashboard_experiment import (  # noqa: PLC0415 — breaks team import cycle
-            create_signup_primary_dashboard,
+        # Create default dashboards (demo projects skip above)
+        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+
+        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
+            DashboardTemplate,
         )
 
-        dashboard = create_signup_primary_dashboard(team, using=self.db)
+        template = DashboardTemplate.default_signup_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="Your starter dashboard",
+            pinned=True,
+            team=team,
+            description=template.dashboard_description or "",
+        )
+        create_from_template(dashboard, template)
         team.primary_dashboard = dashboard
 
         # Create default session recording playlists
@@ -411,6 +424,15 @@ class Team(UUIDTClassicModel):
             choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
+        "project",
+        "admin",
+    )
+
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
         "project",
         "admin",
     )

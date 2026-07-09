@@ -8,7 +8,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from django.conf import settings
+
 from dateutil.parser import isoparse
+from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -21,11 +24,16 @@ from posthog.local_bootstrap.config import (
     TableResult,
 )
 from posthog.local_bootstrap.source import iter_table_rows
-from posthog.models import Organization, OrganizationMembership, Person, PersonDistinctId, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import PERSON_DISTINCT_ID_TABLE
 
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 ZERO_DT = datetime(1970, 1, 1)
+
+# Batch size for the persons-DB inserts (mirrors the prior bulk_create batch_size).
+_PG_WRITE_BATCH = 1000
 
 # Columns we write directly into sharded_events (mirrors INSERT_EVENT_SQL minus computed columns).
 _EVENT_COLUMNS = [
@@ -265,41 +273,54 @@ def _accumulate_persons(
     return persons
 
 
-def _write_persons_to_postgres(team: Team, persons: dict[str, _PersonAccumulator]) -> list[Person]:
-    person_objs: list[Person] = []
-    desired_created_at: list[datetime] = []
+def _write_persons_to_postgres(team_id: int, persons: dict[str, _PersonAccumulator]) -> None:
+    if not persons:
+        return
+
+    # (uuid, properties, version, created_at) per person. created_at is written directly here,
+    # unlike the auto_now_add ORM path which had to restamp it after the fact.
+    person_rows: list[tuple[uuid.UUID, Jsonb, int, datetime]] = []
     for person_id, entry in persons.items():
         try:
             properties = json.loads(entry.properties)
         except (json.JSONDecodeError, TypeError):
             properties = {}
-        person_objs.append(
-            Person(  # nosemgrep: no-direct-persons-db-orm
-                team=team,
-                uuid=uuid.UUID(person_id),
-                properties=properties,
-                is_identified=True,
-                version=entry.version,
-            )
-        )
-        desired_created_at.append(entry.created_at)
+        person_rows.append((uuid.UUID(person_id), Jsonb(properties), entry.version, entry.created_at))
 
-    # created_at is auto_now_add, so bulk_create stamps "now"; restore the dump's value afterwards.
-    Person.objects.bulk_create(person_objs, batch_size=1000)  # nosemgrep: no-direct-persons-db-orm
-    for person, created_at in zip(person_objs, desired_created_at):
-        person.created_at = created_at
-    Person.objects.bulk_update(person_objs, ["created_at"], batch_size=1000)  # nosemgrep: no-direct-persons-db-orm
-
-    distinct_objs: list[PersonDistinctId] = []
-    for person, entry in zip(person_objs, persons.values()):
-        for distinct_id, version in entry.distinct_ids.items():
-            distinct_objs.append(
-                PersonDistinctId(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, person=person, distinct_id=distinct_id, version=version
-                )
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+        # Map each canonical UUID to its generated id so distinct IDs can reference person_id.
+        id_by_uuid: dict[str, int] = {}
+        for i in range(0, len(person_rows), _PG_WRITE_BATCH):
+            person_batch = person_rows[i : i + _PG_WRITE_BATCH]
+            person_placeholders = ", ".join(["(%s, %s, %s, %s, %s, true)"] * len(person_batch))
+            person_params = [
+                value
+                for person_uuid, properties, version, created_at in person_batch
+                for value in (team_id, person_uuid, properties, version, created_at)
+            ]
+            cursor.execute(
+                f"INSERT INTO {settings.PERSON_TABLE_NAME} "
+                f"(team_id, uuid, properties, version, created_at, is_identified) VALUES {person_placeholders} "
+                "RETURNING id, uuid",
+                person_params,
             )
-    PersonDistinctId.objects.bulk_create(distinct_objs, batch_size=1000)  # nosemgrep: no-direct-persons-db-orm
-    return person_objs
+            for person_pk, person_uuid in cursor.fetchall():
+                id_by_uuid[str(person_uuid)] = person_pk
+
+        distinct_rows: list[tuple[str, int, int, int]] = [
+            (distinct_id, id_by_uuid[str(uuid.UUID(person_id))], team_id, version)
+            for person_id, entry in persons.items()
+            for distinct_id, version in entry.distinct_ids.items()
+        ]
+        for i in range(0, len(distinct_rows), _PG_WRITE_BATCH):
+            distinct_batch = distinct_rows[i : i + _PG_WRITE_BATCH]
+            distinct_placeholders = ", ".join(["(%s, %s, %s, %s)"] * len(distinct_batch))
+            distinct_params = [value for row in distinct_batch for value in row]
+            cursor.execute(
+                f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) "
+                f"VALUES {distinct_placeholders}",
+                distinct_params,
+            )
 
 
 def _write_persons_to_clickhouse(team: Team, persons: dict[str, _PersonAccumulator]) -> None:
@@ -351,7 +372,7 @@ def import_persons(
     accumulated = _accumulate_persons(config, files, batch_size, progress)
     live = {pid: entry for pid, entry in accumulated.items() if not entry.is_deleted}
 
-    _write_persons_to_postgres(team, live)
+    _write_persons_to_postgres(team.id, live)
     _write_persons_to_clickhouse(team, live)
 
     distinct_ids = sum(len(entry.distinct_ids) for entry in live.values())

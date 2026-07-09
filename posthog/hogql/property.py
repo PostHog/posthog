@@ -26,6 +26,8 @@ from posthog.schema import (
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    MetricPropertyFilter,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -62,6 +64,14 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+
+# Top-level columns on the persons table that the `person_metadata` filter type can target.
+# Keep in sync with the "person_metadata" group in
+# frontend/src/taxonomy/core-filter-definitions-by-group.json,
+# personMetadataPropertyDefinitions in frontend/src/models/propertyDefinitionsModel.ts,
+# and the per-field injection in rust/feature-flags/src/flags/flag_matching_utils.rs.
+# `test_person_metadata_fields_match_taxonomy` enforces the Python ↔ taxonomy half.
+PERSON_METADATA_FIELDS = {"created_at"}
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -714,6 +724,7 @@ def property_to_expr(
         | ElementPropertyFilter
         | SessionPropertyFilter
         | EventMetadataPropertyFilter
+        | PersonMetadataPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
@@ -727,6 +738,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | WorkflowVariablePropertyFilter
     ),
@@ -807,7 +819,11 @@ def property_to_expr(
     else:
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
-    if property.type == "hogql":
+    if property.type == "flag":
+        # Flag dependencies are evaluated at flag-matching time and can't be expressed
+        # in HogQL — return a neutral filter, mirroring the FlagPropertyFilter handling above.
+        return ast.Constant(value=1)
+    elif property.type == "hogql":
         tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
@@ -844,6 +860,7 @@ def property_to_expr(
         or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
+        or property.type == "person_metadata"
         or property.type == "group"
         or property.type == "behavioral"
         or property.type == "data_warehouse"
@@ -862,13 +879,16 @@ def property_to_expr(
         or property.type == "workflow_variable"
     ):
         if (
-            (scope == "person" and property.type != "person")
+            (scope == "person" and property.type != "person" and property.type != "person_metadata")
             or (scope == "session" and property.type != "session")
             or (scope != "event" and property.type == "event_metadata")
             or (scope == "revenue_analytics" and property.type != "revenue_analytics")
             or (property.type == "revenue_analytics" and scope != "revenue_analytics")
         ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
+
+        if property.type == "person_metadata" and property.key not in PERSON_METADATA_FIELDS:
+            raise QueryError(f"Unsupported person_metadata field: '{property.key}'")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
@@ -889,6 +909,8 @@ def property_to_expr(
                 chain = ["person", "pdi"]
         elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
+        elif property.type == "person_metadata":
+            chain = ["person"] if scope != "person" else []
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
         elif property.type == "session" and scope == "replay_entity":

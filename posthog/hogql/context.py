@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
     from posthog.hogql.database.database import Database
+    from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
@@ -67,11 +68,6 @@ class HogQLContext:
     external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
-    # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
-    # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
-    # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
-    # transform in posthog/hogql/transforms/geoip_dict_fallback.py.
-    geoip_dict_fallback_enabled: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
@@ -123,6 +119,18 @@ class HogQLContext:
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
+
+    # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
+    # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
+    cte_database_table_cache: dict[int, tuple[Any, "Table"]] = field(default_factory=dict, compare=False, repr=False)
+
+    # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
+    # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_months: Optional[int] = None
+    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
+    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
+    # HogQLQueryModifier, so a query can't disable enforcement.
+    apply_events_retention_floor: bool = True
 
     def __post_init__(self):
         if self.team:

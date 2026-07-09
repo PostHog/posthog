@@ -25,6 +25,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -51,12 +52,9 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
+# Report priority scale (P0–P4). Aliased to the shared signal taxonomy enum so the product has a
+# single P0–P4 source; kept under the `Priority` name for existing callers.
+Priority = ReportPriority
 
 
 class SignalFinding(BaseModel):
@@ -390,6 +388,50 @@ class NoteArtefact(BaseModel):
         return v
 
 
+class TitleChange(BaseModel):
+    """Content schema for a `title_change` artefact: a record of an edit to the report's title.
+
+    Appended automatically by the report edit path whenever the title actually changes, capturing
+    the value before and after so the report carries an audit trail of who renamed it and when.
+    Never written through the generic artefact API (it is read-only there) — it only ever reflects
+    a real edit that was applied to the report.
+    """
+
+    old_title: str | None = Field(
+        default=None, description="The report's title before this edit (null if it had no title)."
+    )
+    new_title: str = Field(description="The report's title after this edit.")
+
+    @field_validator("new_title")
+    @classmethod
+    def new_title_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
+class SummaryChange(BaseModel):
+    """Content schema for a `summary_change` artefact: a record of an edit to the report's summary
+    (its human-facing description).
+
+    Appended automatically by the report edit path whenever the summary actually changes, capturing
+    the value before and after. Like `title_change`, it is read-only through the generic artefact
+    API and only ever reflects a real edit applied to the report.
+    """
+
+    old_summary: str | None = Field(
+        default=None, description="The report's summary before this edit (null if it had no summary)."
+    )
+    new_summary: str = Field(description="The report's summary after this edit.")
+
+    @field_validator("new_summary")
+    @classmethod
+    def new_summary_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty or whitespace-only")
+        return v
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -398,7 +440,7 @@ class NoteArtefact(BaseModel):
 StatusArtefactContent = (
     SafetyJudgment | ActionabilityAssessment | PriorityAssessment | RepoSelectionResult | SuggestedReviewers
 )
-LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact
+LogArtefactContent = CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
 # Keys are `SignalReportArtefact.ArtefactType` values, kept as plain strings so this module stays
@@ -416,6 +458,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "title_change": TitleChange,
+    "summary_change": SummaryChange,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -424,7 +468,11 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # (`dict | list`, so even `{}` validates) that predates the typed-content contract; accepting writes
 # would let callers persist arbitrary or empty payloads. It stays readable so stored legacy rows
 # still parse, but new ones can never be created or updated through the API.
-NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset({"video_segment"})
+# `title_change` / `summary_change` are system-generated edit-history records: the report edit path
+# is their only writer, so accepting them through the generic API would let a caller fabricate edits
+# that never happened. They stay readable (and so show up in the report's artefact log) but cannot
+# be created or edited directly.
+NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset({"video_segment", "title_change", "summary_change"})
 
 
 def artefact_type_for(content: BaseModel) -> str:

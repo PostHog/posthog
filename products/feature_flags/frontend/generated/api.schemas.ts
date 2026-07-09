@@ -7,6 +7,134 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `redis` - redis
+ * * `miss` - miss
+ */
+export type StaffCacheSourceEnumApi = (typeof StaffCacheSourceEnumApi)[keyof typeof StaffCacheSourceEnumApi]
+
+export const StaffCacheSourceEnumApi = {
+    Redis: 'redis',
+    Miss: 'miss',
+} as const
+
+export interface StaffCacheEntryStatusApi {
+    /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+     *
+     * * `redis` - redis
+     * * `miss` - miss */
+    source: StaffCacheSourceEnumApi
+    /**
+     * Number of flags in the cached payload, or null on a miss.
+     * @nullable
+     */
+    flag_count: number | null
+}
+
+export interface StaffCacheTeamStatusApi {
+    /** Team id. */
+    team_id: number
+    /** Status of the /flags evaluation cache. */
+    evaluation: StaffCacheEntryStatusApi
+    /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+    definitions: StaffCacheEntryStatusApi
+    /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
+    definitions_no_cohorts: StaffCacheEntryStatusApi
+}
+
+export interface StaffCacheStatusResponseApi {
+    /** Per-team cache status. */
+    results: StaffCacheTeamStatusApi[]
+}
+
+/**
+ * * `evaluation` - evaluation
+ * * `definitions` - definitions
+ */
+export type CachesEnumApi = (typeof CachesEnumApi)[keyof typeof CachesEnumApi]
+
+export const CachesEnumApi = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+} as const
+
+export interface StaffCacheMutationApi {
+    /**
+     * Team ids to act on (max 50 per request).
+     * @maxItems 50
+     */
+    team_ids: number[]
+    /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
+    caches?: CachesEnumApi[]
+}
+
+export interface StaffCacheMutationResponseApi {
+    /** Team ids for which the requested action's tasks were enqueued. */
+    queued_team_ids: number[]
+    /** Requested team ids that do not exist. */
+    not_found_team_ids: number[]
+}
+
+/**
+ * Raw cached payload as stored in Redis, or null on a miss.
+ * @nullable
+ */
+export type StaffCacheEntryResponseApiData = { [key: string]: unknown } | null
+
+/**
+ * * `evaluation` - evaluation
+ * * `definitions` - definitions
+ * * `definitions_no_cohorts` - definitions_no_cohorts
+ */
+export type CacheEnumApi = (typeof CacheEnumApi)[keyof typeof CacheEnumApi]
+
+export const CacheEnumApi = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+    DefinitionsNoCohorts: 'definitions_no_cohorts',
+} as const
+
+export interface StaffCacheEntryResponseApi {
+    /** Team id. */
+    team_id: number
+    /** Which cache this entry is for.
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts */
+    cache: CacheEnumApi
+    /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+     *
+     * * `redis` - redis
+     * * `miss` - miss */
+    source: StaffCacheSourceEnumApi
+    /**
+     * Raw cached payload as stored in Redis, or null on a miss.
+     * @nullable
+     */
+    data: StaffCacheEntryResponseApiData
+}
+
+export interface StaffTeamResultApi {
+    /** Team id. */
+    id: number
+    /** Team name. */
+    name: string
+    /** Team api_token (used as the flags evaluation cache key). */
+    api_token: string
+    /** Organization uuid that owns the team. */
+    organization_id: string
+    /** Organization name that owns the team. */
+    organization_name: string
+    /** Project id the team belongs to. */
+    project_id: number
+}
+
+export interface StaffTeamSearchResponseApi {
+    /** Matching teams. */
+    results: StaffTeamResultApi[]
+}
+
 export interface CopyFlagsRequestApi {
     /** Key of the feature flag to copy */
     feature_flag_key: string
@@ -34,6 +162,10 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
+    flag_dependency_warnings?: string[]
+    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    schedule_copy_warning?: string
 }
 
 export interface CopyFlagsResultApi {
@@ -1186,9 +1318,9 @@ export interface BulkKeysResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -1205,7 +1337,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -1428,6 +1560,53 @@ export interface PatchedScheduledChangeApi {
     end_date?: string | null
     /** @nullable */
     readonly timezone?: string | null
+}
+
+export type FeatureFlagsStaffCacheListParams = {
+    /**
+     * Team ids to report cache status for (max 50 per request). Repeat the param, e.g. ?team_ids=1&team_ids=2.
+     * @maxItems 50
+     */
+    team_ids: number[]
+}
+
+export type FeatureFlagsStaffCacheEntryRetrieveParams = {
+    /**
+     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     * @minLength 1
+     */
+    cache: FeatureFlagsStaffCacheEntryRetrieveCache
+    /**
+     * Team id to fetch the cache entry for.
+     */
+    team_id: number
+}
+
+export type FeatureFlagsStaffCacheEntryRetrieveCache =
+    (typeof FeatureFlagsStaffCacheEntryRetrieveCache)[keyof typeof FeatureFlagsStaffCacheEntryRetrieveCache]
+
+export const FeatureFlagsStaffCacheEntryRetrieveCache = {
+    Evaluation: 'evaluation',
+    Definitions: 'definitions',
+    DefinitionsNoCohorts: 'definitions_no_cohorts',
+} as const
+
+export type FeatureFlagsStaffTeamsListParams = {
+    /**
+     * Maximum number of teams to return (default 25, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * @minLength 1
+     */
+    search: string
 }
 
 export type OrgFeatureFlagsKeysParams = {

@@ -448,7 +448,7 @@ def get_cdc_extraction_schedule(
     The schedule runs at the source level and the interval is the minimum
     sync_frequency_interval of all CDC-enabled schemas in the source.
     """
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.workflows import CDCExtractionInput
+    from products.warehouse_sources.backend.facade.pipelines import CDCExtractionInput
 
     inputs = CDCExtractionInput(
         team_id=source.team_id,
@@ -552,6 +552,39 @@ def delete_cdc_extraction_schedule(source_id: str) -> None:
         pass
 
 
+def pause_cdc_extraction_schedule(source_id: str) -> None:
+    """Pause the CDC extraction schedule for a source so it stops firing.
+
+    Used when CDC is marked broken (e.g. the safety net dropped the slot): leaving the
+    schedule running would retry forever against a slot that no longer exists. A missing
+    schedule is treated as a no-op.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = sync_connect()
+    try:
+        pause_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
+
+
+def unpause_cdc_extraction_schedule(source_id: str) -> None:
+    """Unpause the CDC extraction schedule for a source so it resumes firing.
+
+    Recovery counterpart of `pause_cdc_extraction_schedule`, used by CDC repair once the
+    change-stream resource exists again. A missing schedule is treated as a no-op.
+    """
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    temporal = sync_connect()
+    try:
+        unpause_schedule(temporal, schedule_id=schedule_id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return
+        raise
+
+
 @async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],
@@ -607,9 +640,7 @@ def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
     # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
     # module for self-cleanup when the source vanishes, so it imports from us at module
     # load time. Hoisting this import would deadlock the loader.
-    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
-        SyncNewSchemasActivityInputs,
-    )
+    from products.warehouse_sources.backend.facade.pipelines import SyncNewSchemasActivityInputs
 
     inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
 

@@ -47,6 +47,8 @@ from posthog.schema import (
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NodeKind,
@@ -60,6 +62,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -85,7 +88,6 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.transforms.geoip_dict_fallback import geoip_dict_fallback_team_in_env
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
@@ -120,6 +122,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -295,6 +298,7 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -321,6 +325,8 @@ RunnableQueryNode = Union[
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolNeighborsQuery,
 ]
 
 
@@ -496,6 +502,17 @@ def get_query_runner(
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionQuery":
+        from .ai.session_query_runner import SessionQueryRunner
+
+        return SessionQueryRunner(
+            query=cast(SessionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1010,6 +1027,28 @@ def get_query_runner(
 
         return MCPToolDescriptionsQueryRunner(
             query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolSampleIntentsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolSampleIntentsQueryRunner
+
+        return MCPToolSampleIntentsQueryRunner(
+            query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolNeighborsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
+
+        return MCPToolNeighborsQueryRunner(
+            query=cast(MCPToolNeighborsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1557,7 +1596,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # capture_exceptions=False: we capture explicitly at the except boundary below, so benign
+        # user-input query errors (USER_ERROR / cancelled / rate-limited) are returned to the user
+        # as 4xx without also polluting error tracking with server-side exception noise.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1736,6 +1778,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                        # Capture only what classifies as a FAILURE outcome. User-input query errors
+                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
+                        # deliberately not captured — they're returned to the user as 4xx. Note this
+                        # gate is the SLO outcome, not a strict platform-vs-user split:
+                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
+                        # those are user-input limits — see _classify_error_for_slo.
+                        capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(
@@ -1949,14 +1998,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if restricted:
             payload["restricted_properties"] = restricted
 
-        # Temporary (June 2026 MaxMind incident): only set while the geoip dict fallback is enabled for the team, so
-        # flipping HOGQL_GEOIP_DICT_FALLBACK_TEAMS invalidates exactly the affected teams' cached results (which hold
-        # blank geo values) and nothing changes for anyone else. Deliberately keyed on env membership alone, NOT the
-        # runtime dictionary probe: cache keys must depend only on operator-controlled config, or a transient probe
-        # failure would flip every enabled team's keys at once and recompute the fleet against an already-degraded
-        # cluster. Remove with the transform.
-        if geoip_dict_fallback_team_in_env(self.team.pk):
-            payload["geoip_dict_fallback"] = True
+        # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
+        # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
+        # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is not None:
+            payload["events_retention_floor_months"] = retention_months
 
         return payload
 
@@ -1969,7 +2016,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        restricted = get_restricted_properties_for_team(user=self.user, team=self.team)
         if not restricted:
             return None
         return sorted(restricted)
@@ -2259,6 +2306,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
+
+        # Interval and test-account overrides apply only to query types that carry the field.
+        # Types without it (retention, paths) are silently skipped rather than mutated.
+        if dashboard_filter.interval is not None and hasattr(self.query, "interval"):
+            self.query.interval = dashboard_filter.interval
+
+        if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
+            self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
         self.__post_init__()
 
 

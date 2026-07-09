@@ -29,9 +29,49 @@ const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
-const toReadOnlyScope = (scope: string): string => (scope.endsWith(':write') ? `${scope.split(':')[0]}:read` : scope)
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
 
-const WILDCARD_READ_DESCRIPTION = 'Read access to all PostHog data'
+const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
+
+const clampAccessLevel = (level: ScopeAccessLevel, min: ScopeAccessLevel, max: ScopeAccessLevel): ScopeAccessLevel => {
+    if (ACCESS_LEVEL_ORDER[level] < ACCESS_LEVEL_ORDER[min]) {
+        return min
+    }
+    if (ACCESS_LEVEL_ORDER[level] > ACCESS_LEVEL_ORDER[max]) {
+        return max
+    }
+    return level
+}
+
+export type OAuthScopeRow = {
+    /** Scope object key (e.g. 'feature_flag'), or '*' for the wildcard. */
+    key: string
+    /** Human name for the object (e.g. 'Feature flag'). */
+    label: string
+    /** Full sentence description at the granted level, for the locked (checkmark) list. */
+    description: string
+    /** Optional extra context from API_SCOPES, shown as an info tooltip. */
+    info?: string | JSX.Element
+    /** Warning for the currently selected level, if any. */
+    warning?: string | JSX.Element
+    /** Required floor — the grant can never go below this. 'none' when not required. */
+    minLevel: ScopeAccessLevel
+    /** Requested ceiling — the grant can never go above what the client asked for. */
+    maxLevel: Exclude<ScopeAccessLevel, 'none'>
+    /** Current (clamped) selection. */
+    value: ScopeAccessLevel
+    /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
+    locked: boolean
+}
+
+const WILDCARD_LABEL = 'All PostHog data'
+
+// Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
+// behind) — derive a readable label from the raw key.
+const humanizeScopeKey = (key: string): string => {
+    const humanized = key.replace(/_/g, ' ')
+    return humanized.charAt(0).toUpperCase() + humanized.slice(1)
+}
 
 // Required scopes are tracked per object at the action level that's required, so a
 // required `obj:read` still lets the read-only toggle downgrade an optional `obj:write`.
@@ -119,8 +159,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
-        setReadOnlyMode: (readOnly: boolean) => ({ readOnly }),
-        toggleDeniedScope: (scopeObject: string) => ({ scopeObject }),
+        setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
+        setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
@@ -245,19 +285,22 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopes: (_, { scopes }) => scopes,
             },
         ],
-        readOnlyMode: [
-            false,
-            {
-                setReadOnlyMode: (_, { readOnly }) => readOnly,
-                setScopes: () => false,
+        // The user's picks. `bulk` is the last bulk action (Select all / Read-only / Deselect
+        // all); `overrides` are per-object picks made after it. Absent entries default to the
+        // requested ceiling, and every pick is clamped to [required floor, requested ceiling]
+        // in scopeRows, so bulk actions can apply one level blindly to heterogeneous rows.
+        scopeAccessSelections: [
+            { bulk: null, overrides: {} } as {
+                bulk: ScopeAccessLevel | null
+                overrides: Record<string, ScopeAccessLevel>
             },
-        ],
-        deniedScopeObjects: [
-            [] as string[],
             {
-                toggleDeniedScope: (state, { scopeObject }) =>
-                    state.includes(scopeObject) ? state.filter((s) => s !== scopeObject) : [...state, scopeObject],
-                setScopes: () => [],
+                setScopeAccess: (state, { scopeObject, level }) => ({
+                    ...state,
+                    overrides: { ...state.overrides, [scopeObject]: level },
+                }),
+                setAllScopeAccess: (_, { level }) => ({ bulk: level, overrides: {} }),
+                setScopes: () => ({ bulk: null, overrides: {} }),
             },
         ],
         requiredAccessLevel: [
@@ -339,9 +382,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
-                const user = userLogic.values.user
-                if (user?.organization?.id) {
-                    actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                // With a team_id hint pending, let it drive org+project selection once
+                // teams load — don't pre-select the user's current org/team, or a CTA
+                // link could authorize the wrong project before the hint resolves. The
+                // empty project keeps the submit blocked until the hint fills it in.
+                if (!values.teamHint) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                    }
                 }
             }
         },
@@ -360,23 +409,36 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         },
         loadAllTeamsSuccess: () => {
             const teams = values.sortedTeams
+            if (!teams) {
+                return
+            }
             // A team_id hint from the authorize URL (e.g. the wizard's --project-id) wins:
             // pre-select that project and its org so the user just clicks Authorize. We only
             // honor it if the user has access to that team (it's in their loaded teams), and
             // consume it once — so it can't override a later manual change or a project the
             // user creates here (both also re-fire this listener).
-            if (values.teamHint && teams && values.requiredAccessLevel === 'team') {
+            if (values.teamHint) {
                 const hinted = teams.find((t) => t.id === values.teamHint)
                 actions.setTeamHint(null)
-                if (hinted) {
+                if (hinted && values.requiredAccessLevel === 'team') {
                     actions.setSelectedOrganization(hinted.organization, hinted.id)
                     return
+                }
+                // Hint didn't resolve (inaccessible team, or not a team-level grant). Fall
+                // back to the user's current org/team — setRequiredAccessLevel skipped this
+                // while the hint was pending, so without it the screen would be left empty.
+                if (values.requiredAccessLevel === 'team' && !values.selectedOrganization) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                        return
+                    }
                 }
             }
             // After teams load, auto-select first project if org is set but no project selected
             const orgId = values.selectedOrganization
             const currentTeams = values.oauthAuthorization.scoped_teams
-            if (orgId && (!currentTeams || currentTeams.length === 0) && teams) {
+            if (orgId && (!currentTeams || currentTeams.length === 0)) {
                 const orgTeams = teams.filter((t) => t.organization === orgId)
                 if (orgTeams.length > 0) {
                     actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])
@@ -484,19 +546,6 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (oauthApplication: OAuthApplicationPublicMetadata | null): Map<string, RequiredLevel> =>
                 requiredLevelsFromScopes(oauthApplication?.required_scopes ?? []),
         ],
-        // Only surface the read-only toggle when at least one write scope is declinable
-        // (not required at write level). When every write scope is required, switching to
-        // read-only would change nothing, so the toggle is a confusing no-op.
-        showReadOnlyToggle: [
-            (s) => [s.consentResourceScopes, s.requiredScopeLevels],
-            (consentResourceScopes: string[], requiredScopeLevels: Map<string, RequiredLevel>): boolean =>
-                consentResourceScopes.some((scope) => {
-                    if (!scope.endsWith(':write') && scope !== '*') {
-                        return false
-                    }
-                    return requiredScopeLevels.get(scopeObjectKey(scope)) !== 'write'
-                }),
-        ],
         // Requested plus required resource scopes, collapsed to the highest action per
         // object. Both the rows and the grant derive from this one set, so the consent
         // screen always displays exactly what authorizing will grant — required scopes
@@ -512,129 +561,76 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 )
             },
         ],
+        // One row per scope object. The requested set caps the ceiling, the required set
+        // sets the floor, and the user's selection is clamped between the two — so no pick
+        // (including bulk actions) can grant more than requested or less than required.
         scopeRows: [
-            (s) => [s.consentResourceScopes, s.deniedScopeObjects, s.readOnlyMode, s.requiredScopeLevels],
+            (s) => [s.consentResourceScopes, s.scopeAccessSelections, s.requiredScopeLevels],
             (
                 consentResourceScopes: string[],
-                deniedScopeObjects: string[],
-                readOnlyMode: boolean,
+                scopeAccessSelections: { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> },
                 requiredScopeLevels: Map<string, RequiredLevel>
-            ): {
-                key: string
-                toggleKey: string | null
-                description: string
-                granted: boolean
-                required: boolean
-            }[] => {
-                const denied = new Set(deniedScopeObjects)
-                return consentResourceScopes.flatMap((scope) => {
+            ): OAuthScopeRow[] => {
+                const rows = consentResourceScopes.map((scope): OAuthScopeRow => {
                     const key = scopeObjectKey(scope)
-                    const requiredLevel = requiredScopeLevels.get(key)
-                    if (requiredLevel === undefined) {
-                        const downgrade = readOnlyMode
-                        if (scope === '*') {
-                            return [
-                                {
-                                    key: '*',
-                                    toggleKey: '*',
-                                    description: downgrade
-                                        ? WILDCARD_READ_DESCRIPTION
-                                        : (getScopeDescription('*') ?? '*'),
-                                    granted: !denied.has('*'),
-                                    required: false,
-                                },
-                            ]
-                        }
-                        const effective = downgrade ? toReadOnlyScope(scope) : scope
-                        return [
-                            {
-                                key,
-                                toggleKey: key,
-                                description: getScopeDescription(effective) ?? effective,
-                                granted: !denied.has(key),
-                                required: false,
-                            },
-                        ]
+                    const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
+                    const minLevel: ScopeAccessLevel = requiredScopeLevels.get(key) ?? 'none'
+                    const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
+                    const value = clampAccessLevel(selected, minLevel, maxLevel)
+                    const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
+                    const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
+                    return {
+                        key,
+                        label: key === '*' ? WILDCARD_LABEL : (apiScope?.objectName ?? humanizeScopeKey(key)),
+                        description: getScopeDescription(grantedScope) ?? grantedScope,
+                        info: apiScope?.info,
+                        warning: value === 'none' ? undefined : apiScope?.warnings?.[value],
+                        minLevel,
+                        maxLevel,
+                        value,
+                        locked: minLevel === maxLevel,
                     }
-                    // The required floor renders locked. An optional write above a required
-                    // read gets its own deniable row, so declining the upgrade doesn't take
-                    // the required level with it. Read-only mode suppresses the upgrade row
-                    // since the toggle already pins everything to read.
-                    const floorScope = scope === '*' ? '*' : `${key}:${requiredLevel}`
-                    const rows: {
-                        key: string
-                        toggleKey: string | null
-                        description: string
-                        granted: boolean
-                        required: boolean
-                    }[] = [
-                        {
-                            key,
-                            toggleKey: null,
-                            description: getScopeDescription(floorScope) ?? floorScope,
-                            granted: true,
-                            required: true,
-                        },
-                    ]
-                    if (requiredLevel === 'read' && scope.endsWith(':write') && !readOnlyMode) {
-                        rows.push({
-                            key: `${key}:optional-write`,
-                            toggleKey: key,
-                            description: getScopeDescription(scope) ?? scope,
-                            granted: !denied.has(key),
-                            required: false,
-                        })
-                    }
-                    return rows
                 })
+                return rows.sort((a, b) => a.label.localeCompare(b.label))
             },
         ],
-        // When every row is required the user has nothing to toggle, so the consent screen
-        // renders a plain locked list instead of disabled checkboxes that imply a choice.
+        // Locked rows (required at exactly the requested level) render as a plain checkmark
+        // list — there is nothing to choose — while adjustable rows get an access selector.
+        requiredScopeRows: [
+            (s) => [s.scopeRows],
+            (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => row.locked),
+        ],
+        adjustableScopeRows: [
+            (s) => [s.scopeRows],
+            (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => !row.locked),
+        ],
         allScopesRequired: [
             (s) => [s.scopeRows],
-            (scopeRows: { required: boolean }[]): boolean =>
-                scopeRows.length > 0 && scopeRows.every((row) => row.required),
+            (scopeRows: OAuthScopeRow[]): boolean => scopeRows.length > 0 && scopeRows.every((row) => row.locked),
+        ],
+        // Only offer the bulk read-only action when it would change something — i.e. at least
+        // one adjustable row can sit at write level.
+        showReadOnlyBulkAction: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): boolean =>
+                adjustableScopeRows.some((row) => row.maxLevel === 'write'),
         ],
         effectiveScopes: [
-            (s) => [
-                s.scopes,
-                s.consentResourceScopes,
-                s.deniedScopeObjects,
-                s.readOnlyMode,
-                s.requiredScopeLevels,
-                s.oauthApplication,
-            ],
+            (s) => [s.scopes, s.scopeRows, s.oauthApplication],
             (
                 scopes: string[],
-                consentResourceScopes: string[],
-                deniedScopeObjects: string[],
-                readOnlyMode: boolean,
-                requiredScopeLevels: Map<string, RequiredLevel>,
+                scopeRows: OAuthScopeRow[],
                 oauthApplication: OAuthApplicationPublicMetadata | null
             ): string[] => {
-                const denied = new Set(deniedScopeObjects)
                 const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
-                const resources = consentResourceScopes.flatMap((scope) => {
-                    const key = scopeObjectKey(scope)
-                    const requiredLevel = requiredScopeLevels.get(key)
-                    if (requiredLevel === undefined) {
-                        if (denied.has(key)) {
-                            return []
-                        }
-                        if (scope === '*') {
-                            return readOnlyMode ? wildcardReadScopes(oauthApplication) : ['*']
-                        }
-                        return [readOnlyMode ? toReadOnlyScope(scope) : scope]
+                const resources = scopeRows.flatMap((row) => {
+                    if (row.value === 'none') {
+                        return []
                     }
-                    if (scope === '*') {
-                        return ['*']
+                    if (row.key === '*') {
+                        return row.value === 'write' ? ['*'] : wildcardReadScopes(oauthApplication)
                     }
-                    // Denying the optional upgrade (or read-only mode) drops the grant to the
-                    // required floor, never below it.
-                    const upgradeActive =
-                        requiredLevel === 'read' && scope.endsWith(':write') && !readOnlyMode && !denied.has(key)
-                    return [upgradeActive ? scope : `${key}:${requiredLevel}`]
+                    return [`${row.key}:${row.value}`]
                 })
                 // Also grant the required strings verbatim: collapsing read+write pairs above
                 // could otherwise drop a literal entry the server's set-difference check expects.

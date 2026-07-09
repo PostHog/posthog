@@ -34,7 +34,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, Even
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
-import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
+import { AIObservabilitySessionsPlaylist } from './AIObservabilitySessionsPlaylist'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
     buildApplyUrlStatePayload,
@@ -582,7 +582,8 @@ function AIObservabilitySceneContent(): JSX.Element {
         label: 'Sessions',
         content: (
             <AIObservabilitySetupPrompt>
-                <AIObservabilitySessionsScene />
+                <Filters />
+                <AIObservabilitySessionsPlaylist />
             </AIObservabilitySetupPrompt>
         ),
         link: combineUrl(urls.aiObservabilitySessions(), searchParams).url,
@@ -600,6 +601,13 @@ function AIObservabilitySceneContent(): JSX.Element {
         link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
         'data-attr': 'llma-reviews-tab',
     })
+
+    // Sessions is a primary view — surface it right after Generations, not last.
+    const sessionsIdx = tabs.findIndex((t) => t.key === 'sessions')
+    if (sessionsIdx > -1) {
+        const [sessionsTab] = tabs.splice(sessionsIdx, 1)
+        tabs.splice(tabs.findIndex((t) => t.key === 'generations') + 1, 0, sessionsTab)
+    }
 
     return (
         <SceneContent>

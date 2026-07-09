@@ -143,6 +143,18 @@
                     <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
                 </tr>
                 {% endif %}
+                {% if current_partition_mode_override is not None %}
+                <tr>
+                    <th>partition_mode_override</th>
+                    <td>{{ current_partition_mode_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partitioning_keys_override is not None %}
+                <tr>
+                    <th>partitioning_keys_override</th>
+                    <td>{{ current_partitioning_keys_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
                 <tr>
                     <th>partitioning_keys</th>
                     <td>{{ current_partition_keys|default:"None" }}</td>
@@ -153,79 +165,147 @@
         <div class="form-row partitioning-section">
             <h3>Repartition &amp; resync</h3>
             <p class="help">
-                <strong>Pause the schedule first</strong> using the buttons below to avoid races
-                with the regular scheduled sync. Saving here updates the partition knob and
-                immediately kicks off a non-billable workflow with <code>reset_pipeline=true</code>
-                — repartition without reset would mix old and new layouts in the same Delta
-                table and corrupt the data.
+                <strong>Pause the schedule first</strong> (buttons below) to avoid racing the
+                scheduled sync. This stages the partition settings and kicks off a non-billable
+                workflow with <code>reset_pipeline=true</code> — repartitioning without a reset
+                would mix old and new layouts in the same Delta table and corrupt it. The schedule
+                auto-pauses for the run and unpauses on success.
             </p>
-            {% if current_partition_mode == "datetime" %}
-                <div class="partitioning-controls">
-                    <label for="partition_format_select">New partition format:</label>
-                    <select id="partition_format_select" name="partition_format" form="repartition-action-form" required>
-                        {% for choice in partition_format_choices %}
-                            <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+            <p class="help">
+                Pick the partition <strong>mode</strong> (defaults to the current one). Keep the
+                mode and change only its knob to repartition in place; change the mode to switch
+                strategy — most often <code>md5</code> → <code>datetime</code> on a date column when
+                the primary key has one (the pipeline only auto-selects datetime for columns
+                literally named <code>created_at</code>/<code>inserted_at</code>).
+            </p>
+            <div class="partitioning-controls">
+                <label for="partition_mode_select">Partition mode:</label>
+                <select id="partition_mode_select" name="partition_mode" form="repartition-action-form" required>
+                    {% for choice in partition_mode_choices %}
+                        <option value="{{ choice }}" {% if choice == effective_partition_mode %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="repartition_keys_row">
+                <label for="repartition_keys">Partitioning key(s):</label>
+                {% if available_columns %}
+                    <select id="repartition_keys" name="partitioning_keys" form="repartition-action-form" multiple size="6">
+                        {% for col in available_columns %}
+                            <option value="{{ col }}" {% if current_partition_keys and col in current_partition_keys %}selected{% endif %}>{{ col }}</option>
                         {% endfor %}
                     </select>
-                    <button type="submit" form="repartition-action-form" class="default"
-                            onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
-                        Repartition &amp; resync
-                    </button>
-                </div>
-            {% elif current_partition_mode == "numerical" %}
-                <p class="help">
-                    Numerical mode partitions by integer id, <code>partition_size</code> rows per bucket.
-                    Typical values: 1,000,000 to 10,000,000.
-                </p>
-                <div class="partitioning-controls">
-                    <label for="partition_size_input">New partition size:</label>
-                    <input id="partition_size_input" name="partition_size" form="repartition-action-form"
-                           type="number" min="1" step="1" required
-                           value="{{ current_partition_size|default_if_none:'' }}"
-                           placeholder="rows per bucket">
-                    <button type="submit" form="repartition-action-form" class="default"
-                            onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
-                        Repartition &amp; resync
-                    </button>
-                </div>
-            {% elif current_partition_mode == "md5" %}
-                <p class="help">
-                    md5 mode hashes the primary key into <code>partition_count</code> buckets.
-                    <br><br>
-                    <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a
-                    good starting point is
-                    <code>partition_count ≈ ceil(total table size in bytes / 200&nbsp;MB)</code>.
-                    For example a 2&nbsp;GB table → ~10, a 10&nbsp;GB table → ~50. Use the source-side
-                    table size (incl. indexes/TOAST for Postgres), not the Delta footprint.
-                    <br><br>
-                    <strong>Trade-off:</strong> md5 hashing scatters changed rows uniformly, so every
-                    incremental sync touches (and rewrites) <em>every</em> partition that has changes.
-                    More buckets means more, smaller merges; fewer buckets means fewer, larger ones.
-                    Don't over-partition a small or low-churn table — pin a lower count if the
-                    auto-detected value is making syncs slow.
-                </p>
-                <div class="partitioning-controls">
-                    <label for="partition_count_input">New partition count:</label>
-                    <input id="partition_count_input" name="partition_count" form="repartition-action-form"
-                           type="number" min="1" step="1" required
-                           value="{{ current_partition_count|default_if_none:'' }}"
-                           placeholder="number of buckets">
-                    <button type="submit" form="repartition-action-form" class="default"
-                            onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
-                        Repartition &amp; resync
-                    </button>
-                </div>
-            {% elif current_partition_mode is None %}
-                <p class="help">
-                    No <code>partition_mode</code> set yet — the pipeline picks the mode on the
-                    first sync based on the table's columns. Run a sync to enable partitioning,
-                    then come back here to tune it.
-                </p>
-            {% else %}
-                <p class="help">
-                    Unsupported <code>partition_mode</code>: <code>{{ current_partition_mode }}</code>.
-                </p>
-            {% endif %}
+                {% else %}
+                    <input id="repartition_keys" name="partitioning_keys" form="repartition-action-form"
+                           type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
+                           placeholder="comma-separated column names (table not synced yet)">
+                {% endif %}
+                <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column. Leave blank for md5 to use the table's primary keys.</span>
+            </div>
+            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
+                <label for="repartition_format">Partition format:</label>
+                <select id="repartition_format" name="partition_format" form="repartition-action-form">
+                    {% for choice in partition_format_choices %}
+                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+                <label for="repartition_count">Partition count:</label>
+                <input id="repartition_count" name="partition_count" form="repartition-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
+                       placeholder="number of buckets">
+            </div>
+            <p class="help" id="repartition_md5_help"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
+                md5 hashes the primary key into <code>partition_count</code> buckets.
+                <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a good
+                start is <code>partition_count ≈ ceil(table size / 200&nbsp;MB)</code> (2&nbsp;GB → ~10,
+                10&nbsp;GB → ~50; use the source-side size incl. indexes/TOAST). md5 scatters changed
+                rows across all buckets, so every incremental sync rewrites every changed partition —
+                don't over-partition a small or low-churn table.
+            </p>
+            <div class="partitioning-controls" id="repartition_size_row"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+                <label for="repartition_size">Partition size:</label>
+                <input id="repartition_size" name="partition_size" form="repartition-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
+                       placeholder="rows per bucket">
+            </div>
+            <p class="help" id="repartition_numerical_help"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
+                Numerical mode buckets by an integer id, <code>partition_size</code> rows per bucket
+                (typical 1,000,000–10,000,000).
+            </p>
+            <div class="partitioning-controls">
+                <button type="submit" form="repartition-action-form" class="default"
+                        onclick="return confirm('Repartition + reset resync (non-billable) for this schema?');">
+                    Repartition &amp; resync
+                </button>
+            </div>
+            <script nonce="{{ request.csp_nonce }}">
+                (function () {
+                    var modeSelect = document.getElementById("partition_mode_select");
+                    if (!modeSelect) return;
+                    // Each mode reveals only its own knob (+ help); the others are hidden AND
+                    // disabled so a hidden control is never submitted or HTML5-validated.
+                    var groups = {
+                        datetime: ["repartition_format_row"],
+                        md5: ["repartition_count_row", "repartition_md5_help"],
+                        numerical: ["repartition_size_row", "repartition_numerical_help"],
+                    };
+                    function setVisible(id, visible) {
+                        var el = document.getElementById(id);
+                        if (!el) return;
+                        el.style.display = visible ? "" : "none";
+                        el.querySelectorAll("input, select").forEach(function (c) {
+                            c.disabled = !visible;
+                        });
+                    }
+                    // md5 hashes all keys together (composite), so it allows several; datetime and
+                    // numerical only use the first key, so restrict to a single choice. The picker
+                    // stays a `multiple` listbox in every mode (same size, easy to read the options)
+                    // — we just enforce one selection in JS rather than collapsing the widget.
+                    var keysEl = document.getElementById("repartition_keys");
+                    var keysIsSelect = keysEl && keysEl.tagName === "SELECT";
+                    function keysSelected() {
+                        return keysIsSelect
+                            ? Array.prototype.filter.call(keysEl.options, function (o) { return o.selected; })
+                            : [];
+                    }
+                    var prevKeys = keysSelected().map(function (o) { return o.value; });
+                    function collapseToSingle() {
+                        // Keep the most recently added option (else the first selected) and drop the rest.
+                        var selected = keysSelected();
+                        var added = selected.filter(function (o) { return prevKeys.indexOf(o.value) === -1; });
+                        var keep = added.length ? added[added.length - 1] : selected[0];
+                        Array.prototype.forEach.call(keysEl.options, function (o) { o.selected = o === keep; });
+                    }
+                    function applyKeyMode(mode) {
+                        if (!keysIsSelect) return;
+                        keysEl._singleKey = mode === "datetime" || mode === "numerical";
+                        if (keysEl._singleKey && keysSelected().length > 1) {
+                            collapseToSingle();
+                        }
+                        prevKeys = keysSelected().map(function (o) { return o.value; });
+                    }
+                    if (keysIsSelect) {
+                        keysEl.addEventListener("change", function () {
+                            if (keysEl._singleKey && keysSelected().length > 1) {
+                                collapseToSingle();
+                            }
+                            prevKeys = keysSelected().map(function (o) { return o.value; });
+                        });
+                    }
+                    function sync() {
+                        var mode = modeSelect.value;
+                        Object.keys(groups).forEach(function (m) {
+                            groups[m].forEach(function (id) {
+                                setVisible(id, m === mode);
+                            });
+                        });
+                        applyKeyMode(mode);
+                    }
+                    modeSelect.addEventListener("change", sync);
+                    sync();
+                })();
+            </script>
         </div>
 
         <div class="form-row partitioning-section">

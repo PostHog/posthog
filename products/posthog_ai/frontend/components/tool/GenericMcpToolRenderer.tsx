@@ -1,11 +1,10 @@
-import clsx from 'clsx'
 import { memo } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
 import { ToolActivity } from './ToolActivity'
 import { compactInput, formatInput, getContentText, stripCodeFences } from './toolContentUtils'
-import { ToolOutput } from './ToolOutput'
+import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
 
 /**
@@ -41,14 +40,14 @@ export const GenericMcpToolRenderer = memo(function GenericMcpToolRenderer(props
     const formattedInput = hasInput ? formatInput(inputForPreview) : ''
     const body =
         formattedInput || output ? (
-            <div className="flex flex-col gap-2 min-w-0">
+            <ToolBody>
                 {formattedInput && <ToolOutput>{formattedInput}</ToolOutput>}
                 {output && (
-                    <div className={clsx('min-w-0', formattedInput && 'border-t border-border-secondary pt-2')}>
+                    <ToolBodySection divided={!!formattedInput}>
                         <ToolOutput>{output}</ToolOutput>
-                    </div>
+                    </ToolBodySection>
                 )}
-            </div>
+            </ToolBody>
         ) : undefined
 
     return (

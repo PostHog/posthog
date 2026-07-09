@@ -1,5 +1,5 @@
 import { connect, kea, listeners, path, selectors } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -11,9 +11,10 @@ import { OnboardingStepKey } from '~/types'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
 
-export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
+export type MCPAnalyticsTab = 'activity' | 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
 
 export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
+    activity: 'Live feed of tool calls and what agents are trying to do with your MCP server.',
     dashboard: 'Tool call volume, error rates, and latency across your MCP server.',
     sessions: 'Sessions where users interacted with your MCP tools.',
     'tool-quality': 'Understand how reliably your MCP tools support user workflows.',
@@ -21,7 +22,22 @@ export const TAB_DESCRIPTIONS: Record<MCPAnalyticsTab, string> = {
         'Cluster semantically similar user intents and see which tools each cluster routes to. Highlights inconsistent routing.',
 }
 
+// Per-tab question seeded into PostHog AI so the answer is grounded in what the user is looking at.
+export const TAB_AI_PROMPTS: Record<MCPAnalyticsTab, string> = {
+    activity:
+        'What have agents done with my MCP server recently? Look at the latest $mcp_tool_call events — tools, intents, failures.',
+    dashboard:
+        "Summarize how agents are using my MCP server from $mcp_tool_call events — top tools, error rates, and what they're trying to do.",
+    sessions:
+        'What are agents actually trying to do across my MCP sessions? Group the $mcp_intent values on $mcp_tool_call events into themes.',
+    'tool-quality':
+        'Which of my MCP tools are least reliable? Break down $mcp_tool_call error rate and p95 $mcp_duration_ms by $mcp_tool_name.',
+    'intent-clustering':
+        "What's the biggest unmet need agents have that my MCP tools don't cover? Look at $mcp_missing_capability and $mcp_intent.",
+}
+
 const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
+    mcpAnalyticsActivity: 'activity',
     mcpAnalyticsDashboard: 'dashboard',
     mcpAnalyticsSessions: 'sessions',
     mcpAnalyticsToolQuality: 'tool-quality',
@@ -46,7 +62,7 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
             (sceneKey: string): MCPAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'dashboard',
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ values, cache }) => ({
         // Send never-set-up projects straight into the polished onboarding flow,
         // rather than the bare in-scene card. Guarded on `has_completed_onboarding_for`
         // so the post-onboarding return to the dashboard doesn't bounce back here —
@@ -57,6 +73,19 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
                 router.actions.replace(
                     urls.onboarding({ productKey: ProductKey.MCP_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
                 )
+                return
+            }
+            // Volume decides the default landing tab. Only fires when the manifest's
+            // bare-URL redirect tagged the navigation with `landing=auto` — a deep link
+            // to /dashboard never re-routes, and an explicit tab click is never overridden.
+            const { landing, ...restParams } = router.values.searchParams
+            if (landing === 'auto' && values.activeTab === 'dashboard' && !cache.landingResolved) {
+                cache.landingResolved = true
+                const target =
+                    mcpAnalyticsOnboardingLogic.values.dashboardStage === 'activity'
+                        ? urls.mcpAnalyticsActivity()
+                        : urls.mcpAnalyticsDashboard()
+                router.actions.replace(combineUrl(target, restParams).url)
             }
         },
     })),

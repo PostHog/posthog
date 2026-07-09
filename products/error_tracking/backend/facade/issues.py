@@ -9,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from ..logic import issue_mutations as _mutations
+from ..models import ErrorTrackingIssueMergeResult
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
@@ -23,8 +24,8 @@ def update_issue(
     return api._to_issue(issue)
 
 
-def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> None:
-    _mutations.merge_issues(team_id, issue_id, source_ids)
+def merge_issues(team_id: int, issue_id: UUID, source_ids: list[str]) -> ErrorTrackingIssueMergeResult:
+    return _mutations.merge_issues(team_id, issue_id, source_ids)
 
 
 def split_issue(team_id: int, issue_id: UUID, fingerprints: list[dict]) -> list[UUID]:

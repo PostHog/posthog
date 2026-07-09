@@ -17,7 +17,6 @@ import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -28,10 +27,11 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.streaming import _release_request_connections
+from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -600,14 +600,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
-        _release_request_connections()
-        return StreamingHttpResponse(
-            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
+            endpoint="session_summaries",
         )
 
     @extend_schema(
@@ -760,7 +755,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.request.user.current_organization_id,
             team_id=self.team_id,
             user=self.request.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
         )
         super().perform_destroy(instance)
 

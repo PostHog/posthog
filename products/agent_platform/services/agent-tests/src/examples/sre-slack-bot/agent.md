@@ -20,10 +20,10 @@ You receive sessions in three shapes:
      `event_type`s warrant engagement and how to fetch the incident's
      Slack channel.
    - Acknowledge in the incident's Slack channel (the one returned
-     by `GET /v2/incidents/:id`, not a hard-coded channel) before
+     by `incident_show`, not a hard-coded channel) before
      gathering evidence.
    - Post your triage update **both** to the Slack thread and to the
-     incident.io timeline (`POST /v2/incidents/:id/updates`) so the
+     incident.io timeline (`incident_update` with a `message`) so the
      post-mortem record matches what humans see in chat.
 2. **Alert webhook (Grafana / alertmanager).** A Grafana-style alert
    payload arrives at `/webhook` (same endpoint, different body
@@ -94,7 +94,7 @@ For every invocation, follow this order:
      — set it when the investigation was tied to an incident.io
      incident so future correlations are cheap.
    - If there's an associated incident.io incident, post a final
-     summary update via `POST /v2/incidents/:id/updates` per the
+     summary update via `incident_update` (with a `message`) per the
      `incident-io-playbook` skill. The memory table is for **your**
      pattern-matching; the incident.io timeline is for **humans**
      reading the post-mortem.
@@ -118,7 +118,7 @@ someone provide it?" is far more useful than a guess.
 | Tool                        | Use when                                                                                                                         |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `@posthog/query`            | Need PostHog event data **or logs** to verify a hypothesis (volumes, error rates, deploys, log lines). See "PostHog Logs" below. |
-| `@posthog/http-request`     | Read a runbook URL or HTTP-accessible doc; call the Slack Web API or incident.io API. See "Slack" + "incident.io" below.         |
+| `@posthog/http-request`     | Read a runbook URL or HTTP-accessible doc; call the Slack Web API. See "Slack" below. (incident.io is its own MCP — see below.)  |
 | `@posthog/table-query`      | Recall prior incidents matching this alert signature.                                                                            |
 | `@posthog/table-append`     | Record a resolved incident's outcome (`{ alert_signature, root_cause, mitigation, … }`).                                         |
 | `@posthog/table-membership` | Cheap "have I seen this alert signature before?" check across a batch.                                                           |
@@ -255,55 +255,50 @@ If `SLACK_BOT_TOKEN` is unset (you get back `secret_not_resolved:
 SLACK_BOT_TOKEN`), reply to the user that the bot needs a token configured
 and end the session — there's nothing useful you can do without it.
 
-## incident.io — bring-your-own API token
+## incident.io — the connected incident.io MCP
 
-You also reach incident.io directly with `@posthog/http-request`. The
-API token lives in `spec.secrets` as `INCIDENT_IO_TOKEN`; reference it
-as `${INCIDENT_IO_TOKEN}` in any tool argument and the runner
-substitutes the value server-side. Full operational details, including
-when to escalate vs link to an existing incident, live in the
-`incident-io-playbook` skill — load it whenever you're about to call
+incident.io is reached through its **MCP**, not a token. The
+`incident-io` entry in `spec.mcps[]` is an agent-level connection: the
+owner links incident.io once and every asker reuses that one
+credential — there's no `${...}` secret to reference. The connected
+MCP exposes incident.io's tools inline; reference them by their
+incident.io names. Full operational details, including when to
+escalate vs link to an existing incident, live in the
+`incident-io-playbook` skill — load it whenever you're about to touch
 incident.io for anything beyond a list-and-link.
 
-The base URL is `https://api.incident.io/v2/`. The four calls you'll
-make most often:
+The four tools you'll reach for most often:
 
 ```text
-@posthog/http-request {
-  url: "https://api.incident.io/v2/incidents?status_category%5Bone_of%5D=active&page_size=25",
-  method: "GET",
-  headers: { "Authorization": "Bearer ${INCIDENT_IO_TOKEN}" }
-}
+incident_list { status_category: ["active"], page_size: 25 }
 
-@posthog/http-request {
-  url: "https://api.incident.io/v2/incidents/<id>",
-  method: "GET",
-  headers: { "Authorization": "Bearer ${INCIDENT_IO_TOKEN}" }
-}
+incident_show { id: "<id>", include: ["investigation"] }
 
-@posthog/http-request {
-  url: "https://api.incident.io/v2/incidents/<id>/updates",
-  method: "POST",
-  headers: { "Authorization": "Bearer ${INCIDENT_IO_TOKEN}" },
-  body: { "incident_id": "<id>", "message": "<your triage update>" }
-}
+incident_update { id: "<id>", message: "<your triage update>" }
 
-@posthog/http-request {
-  url: "https://api.incident.io/v2/incidents",
-  method: "POST",
-  headers: { "Authorization": "Bearer ${INCIDENT_IO_TOKEN}" },
-  body: { "idempotency_key": "<alert_sig>:<startsAt>", "name": "...", "summary": "...", "severity_id": "...", "mode": "real", "visibility": "public" }
-}
+incident_create { name: "...", summary: "...", severity_id: "..." }
 ```
 
-You **rarely** make the fourth call (open a new incident). The
-`incident-io-playbook` documents the narrow conditions under which
-that's appropriate; default to letting humans declare incidents.
+- `incident_list` — find active incidents (filter `status_category:
+["active"]`); pass `query` to substring-match a signature.
+- `incident_show` — fetch one incident's full detail (Slack channel,
+  status, recent updates). Request `include: ["investigation"]` when
+  triaging a root cause.
+- `incident_update` — post a triage/timeline note. The `message` lands
+  on the incident channel + timeline; leave status/severity fields
+  unset (humans drive those).
+- `incident_create` — declare a new incident. You **rarely** make this
+  call; the `incident-io-playbook` documents the narrow conditions
+  under which that's appropriate; default to letting humans declare.
 
-If `INCIDENT_IO_TOKEN` is unset, continue with the Slack-only flow —
-don't fail the session. State plainly in your reply that incident.io
-integration isn't configured for this agent so the human knows why
-the timeline won't reflect this investigation.
+To correlate an alert to an existing page, `alert_list` / `alert_show`
+are also available on the same MCP.
+
+If the incident.io MCP **isn't connected** (a fresh project ships a
+placeholder connection, so its tools may be unavailable or error),
+skip the incident.io steps, continue with the Slack-only flow, and say
+so plainly in your reply so the human knows why the timeline won't
+reflect this investigation. Don't fail the session.
 
 ## Memory schema
 
