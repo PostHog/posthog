@@ -140,6 +140,39 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
 
+    @parameterized.expand(
+        [
+            ("default_fires", None, True),
+            ("explicit_true_fires", True, True),
+            ("opt_out_skips", False, False),
+        ]
+    )
+    def test_create_send_test_now_controls_immediate_delivery(self, _name, send_test_now, should_fire):
+        kwargs = {} if send_test_now is None else {"send_test_now": send_test_now}
+        response = self._create_subscription(**kwargs)
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        # write_only: the flag must never appear in responses
+        assert "send_test_now" not in response.json()
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
+        # Opting out of the first send must not touch the recurring schedule
+        assert Subscription.objects.get(id=response.json()["id"]).next_delivery_date is not None
+
+    def test_update_ignores_send_test_now(self):
+        sub_id = self._create_subscription().json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"title": "Renamed", "send_test_now": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        # send_test_now is create-only: a title-only edit must not start firing deliveries
+        # just because the payload carries the flag
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_cannot_create_subscription_without_insight_or_dashboard(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
@@ -1454,10 +1487,33 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["title"] == "Mine"
 
+    def test_list_subscriptions_filter_by_insights(self):
+        other_insight = Insight.objects.create(
+            filters=Filter(data=self.insight_filter_dict).to_dict(), team=self.team, created_by=self.user
+        )
+        first_id = self._create_subscription(title="First").json()["id"]
+        second_id = self._create_subscription(title="Second", insight=other_insight.id).json()["id"]
+
+        both = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"insights": f"{self.insight.id},{other_insight.id}"},
+        )
+        assert both.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in both.json()["results"]} == {first_id, second_id}
+
+        # Non-numeric tokens are skipped rather than failing the whole request
+        mixed = self.client.get(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {"insights": f"abc,{self.insight.id}"},
+        )
+        assert mixed.status_code == status.HTTP_200_OK
+        assert {r["id"] for r in mixed.json()["results"]} == {first_id}
+
     @parameterized.expand(
         [
             ("invalid_created_by", "created_by", "not-a-uuid", "created_by"),
             ("invalid_target_type", "target_type", "not_a_channel", "target_type"),
+            ("invalid_insights", "insights", "abc,def", "insights"),
         ],
         name_func=lambda f, _n, p: f"{f.__name__}__{p.args[0]}",
     )

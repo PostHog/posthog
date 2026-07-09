@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionType } from '~/types'
@@ -96,10 +98,13 @@ export function TabbedManageSubscriptions({
         aiSubscriptions,
         aiSubscriptionsLoading,
     } = useValues(subscriptionsLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const [activeTab, setActiveTab] = useState<SubscriptionTabKey>('resource')
 
     const isInsightContext = !!insightShortId
+    // Without the AI prompt flag the AI loader always returns [], so the tab could never populate.
+    const aiSubscriptionsAvailable = !!featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]
 
     // Tabs always render (including at count 0) so the available scopes stay discoverable.
     const tabConfigs: (
@@ -126,7 +131,7 @@ export function TabbedManageSubscriptions({
             loading: insightSubscriptionsLoading,
             emptyMessage: "No subscriptions on this dashboard's insights yet.",
         },
-        {
+        aiSubscriptionsAvailable && {
             key: 'ai',
             label: 'AI prompt reports',
             subscriptions: aiSubscriptions,
@@ -138,7 +143,8 @@ export function TabbedManageSubscriptions({
         .filter((tab): tab is Exclude<typeof tab, false> => !!tab)
         .map(({ key, label, subscriptions, loading, emptyMessage }) => ({
             key,
-            label: `${label} (${subscriptions.length})`,
+            // No count during the initial fetch — "(0)" would read as empty rather than loading.
+            label: loading && subscriptions.length === 0 ? label : `${label} (${subscriptions.length})`,
             content: (
                 <SubscriptionTabList
                     logicProps={logicProps}

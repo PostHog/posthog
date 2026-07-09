@@ -1061,6 +1061,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 # Comma-separated insight IDs. The dashboard overview uses this to list
                 # subscriptions across a dashboard's insight tiles in a single query.
                 insight_ids = [int(i) for i in request_params["insights"].split(",") if i.strip().isdigit()]
+                if not insight_ids:
+                    raise ValidationError({"insights": ["Must be a comma-separated list of integer insight IDs."]})
                 queryset = queryset.filter(insight_id__in=insight_ids)
             elif key == "dashboard":
                 queryset = queryset.filter(dashboard_id=request_params["dashboard"])

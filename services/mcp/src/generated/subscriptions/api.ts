@@ -372,12 +372,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        send_test_now: zod
-            .boolean()
-            .optional()
-            .describe(
-                'On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update.'
-            ),
         summary_enabled: zod
             .boolean()
             .optional()
