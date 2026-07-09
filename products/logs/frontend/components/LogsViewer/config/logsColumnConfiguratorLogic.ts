@@ -4,7 +4,7 @@ import { uuid } from 'lib/utils/dom'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 
-import { LogsColumnConfig } from './columns'
+import { LogsColumnConfig, normalizeColumns } from './columns'
 import type { logsColumnConfiguratorLogicType } from './logsColumnConfiguratorLogicType'
 
 export interface LogsColumnConfiguratorLogicProps {
@@ -58,10 +58,10 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
         draft: [
             [] as LogsColumnConfig[],
             {
-                setDraft: (_, { draft }) => draft,
+                setDraft: (_, { draft }) => normalizeColumns(draft),
                 updateDraftColumn: (state, { id, patch }) =>
                     state.map((column) => (column.id === id ? { ...column, ...patch } : column)),
-                addDraftColumn: (state, { column }) => [...state, { ...column, id: uuid() }],
+                addDraftColumn: (state, { column }) => normalizeColumns([...state, { ...column, id: uuid() }]),
                 removeDraftColumn: (state, { id }) => state.filter((column) => column.id !== id),
                 moveDraftColumn: (state, { fromIndex, toIndex }) => {
                     if (fromIndex === toIndex || !state[fromIndex] || toIndex < 0 || toIndex >= state.length) {
@@ -70,7 +70,7 @@ export const logsColumnConfiguratorLogic = kea<logsColumnConfiguratorLogicType>(
                     const next = [...state]
                     const [moved] = next.splice(fromIndex, 1)
                     next.splice(toIndex, 0, moved)
-                    return next
+                    return normalizeColumns(next)
                 },
             },
         ],
