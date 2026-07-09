@@ -32,7 +32,7 @@ export function OrganizationSecuritySettings(): JSX.Element | null {
                 <LemonSwitch
                     label={
                         <span>
-                            Allow publicly shared resources{' '}
+                            Enable publicly shared resources{' '}
                             <Tooltip title="When disabled, sharing links and public dashboards will be blocked for this organization.">
                                 <IconInfo className="mr-1" />
                             </Tooltip>
