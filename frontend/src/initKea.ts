@@ -120,6 +120,14 @@ export function initKea({
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
+                    // Reword the default raw-seconds throttle detail via Retry-After; keep custom messages.
+                    if (
+                        error.status === 429 &&
+                        typeof errorMessage === 'string' &&
+                        errorMessage.startsWith('Request was throttled')
+                    ) {
+                        errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
+                    }
                     if (isTwoFactorError || isSensitiveActionError) {
                         errorMessage = null
                     }

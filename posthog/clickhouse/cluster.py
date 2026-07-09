@@ -18,7 +18,7 @@ from clickhouse_pool import ChPool
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, TEST
 
 
 class _LazyDagsterLogger:
@@ -44,7 +44,14 @@ logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
+    # The test ClickHouse is a single node: ON CLUSTER only adds distributed-DDL keeper
+    # round-trips (tens of ms per statement) without changing the outcome, and tests issue
+    # DDL in bulk (session-start CREATEs, per-test TRUNCATEs), so render no clause there.
+    # If a call site ever needs to exercise real ON CLUSTER SQL under TEST, thread an
+    # allow-in-test flag through here.
+    if on_cluster and not TEST:
+        return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    return ""
 
 
 # Smoke-test only: when migrating against the multinode docker-compose stack

@@ -1038,6 +1038,31 @@ export const CreatedViaEnumApi = {
  * * `PeecAI` - PeecAI
  * * `Healthchecks` - Healthchecks
  * * `Impact` - Impact
+ * * `AikidoSecurity` - AikidoSecurity
+ * * `Alguna` - Alguna
+ * * `Anthropic` - Anthropic
+ * * `Appwrite` - Appwrite
+ * * `BlandAI` - BlandAI
+ * * `BrowseAI` - BrowseAI
+ * * `BrowserUse` - BrowserUse
+ * * `ChartHop` - ChartHop
+ * * `Cody` - Cody
+ * * `Cursor` - Cursor
+ * * `Decagon` - Decagon
+ * * `Deepgram` - Deepgram
+ * * `ElevenLabs` - ElevenLabs
+ * * `Harvey` - Harvey
+ * * `Hyperspell` - Hyperspell
+ * * `Langfuse` - Langfuse
+ * * `LingoDev` - LingoDev
+ * * `M3ter` - M3ter
+ * * `Maxio` - Maxio
+ * * `Metorial` - Metorial
+ * * `OpenRouter` - OpenRouter
+ * * `TogetherAI` - TogetherAI
+ * * `Vapi` - Vapi
+ * * `Vespa` - Vespa
+ * * `Writesonic` - Writesonic
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1705,6 +1730,31 @@ export const ExternalDataSourceTypeEnumApi = {
     PeecAI: 'PeecAI',
     Healthchecks: 'Healthchecks',
     Impact: 'Impact',
+    AikidoSecurity: 'AikidoSecurity',
+    Alguna: 'Alguna',
+    Anthropic: 'Anthropic',
+    Appwrite: 'Appwrite',
+    BlandAI: 'BlandAI',
+    BrowseAI: 'BrowseAI',
+    BrowserUse: 'BrowserUse',
+    ChartHop: 'ChartHop',
+    Cody: 'Cody',
+    Cursor: 'Cursor',
+    Decagon: 'Decagon',
+    Deepgram: 'Deepgram',
+    ElevenLabs: 'ElevenLabs',
+    Harvey: 'Harvey',
+    Hyperspell: 'Hyperspell',
+    Langfuse: 'Langfuse',
+    LingoDev: 'LingoDev',
+    M3ter: 'M3ter',
+    Maxio: 'Maxio',
+    Metorial: 'Metorial',
+    OpenRouter: 'OpenRouter',
+    TogetherAI: 'TogetherAI',
+    Vapi: 'Vapi',
+    Vespa: 'Vespa',
+    Writesonic: 'Writesonic',
 } as const
 
 /**
@@ -2473,7 +2523,32 @@ export interface ExternalDataSourceCreateApi {
      * * `Teachable` - Teachable
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact */
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -3351,7 +3426,32 @@ export interface DatabaseSchemaRequestApi {
      * * `Teachable` - Teachable
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact */
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -4069,7 +4169,32 @@ export interface SourcePreviewRequestApi {
      * * `Teachable` - Teachable
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact */
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -4775,7 +4900,32 @@ export interface SourceSetupApi {
      * * `Teachable` - Teachable
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact */
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -5488,7 +5638,32 @@ export interface SourceCredentialCreateApi {
      * * `Teachable` - Teachable
      * * `PeecAI` - PeecAI
      * * `Healthchecks` - Healthchecks
-     * * `Impact` - Impact */
+     * * `Impact` - Impact
+     * * `AikidoSecurity` - AikidoSecurity
+     * * `Alguna` - Alguna
+     * * `Anthropic` - Anthropic
+     * * `Appwrite` - Appwrite
+     * * `BlandAI` - BlandAI
+     * * `BrowseAI` - BrowseAI
+     * * `BrowserUse` - BrowserUse
+     * * `ChartHop` - ChartHop
+     * * `Cody` - Cody
+     * * `Cursor` - Cursor
+     * * `Decagon` - Decagon
+     * * `Deepgram` - Deepgram
+     * * `ElevenLabs` - ElevenLabs
+     * * `Harvey` - Harvey
+     * * `Hyperspell` - Hyperspell
+     * * `Langfuse` - Langfuse
+     * * `LingoDev` - LingoDev
+     * * `M3ter` - M3ter
+     * * `Maxio` - Maxio
+     * * `Metorial` - Metorial
+     * * `OpenRouter` - OpenRouter
+     * * `TogetherAI` - TogetherAI
+     * * `Vapi` - Vapi
+     * * `Vespa` - Vespa
+     * * `Writesonic` - Writesonic */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -5580,6 +5755,11 @@ export type ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSourcesRepairCdcCreate200 = {
+    success?: boolean
+    schemas_reset?: number
 }
 
 export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {

@@ -6,6 +6,8 @@ import {
 } from 'lib/components/MarkdownEditor/shared/markdownExtensions'
 import { createTiptapMarkdownConverter } from 'lib/utils/markdown'
 
+import { WordArtExtension } from './WordArt/WordArtExtension'
+
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
@@ -37,6 +39,7 @@ const TextCardImageExtension = Image.extend({
 
 export const TEXT_CARD_MARKDOWN_EXTENSIONS = [
     ...MARKDOWN_BASE_EDITABLE_EXTENSIONS,
+    WordArtExtension,
     TextCardImageExtension.configure({
         HTMLAttributes: {
             draggable: 'true',
@@ -53,6 +56,7 @@ export const TEXT_CARD_MARKDOWN_EXTENSIONS = [
 
 export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
     ...MARKDOWN_BASE_READONLY_EXTENSIONS,
+    WordArtExtension,
     TextCardImageExtension.configure({
         HTMLAttributes: {
             draggable: 'false',

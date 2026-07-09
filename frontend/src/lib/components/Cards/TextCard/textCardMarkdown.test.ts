@@ -130,6 +130,41 @@ describe('textCardMarkdown', () => {
         expect(serialized).toContain('++underlined++')
     })
 
+    it.each([
+        ['plain text', 'BIG WINS', 'chrome', 'chrome', 'medium', 'medium'],
+        ['text with html-sensitive characters', 'Q3 <wins> & *losses*', 'neon', 'neon', 'medium', 'medium'],
+        ['unknown style id normalized to default', 'hello', 'clippy-3000', 'rainbow', 'medium', 'medium'],
+        ['a non-default size', 'HUGE', 'fire', 'fire', 'large', 'large'],
+        ['unknown size normalized to default', 'hello', 'ice', 'ice', 'gigantic', 'medium'],
+    ])('round-trips word art with %s', (_name, text, style, expectedStyle, size, expectedSize) => {
+        const doc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'before ' },
+                        { type: 'wordArt', attrs: { text, style, size } },
+                        { type: 'text', text: ' after' },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = textCardConverter.docToMarkdown(doc)
+        const roundTripDoc = textCardConverter.markdownToDoc(markdown)
+        const wordArtNode = roundTripDoc.content?.[0]?.content?.find((node) => node.type === 'wordArt')
+
+        expect(markdown).toContain(`<span data-word-art="${expectedStyle}"`)
+        if (expectedSize === 'medium') {
+            expect(markdown).not.toContain('data-word-art-size')
+        } else {
+            expect(markdown).toContain(`data-word-art-size="${expectedSize}"`)
+        }
+        expect(wordArtNode?.attrs).toEqual({ text, style: expectedStyle, size: expectedSize })
+        expect(textCardConverter.isRoundTripSafe(markdown)).toBe(true)
+    })
+
     it('uses non-clickable links while editing and clickable links in readonly', () => {
         const editableLink = TEXT_CARD_MARKDOWN_EXTENSIONS.find((extension) => extension.name === 'link')
         const readonlyLink = TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS.find((extension) => extension.name === 'link')
