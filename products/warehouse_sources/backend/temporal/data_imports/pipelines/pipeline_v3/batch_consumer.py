@@ -7,6 +7,7 @@ import asyncio
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -92,6 +93,10 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
+    # Which source the delta sink's queue readers use: the legacy status-log
+    # laterals or the denormalized state columns. Readers only — writes always
+    # dual-write, which is what makes flipping back a complete rollback.
+    claim_path: str = "legacy"
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -155,6 +160,7 @@ class BatchConsumerAdapter(Protocol):
         job_state: str,
         attempt: int,
         error_response: dict[str, Any] | None = None,
+        batch_created_at: datetime | None = None,
     ) -> None: ...
 
     async def fail_run(
@@ -661,6 +667,7 @@ class BatchConsumer:
                     batch_id=batch.id,
                     job_state=self._adapter.executing_state,
                     attempt=attempt,
+                    batch_created_at=batch.created_at,
                 )
             except Exception as e:
                 logger.warning(
@@ -766,6 +773,7 @@ class BatchConsumer:
                 batch_id=batch.id,
                 job_state=self._adapter.executing_state,
                 attempt=attempt,
+                batch_created_at=batch.created_at,
             )
 
             if should_process:
@@ -797,6 +805,7 @@ class BatchConsumer:
                 batch_id=batch.id,
                 job_state=self._adapter.succeeded_state,
                 attempt=attempt,
+                batch_created_at=batch.created_at,
             )
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
             logger.info(
@@ -867,6 +876,7 @@ class BatchConsumer:
                 job_state=self._adapter.waiting_retry_state,
                 attempt=attempt,
                 error_response={"error": str(err)[:1000]},
+                batch_created_at=batch.created_at,
             )
 
     async def _fail_run(
@@ -1065,6 +1075,7 @@ class BatchConsumer:
                             job_state=self._adapter.waiting_retry_state,
                             attempt=batch.latest_attempt,
                             error_response={"error": "executing timed out - pod restart or OOM"},
+                            batch_created_at=batch.created_at,
                         )
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)

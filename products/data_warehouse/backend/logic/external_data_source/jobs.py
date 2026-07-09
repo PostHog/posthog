@@ -80,9 +80,21 @@ def update_external_job_status(
             raise ValueError(f"External data job {job_id} is not attached to a schema")
 
         schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
-        schema.status = schema_status
-        schema.latest_error = latest_error
-        schema.save(update_fields=["status", "latest_error", "updated_at"])
+
+        # The CDC broken state is absorbing: a loader finishing an in-flight batch after
+        # `mark_cdc_broken` must not repaint the schema healthy while the slot is gone.
+        # The marker is cleared by repair_cdc / disable_cdc, after which updates resume.
+        if (schema.sync_type_config or {}).get("cdc_broken"):
+            logger.info(
+                "dwh_schema_status_update_skipped_cdc_broken",
+                job_id=job_id,
+                schema_id=str(schema.id),
+                requested_status=schema_status,
+            )
+        else:
+            schema.status = schema_status
+            schema.latest_error = latest_error
+            schema.save(update_fields=["status", "latest_error", "updated_at"])
 
     model.refresh_from_db()
 

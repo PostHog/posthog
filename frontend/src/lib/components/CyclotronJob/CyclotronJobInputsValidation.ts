@@ -64,8 +64,14 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
         return
     }
 
-    // Hog field
-    if (new RegExp(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`).test(value)) {
+    // Hog field. Beyond `{{ global.… }}`, a pipe filter inside double braces (`{{ x | upcase }}`)
+    // or a `{% … %}` tag is unambiguously Liquid regardless of what it references — Hog has no
+    // single-pipe operator and no percent tags, so these fail Hog compilation at activation.
+    if (
+        new RegExp(`\\{\\{[^}]*${GLOBAL_REFERENCE}[^}]*\\}\\}`).test(value) ||
+        /\{\{[^{}]*\|[^{}]*\}\}/.test(value) ||
+        /\{%[\s\S]*?%\}/.test(value)
+    ) {
         return TEMPLATING_MISMATCH_WARNINGS.liquidSyntaxInHogField
     }
 }

@@ -5,10 +5,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -46,6 +47,8 @@ import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 export function InsightEmptyState({
     heading,

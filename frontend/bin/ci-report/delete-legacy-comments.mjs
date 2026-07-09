@@ -16,6 +16,7 @@ const LEGACY_MARKERS = [
     'It looks like the code of ',
     '### 📄 Generated Docs Update Required',
     '### 📦 Surveys SDK Version Check Reminder',
+    '<!-- hobby-smoke-test -->',
 ]
 
 const context = resolvePrContext('cleanup')

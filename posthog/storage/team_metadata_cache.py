@@ -64,6 +64,8 @@ from posthog.storage.hypercache_manager import (
     get_cache_stats as get_cache_stats_generic,
 )
 
+from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+
 logger = structlog.get_logger(__name__)
 
 
@@ -153,12 +155,14 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     return value
 
 
-def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
+def _serialize_team_to_metadata(team: Team, minimal_flag_called_events: bool | None = None) -> dict[str, Any]:
     """
     Serialize a Team object to metadata dictionary.
 
     Args:
         team: Team object with organization and project already loaded
+        minimal_flag_called_events: Pre-fetched value from TeamFeatureFlagsConfig, to let
+            batch callers avoid an N+1 query. If None, this looks it up itself.
 
     Returns:
         Dictionary containing full team metadata
@@ -170,6 +174,20 @@ def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
 
     metadata["organization_name"] = team.organization.name if team.organization else None
     metadata["project_name"] = team.project.name if team.project else None
+
+    if minimal_flag_called_events is None:
+        # Deliberately not team.teamfeatureflagsconfig: the reverse O2O accessor gets
+        # cache-populated as a side effect of register_team_extension_signal's
+        # get_or_create(team=instance, ...) at team-creation time, so an already-loaded
+        # Team object can carry a stale cached value if the config row changes after
+        # the Team was loaded. An explicit query is always fresh.
+        minimal_flag_called_events = (
+            TeamFeatureFlagsConfig.objects.filter(team_id=team.id)
+            .values_list("minimal_flag_called_events", flat=True)
+            .first()
+            or False
+        )
+    metadata["minimal_flag_called_events"] = minimal_flag_called_events
 
     return metadata
 
@@ -188,7 +206,17 @@ def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
     Returns:
         Dict mapping team_id -> metadata dict
     """
-    return {team.id: _serialize_team_to_metadata(team) for team in teams}
+    minimal_flag_called_events_by_team = dict(
+        TeamFeatureFlagsConfig.objects.filter(team_id__in=[team.id for team in teams]).values_list(
+            "team_id", "minimal_flag_called_events"
+        )
+    )
+    return {
+        team.id: _serialize_team_to_metadata(
+            team, minimal_flag_called_events=minimal_flag_called_events_by_team.get(team.id, False)
+        )
+        for team in teams
+    }
 
 
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
@@ -303,7 +331,7 @@ def verify_team_metadata(
 
     # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
     # This allows removing fields from the cache without triggering unnecessary fixes.
-    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name"}
+    fields_to_check = set(TEAM_METADATA_FIELDS) | {"organization_name", "project_name", "minimal_flag_called_events"}
     diffs = []
     for key in fields_to_check:
         db_val = db_data.get(key)

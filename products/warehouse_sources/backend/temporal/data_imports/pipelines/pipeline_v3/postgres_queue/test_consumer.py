@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -110,7 +111,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock()
@@ -128,7 +129,7 @@ class TestProcessSingle:
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
 
-        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None, batch_created_at=None):
             states.append(job_state)
 
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
@@ -382,6 +383,7 @@ class TestRecoverySweep:
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
+            batch_created_at=stale_batch.created_at,
         )
         mock_unlock.assert_called_once_with(
             consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
@@ -1481,6 +1483,23 @@ class TestDispatchGroups:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+
+
+class TestClaimPathWiring:
+    def test_claim_path_config_reaches_the_adapter(self):
+        # A flag that parses but never reaches the adapter would leave the
+        # fleet silently on the legacy path after the flip.
+        state = BatchConsumer(
+            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused", claim_path="state"),
+            process_batch=AsyncMock(),
+        )
+        legacy = BatchConsumer(
+            config=ConsumerConfig(database_url="postgres://unused:unused@localhost/unused"),
+            process_batch=AsyncMock(),
+        )
+
+        assert cast(DeltaBatchConsumerAdapter, state._adapter)._use_state is True
+        assert cast(DeltaBatchConsumerAdapter, legacy._adapter)._use_state is False
 
 
 class TestBatchHeartbeat:
