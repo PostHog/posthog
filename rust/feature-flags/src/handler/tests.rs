@@ -4,7 +4,7 @@ use crate::{
         errors::FlagError,
         types::{
             Compression, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue,
-            FlagsQueryParams, LegacyFlagsResponse,
+            FlagsQueryParams, FlagsResponse, LegacyFlagsResponse,
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
@@ -23,11 +23,12 @@ use crate::{
         flag_service::FlagService,
     },
     handler::{
-        decoding, evaluation::evaluate_feature_flags, flags::fetch_and_filter, properties,
-        FeatureFlagEvaluationContext,
+        apply_minimal_flag_called_events, decoding, evaluation::evaluate_feature_flags,
+        flags::fetch_and_filter, properties, FeatureFlagEvaluationContext,
     },
     mock,
     properties::property_models::PropertyType,
+    team::team_models::Team,
     utils::{
         mock::MockInto,
         test_utils::{
@@ -1814,5 +1815,31 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         provider_disabled.call_count(),
         0,
         "Provider should not be called when flags have no cohort dependencies"
+    );
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_sets_true_when_team_gated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team {
+        minimal_flag_called_events: true,
+        ..Default::default()
+    };
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(response.minimal_flag_called_events, Some(true));
+}
+
+#[test]
+fn test_apply_minimal_flag_called_events_leaves_none_when_team_ungated() {
+    let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+    let team = Team::default();
+
+    apply_minimal_flag_called_events(&mut response, &team);
+
+    assert_eq!(
+        response.minimal_flag_called_events, None,
+        "absence, not Some(false), is the full-events signal SDKs rely on"
     );
 }

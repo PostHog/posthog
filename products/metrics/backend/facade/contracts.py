@@ -102,10 +102,12 @@ class MetricQueryRequest:
 
 @dataclass(frozen=True, slots=True)
 class MetricPoint:
-    """One bucketed datapoint. `time` is the bucket start, ISO 8601."""
+    """One bucketed datapoint. `time` is the bucket start, ISO 8601.
+    `value` is None when the bucket's aggregate isn't representable (e.g.
+    a float overflow to inf) — consumers render a gap."""
 
     time: str
-    value: float
+    value: float | None
 
 
 @dataclass(frozen=True, slots=True)

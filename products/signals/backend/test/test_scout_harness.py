@@ -155,6 +155,11 @@ class TestPromptBuilder(BaseTest):
         assert "(v1)" in prompt
         # The agent needs to know its own run id to attribute emits and memories.
         assert "00000000-0000-0000-0000-000000000abc" in prompt
+        # Calling convention is stated up front: bare tool names resolve only
+        # through the exec interface, so the agent doesn't burn opening moves
+        # trying to invoke them directly.
+        assert "How to call tools" in prompt
+        assert "mcp__posthog__exec" in prompt
         # Bootstrap section directs the agent to read the skill via MCP, not
         # from the prompt. Skill body + file manifest are deliberately NOT
         # inlined — they're discovered at run time.

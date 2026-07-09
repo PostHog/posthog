@@ -2850,6 +2850,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
@@ -7137,7 +7140,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },
