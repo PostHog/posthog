@@ -671,7 +671,7 @@ function CostChip({
                         <hr className="my-0.5 border-border" />
                         <div>Billed: {formatLLMCost(billedTotalUsd!)}</div>
                         {typeof markupUsd === 'number' && markupUsd > 0 && (
-                            <div>Markup (20%): {formatLLMCost(markupUsd)}</div>
+                            <div>Markup: {formatLLMCost(markupUsd)}</div>
                         )}
                         {typeof billedCredits === 'number' && <div>Credits: {billedCredits}</div>}
                     </>
@@ -1451,8 +1451,7 @@ const EventContent = React.memo(
         const showPromptButton = !!promptName
 
         const showPlaygroundButton = isGenerationEvent
-        const showCreateSentimentEvalButton =
-            isGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_SENTIMENT]
+        const showCreateSentimentEvalButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 

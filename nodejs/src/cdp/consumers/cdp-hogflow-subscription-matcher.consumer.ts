@@ -14,14 +14,17 @@ import { UUIDT } from '~/common/utils/utils'
 
 import { ClickHousePerson, HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
-import { isEvaluableCondition } from '../services/hogflows/hogflow-utils'
+import {
+    hasEventOrActionTarget,
+    matchesWaitUntilCondition,
+    runFilterBytecode,
+} from '../services/hogflows/hogflow-utils'
 import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, MinimalAppMetric } from '../types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToHogFunctionInvocationGlobals,
     getPersonDisplayName,
 } from '../utils'
-import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
@@ -32,11 +35,6 @@ import { counterParseError } from './metrics'
 // regardless of this value — so steady-state recovery is committed-offset resume; latest only governs
 // the first bootstrap and offset-loss edge cases (covered by the deferred lag alerting follow-up).
 const startAtLatest = { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
-
-const counterHogflowMatcherBytecodeError = new Counter({
-    name: 'cdp_hogflow_matcher_bytecode_error',
-    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
-})
 
 const counterHogflowMatcherCandidatesEvaluated = new Counter({
     name: 'cdp_hogflow_matcher_candidates_evaluated',
@@ -270,7 +268,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, hogflow.id)) {
+                    if (
+                        await matchesWaitUntilCondition(action, filterGlobals, {
+                            hogFlowId: hogflow.id,
+                            actionId: action.id,
+                        })
+                    ) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
@@ -327,32 +330,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    private async evaluateWaitUntilCondition(
-        action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        filterGlobals: FilterGlobals,
-        hogflowId: string
-    ): Promise<boolean> {
-        // `events` and the property-based `condition` are OR'd: a step can wait on either,
-        // and either matching wakes the job. The condition is evaluated on every incoming
-        // event, which is what makes property-based waits event-driven rather than polled.
-        const context = { hogFlowId: hogflowId, actionId: action.id }
-        for (const eventConfig of action.config.events ?? []) {
-            if (!hasEventOrActionTarget(eventConfig)) {
-                continue
-            }
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
-                return true
-            }
-        }
-        // An empty condition compiles to always-true bytecode, which would wake the job on the next
-        // event of any kind. Only evaluate the condition when it has a real compiled filter;
-        // otherwise the wait relies on its `events` / the step timeout.
-        if (!isEvaluableCondition(action.config.condition)) {
-            return false
-        }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
-    }
-
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
@@ -360,7 +337,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!hasEventOrActionTarget(eventConfig)) {
                 continue
             }
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
+            if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
         }
@@ -758,15 +735,6 @@ type IndexedBatch = {
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
 }
 
-// An "events to wait for" / conversion entry that targets neither events nor actions compiles to
-// always-true bytecode (the UI can leave an empty entry behind when the last event is removed), so
-// it would match every incoming event. Action-based entries (events empty, actions set) are real
-// and must be kept. Shared by the wait_until_condition and conversion evaluators so the rule lives
-// in one place.
-function hasEventOrActionTarget(eventConfig: { filters?: { events?: unknown[]; actions?: unknown[] } }): boolean {
-    return Boolean(eventConfig.filters?.events?.length || eventConfig.filters?.actions?.length)
-}
-
 // Whether a workflow exits when its conversion goal is met. Only then does the matcher wake a
 // parked job on a conversion match (so it can exit early); otherwise the conversion goal is
 // measurement-only and must not perturb the job's progression.
@@ -861,35 +829,6 @@ function collectCandidateGlobals(
         }
     }
     return [...seen]
-}
-
-// Logged as separate fields on a bytecode error so it's filterable by flow/action.
-// actionId is absent for a conversion goal (not an action).
-type BytecodeContext = { hogFlowId: string; actionId?: string }
-
-// Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
-// every events[].filters at save time, so missing/empty bytecode means a malformed row:
-// we fail closed (return false) rather than falling back to event-name-only matching, which
-// would silently bypass property filters.
-async function runBytecode(
-    bytecode: unknown,
-    filterGlobals: FilterGlobals,
-    context: BytecodeContext
-): Promise<boolean> {
-    if (!Array.isArray(bytecode) || bytecode.length === 0) {
-        return false
-    }
-    try {
-        const result = await execHog(bytecode, { globals: filterGlobals })
-        return result.execResult?.result === true
-    } catch (err) {
-        // A broken filter silently never matches and the workflow falls through to its
-        // timeout branch, which is usually the wrong outcome. Surface loudly so we notice.
-        logger.error('🔴', 'Bytecode evaluation error', { ...context, err })
-        captureException(err, { extra: { ...context } })
-        counterHogflowMatcherBytecodeError.inc()
-        return false
-    }
 }
 
 type MatchOutcome = { state: Buffer; wake: boolean; countConversion: boolean }

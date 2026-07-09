@@ -1,5 +1,5 @@
 //! Length-preserving text scrub: numeric tokens -> `#`, allow-listed words kept, everything else -> `*`.
-//! Mirrors `anonymize/text.ts`. `None` means "unchanged" (caller keeps the original).
+//! `None` means "unchanged" (caller keeps the original).
 
 use crate::allow_lists::AllowLists;
 
