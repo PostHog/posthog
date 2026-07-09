@@ -101,6 +101,8 @@ export function InsertTileOverlay({
     }
 
     return (
+        // Stays below the tiles' edge-resize hover zones (see EditModeEdgeOverlay), so hovering a tile border
+        // grabs the resize handle rather than this insert line. Keep this under those zones' z-index if changed.
         // eslint-disable-next-line react/forbid-dom-props
         <div ref={containerRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 6 }}>
             {boundaries.map((boundary) => (
@@ -119,10 +121,9 @@ export function InsertTileOverlay({
     )
 }
 
-// Generous transparent hover zone so the thin line/"+" is easy to target (the visible bits stay
-// centered on the row boundary). Larger than the inter-row gap, so it bleeds a little into the
-// adjacent tiles — that's the intended trade-off for a comfortable hit area.
-const HOVER_HIT_HEIGHT = 28
+// Transparent hover zone centered on the row boundary. Kept within the inter-row gap (12px < the 16px
+// gap) so it doesn't bleed onto the adjacent tile borders, which carry their own resize-on-hover zones.
+const HOVER_HIT_HEIGHT = 12
 // Keep the "+" fully on the strip when the cursor is near either end.
 const BUTTON_EDGE_PADDING = 16
 

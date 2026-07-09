@@ -471,6 +471,7 @@ function StepTriggerConfigurationWebhook({
                     })
                 }
                 errors={validationResult?.errors}
+                warnings={validationResult?.warnings}
             />
         </div>
     )
@@ -680,6 +681,7 @@ function StepTriggerConfigurationTrackingPixel({
                     })
                 }
                 errors={validationResult?.errors}
+                warnings={validationResult?.warnings}
             />
         </>
     )
