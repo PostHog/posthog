@@ -673,14 +673,20 @@ class LazyTableResolver(TraversingVisitor):
                 if join_scope.from_table == join_ptr.alias or (
                     isinstance(join_ptr.table, ast.Field) and join_scope.from_table == join_ptr.table.chain[0]
                 ):
-                    # If the `join_to_add` is reliant on the existing `next_join`, then just append after instead of before
-                    if join_ptr.next_join and join_ptr.next_join.alias in constraint_tables:
-                        if join_ptr.next_join.next_join:
-                            join_to_add.next_join = join_ptr.next_join.next_join
-                        join_ptr.next_join.next_join = join_to_add
-                    else:
-                        join_to_add.next_join = join_ptr.next_join
-                        join_ptr.next_join = join_to_add
+                    # The join's ON constraint may reference other joins on the same table (its
+                    # `constraint_tables`), which ClickHouse resolves left-to-right and so must appear
+                    # earlier in the chain. Scan the whole remaining chain — not just the immediate
+                    # next join — and insert after the last such dependency, or right after the
+                    # source table when none are present. Looking only one join ahead placed this
+                    # join before a dependency that a non-dependent join had been inserted in front of.
+                    insert_after = join_ptr
+                    scan = join_ptr.next_join
+                    while scan is not None:
+                        if scan.alias in constraint_tables:
+                            insert_after = scan
+                        scan = scan.next_join
+                    join_to_add.next_join = insert_after.next_join
+                    insert_after.next_join = join_to_add
                     added = True
                     break
                 if join_ptr.next_join:
