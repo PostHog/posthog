@@ -99,6 +99,10 @@ impl TempBucketBackend {
     fn job_prefix(&self) -> ObjectPath {
         ObjectPath::from(format!("{}{}/", self.prefix, self.job_id))
     }
+
+    fn quarantine_prefix(&self) -> String {
+        format!("{}{}/quarantine/", self.prefix, self.job_id)
+    }
 }
 
 #[async_trait]
@@ -114,6 +118,48 @@ impl StagingBackend for TempBucketBackend {
                     }
                 }
                 Err(e) => warn!("Failed to list staged objects under {prefix}: {e}"),
+            }
+        }
+        self.sizes.lock().await.clear();
+        Ok(())
+    }
+
+    /// Server-side move of every staged object into `quarantine/` under the job
+    /// prefix. The quarantine location is never produced by `object_path`, so
+    /// `size`/`read` (and therefore a resume) cannot attach to it, while
+    /// `cleanup_job` and the bucket TTL still reclaim it. Per-object failures
+    /// leave that object in place, which degrades to today's behavior at worst
+    /// (a stale canonical object is unreachable for resume only if moved, so a
+    /// failed move is logged loudly).
+    async fn quarantine_job(&self) -> Result<(), Error> {
+        let prefix = self.job_prefix();
+        let quarantine_prefix = self.quarantine_prefix();
+        let mut stream = self.store.list(Some(&prefix));
+        let mut moves: Vec<(ObjectPath, ObjectPath)> = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(meta) => {
+                    if meta.location.as_ref().starts_with(&quarantine_prefix) {
+                        continue;
+                    }
+                    let name = meta
+                        .location
+                        .filename()
+                        .unwrap_or("unnamed.data")
+                        .to_string();
+                    let to = ObjectPath::from(format!("{quarantine_prefix}{name}"));
+                    moves.push((meta.location, to));
+                }
+                Err(e) => warn!("Failed to list staged objects under {prefix}: {e}"),
+            }
+        }
+        for (from, to) in moves {
+            if let Err(e) = self.store.copy(&from, &to).await {
+                warn!("Failed to quarantine staged object {from}: {e}");
+                continue;
+            }
+            if let Err(e) = self.store.delete(&from).await {
+                warn!("Failed to delete staged object {from} after quarantining: {e}");
             }
         }
         self.sizes.lock().await.clear();
@@ -264,6 +310,76 @@ mod tests {
     async fn stage_bytes(be: &TempBucketBackend, key: &str, data: &[u8]) -> u64 {
         let stream = PlaintextStream::from_chunks(vec![Bytes::copy_from_slice(data)]);
         be.stage_part(key, stream).await.unwrap()
+    }
+
+    fn backend_with_store() -> (Arc<InMemory>, TempBucketBackend) {
+        let store = Arc::new(InMemory::new());
+        let be = TempBucketBackend::new(store.clone(), "batch-import-staging/", "job-TEST");
+        (store, be)
+    }
+
+    async fn quarantined_bytes(store: &Arc<InMemory>, key: &str) -> Option<Vec<u8>> {
+        let path = ObjectPath::from(format!(
+            "batch-import-staging/job-TEST/quarantine/{}.data",
+            sanitize_key(key)
+        ));
+        let result = store.get(&path).await.ok()?;
+        Some(result.bytes().await.ok()?.to_vec())
+    }
+
+    #[tokio::test]
+    async fn quarantine_preserves_bytes_and_detaches_resume() {
+        let (store, be) = backend_with_store();
+        let body = b"{\"a\":1}\nnot json at all\n";
+        stage_bytes(&be, "2024-01-01:00", body).await;
+
+        be.quarantine_job().await.unwrap();
+
+        // The canonical object is gone: a resume's size/read (and therefore
+        // prepare_key's head-based attach) must not see the stale bytes.
+        assert_eq!(be.size("2024-01-01:00").await.unwrap(), None);
+        assert!(be.read("2024-01-01:00", 0, 100).await.is_err());
+
+        // The exact failing bytes are preserved for post-mortem.
+        assert_eq!(
+            quarantined_bytes(&store, "2024-01-01:00").await.as_deref(),
+            Some(body.as_slice())
+        );
+    }
+
+    #[tokio::test]
+    async fn quarantine_is_idempotent_and_swept_by_cleanup_job() {
+        let (store, be) = backend_with_store();
+        stage_bytes(&be, "k1", b"data-one").await;
+        stage_bytes(&be, "k2", b"data-two").await;
+
+        be.quarantine_job().await.unwrap();
+        // A second pause on the same job must not double-move or error.
+        be.quarantine_job().await.unwrap();
+        assert_eq!(
+            quarantined_bytes(&store, "k1").await.as_deref(),
+            Some(b"data-one".as_slice())
+        );
+        assert_eq!(
+            quarantined_bytes(&store, "k2").await.as_deref(),
+            Some(b"data-two".as_slice())
+        );
+
+        // Re-staging after quarantine works (the resume path), and the fresh
+        // canonical object coexists with the quarantined evidence.
+        stage_bytes(&be, "k1", b"data-one-fixed").await;
+        assert_eq!(be.size("k1").await.unwrap(), Some(14));
+        assert_eq!(
+            quarantined_bytes(&store, "k1").await.as_deref(),
+            Some(b"data-one".as_slice())
+        );
+
+        // Terminal cleanup reclaims quarantine along with everything else, so
+        // quarantined evidence cannot outlive the job inside the bucket.
+        be.cleanup_job().await.unwrap();
+        assert!(quarantined_bytes(&store, "k1").await.is_none());
+        assert!(quarantined_bytes(&store, "k2").await.is_none());
+        assert_eq!(be.size("k1").await.unwrap(), None);
     }
 
     #[tokio::test]

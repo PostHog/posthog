@@ -120,6 +120,14 @@ impl RemoteStaging {
         }
     }
 
+    /// `DataSource::cleanup_after_data_error` delegation: move staged objects to
+    /// quarantine for post-mortem instead of deleting them, best-effort.
+    pub(crate) async fn quarantine_job(&self) {
+        if let Err(e) = self.backend.quarantine_job().await {
+            warn!("Failed to quarantine remote staging after data error: {e:#}");
+        }
+    }
+
     /// Ingest a downloaded part into the backend and return its decompressed size.
     /// `raw_file_path: None` means an empty part (404 / zero-byte object): an empty
     /// object is staged so `size()` reports `Some(0)` and resume skips re-download.
@@ -289,11 +297,20 @@ pub trait DataSource: Sync + Send {
     }
 
     /// Terminal cleanup: reclaim everything, including durable remote staging.
-    /// Called when the job completes, and on source-side pauses — a human may fix
-    /// the source file in place before resuming, so the resume must re-download a
-    /// clean copy rather than attach to a stale staged one.
+    /// Called when the job completes.
     async fn cleanup_after_job(&self) -> Result<(), Error> {
         Ok(())
+    }
+
+    /// Data-error-pause cleanup: a human may fix the source data in place before
+    /// resuming, so the resume must re-download a clean copy rather than attach
+    /// to a stale staged one — but the staged bytes are the exact stream the
+    /// failing offset was committed against, so staged sources move them to
+    /// quarantine for post-mortem instead of deleting them. Defaults to
+    /// [`cleanup_after_job`](Self::cleanup_after_job) for sources with nothing
+    /// staged remotely.
+    async fn cleanup_after_data_error(&self) -> Result<(), Error> {
+        self.cleanup_after_job().await
     }
 
     /// Transient-interruption cleanup: release per-process resources (local temp
