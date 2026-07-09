@@ -991,10 +991,11 @@ class BasePrinter(Visitor[str]):
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
-                # Pre-#58714 behavior: single-arg toFloatOrDefault was degenerate and
-                # equivalent to toFloatOrZero. Rewrite here so saved queries still work.
-                if node.name == "toFloatOrDefault" and len(node.args) == 1:
-                    return self.visit(ast.Call(name="toFloatOrZero", args=node.args))
+                # Pre-#58714 behavior: single-arg toFloatOrDefault/toIntOrDefault were degenerate and
+                # equivalent to toFloatOrZero/toIntOrZero. Rewrite here so saved queries still work.
+                if len(node.args) == 1 and node.name in ("toFloatOrDefault", "toIntOrDefault"):
+                    zero_fn = "toFloatOrZero" if node.name == "toFloatOrDefault" else "toIntOrZero"
+                    return self.visit(ast.Call(name=zero_fn, args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
