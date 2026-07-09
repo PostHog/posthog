@@ -84,7 +84,16 @@ class UrlChangeTracker {
     }
 
     isRapidlyChanging(): boolean {
-        return this.changes.length > this.config.maxChangesPerSecond
+        if (this.changes.length <= this.config.maxChangesPerSecond) {
+            return false
+        }
+        // A genuine infinite loop re-sets the same handful of URLs over and over, so the burst is
+        // dominated by duplicates. Legitimate rapid navigation - e.g. a user typing into a search
+        // box that syncs each keystroke to the query string - produces a stream of mostly-distinct
+        // URLs and must not be flagged as a loop. Only treat the burst as rapid when at most half of
+        // the recorded changes are distinct URLs.
+        const uniqueUrls = new Set(this.changes.map((c) => c.url)).size
+        return uniqueUrls * 2 <= this.changes.length
     }
 
     canWarn(): boolean {
