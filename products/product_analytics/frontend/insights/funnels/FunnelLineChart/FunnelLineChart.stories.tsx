@@ -133,9 +133,8 @@ export const GoalLine: Story = {
         }),
 }
 
-// Compare to previous: the current and previous period conversion rates render as separate
-// series. The funnels-compare flag gates the toggle — without it the dual-period data degrades
-// back to the single-period rendering.
+// Compare to previous: current and previous period conversion rates render as separate series
+// (the funnels-compare flag gates this — without it the data degrades to single-period rendering)
 export const Compare: Story = {
     render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
     parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },

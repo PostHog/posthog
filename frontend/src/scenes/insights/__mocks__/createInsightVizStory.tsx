@@ -39,10 +39,8 @@ export function InsightVizStory({
     const [fontsReady, setFontsReady] = useState(false)
 
     useOnMountEffect(() => {
-        // Chart.js measures tick labels once at chart init and auto-skips ticks based on those
-        // widths. If the chart mounts before the app fonts finish loading, fallback-font metrics
-        // decide the tick density and the snapshot flakes between runs — so hold rendering until
-        // the fonts are in. Same face/weight set the visual-regression runner preloads.
+        // Canvas charts measure label widths at paint time and don't repaint when fonts finish
+        // loading, so hold rendering until the faces the visual-regression runner preloads are in.
         void Promise.all(
             ['400', '500', '700', '800'].flatMap((weight) => [
                 document.fonts.load(`${weight} 16px Inter`),
