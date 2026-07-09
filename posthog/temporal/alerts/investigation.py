@@ -89,41 +89,59 @@ def claim_investigation_slot(alert: AlertConfiguration, alert_check: AlertCheck)
     - The effective cooldown grows exponentially with the number of completed investigations
       in the current firing episode (see `_posthog_code_effective_cooldown`).
     - Active checks (PENDING/RUNNING) always block regardless of window age.
+
+    In notebook mode:
+    - FAILED checks do not occupy the slot.
+    - Active checks (PENDING/RUNNING) block only within the 1h cooldown window.
+    - The original window-bounded behavior is preserved byte-for-byte.
     """
     is_posthog_code = alert.investigation_mode == AlertConfiguration.InvestigationMode.POSTHOG_CODE
 
-    occupying = [
-        InvestigationStatus.PENDING,
-        InvestigationStatus.RUNNING,
-        InvestigationStatus.DONE,
-    ]
     if is_posthog_code:
-        occupying.append(InvestigationStatus.FAILED)
-
-    cooldown = _posthog_code_effective_cooldown(alert) if is_posthog_code else INVESTIGATION_COOLDOWN
-    window_start = datetime.now(UTC) - cooldown
-
-    # Active statuses (PENDING/RUNNING) always block — they're not window-bounded.
-    active_blocking = (
-        AlertCheck.objects.filter(
-            alert_configuration=alert,
-            investigation_status__in=_ACTIVE_INVESTIGATION_STATUSES,
+        # In posthog_code mode, active statuses always block — no window check needed.
+        active_blocking = (
+            AlertCheck.objects.filter(
+                alert_configuration=alert,
+                investigation_status__in=_ACTIVE_INVESTIGATION_STATUSES,
+            )
+            .exclude(id=alert_check.id)
+            .exists()
         )
-        .exclude(id=alert_check.id)
-        .exists()
-    )
-    # Completed statuses block only within the cooldown window.
-    recent_blocking = (
-        AlertCheck.objects.filter(
-            alert_configuration=alert,
-            investigation_status__in=occupying,
-            created_at__gte=window_start,
-        )
-        .exclude(id=alert_check.id)
-        .exists()
-    )
+        if active_blocking:
+            AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.SKIPPED)
+            return False
 
-    if active_blocking or recent_blocking:
+        # Completed statuses block within the exponential-backoff cooldown window.
+        # PENDING/RUNNING are already handled above, so only check DONE and FAILED here.
+        cooldown = _posthog_code_effective_cooldown(alert)
+        window_start = datetime.now(UTC) - cooldown
+        recent_blocking = (
+            AlertCheck.objects.filter(
+                alert_configuration=alert,
+                investigation_status__in=[InvestigationStatus.DONE, InvestigationStatus.FAILED],
+                created_at__gte=window_start,
+            )
+            .exclude(id=alert_check.id)
+            .exists()
+        )
+    else:
+        # Notebook mode: all occupying statuses (PENDING, RUNNING, DONE) are window-bounded.
+        window_start = datetime.now(UTC) - INVESTIGATION_COOLDOWN
+        recent_blocking = (
+            AlertCheck.objects.filter(
+                alert_configuration=alert,
+                investigation_status__in=[
+                    InvestigationStatus.PENDING,
+                    InvestigationStatus.RUNNING,
+                    InvestigationStatus.DONE,
+                ],
+                created_at__gte=window_start,
+            )
+            .exclude(id=alert_check.id)
+            .exists()
+        )
+
+    if recent_blocking:
         AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.SKIPPED)
         return False
     AlertCheck.objects.filter(id=alert_check.id).update(investigation_status=InvestigationStatus.PENDING)

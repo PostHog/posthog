@@ -248,6 +248,34 @@ class TestClaimInvestigationSlotPostHogCode(BaseTest):
             new_check = self._make_check(alert, state=AlertState.FIRING, investigation_status=None, created_at=now)
             assert claim_investigation_slot(alert, new_check) is expected_claim
 
+    @parameterized.expand(
+        [
+            ("posthog_code_blocks", AlertConfiguration.InvestigationMode.POSTHOG_CODE, False),
+            ("notebook_allows", AlertConfiguration.InvestigationMode.NOTEBOOK, True),
+        ]
+    )
+    def test_active_run_older_than_cooldown_window_by_mode(self, _name, mode, expect_claim) -> None:
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=self.insight,
+            name=f"alert {_name}",
+            investigation_agent_enabled=True,
+            investigation_mode=mode,
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30}
+            if mode == AlertConfiguration.InvestigationMode.NOTEBOOK
+            else None,
+        )
+        now = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+        self._make_check(
+            alert,
+            state=AlertState.FIRING,
+            investigation_status=InvestigationStatus.RUNNING,
+            created_at=now - timedelta(hours=2),
+        )
+        with freeze_time(now):
+            new_check = self._make_check(alert, state=AlertState.FIRING, investigation_status=None, created_at=now)
+            assert claim_investigation_slot(alert, new_check) is expect_claim
+
     def test_active_run_always_occupies(self) -> None:
         now = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
         self._make_check(
@@ -265,6 +293,9 @@ class TestClaimInvestigationSlotPostHogCode(BaseTest):
             # (n_completed, minutes_after_episode_start, expect_claim)
             # All DONE checks are placed at episode_start (T=0); cooldown = 1h * 2^N.
             # Slot is blocked while now - T < cooldown, i.e. minutes < 60*2^N.
+            # N=0: cooldown=1h → blocked <60min, free >=60min
+            ("n0_still_blocked", 0, 59, False),
+            ("n0_just_free", 0, 61, True),
             # N=1: cooldown=2h → blocked <120min, free >=120min
             ("n1_still_blocked", 1, 119, False),
             ("n1_just_free", 1, 121, True),
@@ -277,13 +308,31 @@ class TestClaimInvestigationSlotPostHogCode(BaseTest):
         # All completed checks are placed at T=0 (episode_start) for simplicity;
         # what matters is the count, not their spread.
         episode_start = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
-        for _ in range(n_completed):
+        if n_completed == 0:
+            # Zero completed checks in this episode: place a DONE check just before
+            # episode_start, then a NOT_FIRING check to mark the episode boundary.
+            # The DONE check counts toward the window query (base 1h cooldown) but
+            # not toward the exponent (it predates the episode), giving exponent=0.
             self._make_check(
                 self.alert,
                 state=AlertState.FIRING,
                 investigation_status=InvestigationStatus.DONE,
+                created_at=episode_start - timedelta(minutes=1),
+            )
+            self._make_check(
+                self.alert,
+                state=AlertState.NOT_FIRING,
+                investigation_status=None,
                 created_at=episode_start,
             )
+        else:
+            for _ in range(n_completed):
+                self._make_check(
+                    self.alert,
+                    state=AlertState.FIRING,
+                    investigation_status=InvestigationStatus.DONE,
+                    created_at=episode_start,
+                )
         now = episode_start + timedelta(minutes=minutes_after_episode_start)
         with freeze_time(now):
             new_check = self._make_check(self.alert, state=AlertState.FIRING, investigation_status=None, created_at=now)
