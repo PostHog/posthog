@@ -26,7 +26,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.models import OrganizationMembership, User
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -438,6 +438,21 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if installation.scope == "shared" and installation.user_id != self.request.user.id:
             raise PermissionDenied("Only the credential owner can modify a shared server.")
 
+    def _require_admin_for_shared_scope(self, scope: str) -> None:
+        """Creating a team-wide shared MCP server is admin-only.
+
+        A shared install exposes the installer's credential to every project
+        member and all autonomous agents, and any action taken through it is
+        attributed to the credential owner (e.g. a member could write to Linear
+        as the owner). Gating creation to admins keeps a regular member from
+        standing up a shared server that others act through.
+        """
+        if scope != "shared":
+            return
+        level = self.user_permissions.current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("Only project admins can create shared MCP servers.")
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
@@ -578,6 +593,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         install_source = data.get("install_source", "posthog")
         posthog_code_callback_url = data.get("posthog_code_callback_url", "")
         scope = data.get("scope", "personal")
+        self._require_admin_for_shared_scope(scope)
 
         try:
             template = MCPServerTemplate.objects.get(id=template_id, is_active=True)
@@ -774,6 +790,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         user_client_id = (data.get("client_id") or "").strip()
         user_client_secret = (data.get("client_secret") or "").strip()
         scope = data.get("scope", "personal")
+        self._require_admin_for_shared_scope(scope)
 
         install_source = data.get("install_source", "posthog")
         posthog_code_callback_url = data.get("posthog_code_callback_url", "")
