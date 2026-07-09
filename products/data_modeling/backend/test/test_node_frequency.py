@@ -5,13 +5,11 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models.team import Team
-
 from products.data_modeling.backend.logic.freshness import (
     STREAMING,
     UnsatisfiableFrequencyError,
+    all_source_floors,
     compute_effective_cadences,
-    declared_target_bounds,
     validate_declared_target,
 )
 from products.data_modeling.backend.logic.node_frequency import (
@@ -26,8 +24,11 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.data_modeling.backend.test.helpers import (
+    saved_query_node as _saved_query_node,
+    table_node as _table_node,
+    warehouse_source_node as _warehouse_source_node,
+)
 
 M15 = timedelta(minutes=15)
 M30 = timedelta(minutes=30)
@@ -35,46 +36,6 @@ M45 = timedelta(minutes=45)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
-
-
-def _table_node(team: Team, dag: DAG, name: str, properties: dict) -> Node:
-    return Node.objects.create(team=team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
-
-
-def _saved_query_node(team: Team, dag: DAG, name: str, node_type: str) -> Node:
-    saved_query = DataWarehouseSavedQuery.objects.create(
-        name=name, team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-    )
-    return Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=node_type)
-
-
-def _warehouse_source_node(
-    team: Team,
-    dag: DAG,
-    *,
-    sync_frequency_interval: timedelta | None,
-    should_sync: bool = True,
-    with_schema: bool = True,
-) -> Node:
-    table = DataWarehouseTable.objects.create(name="stripe_charges", team=team)
-    if with_schema:
-        source = ExternalDataSource.objects.create(
-            team=team,
-            source_id="source_id",
-            connection_id="connection_id",
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-            prefix="posthog_test_",
-        )
-        ExternalDataSchema.objects.create(
-            name="stripe_charges",
-            team=team,
-            source=source,
-            table=table,
-            sync_frequency_interval=sync_frequency_interval,
-            should_sync=should_sync,
-        )
-    return _table_node(team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": str(table.id)})
 
 
 @pytest.mark.django_db
@@ -159,12 +120,7 @@ class TestBuildFrequencyGraph(BaseTest):
         )
 
         self.assertEqual(effective[str(matview.id)], M15)
-        floor, _ceiling = declared_target_bounds(
-            node_id=str(matview.id),
-            edges=graph.edges,
-            declared_targets=graph.declared_targets,
-            source_intervals=graph.source_intervals,
-        )
+        floor = all_source_floors(graph.edges, graph.source_intervals).get(str(matview.id), STREAMING)
         self.assertEqual(floor, STREAMING)
 
     def test_imported_source_floor_makes_a_tighter_descendant_unsatisfiable(self):
@@ -174,12 +130,7 @@ class TestBuildFrequencyGraph(BaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
 
         graph = build_frequency_graph(dag)
-        floor, _ceiling = declared_target_bounds(
-            node_id=str(matview.id),
-            edges=graph.edges,
-            declared_targets=graph.declared_targets,
-            source_intervals=graph.source_intervals,
-        )
+        floor = all_source_floors(graph.edges, graph.source_intervals).get(str(matview.id), STREAMING)
         self.assertEqual(floor, H6)
         with self.assertRaises(UnsatisfiableFrequencyError):
             validate_declared_target(

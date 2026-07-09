@@ -8,11 +8,12 @@ import structlog
 
 from posthog.models.team import Team
 
-from products.data_modeling.backend.logic.node_frequency import persist_seed_targets
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
+from products.data_modeling.backend.logic.schedule_reconcile import (
+    convert_dag_to_tiers,
+    null_saved_query_intervals,
+    tiered_schedules_enabled,
+)
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import Node
 
 logger = structlog.get_logger(__name__)
 
@@ -78,17 +79,8 @@ class Command(BaseCommand):
             else None
         )
         for dag in dags:
-            seeded = persist_seed_targets(dag, default=default)
-            reconcile_dag_schedules(dag)
-            # Nulled only after targets are persisted and tiers reconciled — the node target is
-            # now the only store of frequency intent, and a lingering interval could revive a
-            # v1 schedule. The Node→saved-query FK has no reverse name, so go through Node.
-            saved_query_ids = list(
-                Node.objects.filter(dag=dag, saved_query__isnull=False).values_list("saved_query_id", flat=True)
-            )
-            cleared = DataWarehouseSavedQuery.objects.filter(
-                id__in=saved_query_ids, sync_frequency_interval__isnull=False
-            ).update(sync_frequency_interval=None)
+            seeded = convert_dag_to_tiers(dag, default=default)
+            cleared = null_saved_query_intervals(dag)
             self.stdout.write(
                 f"DAG {dag.name} ({dag.id}): seeded {seeded} target(s), reconciled, "
                 f"cleared {cleared} saved-query interval(s)"

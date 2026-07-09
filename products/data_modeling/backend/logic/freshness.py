@@ -37,8 +37,6 @@ import dataclasses
 from collections import defaultdict, deque
 from datetime import timedelta
 
-from products.data_modeling.backend.logic.graph_traversal import reachable
-
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
 # carry their real sync interval.
@@ -146,41 +144,12 @@ def compute_effective_cadences(
     return resolved
 
 
-def declared_target_bounds(
-    *,
-    node_id: str,
-    edges: list[tuple[str, str]],
-    declared_targets: dict[str, timedelta],
-    source_intervals: dict[str, timedelta],
-) -> tuple[timedelta, timedelta | None]:
-    """Return (source_floor, consumer_ceiling) for a node's declarable target.
-
-    source_floor = the slowest interval among ancestor source nodes (STREAMING sources
-    add no floor). consumer_ceiling = the finest declared target among descendants, or
-    None if no descendant declares one. A floor coarser than the ceiling means the node
-    is unsatisfiable.
-    """
-    children, parents = _adjacency(edges)
-
-    ancestor_source_intervals = [
-        source_intervals[ancestor] for ancestor in reachable(node_id, parents) if ancestor in source_intervals
-    ]
-    source_floor = max(ancestor_source_intervals) if ancestor_source_intervals else STREAMING
-
-    descendant_targets = [
-        declared_targets[descendant] for descendant in reachable(node_id, children) if descendant in declared_targets
-    ]
-    consumer_ceiling = min(descendant_targets) if descendant_targets else None
-
-    return source_floor, consumer_ceiling
-
-
 def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
     """Every node's source floor (slowest ancestor source interval) in one forward pass.
 
-    The batch equivalent of calling `declared_target_bounds` per node, whose reachable-walk makes
-    a whole-graph check O(N^2). STREAMING for a node with no ancestor source. Nodes in a cycle are
-    omitted (callers default them to STREAMING; the scheduling path rejects cycles upstream).
+    One forward pass instead of a per-node ancestor walk, so a whole-graph check is O(N+E) rather
+    than O(N^2). STREAMING for a node with no ancestor source. Nodes in a cycle are omitted
+    (callers default them to STREAMING; the scheduling path rejects cycles upstream).
     """
     children, parents = _adjacency(edges)
     all_ids = set(source_intervals) | {node for edge in edges for node in edge}
@@ -261,7 +230,7 @@ def clamp_to_source_floor(
     source floor, returning the adjusted cadences and the list of changes.
 
     Clamping each node independently stays consistent because the floor spans the whole ancestor
-    cone (`declared_target_bounds`): a consumer that pulled an ancestor too fine shares that same
+    cone (`all_source_floors`): a consumer that pulled an ancestor too fine shares that same
     source and clamps to the same bucket. Streaming/best-effort sources have a zero floor and are
     never clamped.
     """
@@ -292,7 +261,7 @@ def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta
     target that equals what the scheduler will run, rather than an unschedulable (45min) or
     unsatisfiable (finer than the source) one that reconcile would have to clamp anyway.
     """
-    bucket = seed if seed in SCHEDULABLE_BUCKETS else nearest_schedulable_bucket_at_most(seed)
+    bucket = nearest_schedulable_bucket_at_most(seed)
     if is_finer_than(bucket, source_floor):
         return nearest_schedulable_bucket_at_least(source_floor)
     return bucket
@@ -312,9 +281,8 @@ def validate_declared_target(
         raise UnsupportedFrequencyTargetError(
             f"Requested freshness ({format_cadence(target)}) is not a schedulable cadence; pick one of: {supported}"
         )
-    source_floor, consumer_ceiling = declared_target_bounds(
-        node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
-    )
+    source_floor = all_source_floors(edges, source_intervals).get(node_id, STREAMING)
+    consumer_ceiling = all_consumer_ceilings(edges, declared_targets).get(node_id)
     if is_finer_than(target, source_floor):
         raise UnsatisfiableFrequencyError(
             f"Requested freshness ({format_cadence(target)}) is more frequent than this node's sources can deliver;"

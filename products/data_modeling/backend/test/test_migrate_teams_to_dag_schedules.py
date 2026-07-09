@@ -8,36 +8,19 @@ from unittest import mock
 from django.core.management import call_command
 
 import temporalio.service
-from temporalio.client import ScheduleListActionStartWorkflow
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import temporal_listing as _temporal_listing
 
 M15 = timedelta(minutes=15)
 DAY = timedelta(hours=24)
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 COMMAND = "products.data_modeling.backend.management.commands.migrate_teams_to_dag_schedules"
-
-
-def _temporal_listing(schedule_ids):
-    def _listing(schedule_id):
-        action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow="data-modeling-execute-dag")
-        return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
-
-    async def fake_list_schedules(*_args, **_kwargs):
-        async def gen():
-            for schedule_id in schedule_ids:
-                yield _listing(schedule_id)
-
-        return gen()
-
-    temporal = mock.Mock()
-    temporal.list_schedules = fake_list_schedules
-    return temporal
 
 
 @pytest.mark.django_db
@@ -109,6 +92,28 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
             assert node.saved_query is not None
             node.saved_query.refresh_from_db()
             self.assertIsNone(node.saved_query.sync_frequency_interval)
+
+    def test_transient_v1_delete_failure_keeps_interval_for_retry(self):
+        # a non-NOT_FOUND failure deleting one v1 schedule must NOT null that query's interval:
+        # otherwise the orphaned v1 schedule materializes alongside the tiers, and the now
+        # interval-less DAG is skipped on every re-run, so nothing can ever clean it up
+        dag, nodes = self._v1_dag_with_mixed_frequencies()
+        assert nodes["fast"].saved_query is not None
+        failed_id = str(nodes["fast"].saved_query.id)
+        transient = temporalio.service.RPCError("boom", temporalio.service.RPCStatusCode.UNAVAILABLE, b"")
+
+        def delete(_temporal, *, schedule_id):
+            if schedule_id == failed_id:
+                raise transient
+
+        self._run(existing_schedule_ids=[], delete_side_effect=delete)
+
+        for name in ("fast", "slow"):
+            assert nodes[name].saved_query is not None
+            nodes[name].saved_query.refresh_from_db()
+        # failed delete keeps its interval (retryable); the successful one is cleared
+        self.assertEqual(nodes["fast"].saved_query.sync_frequency_interval, M15)
+        self.assertIsNone(nodes["slow"].saved_query.sync_frequency_interval)
 
     def test_flag_off_keeps_single_schedule_migration(self):
         dag, _nodes = self._v1_dag_with_mixed_frequencies()

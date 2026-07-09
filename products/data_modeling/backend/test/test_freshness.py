@@ -14,7 +14,6 @@ from products.data_modeling.backend.logic.freshness import (
     all_source_floors,
     clamp_to_source_floor,
     compute_effective_cadences,
-    declared_target_bounds,
     find_invalid_targets,
     normalize_seed_target,
     validate_declared_target,
@@ -83,56 +82,6 @@ class TestComputeEffectiveCadences(TestCase):
         # corrupt graphs exist in prod; a cycle must fail loud, not loop or overflow
         with self.assertRaisesRegex(ValueError, "cycle"):
             compute_effective_cadences(nodes={"a", "b"}, edges=[("a", "b"), ("b", "a")], declared_targets={"a": H1})
-
-
-class TestFrequencyTargetBounds(TestCase):
-    @parameterized.expand(
-        [
-            # streamed source (events) imposes no floor -> a 15min endpoint is allowed
-            (
-                "streamed_source_no_floor",
-                "ep",
-                [("src", "ep")],
-                {"ep": M15},
-                {"src": STREAMING},
-                (STREAMING, None),
-            ),
-            # imported source refreshing every 6h floors an intermediate node at 6h
-            (
-                "imported_source_floors",
-                "a",
-                [("src", "a"), ("a", "ep")],
-                {"ep": H1},
-                {"src": H6},
-                (H6, H1),
-            ),
-            # ceiling comes from the tightest descendant demand
-            (
-                "ceiling_from_tightest_descendant",
-                "a",
-                [("src", "a"), ("a", "epA"), ("a", "epB")],
-                {"epA": H1, "epB": M15},
-                {"src": STREAMING},
-                (STREAMING, M15),
-            ),
-            # floor above ceiling: no legal target exists (unsatisfiable)
-            (
-                "unsatisfiable_floor_above_ceiling",
-                "a",
-                [("src", "a"), ("a", "ep")],
-                {"ep": M15},
-                {"src": H6},
-                (H6, M15),
-            ),
-        ]
-    )
-    def test_bounds(self, _name, node_id, edges, targets, source_intervals, expected):
-        self.assertEqual(
-            declared_target_bounds(
-                node_id=node_id, edges=edges, declared_targets=targets, source_intervals=source_intervals
-            ),
-            expected,
-        )
 
 
 class TestValidateFrequencyTarget(TestCase):

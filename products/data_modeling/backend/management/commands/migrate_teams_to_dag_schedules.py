@@ -21,8 +21,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
-from products.data_modeling.backend.logic.node_frequency import persist_seed_targets
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
+from products.data_modeling.backend.logic.schedule_reconcile import (
+    convert_dag_to_tiers,
+    null_saved_query_intervals,
+    tiered_schedules_enabled,
+)
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import build_schedule_spec, dag_schedule_search_attributes
@@ -121,8 +124,7 @@ class Command(BaseCommand):
         # Capture ids before the interval update: `scheduled_nodes` filters on a non-null
         # interval, so re-evaluating it after the update would match nothing.
         migrated_sq_ids = [node.saved_query_id for node in scheduled_nodes if node.saved_query_id is not None]
-        seeded = persist_seed_targets(dag)
-        reconcile_dag_schedules(dag)
+        seeded = convert_dag_to_tiers(dag)
         logger.info(
             "Migrated DAG to cadence tiers",
             dag_id=str(dag.id),
@@ -131,20 +133,22 @@ class Command(BaseCommand):
             intervals=intervals,
         )
         temporal = sync_connect()
-        self._delete_v1_schedules(temporal, scheduled_nodes, team)
-        # Intervals are nulled only once targets are persisted and tiers reconciled: the node
-        # target is the only durable store of frequency intent on tiered teams, and a lingering
-        # interval could revive a v1 schedule.
-        DataWarehouseSavedQuery.objects.filter(id__in=migrated_sq_ids).update(sync_frequency_interval=None)
+        failed_schedule_ids = self._delete_v1_schedules(temporal, scheduled_nodes, team)
+        # Null intervals only for queries whose v1 schedule actually went away. A query whose
+        # delete failed keeps its interval so a re-run retries it — otherwise the orphaned v1
+        # schedule materializes alongside the new tiers and the now-interval-less DAG is skipped
+        # forever, with no way to ever clean it up.
+        deleted_sq_ids = [sq_id for sq_id in migrated_sq_ids if str(sq_id) not in failed_schedule_ids]
+        cleared = null_saved_query_intervals(dag, only_saved_query_ids=deleted_sq_ids)
         logger.info(
             "Cleared sync_frequency_interval on saved queries",
             dag_id=str(dag.id),
             team_id=team.pk,
-            count=len(migrated_sq_ids),
+            count=cleared,
         )
         return True
 
-    def _delete_v1_schedules(self, temporal, scheduled_nodes, team) -> None:
+    def _delete_v1_schedules(self, temporal, scheduled_nodes, team) -> set[str]:
         deleted_count = 0
         failed_schedule_ids: list[str] = []
         for node in scheduled_nodes:
@@ -180,6 +184,7 @@ class Command(BaseCommand):
             deleted=deleted_count,
             total=scheduled_nodes.count(),
         )
+        return set(failed_schedule_ids)
 
     def _migrate_dag(self, dag: DAG, *, dry_run: bool) -> bool:
         """Migrate a single DAG to a v2 schedule.

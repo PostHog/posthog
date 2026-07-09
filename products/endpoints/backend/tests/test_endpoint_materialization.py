@@ -130,6 +130,38 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             "DataWarehouseModelPath should be created for the saved_query",
         )
 
+    def test_unsatisfiable_freshness_rolls_back_the_whole_enable(self):
+        # if scheduling rejects the chosen freshness (finer than an upstream source can deliver),
+        # the enable must unwind completely — no dangling saved query, version link, or DAG node
+        # left behind with no schedule; the request just 400s
+        endpoint = create_endpoint_with_version(
+            name="rollback_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        assert version is not None
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            side_effect=UnsatisfiableFrequencyError("15min is finer than the 24h upstream source"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
+        self.assertFalse(
+            DataWarehouseSavedQuery.objects.filter(team=self.team, name=f"{endpoint.name}_v{version.version}").exists()
+        )
+
     def test_data_freshness_updates_saved_query_sync_interval(self):
         """Test that updating data_freshness_seconds updates the SavedQuery's sync_interval."""
         # Create and materialize an endpoint

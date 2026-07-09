@@ -10,9 +10,9 @@ name on first access keeps this module off the ``django.setup()`` path.
 _B = "products.data_modeling.backend."
 
 _LAZY = {
-    "HasDependentsError": "logic.saved_query_dag_sync",
     "UnsatisfiableFrequencyError": "logic.freshness",
     "UnsupportedFrequencyTargetError": "logic.freshness",
+    "HasDependentsError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
     "update_node_type": "logic.saved_query_dag_sync",

@@ -57,7 +57,13 @@ from products.data_modeling.backend.logic.freshness import (
     format_cadence,
     validate_declared_target,
 )
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, seed_targets, set_declared_target
+from products.data_modeling.backend.logic.node_frequency import (
+    build_frequency_graph,
+    persist_seed_targets,
+    schedulable_nodes,
+    seed_targets,
+    set_declared_target,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -141,7 +147,7 @@ def apply_saved_query_frequency_target(
     surface) before writing, then each affected DAG is queued for reconcile (skippable for
     callers batching many writes into one reconcile).
     """
-    for node in Node.objects.filter(saved_query=saved_query).select_related("dag", "dag__team"):
+    for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
         if target is None:
             set_declared_target(node, None)
         else:
@@ -158,13 +164,13 @@ def apply_saved_query_frequency_target(
             maybe_reconcile_dag(node.dag)
 
 
-def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False, require_tiered: bool = False) -> None:
+def reconcile_dag_schedules(dag: DAG, *, require_tiered: bool = False) -> None:
     """Make Temporal's schedules for this DAG match its nodes' effective cadences.
 
-    Converging a covered DAG to zero schedules is refused unless `allow_unschedule` — an
-    empty tier set on a DAG with live schedules almost always means unseeded targets, not
-    a deliberate wind-down. With `require_tiered`, a DAG that has no tiered schedule yet
-    (legacy single schedule or nothing) is left untouched.
+    Converging a covered DAG to zero schedules is always refused — an empty tier set on a DAG
+    with live schedules almost always means unseeded targets, not a deliberate wind-down. With
+    `require_tiered`, a DAG that has no tiered schedule yet (legacy single schedule or nothing)
+    is left untouched.
     """
     team = dag.team
     graph = build_frequency_graph(dag)
@@ -179,8 +185,36 @@ def reconcile_dag_schedules(dag: DAG, *, allow_unschedule: bool = False, require
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
-        allow_unschedule=allow_unschedule,
         require_tiered=require_tiered,
+    )
+
+
+def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
+    """Seed per-node targets from the DAG's current cadence, then reconcile it to per-cadence tier
+    schedules. The shared conversion step both entry points (the v1 migrate command and
+    reconcile_freshness_schedules) run before clearing the now-redundant saved-query intervals.
+    Returns how many targets were seeded.
+    """
+    seeded = persist_seed_targets(dag, default=default)
+    reconcile_dag_schedules(dag)
+    return seeded
+
+
+def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] | None = None) -> int:
+    """Clear `sync_frequency_interval` on the DAG's schedulable saved queries once tiers exist — the
+    node target is the only durable store of frequency intent on tiered teams, and a lingering
+    interval could revive a v1 schedule. Only ever called after `convert_dag_to_tiers`. Pass
+    `only_saved_query_ids` to restrict the clear to queries whose v1 schedule was actually deleted,
+    so a failed v1 delete keeps its interval and a re-run retries it. Returns rows cleared.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_query_ids = list(schedulable_nodes(dag).values_list("saved_query_id", flat=True))
+    if only_saved_query_ids is not None:
+        allowed = {str(sq_id) for sq_id in only_saved_query_ids}
+        saved_query_ids = [sq_id for sq_id in saved_query_ids if str(sq_id) in allowed]
+    return DataWarehouseSavedQuery.objects.filter(id__in=saved_query_ids, sync_frequency_interval__isnull=False).update(
+        sync_frequency_interval=None
     )
 
 
@@ -241,7 +275,6 @@ async def _apply_reconciliation(
     organization_id: str,
     team_timezone: str,
     desired_tiers: dict[timedelta, set[str]],
-    allow_unschedule: bool = False,
     require_tiered: bool = False,
 ) -> None:
     unsupported = sorted(interval for interval in desired_tiers if interval not in SCHEDULABLE_BUCKETS)
@@ -256,7 +289,7 @@ async def _apply_reconciliation(
     if require_tiered and not any(is_tier_schedule_id(schedule_id) for schedule_id in existing_ids):
         logger.debug("DAG not converted to cadence tiers yet, skipping reconcile", dag_id=dag_id)
         return
-    if not desired_tiers and existing_ids and not allow_unschedule:
+    if not desired_tiers and existing_ids:
         logger.warning(
             "Refusing to unschedule a covered DAG with no cadence tiers (unseeded targets?)",
             dag_id=dag_id,

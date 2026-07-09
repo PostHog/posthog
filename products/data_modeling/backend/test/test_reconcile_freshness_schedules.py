@@ -8,35 +8,17 @@ from unittest import mock
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from temporalio.client import ScheduleListActionStartWorkflow
-
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.test.helpers import temporal_listing as _temporal_listing
 
 H6 = timedelta(hours=6)
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 COMMAND = "products.data_modeling.backend.management.commands.reconcile_freshness_schedules"
-
-
-def _temporal_listing(schedule_ids):
-    def _listing(schedule_id):
-        action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow="data-modeling-execute-dag")
-        return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
-
-    async def fake_list_schedules(*_args, **_kwargs):
-        async def gen():
-            for schedule_id in schedule_ids:
-                yield _listing(schedule_id)
-
-        return gen()
-
-    temporal = mock.Mock()
-    temporal.list_schedules = fake_list_schedules
-    return temporal
 
 
 @pytest.mark.django_db

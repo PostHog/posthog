@@ -9,6 +9,8 @@ query transforms live in ``products.endpoints.backend.materialization_transforms
 import dataclasses
 from typing import cast
 
+from django.db import transaction
+
 import structlog
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
@@ -199,38 +201,44 @@ class EndpointMaterializationService:
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
 
-        saved_query = self._get_or_build_saved_query(version)
-        self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
-        version.enable_materialization(saved_query, bucket_overrides)
+        # Atomic so a rejected freshness target unwinds the whole enable: the saved query, the
+        # version→saved-query link, and the DAG node all roll back together, rather than leaving a
+        # dangling materialization with no schedule. schedule_materialization's own side effect is
+        # either deferred to on_commit (tiered) or the terminal step (v1), so nothing rolls back
+        # after it fires.
+        with transaction.atomic():
+            saved_query = self._get_or_build_saved_query(version)
+            self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
+            version.enable_materialization(saved_query, bucket_overrides)
 
-        # The DAG node must exist before scheduling: the v2 detection and the freshness-target
-        # write-through both resolve this saved query through its Node row.
-        try:
-            sync_saved_query_to_dag(saved_query)
-        except Exception as e:
-            logger.exception(
-                "Failed to sync endpoint node to DAG",
-                endpoint_name=endpoint.name,
-                saved_query_id=saved_query.id,
-            )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "endpoint_name": endpoint.name,
-                    "saved_query_id": saved_query.id,
-                },
-            )
+            # The DAG node must exist before scheduling: the v2 detection and the freshness-target
+            # write-through both resolve this saved query through its Node row.
+            try:
+                sync_saved_query_to_dag(saved_query)
+            except Exception as e:
+                logger.exception(
+                    "Failed to sync endpoint node to DAG",
+                    endpoint_name=endpoint.name,
+                    saved_query_id=saved_query.id,
+                )
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "endpoint_name": endpoint.name,
+                        "saved_query_id": saved_query.id,
+                    },
+                )
 
-        # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
-        # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
-        try:
-            saved_query.schedule_materialization()
-        except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
-            # The chosen data freshness can't be honored (e.g. finer than an upstream import
-            # delivers) — a request problem, not a server one.
-            raise ValidationError(str(e))
+            # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
+            # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
+            try:
+                saved_query.schedule_materialization()
+            except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
+                # The chosen data freshness can't be honored (e.g. finer than an upstream import
+                # delivers) — a request problem, not a server one.
+                raise ValidationError(str(e))
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
         """Find this version's saved query, or build a new (unsaved) one.

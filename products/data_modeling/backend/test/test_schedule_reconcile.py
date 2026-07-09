@@ -13,48 +13,20 @@ from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyT
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag, reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.data_modeling.backend.test.helpers import (
+    saved_query_node as _saved_query_node,
+    table_node as _table_node,
+    warehouse_source_node as _warehouse_source_node,
+)
+
+RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
-
-
-def _table_node(team, dag, name, properties):
-    return Node.objects.create(team=team, dag=dag, name=name, type=NodeType.TABLE, properties=properties)
-
-
-def _saved_query_node(team, dag, name, node_type):
-    saved_query = DataWarehouseSavedQuery.objects.create(
-        name=name, team=team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-    )
-    return Node.objects.create(team=team, dag=dag, saved_query=saved_query, type=node_type)
-
-
-def _warehouse_source_node(team, dag, *, sync_frequency_interval):
-    table = DataWarehouseTable.objects.create(name="stripe_charges", team=team)
-    source = ExternalDataSource.objects.create(
-        team=team,
-        source_id="source_id",
-        connection_id="connection_id",
-        status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSourceType.STRIPE,
-        prefix="posthog_test_",
-    )
-    ExternalDataSchema.objects.create(
-        name="stripe_charges",
-        team=team,
-        source=source,
-        table=table,
-        sync_frequency_interval=sync_frequency_interval,
-        should_sync=True,
-    )
-    return _table_node(team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": str(table.id)})
 
 
 def _listing(schedule_id, workflow="data-modeling-execute-dag"):
@@ -85,12 +57,11 @@ class TestReconcileDagSchedules(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             reconcile_dag_schedules(dag)
 
@@ -130,12 +101,11 @@ class TestReconcileDagSchedules(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             reconcile_dag_schedules(dag)
 
@@ -173,12 +143,11 @@ class TestReconcileDagSchedules(BaseTest):
             if len(created_ids) >= 2:  # second tier creation fails partway through the migration
                 raise RuntimeError("temporal unavailable")
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock(side_effect=failing_create)),
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()),
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock(side_effect=failing_create)),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             with self.assertRaises(RuntimeError):
                 reconcile_dag_schedules(dag)
@@ -207,11 +176,10 @@ class TestReconcileDagSchedules(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             reconcile_dag_schedules(dag)
 
@@ -237,15 +205,14 @@ class TestReconcileDagSchedules(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
             mock.patch(
-                f"{module}.a_create_schedule",
+                f"{RECONCILE}.a_create_schedule",
                 new=mock.AsyncMock(side_effect=ScheduleAlreadyRunningError()),
             ),
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             reconcile_dag_schedules(dag)
 
@@ -262,8 +229,7 @@ class TestReconcileDagSchedules(BaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
         set_declared_target(endpoint, timedelta(minutes=45))
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
-        with mock.patch(f"{module}.async_connect", new=mock.AsyncMock()) as connect:
+        with mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock()) as connect:
             with self.assertRaises(UnsupportedFrequencyTargetError):
                 reconcile_dag_schedules(dag)
         connect.assert_not_called()
@@ -289,10 +255,9 @@ class TestReconcileDagSchedules(BaseTest):
         temporal = mock.Mock()
         temporal.list_schedules = fake_list_schedules
 
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=temporal)),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
         ):
             reconcile_dag_schedules(dag)
 
@@ -325,10 +290,9 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_flag_off_never_touches_temporal(self):
         dag = self._dag_with_target()
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.feature_enabled_or_false", return_value=False),
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock()) as connect,
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=False),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock()) as connect,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
@@ -338,15 +302,14 @@ class TestMaybeReconcileDag(BaseTest):
         # a legacy single-schedule DAG converts only via the conversion command; a mutation
         # trigger must neither unschedule it nor create tiers next to live v1 schedules
         dag = self._dag_with_target()
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(
-                f"{module}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
+                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
             ),
-            mock.patch(f"{module}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
@@ -357,12 +320,13 @@ class TestMaybeReconcileDag(BaseTest):
     def test_tiered_dag_reconciles_after_commit(self):
         dag = self._dag_with_target()
         tier_id = tier_schedule_id(str(dag.id), M15)
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([tier_id]))),
-            mock.patch(f"{module}.a_update_schedule", new=mock.AsyncMock()) as update,
-            mock.patch(f"{module}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(
+                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([tier_id]))
+            ),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
@@ -371,11 +335,10 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
-        module = "products.data_modeling.backend.logic.schedule_reconcile"
         with (
-            mock.patch(f"{module}.feature_enabled_or_false", return_value=True),
-            mock.patch(f"{module}.async_connect", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
-            mock.patch(f"{module}.capture_exception") as capture,
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
+            mock.patch(f"{RECONCILE}.capture_exception") as capture,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
