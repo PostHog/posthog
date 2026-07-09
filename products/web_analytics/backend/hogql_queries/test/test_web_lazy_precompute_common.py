@@ -29,7 +29,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     OOM_PIN_TTL_SECONDS,
-    SESSION_FORWARD_PAD_MINUTES,
+    SESSION_SETTLING_SECONDS,
     PerQueryOptedOut,
     PerQueryOptInNotSet,
     TooManyFilters,
@@ -397,7 +397,7 @@ class TestWebEnsurePrecomputed(BaseTest):
         assert isinstance(passed, TtlSchedule)
         assert passed.default_ttl_seconds == 3600
         assert passed.max_window_days is None
-        assert passed.finality_lag_seconds == SESSION_FORWARD_PAD_MINUTES * 60
+        assert passed.settling_period_seconds == SESSION_SETTLING_SECONDS
         assert is_team_oom_pinned(self.team.pk) is True
 
     @mock.patch(f"{_COMMON}.ensure_precomputed")

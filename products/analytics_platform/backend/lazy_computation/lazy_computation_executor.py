@@ -182,14 +182,15 @@ class TtlSchedule:
     team's GROUP BY by handing in a schedule with a tight cap, regardless of how old
     the requested window is. `None` leaves it uncapped.
 
-    `finality_lag_seconds` marks how long after `time_range_end` a window's data can
-    still change (e.g. the 24h session pad in web analytics). A job *computed before*
-    `time_range_end + lag` captured incomplete data, so its freshness is capped at that
-    finality moment regardless of the band TTL — it recomputes right when the data is
-    complete instead of freezing an incomplete snapshot for a long band TTL. Jobs
-    computed after finality keep the full band TTL. This matters for non-UTC teams,
-    whose UTC-aligned edge windows can land in a long-TTL band while their pad is
-    still open. `None` disables the check.
+    `settling_period_seconds` marks how long after `time_range_end` a window's data can
+    still change (e.g. the 24h session pad in web analytics: sessions opened in the
+    window keep evolving until they close). A job *computed before* the window settled
+    (`time_range_end + settling_period`) captured in-motion data, so its freshness is
+    capped at the settling moment regardless of the band TTL — it recomputes right when
+    the data is complete instead of freezing an in-motion snapshot for a long band TTL.
+    Jobs computed after the window settled keep the full band TTL. This matters for
+    non-UTC teams, whose UTC-aligned edge windows can land in a long-TTL band while
+    still settling. `None` disables the check.
 
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
@@ -197,7 +198,7 @@ class TtlSchedule:
     rules: list[tuple[datetime, int]]
     default_ttl_seconds: int
     max_window_days: int | None = None
-    finality_lag_seconds: int | None = None
+    settling_period_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime) -> int:
         for cutoff, ttl in self.rules:
@@ -217,7 +218,7 @@ def parse_ttl_schedule(
     ttl: int | dict[str, int],
     team_timezone: str = "UTC",
     max_window_days: int | None = None,
-    finality_lag_seconds: int | None = None,
+    settling_period_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -242,7 +243,7 @@ def parse_ttl_schedule(
             rules=[],
             default_ttl_seconds=ttl,
             max_window_days=max_window_days,
-            finality_lag_seconds=finality_lag_seconds,
+            settling_period_seconds=settling_period_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -270,7 +271,7 @@ def parse_ttl_schedule(
         rules=rules,
         default_ttl_seconds=default_ttl,
         max_window_days=max_window_days,
-        finality_lag_seconds=finality_lag_seconds,
+        settling_period_seconds=settling_period_seconds,
     )
 
 
@@ -1088,16 +1089,16 @@ class LazyComputationExecutor:
 
         PENDING jobs always pass (they were recently created and we should wait).
         READY jobs must satisfy: created_at + desired_ttl >= now(), and — when the
-        schedule carries a `finality_lag_seconds` — a job computed *before* its
-        window's data was final (`created_at < time_range_end + lag`) is only fresh
-        until that finality moment: it captured an incomplete window and must
-        recompute once the data can no longer change, not sit on a long band TTL.
+        schedule carries a `settling_period_seconds` — a job computed *before* its
+        window settled (`created_at < time_range_end + settling_period`) captured
+        in-motion data and is only fresh until the settling moment: it recomputes
+        once the data can no longer change instead of sitting on a long band TTL.
 
         This is per-query: a job created by executor A with a long TTL may be
         rejected by executor B using a stricter schedule for the same hash.
         """
         now = django_timezone.now()
-        lag = self.ttl_schedule.finality_lag_seconds
+        settling_period = self.ttl_schedule.settling_period_seconds
         result = []
         for job in jobs:
             if job.status == PreaggregationJob.Status.PENDING:
@@ -1105,10 +1106,10 @@ class LazyComputationExecutor:
                 continue
             desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl)
-            if lag is not None:
-                finality = job.time_range_end + timedelta(seconds=lag)
-                if job.created_at < finality:
-                    fresh_until = min(fresh_until, finality)
+            if settling_period is not None:
+                settled_at = job.time_range_end + timedelta(seconds=settling_period)
+                if job.created_at < settled_at:
+                    fresh_until = min(fresh_until, settled_at)
             if fresh_until >= now:
                 result.append(job)
         return result

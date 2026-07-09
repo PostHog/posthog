@@ -86,15 +86,14 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
         # Normalize whatever the caller passed into a TtlSchedule so web-wide policy can be
         # stamped on: an int/dict gets parsed; an already-built TtlSchedule (also accepted
         # by ensure_precomputed) gets its fields re-stamped via replace().
-        # Every web schedule carries the 24h session pad as `finality_lag_seconds`: a job
-        # computed before `window_end + pad` captured incomplete session metrics and must
-        # not sit on a long band TTL — non-UTC teams' UTC-aligned edge windows can land in
-        # a multi-day band while their pad is still open.
-        finality_lag = SESSION_FORWARD_PAD_MINUTES * 60
+        # Every web schedule settles on the 24h session pad: a job computed before
+        # `window_end + pad` captured still-evolving session metrics and must not sit on
+        # a long band TTL — non-UTC teams' UTC-aligned edge windows can land in a
+        # multi-day band while their sessions are still settling.
         if isinstance(existing, TtlSchedule):
-            schedule = replace(existing, finality_lag_seconds=finality_lag)
+            schedule = replace(existing, settling_period_seconds=SESSION_SETTLING_SECONDS)
         else:
-            schedule = parse_ttl_schedule(existing, team.timezone, finality_lag_seconds=finality_lag)
+            schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
         if pinned:
             schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
         kwargs["ttl_seconds"] = schedule
@@ -171,6 +170,12 @@ MAX_PRECOMPUTE_DAYS = 90
 # 24 h hard SESSION_LENGTH_LIMIT and covers ~100% of population sessions.
 # See web_overview_lazy_precompute.py for the full reasoning.
 SESSION_FORWARD_PAD_MINUTES = 24 * 60
+
+# How long after a window ends its session metrics can still change: sessions opened in
+# the window keep evolving (bounce flips, duration grows) until they hit the SDK's 24h
+# session cap — the same bound the insert's forward pad scans. Stamped onto every web
+# TTL schedule as its settling period (see `web_ensure_precomputed`).
+SESSION_SETTLING_SECONDS = SESSION_FORWARD_PAD_MINUTES * 60
 
 # Org-level rollout flag — same one the frontend uses to show the "Allow
 # precompute" toggle.

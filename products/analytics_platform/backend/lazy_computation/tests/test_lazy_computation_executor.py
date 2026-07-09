@@ -1673,7 +1673,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
         PreaggregationJob.objects.filter(id=job.id).update(created_at=created_at)
 
-        schedule = TtlSchedule(rules=[], default_ttl_seconds=5 * 24 * 60 * 60, finality_lag_seconds=24 * 60 * 60)
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=5 * 24 * 60 * 60, settling_period_seconds=24 * 60 * 60)
         insert_count = [0]
 
         result = LazyComputationExecutor(ttl_schedule=schedule).execute(
