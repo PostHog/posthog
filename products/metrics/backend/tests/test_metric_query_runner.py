@@ -1241,3 +1241,24 @@ class TestNonFiniteAggregates(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         values = [p["value"] for p in response.json()["results"][0]["points"]]
         assert values == [None]
+
+    def test_formula_propagates_clause_null_gap(self):
+        # Two 1e308 points sum to inf, so the CLAUSE aggregate is already a
+        # null gap before the formula runs — exercising the input-None guard
+        # in _evaluate_formula_point, not the formula-overflow branch above.
+        self._seed_huge(2)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "clauses": [{"name": "a", "metricName": "m_huge", "aggregation": "sum"}],
+                    "formula": "a + 1",
+                    "dateFrom": (self.anchor - dt.timedelta(minutes=5)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(minutes=5)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        values = [p["value"] for p in response.json()["results"][0]["points"]]
+        assert values == [None]
