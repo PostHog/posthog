@@ -53,6 +53,7 @@ from products.exports.backend.models.subscription import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import QueryPlan
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    AI_QUERY_PLAN_VERSION,
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
     sanitize_prompt,
@@ -153,15 +154,26 @@ class QueryPlanField(serializers.JSONField):
     the plan shape and field bounds — so a written plan can never diverge from what the generation
     pipeline will accept when it reuses it. Writing null clears the plan, making the next run re-plan
     from the prompt.
+
+    The API speaks the bare plan; the DB column stores it inside the versioned envelope
+    {"version": N, "plan": {...}} that `build_frozen_prompt` requires (a version bump lazily
+    invalidates every frozen plan). This field translates between the two on read and write.
     """
+
+    def to_representation(self, value):
+        plan = value.get("plan") if isinstance(value, dict) else None
+        # An unrecognized stored shape reads as null (same fail-soft as the pipeline, which
+        # re-plans on a malformed envelope) rather than leaking internals or 500ing the read.
+        return plan if isinstance(plan, dict) else None
 
     def to_internal_value(self, data):
         if data is None:
             return None
         try:
-            return QueryPlan.model_validate(data).model_dump()
+            plan = QueryPlan.model_validate(data).model_dump()
         except PydanticValidationError as exc:
             raise serializers.ValidationError(f"Invalid query plan: {exc.errors(include_url=False)}") from exc
+        return {"version": AI_QUERY_PLAN_VERSION, "plan": plan}
 
 
 class AIWindowConfigSerializer(serializers.Serializer):

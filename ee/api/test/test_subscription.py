@@ -2861,6 +2861,11 @@ class TestAISubscriptionAPI(APILicensedTest):
             ],
         }
 
+    def _stored_query_plan(self) -> dict:
+        # The DB shape: what the delivery pipeline freezes (versioned envelope), NOT the bare API shape.
+        # Seeding tests with this shape is what catches API<->pipeline storage drift.
+        return {"version": 1, "plan": self._valid_query_plan()}
+
     def test_patch_null_clears_frozen_query_plan_and_unrelated_patch_does_not(
         self, mock_is_cloud, mock_flag, mock_sync
     ):
@@ -2868,7 +2873,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         # must leave the frozen plan untouched (that would silently discard the deterministic plan).
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
-        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._valid_query_plan())
+        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._stored_query_plan())
 
         unrelated = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "still planned"}, format="json"
@@ -2954,20 +2959,31 @@ class TestAISubscriptionAPI(APILicensedTest):
         mock_client.start_workflow.assert_not_awaited()
 
     def test_query_plan_readable_for_query_viewer(self, mock_is_cloud, mock_flag, mock_sync):
+        # Seed the DB with the pipeline's envelope; the API must serve the unwrapped bare plan —
+        # the frontend editor reads .steps directly and never sees the {version, plan} internals.
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
-        plan = self._valid_query_plan()
-        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=plan)
+        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._stored_query_plan())
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["ai_query_plan"]["overall_intent"] == plan["overall_intent"]
+        assert response.json()["ai_query_plan"] == self._valid_query_plan()
+
+    def test_query_plan_with_unrecognized_stored_shape_reads_as_null(self, mock_is_cloud, mock_flag, mock_sync):
+        # A stored value that isn't the versioned envelope (bad backfill, manual write) must read as
+        # null — the fail-soft mirror of the pipeline's re-plan-on-malformed behavior.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(pk=sub_id).update(ai_query_plan={"overall_intent": "bare, no envelope"})
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ai_query_plan"] is None
 
     def test_query_plan_scrubbed_for_caller_without_query_access(self, mock_is_cloud, mock_flag, mock_sync):
         # The plan carries generated HogQL (query-derived), so it must be scrubbed to null for a member
         # without query access — mirroring the delivered-report scrubbing.
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
-        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._valid_query_plan())
+        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._stored_query_plan())
         self._restrict_query_access()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -2984,9 +3000,12 @@ class TestAISubscriptionAPI(APILicensedTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # Stored as the versioned envelope so the delivery pipeline's build_frozen_prompt accepts it —
+        # a bare-plan write would be silently discarded as stale on the next run.
         stored = Subscription.objects.get(pk=sub_id).ai_query_plan
-        assert stored is not None
-        assert stored["steps"][0]["hogql"] == plan["steps"][0]["hogql"]
+        assert stored == {"version": 1, "plan": plan}
+        # And the write must round-trip: the response serves the bare plan back.
+        assert response.json()["ai_query_plan"] == plan
 
     def test_explicit_query_plan_write_wins_over_prompt_edit_invalidation(self, mock_is_cloud, mock_flag, mock_sync):
         # Editing the prompt normally clears the frozen plan, but an explicit query_plan in the SAME
@@ -3002,8 +3021,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         stored = Subscription.objects.get(pk=sub_id).ai_query_plan
-        assert stored is not None
-        assert stored["steps"][0]["hogql"] == new_plan["steps"][0]["hogql"]
+        assert stored == {"version": 1, "plan": new_plan}
 
     def test_query_plan_write_rejected_without_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
         # A restricted member with only query "none" cannot edit the plan even though they could read a
