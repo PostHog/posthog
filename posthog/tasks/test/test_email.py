@@ -421,6 +421,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             "task_id": str(task.id),
             "run_id": str(run.id),
             "site_url": settings.SITE_URL,
+            "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=wizard_pr_ready",
         }
 
     @parameterized.expand(

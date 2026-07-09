@@ -918,6 +918,7 @@ def send_canary_email(user_email: str) -> None:
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit  # User/OrganizationMembership/MessagingRecord still on RootTeamManager; team access is checked explicitly below
 def send_wizard_pr_ready_email(run_id: str) -> None:
     context = tasks_facade.get_wizard_pr_ready_email_context(run_id)
     if context is None or context.created_by_id is None:
