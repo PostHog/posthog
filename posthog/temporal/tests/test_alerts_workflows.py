@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 
 import pytest_asyncio
+import temporalio.activity
 from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -26,6 +27,12 @@ from posthog.models import User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.posthog_code_investigation import (
+    CreateInvestigationTaskResult,
+    InvestigationRunState,
+    PostHogCodeInvestigationInputs,
+    PostHogCodeInvestigationWorkflow,
+)
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow
@@ -331,3 +338,131 @@ async def test_check_alert_workflow_auto_disables_alert_with_invalid_config(
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props.get("skip_reason") is not None
     assert "alert_state" not in completed_props
+
+
+@pytest_asyncio.fixture
+async def posthog_code_alert(ateam, aorganization) -> AlertConfiguration:
+    @sync_to_async
+    def _create() -> AlertConfiguration:
+        user = User.objects.create_and_join(
+            organization=aorganization,
+            email=f"alerts-phc-{uuid.uuid4().hex[:6]}@posthog.com",
+            password=None,
+        )
+        alert = _build_alert(ateam)
+        alert.subscribed_users.add(user)
+        alert.created_by = user
+        alert.investigation_agent_enabled = True
+        alert.investigation_mode = AlertConfiguration.InvestigationMode.POSTHOG_CODE
+        alert.save()
+        return alert
+
+    return await _create()
+
+
+async def _run_check_alert_with_posthog_code_child(
+    alert: AlertConfiguration,
+    create_calls: list[PostHogCodeInvestigationInputs],
+) -> None:
+    """Run CheckAlertWorkflow with the real posthog-code child registered on the worker.
+
+    The child's create activity is stubbed to return "skipped" so the child exits
+    immediately; each invocation is recorded in `create_calls`.
+    """
+
+    @temporalio.activity.defn(name="create_posthog_code_investigation_task")
+    async def create(inputs: PostHogCodeInvestigationInputs) -> CreateInvestigationTaskResult:
+        create_calls.append(inputs)
+        return CreateInvestigationTaskResult(status="skipped", reason="test")
+
+    @temporalio.activity.defn(name="get_investigation_run_state")
+    async def poll(inputs: PostHogCodeInvestigationInputs) -> InvestigationRunState:
+        return InvestigationRunState(terminal=True, status="completed")
+
+    @temporalio.activity.defn(name="finalize_posthog_code_investigation")
+    async def finalize(inputs: PostHogCodeInvestigationInputs) -> None:
+        return None
+
+    @temporalio.activity.defn(name="cancel_posthog_code_investigation")
+    async def cancel(inputs: PostHogCodeInvestigationInputs) -> None:
+        return None
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            workflows=[CheckAlertWorkflow, PostHogCodeInvestigationWorkflow],
+            activities=[*CHECK_ALERT_ACTIVITIES, create, poll, finalize, cancel],
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                CheckAlertWorkflow.run,
+                CheckAlertWorkflowInputs(
+                    alert_id=str(alert.id),
+                    team_id=alert.team_id,
+                    distinct_id=str(alert.id),
+                    calculation_interval=AlertCalculationInterval.DAILY.value,
+                    insight_id=alert.insight_id,
+                    slo=_slo_config(alert),
+                ),
+                id=f"check-alert-{uuid.uuid4()}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            )
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_posthog_code_mode_starts_child_and_notifies(
+    mock_slo_analytics: MagicMock,
+    posthog_code_alert: AlertConfiguration,
+) -> None:
+    evaluation_result = AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+    create_calls: list[PostHogCodeInvestigationInputs] = []
+
+    with (
+        patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result),
+        patch(
+            "posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=["r@posthog.com"]
+        ) as mock_send,
+    ):
+        await _run_check_alert_with_posthog_code_child(posthog_code_alert, create_calls)
+
+    check = await sync_to_async(
+        lambda: AlertCheck.objects.filter(alert_configuration=posthog_code_alert).order_by("-created_at").first()
+    )()
+    assert check is not None and check.state == AlertState.FIRING
+    # Notification ran synchronously (posthog_code never gates).
+    mock_send.assert_called_once()
+    # The posthog-code child workflow was started and reached its create activity.
+    assert len(create_calls) == 1
+    assert create_calls[0].alert_check_id == str(check.id)
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_posthog_code_mode_ignores_stale_gating_flag(
+    mock_slo_analytics: MagicMock,
+    posthog_code_alert: AlertConfiguration,
+) -> None:
+    await sync_to_async(
+        lambda: AlertConfiguration.objects.filter(id=posthog_code_alert.id).update(
+            investigation_gates_notifications=True
+        )
+    )()
+    evaluation_result = AlertEvaluationResult(value=100.0, breaches=["value above threshold"])
+    create_calls: list[PostHogCodeInvestigationInputs] = []
+
+    with (
+        patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result),
+        patch(
+            "posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=["r@posthog.com"]
+        ) as mock_send,
+    ):
+        await _run_check_alert_with_posthog_code_child(posthog_code_alert, create_calls)
+
+    # Gating flag must NOT defer notification in posthog_code mode — notify runs synchronously.
+    mock_send.assert_called_once()
+    assert len(create_calls) == 1

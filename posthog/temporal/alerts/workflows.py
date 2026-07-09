@@ -32,6 +32,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
+    from posthog.temporal.alerts.posthog_code_investigation import PostHogCodeInvestigationInputs
 
 
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
@@ -175,18 +176,41 @@ class CheckAlertWorkflow(PostHogWorkflow):
             # AI task queue and uses a deterministic ID per AlertCheck so retries
             # of CheckAlertWorkflow don't double-start the investigation.
             if evaluation.should_start_investigation:
-                await temporalio.workflow.start_child_workflow(
-                    "anomaly-investigation",
-                    AnomalyInvestigationWorkflowInputs(
-                        team_id=inputs.team_id,
-                        alert_id=UUID(inputs.alert_id),
-                        alert_check_id=UUID(evaluation.alert_check_id),
-                        user_id=evaluation.investigation_user_id,
-                    ),
-                    id=f"anomaly-investigation-{evaluation.alert_check_id}",
-                    task_queue=settings.MAX_AI_TASK_QUEUE,
-                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                )
+                if evaluation.investigation_mode == "posthog_code":
+                    # PostHog Code investigations run on the analytics platform queue
+                    # (same as this workflow), not the AI queue used by anomaly mode.
+                    try:
+                        await temporalio.workflow.start_child_workflow(
+                            "posthog-code-investigation",
+                            PostHogCodeInvestigationInputs(
+                                team_id=inputs.team_id,
+                                alert_id=inputs.alert_id,
+                                alert_check_id=evaluation.alert_check_id,
+                            ),
+                            id=f"posthog-code-investigation-{evaluation.alert_check_id}",
+                            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                            parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                        )
+                    except WorkflowAlreadyStartedError:
+                        # Deterministic ID per AlertCheck — a duplicate start (workflow
+                        # retry) is a no-op, the existing investigation keeps running.
+                        temporalio.workflow.logger.info(
+                            "posthog_code_investigation.already_running",
+                            extra={"alert_check_id": evaluation.alert_check_id},
+                        )
+                else:
+                    await temporalio.workflow.start_child_workflow(
+                        "anomaly-investigation",
+                        AnomalyInvestigationWorkflowInputs(
+                            team_id=inputs.team_id,
+                            alert_id=UUID(inputs.alert_id),
+                            alert_check_id=UUID(evaluation.alert_check_id),
+                            user_id=evaluation.investigation_user_id,
+                        ),
+                        id=f"anomaly-investigation-{evaluation.alert_check_id}",
+                        task_queue=settings.MAX_AI_TASK_QUEUE,
+                        parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    )
 
         except Exception as e:
             caught_error = e

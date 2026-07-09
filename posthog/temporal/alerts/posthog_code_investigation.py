@@ -9,18 +9,22 @@ Produces:
 
 from __future__ import annotations
 
+import json
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 import structlog
+import temporalio.common
 import temporalio.activity
+import temporalio.workflow
 from pydantic import BaseModel, Field
 
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.utils import build_alert_firing_context
 from posthog.temporal.alerts.investigation import get_episode_start
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
@@ -514,3 +518,61 @@ async def cancel_posthog_code_investigation(
 
     async with Heartbeater():
         await _cancel()
+
+
+# ---------------------------------------------------------------------------
+# Workflow
+# ---------------------------------------------------------------------------
+
+POSTHOG_CODE_INVESTIGATION_POLL_INTERVAL = timedelta(seconds=30)
+POSTHOG_CODE_INVESTIGATION_TIMEOUT = timedelta(minutes=60)
+
+
+@temporalio.workflow.defn(name="posthog-code-investigation")
+class PostHogCodeInvestigationWorkflow(PostHogWorkflow):
+    """Drive a PostHog Code investigation task: create, poll to terminal, finalize.
+
+    Started as an abandoned child of CheckAlertWorkflow. If the run doesn't reach a
+    terminal state within POSTHOG_CODE_INVESTIGATION_TIMEOUT, cancel it.
+    """
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> PostHogCodeInvestigationInputs:
+        loaded = json.loads(inputs[0])
+        return PostHogCodeInvestigationInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: PostHogCodeInvestigationInputs) -> None:
+        created = await temporalio.workflow.execute_activity(
+            create_posthog_code_investigation_task,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
+        if created.status != "created":
+            return
+
+        deadline = temporalio.workflow.now() + POSTHOG_CODE_INVESTIGATION_TIMEOUT
+        while temporalio.workflow.now() < deadline:
+            state = await temporalio.workflow.execute_activity(
+                get_investigation_run_state,
+                inputs,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+            if state.terminal:
+                await temporalio.workflow.execute_activity(
+                    finalize_posthog_code_investigation,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+                return
+            await temporalio.workflow.sleep(POSTHOG_CODE_INVESTIGATION_POLL_INTERVAL)
+
+        await temporalio.workflow.execute_activity(
+            cancel_posthog_code_investigation,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+        )
