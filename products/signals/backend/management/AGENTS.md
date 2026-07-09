@@ -74,6 +74,18 @@ in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` w
 priority threshold (personal or team default) covers the report's priority — otherwise the
 report will be saved but no `Task` will be created.
 
+## Re-ingesting reports
+
+`reingest_signal_report` deletes specific reports and re-emits their signals through the active
+pipeline (same `SignalReportReingestionWorkflow` as the API `reingest` action), so they regroup
+and re-research from scratch:
+
+```bash
+python manage.py reingest_signal_report --team-id 1 <report-uuid> [<report-uuid> ...]
+```
+
+For a full-team wipe + reingest, use `reingest_team_signals --team-id 1` (add `--delete` for delete-only).
+
 ## Session summary (video-based)
 
 Test the SummarizeSingleSessionWorkflow with full video validation:

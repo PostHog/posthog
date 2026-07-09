@@ -25,6 +25,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -51,12 +52,9 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
-class Priority(str, Enum):
-    P0 = "P0"
-    P1 = "P1"
-    P2 = "P2"
-    P3 = "P3"
-    P4 = "P4"
+# Report priority scale (P0–P4). Aliased to the shared signal taxonomy enum so the product has a
+# single P0–P4 source; kept under the `Priority` name for existing callers.
+Priority = ReportPriority
 
 
 class SignalFinding(BaseModel):

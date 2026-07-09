@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.tasks.email_utils import compute_week_over_week_change
@@ -24,6 +25,8 @@ from products.web_analytics.backend.hogql_queries.web_goals import NoActionsErro
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_DIGEST_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 def _default_overview() -> dict:
@@ -36,7 +39,14 @@ def _default_overview() -> dict:
     }
 
 
-def get_overview_for_team(team: Team, days: int = 7, compare: bool = True) -> dict:
+def get_overview_for_team(
+    team: Team,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> dict:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:web_overview")
     result = _default_overview()
 
@@ -48,15 +58,16 @@ def get_overview_for_team(team: Team, days: int = 7, compare: bool = True) -> di
             properties=[],
         )
         runner = WebOverviewQueryRunner(team=team, query=query)
-        response = runner.calculate()
+        response = runner.run(execution_mode=execution_mode, user=user)
     except Exception:
         logger.exception("failed to query web overview", team_id=team.pk)
         return result
 
-    if not response.results:
+    results = getattr(response, "results", None)
+    if not results:
         return result
 
-    items_by_key = {item.key: item for item in response.results}
+    items_by_key = {item.key: item for item in results}
 
     for key, output_key, higher_is_better in [
         ("visitors", "visitors", True),
@@ -118,7 +129,15 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes}m {secs}s"
 
 
-def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
+def get_top_pages(
+    team: Team,
+    limit: int = 5,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
@@ -132,9 +151,10 @@ def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = Tru
             properties=[],
         )
         runner = WebStatsTableQueryRunner(team=team, query=query)
-        response = runner.calculate()
+        response = runner.run(execution_mode=execution_mode, user=user)
 
-        if not response.results:
+        results = getattr(response, "results", None)
+        if not results:
             return []
 
         return [
@@ -144,14 +164,22 @@ def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = Tru
                 "visitors": row[1][0],
                 "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
-            for row in response.results
+            for row in results
         ]
     except Exception:
         logger.exception("failed to query top pages", team_id=team.pk)
         return []
 
 
-def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
+def get_top_sources(
+    team: Team,
+    limit: int = 5,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
@@ -165,9 +193,10 @@ def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = T
             properties=[],
         )
         runner = WebStatsTableQueryRunner(team=team, query=query)
-        response = runner.calculate()
+        response = runner.run(execution_mode=execution_mode, user=user)
 
-        if not response.results:
+        results = getattr(response, "results", None)
+        if not results:
             return []
 
         return [
@@ -176,7 +205,7 @@ def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = T
                 "visitors": row[1][0],
                 "change": compute_week_over_week_change(row[1][0], row[1][1], higher_is_better=True),
             }
-            for row in response.results
+            for row in results
             if row[0]
         ]
     except Exception:
@@ -184,7 +213,15 @@ def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = T
         return []
 
 
-def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
+def get_goals_for_team(
+    team: Team,
+    limit: int = 5,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:goals")
 
     try:
@@ -194,7 +231,7 @@ def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool 
             properties=[],
         )
         runner = WebGoalsQueryRunner(team=team, query=query)
-        response = runner.calculate()
+        response = runner.run(execution_mode=execution_mode, user=user)
     except NoActionsError:
         return []
     except Exception:
@@ -202,7 +239,7 @@ def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool 
         return []
 
     results = []
-    for row in response.results[:limit]:
+    for row in (getattr(response, "results", None) or [])[:limit]:
         name, _converting_users, (total_current, total_prev), _conversion_rate = row
         results.append(
             {
@@ -218,11 +255,18 @@ def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool 
     return results
 
 
-def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
-    overview = get_overview_for_team(team, days=days, compare=compare)
-    top_pages = get_top_pages(team, days=days, compare=compare)
-    top_sources = get_top_sources(team, days=days, compare=compare)
-    goals = get_goals_for_team(team, days=days, compare=compare)
+def build_team_digest(
+    team: Team,
+    days: int = 7,
+    compare: bool = True,
+    *,
+    execution_mode: ExecutionMode = DEFAULT_DIGEST_EXECUTION_MODE,
+    user: User | None = None,
+) -> dict:
+    overview = get_overview_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    top_pages = get_top_pages(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    top_sources = get_top_sources(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
+    goals = get_goals_for_team(team, days=days, compare=compare, execution_mode=execution_mode, user=user)
 
     return {
         "team": team,

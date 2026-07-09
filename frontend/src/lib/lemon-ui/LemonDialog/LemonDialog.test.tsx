@@ -17,8 +17,6 @@ describe('LemonFormDialog', () => {
 
     beforeEach(() => {
         initKeaTests()
-        // react-modal needs an app element to hide from screen readers on open.
-        document.body.innerHTML = '<div id="root"></div>'
         captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
     })
 
@@ -45,11 +43,12 @@ describe('LemonFormDialog', () => {
     }
 
     const submitViaButton = async (): Promise<void> => {
-        await userEvent.click(screen.getByRole('button', { name: 'Submit' }))
+        await userEvent.click(screen.getByText('Submit'))
     }
 
     const submitViaEnter = async (): Promise<void> => {
-        screen.getByRole('textbox').focus()
+        // click focuses the input through userEvent, so the focus state update is act-wrapped
+        await userEvent.click(screen.getByRole('textbox'))
         await userEvent.keyboard('{Enter}')
     }
 
@@ -64,7 +63,7 @@ describe('LemonFormDialog', () => {
 
         await waitFor(() => expect(onSubmit).toHaveBeenCalled())
         // Dialog stays open so the user can correct and retry.
-        expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+        expect(screen.getByText('Submit')).toBeInTheDocument()
     })
 
     it.each([
@@ -78,7 +77,7 @@ describe('LemonFormDialog', () => {
         await submitViaButton()
 
         await waitFor(() => expect(onSubmit).toHaveBeenCalled())
-        expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument()
+        expect(screen.getByText('Submit')).toBeInTheDocument()
         if (shouldCapture) {
             expect(captureException).toHaveBeenCalledWith(error)
         } else {
@@ -92,7 +91,7 @@ describe('LemonFormDialog', () => {
         renderDialog(onSubmit)
         await submitViaButton()
 
-        await waitForElementToBeRemoved(() => screen.queryByRole('button', { name: 'Submit' }))
+        await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
     })

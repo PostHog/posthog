@@ -5,8 +5,11 @@ from posthog.hogql.visitor import CloningVisitor
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+# Keep in sync with BREAKDOWN_BASELINE_STRING_LABEL in frontend/src/scenes/insights/utils.tsx
+BREAKDOWN_BASELINE_STRING_LABEL = "$$_posthog_breakdown_baseline_$$"
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
+BREAKDOWN_BASELINE_DISPLAY = "Baseline"
 BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 ALL_USERS_COHORT_ID = 0

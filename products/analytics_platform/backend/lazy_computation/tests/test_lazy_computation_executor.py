@@ -1644,6 +1644,54 @@ class TestComputationExecutorExecute(BaseTest):
         assert insert_count[0] == 1
         assert stale_job.id not in result.job_ids
 
+    @parameterized.expand(
+        [
+            # Job computed mid-window (before window_end + lag): its session metrics were
+            # still in motion, so a long band TTL must not keep it — it recomputes once settled.
+            ("computed_before_window_settled", False),
+            # Job computed after the window settled: complete data, keeps the full band TTL.
+            ("computed_after_window_settled", True),
+        ]
+    )
+    def test_settling_period_caps_freshness_of_in_motion_jobs(self, _name: str, expect_reused: bool) -> None:
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # UTC-day-aligned window (the executor decomposes ranges at day boundaries) that
+        # ended 2 days ago; with a 24h finality lag its data became final 1 day ago.
+        window_end = datetime(now.year, now.month, now.day, tzinfo=UTC) - timedelta(days=2)
+        window_start = window_end - timedelta(days=1)
+        created_at = window_end - timedelta(hours=12) if not expect_reused else now - timedelta(hours=1)
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=window_start,
+            time_range_end=window_end,
+            status=PreaggregationJob.Status.READY,
+            expires_at=now + timedelta(days=5),
+        )
+        PreaggregationJob.objects.filter(id=job.id).update(created_at=created_at)
+
+        schedule = TtlSchedule(rules=[], default_ttl_seconds=5 * 24 * 60 * 60, settling_period_seconds=24 * 60 * 60)
+        insert_count = [0]
+
+        result = LazyComputationExecutor(ttl_schedule=schedule).execute(
+            team=self.team,
+            query_info=query_info,
+            start=window_start,
+            end=window_end,
+            run_insert=lambda t, j: insert_count.__setitem__(0, insert_count[0] + 1),
+        )
+
+        assert result.ready is True
+        if expect_reused:
+            assert job.id in result.job_ids
+            assert insert_count[0] == 0
+        else:
+            assert job.id not in result.job_ids
+            assert insert_count[0] == 1
+
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
 
@@ -2650,6 +2698,9 @@ class TestIsNonRetryableError(BaseTest):
             ("no_such_column", 16, "No such column"),
             ("timeout", 159, "Timeout exceeded"),
             ("too_many_queries", 202, "Too many simultaneous queries"),
+            # The read cap is deterministic for a given window: a retry re-scans
+            # the same data only to fail the same way.
+            ("too_many_rows_or_bytes", 307, "Limit for rows or bytes to read exceeded"),
             # An OOM won't succeed on an immediate retry — retrying just re-pressures the
             # cluster. Fail fast so the caller can react (e.g. cap the team's window).
             ("memory_limit", 241, "Memory limit exceeded"),

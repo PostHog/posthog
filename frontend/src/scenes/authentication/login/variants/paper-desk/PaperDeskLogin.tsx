@@ -3,6 +3,8 @@ import { Form } from 'kea-forms'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
+import { IconCheckCircle } from '@posthog/icons'
+
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -25,6 +27,7 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { loginLogic } from '../../loginLogic'
+import { SessionRiskBanner } from '../../SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
@@ -39,6 +42,7 @@ function Login(): JSX.Element {
         generalError,
         signupUrl,
         resendResponseLoading,
+        resendResponse,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -70,13 +74,14 @@ function Login(): JSX.Element {
     )
 
     return (
-        <PaperDeskScene notes={['// welcome back', '// 100,000+ teams ship here']}>
+        <PaperDeskScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
                     title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
                     sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
                 />
+                <SessionRiskBanner className="mb-4" />
                 {generalError && (
                     <div
                         className={twMerge(
@@ -119,6 +124,7 @@ function Login(): JSX.Element {
                     <div className="flex flex-col items-center gap-3">
                         <LemonButton
                             size="large"
+                            type="secondary"
                             center
                             fullWidth
                             disabled={resendResponseLoading}
@@ -127,6 +133,12 @@ function Login(): JSX.Element {
                         >
                             Resend verification email
                         </LemonButton>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                Verification email sent — check your inbox.
+                            </p>
+                        )}
                         <Link
                             onClick={() => clearGeneralError()}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"

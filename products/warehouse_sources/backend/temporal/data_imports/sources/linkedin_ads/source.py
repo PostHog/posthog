@@ -138,6 +138,15 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
 
+        # LinkedIn only accepts the numeric ad account ID. A free-text value (a profile URL, a
+        # name, stray whitespace) is otherwise accepted here and only fails on the first sync, so
+        # reject it up front with the same guidance the sync-time error gives.
+        if not config.account_id.isdigit():
+            return (
+                False,
+                "The LinkedIn Ads Account ID must be the numeric account ID from your LinkedIn Campaign Manager (digits only).",
+            )
+
         try:
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             return True, None

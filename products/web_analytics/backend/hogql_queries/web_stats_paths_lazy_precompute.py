@@ -11,11 +11,8 @@ attributing bounce to sessions that entered on the path.
 """
 
 import time
-import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
-
-from django.conf import settings
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -31,13 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import (
-    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE,
-    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE,
-)
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
-from posthog.settings import DEBUG, TEST
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -99,15 +90,6 @@ WEB_STATS_PATHS_LAZY_ROWS = Histogram(
     "web_stats_paths_lazy_precompute_rows",
     "Distinct `breakdown_value` rows returned by the lazy precompute read (post-LIMIT cap).",
     buckets=(1, 10, 100, 500, 1000, 2500, 5000, 7500, 10000, float("inf")),
-)
-
-# Best-effort mirror of the precomputed rows into the colocated `_pathkey` table
-# variant (PR #64948) so its read layout can be A/B-compared. Failures here never
-# affect the primary read, so we only count them.
-WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED = Counter(
-    "web_stats_paths_pathkey_mirror_failed_total",
-    "Best-effort copies into web_stats_paths_preaggregated_pathkey that failed, by error class.",
-    ["error_type"],
 )
 
 
@@ -249,16 +231,19 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     return runner._apply_path_cleaning(path)
 
 
-# Cap on stored breakdown rows per job: only the top-K paths by the query's sort
+# Cap on stored breakdown rows: only the top-K paths PER DAY by the query's sort
 # metric. The PATHS tile shows a paginated top-N and the read's `LIMIT` can't prune
 # the scan (it must aggregate every path to find the top), so the long tail — paths
-# that never reach the display — is pure dead weight. On a high-cardinality team the
-# top ~1k cleaned paths already cover ~98% of pageviews, so a generous K is lossless
-# for the display while shrinking the stored set by orders of magnitude. K is large
-# enough to absorb pagination and the sub-range-read case (a job window wider than
-# the read's) — a path displayable in any sub-range is virtually always within the
-# job's top-K.
-PATHS_TOP_K = 10000
+# that never reach the display — is pure dead weight. Reads pay for every stored
+# row of the covering jobs, so K directly prices read latency: at 100k the two
+# highest-cardinality teams' stored sets grew ~8× and their reads regressed from
+# ~300ms to multi-second during recompute windows, while ~95% of active teams
+# (fewer than 10k distinct cleaned paths per week fleet-wide) never notice K at
+# all. 10k per day keeps those teams' full path set, and because the cap is per
+# day (see `INSERT_QUERY_TEMPLATE_CAPPED`) a multi-day job stores the union of
+# daily top-Ks — strictly more coverage than the original per-job 10k cap, and
+# sub-range reads stay correct.
+PATHS_TOP_K = 10_000
 
 # The per-(hour, breakdown) state aggregation — shared by the capped and uncapped
 # inserts. The lazy_computation framework substitutes the placeholders (incl.
@@ -314,10 +299,13 @@ GROUP BY time_window_start, breakdown_value
 # Uncapped insert — current behaviour, used for ASC sorts (see `_top_k_ranking_expr`).
 INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
 
-# Capped insert — keep only the top-K `breakdown_value`s by `{top_k_metric}` (the
-# query's sort metric, merged over the job's window), then store all their per-hour
-# rows. `{top_k_metric}` is in the AST so the sort dimension joins the job hash —
-# each sort variant gets its own correctly-capped job.
+# Capped insert — keep the top-K `breakdown_value`s by `{top_k_metric}` (the query's
+# sort metric) computed PER DAY, then store all per-hour rows of any path that reaches
+# a day's top-K. Capping per day (not over the whole job window) is what keeps the cap
+# correct for sub-range reads: the read path decomposes a request into daily windows and
+# can serve any one of them from a wider covering job (`filter_overlapping_jobs` in the
+# lazy executor), so a path in a single day's top-K must be stored even if it falls
+# outside the job window's overall top-K — a per-window cap silently drops it.
 #
 # `per_window` is referenced exactly ONCE: the top-K membership is computed inline with
 # window functions instead of a re-scanning `breakdown_value IN (SELECT … FROM per_window)`
@@ -326,9 +314,12 @@ INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
 # filter-only `mat_*` columns (e.g. `$raw_user_agent` bot filters) out from under the filter
 # that still referenced them → `Code 47 UNKNOWN_IDENTIFIER`. A single reference can't be
 # pruned inconsistently. `{top_k_metric}` is the sort metric merged across the breakdown's
-# windows via `… OVER (PARTITION BY breakdown_value)`; `dense_rank()` over it (constant per
-# breakdown) ranks distinct breakdowns, so `<= PATHS_TOP_K` keeps the top-K breakdowns and
-# all their per-hour rows. The metric stays in the AST, so each sort variant gets its own job.
+# hourly rows within each day via `… OVER (PARTITION BY breakdown_value, day_bucket)`;
+# `dense_rank()` over it, partitioned by day (constant per breakdown within a day, ties
+# broken by `breakdown_value ASC`), ranks distinct breakdowns within each day, so
+# `<= PATHS_TOP_K` keeps the union of daily top-Ks. (HogQL parses `LIMIT n BY` but the
+# printer can't emit it, so the cap ranks with window functions.) The metric stays in the
+# AST, so each sort variant gets its own job.
 INSERT_QUERY_TEMPLATE_CAPPED = (
     "WITH per_window AS ("
     + _PER_WINDOW_AGG_SQL
@@ -346,7 +337,10 @@ FROM (
         uniq_users_state AS uniq_users_state,
         sum_pageviews_state AS sum_pageviews_state,
         avg_bounce_state AS avg_bounce_state,
-        dense_rank() OVER (ORDER BY breakdown_rank_metric DESC, breakdown_value ASC) AS breakdown_rank
+        dense_rank() OVER (
+            PARTITION BY day_bucket
+            ORDER BY breakdown_rank_metric DESC, breakdown_value ASC
+        ) AS breakdown_rank
     FROM (
         SELECT
             time_window_start AS time_window_start,
@@ -354,6 +348,7 @@ FROM (
             uniq_users_state AS uniq_users_state,
             sum_pageviews_state AS sum_pageviews_state,
             avg_bounce_state AS avg_bounce_state,
+            toStartOfDay(time_window_start) AS day_bucket,
             {top_k_metric} AS breakdown_rank_metric
         FROM per_window
     )
@@ -374,27 +369,35 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     `WebStatsTableQueryRunner._resolve_sort_field`. Bounce NaN (paths with no entry
     sessions) ranks last via the `-1.0` sentinel, matching the read's NULLS-LAST.
 
-    The metric is merged across the breakdown's per-hour rows via
-    `OVER (PARTITION BY breakdown_value)` so the capped template can rank breakdowns in a
-    single pass over `per_window` (see `INSERT_QUERY_TEMPLATE_CAPPED`)."""
+    The metric is merged across the breakdown's per-hour rows within each day via
+    `OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start))` so the capped
+    template can rank breakdowns per day in a single pass over `per_window` (see
+    `INSERT_QUERY_TEMPLATE_CAPPED`)."""
     order_by = runner.query.orderBy or []
     # A missing direction (single-element or empty orderBy) defaults to DESC, matching
     # `_resolve_sort_field`'s fallback — so we still cap rather than storing the full set.
     direction = order_by[1] if len(order_by) > 1 else WebAnalyticsOrderByDirection.DESC
     if direction != WebAnalyticsOrderByDirection.DESC:
         return None
-    # The `OVER (PARTITION BY breakdown_value)` window merges the metric across the
-    # breakdown's per-hour rows so the capped template can rank in one pass. Fully static
-    # SQL — no interpolation, no user input.
+    # The `OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start))` window
+    # merges the metric across the breakdown's per-hour rows within a day so the capped
+    # template can rank per day in one pass. Fully static SQL — no interpolation, no
+    # user input.
     field = order_by[0] if order_by else WebAnalyticsOrderByFields.VISITORS
     if field == WebAnalyticsOrderByFields.VIEWS:
-        return parse_expr("sumMerge(sum_pageviews_state) OVER (PARTITION BY breakdown_value)")
+        return parse_expr(
+            "sumMerge(sum_pageviews_state) OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start))"
+        )
     if field == WebAnalyticsOrderByFields.BOUNCE_RATE:
         return parse_expr(
-            "if(isNaN(avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value)), -1.0, "
-            "avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value))"
+            "if(isNaN(avgMerge(avg_bounce_state) "
+            "OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start))), -1.0, "
+            "avgMerge(avg_bounce_state) "
+            "OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start)))"
         )
-    return parse_expr("uniqMerge(uniq_users_state) OVER (PARTITION BY breakdown_value)")
+    return parse_expr(
+        "uniqMerge(uniq_users_state) OVER (PARTITION BY breakdown_value, toStartOfDay(time_window_start))"
+    )
 
 
 def ensure_web_stats_paths_precomputed(
@@ -434,59 +437,6 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
     )
-
-
-# Columns shared by both tables, in declaration order. The pathkey table mirrors
-# the original schema exactly, so the copy is a straight column-for-column INSERT.
-_PATHKEY_MIRROR_COLUMNS = (
-    "team_id, job_id, time_window_start, breakdown_value, "
-    "uniq_users_state, sum_pageviews_state, avg_bounce_state, computed_at, expires_at"
-)
-
-# Mirror the primary insert's durability settings (quorum + synchronous
-# distribution), disabled on single-node TEST/DEBUG like the executor does.
-_PATHKEY_MIRROR_SETTINGS: dict = {
-    "insert_distributed_sync": 1,
-    "insert_quorum": 0 if TEST or DEBUG else "auto",
-    "load_balancing": "in_order",
-}
-
-
-def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
-    """Best-effort copy of precomputed PATHS rows for `job_ids` into the colocated
-    pathkey table (PR #64948). Idempotent (ReplacingMergeTree) and never raises —
-    a failed mirror must not affect the primary read."""
-    if not job_ids:
-        return
-
-    primary = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()
-    pathkey = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()
-    sql = f"""
-        INSERT INTO {pathkey} ({_PATHKEY_MIRROR_COLUMNS})
-        SELECT {_PATHKEY_MIRROR_COLUMNS}
-        FROM {primary}
-        WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
-    """
-    try:
-        with tags_context(
-            team_id=team_id,
-            product=Product.WEB_ANALYTICS,
-            feature=Feature.QUERY,
-            query_type="web_stats_paths_pathkey_mirror_insert",
-        ):
-            sync_execute(
-                sql,
-                {"team_id": team_id, "job_ids": [uuid.UUID(jid) for jid in job_ids]},
-                settings=_PATHKEY_MIRROR_SETTINGS,
-            )
-    except Exception as exc:
-        WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED.labels(error_type=_bucket_error_label(exc)).inc()
-        logger.warning(
-            "web_stats_paths_pathkey_mirror_failed",
-            team_id=team_id,
-            job_count=len(job_ids),
-            error_type=type(exc).__name__,
-        )
 
 
 # Returns one row per breakdown_value with (current, previous) period pairs
@@ -808,13 +758,6 @@ def execute_lazy_precomputed_read(
             offset=offset,
         )
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
-
-        # Best-effort dual-write: mirror these jobs' rows into the colocated pathkey
-        # table for A/B read comparison. Narrowly scoped to the allowlisted teams
-        # (default: Cloud project 2) so only they pay the extra mirror write. After
-        # the read so it never adds latency to the user's response; swallows errors.
-        if team_id in settings.WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS:
-            mirror_jobs_to_pathkey(team_id=team_id, job_ids=job_ids)
 
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
