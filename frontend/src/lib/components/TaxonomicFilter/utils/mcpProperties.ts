@@ -17,8 +17,8 @@ import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } f
 export const MCP_TOOL_CALL_EVENT = '$mcp_tool_call'
 
 /** Canonical @posthog/mcp events are `$mcp_`-prefixed — any of them qualifies, and the
- *  group always offers the full known schema (each definition popover says which event
- *  carries the property). The frozen legacy names (`mcp_tool_call`, ...) carry an
+ *  group always offers the full known schema (event-specific properties' popovers say
+ *  which event carries them). The frozen legacy names (`mcp_tool_call`, ...) carry an
  *  unprefixed property schema, so they deliberately don't get the dedicated group. */
 export function isMCPAnalyticsEventName(eventName: string): boolean {
     // eventNames is assembled dynamically by many surfaces; unlike the `.includes()`
@@ -57,7 +57,8 @@ export const MCP_TOOL_CALL_SUGGESTED_PROPERTIES: string[] = ['$mcp_is_error']
  *  excluded from Event properties so each property lives in exactly one group —
  *  mirroring how autocapture's element properties exist only in the Elements group.
  *  `$mcp_*` keys a team ingests beyond the known schema still surface under
- *  Event properties. */
+ *  Event properties. With `requestedGroupTypes` undefined the exclusion stays off —
+ *  degrading toward duplication (benign) rather than hiding properties. */
 export function getMCPExcludedEventProperties(
     eventNames: string[],
     requestedGroupTypes: TaxonomicFilterGroupType[] | undefined

@@ -867,6 +867,8 @@ describe('taxonomicFilterLogic', () => {
                 )
                 if (expectExcluded) {
                     // Exclusive like autocapture: the known schema lives only in the MCP tab.
+                    // The concrete key guards against arrayContaining([]) matching vacuously.
+                    expect(eventProperties?.excludedProperties).toContain('$mcp_tool_name')
                     expect(eventProperties?.excludedProperties).toEqual(
                         expect.arrayContaining(getMCPPropertyFilterOptions())
                     )

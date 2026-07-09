@@ -28,6 +28,8 @@ const wrapper = ({ children }: { children: ReactNode }): JSX.Element => <Provide
 describe('useTaxonomicFilter', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
+        // Recents persist to localStorage — clear so no test depends on what ran before it.
+        localStorage.clear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({
             get: { '/api/projects/:team/event_definitions': { results: [], count: 0 } },
@@ -306,10 +308,9 @@ describe('useTaxonomicFilter', () => {
         const { result } = renderHook(
             () =>
                 useTaxonomicFilter({
-                    taxonomicGroupTypes: [
-                        TaxonomicFilterGroupType.MCPProperties,
-                        TaxonomicFilterGroupType.EventProperties,
-                    ],
+                    // Only the curated tab — its canonical EventProperties group isn't a
+                    // visible tab, so the remap must resolve against ALL group definitions.
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.MCPProperties],
                     eventNames: ['$mcp_tool_call'],
                 }),
             { wrapper }
@@ -323,9 +324,13 @@ describe('useTaxonomicFilter', () => {
         act(() => result.current.selectItem(mcpGroup, '$mcp_tool_name', option))
         // The recents write is deferred one tick — flush the macrotask queue.
         await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
-        expect(recentTaxonomicFiltersLogic.values.recentFilters).toMatchObject([
-            { groupType: TaxonomicFilterGroupType.EventProperties, value: '$mcp_tool_name' },
-        ])
+        expect(recentTaxonomicFiltersLogic.values.recentFilters).toContainEqual(
+            expect.objectContaining({ groupType: TaxonomicFilterGroupType.EventProperties, value: '$mcp_tool_name' })
+        )
+        expect(
+            recentTaxonomicFiltersLogic.values.recentFilters.map((f: { groupType: string }) => f.groupType)
+        ).not.toContain(TaxonomicFilterGroupType.MCPProperties)
+        recentTaxonomicFiltersLogic.unmount()
     })
 
     it('Escape key clears search', () => {

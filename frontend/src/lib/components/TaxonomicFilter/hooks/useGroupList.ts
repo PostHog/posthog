@@ -209,6 +209,12 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     const clientFilter = !!group.clientFilterFirstPage
     const remoteSearchQuery = clientFilter ? '' : searchQuery
 
+    // The cache is shared across pickers, and two pickers can build the same endpoint with
+    // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
+    // Event properties only when present) — those are fetch-time params, so key on them too.
+    const excludedPropertiesKey = JSON.stringify(group.excludedProperties ?? [])
+    const propertyAllowListKey = JSON.stringify(group.propertyAllowList ?? [])
+
     const remoteKey = useMemo(
         () => [
             'taxonomic-list',
@@ -221,6 +227,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ],
         [
             group.type,
@@ -232,6 +240,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ]
     )
 
@@ -284,6 +294,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ],
         [
             group.type,
@@ -295,6 +307,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             showNumericalPropsOnly,
             hideBehavioralCohorts,
             excludeStale,
+            excludedPropertiesKey,
+            propertyAllowListKey,
         ]
     )
 

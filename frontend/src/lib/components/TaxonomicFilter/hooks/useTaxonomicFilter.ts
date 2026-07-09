@@ -458,7 +458,9 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                 // across variants (recents dedupe on groupType + value and share storage).
                 const declaredGroup =
                     !hasRecentContext(item) && stripped && typeof stripped === 'object' && 'group' in stripped
-                        ? groups.find((g) => g.type === stripped.group)
+                        ? // Resolve against every group definition (like legacy `getItemGroup`), not just
+                          // the visible tabs — a curated tab can be requested without its canonical group.
+                          allGroups.find((g) => g.type === stripped.group)
                         : undefined
                 const sourceGroupType = hasRecentContext(item)
                     ? item._recentContext.sourceGroupType
@@ -490,7 +492,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             onChange?.(group, valueIn, item)
             setSearchQuery('')
         },
-        [groups, onChange, setSearchQuery]
+        [allGroups, onChange, setSearchQuery]
     )
 
     const selectSelected = useCallback(() => {
