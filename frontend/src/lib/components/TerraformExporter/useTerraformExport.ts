@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
 
-import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alerts'
+import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 import { AlertType } from 'products/alerts/frontend/types'
 
 import api from '../../api'

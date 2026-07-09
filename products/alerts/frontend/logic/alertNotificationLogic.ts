@@ -18,7 +18,7 @@ import {
     PendingAlertNotification,
     buildAlertFilterConfig,
     buildHogFunctionPayload,
-} from 'products/alerts/frontend/logic/alerts'
+} from 'products/alerts/frontend/logic/alertNotifications'
 
 import type { alertNotificationLogicType } from './alertNotificationLogicType'
 

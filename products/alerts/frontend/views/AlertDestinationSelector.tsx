@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
-import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alerts'
+import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 
 export interface AlertDestinationSelectorProps {
     alertId: string

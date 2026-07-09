@@ -16,7 +16,7 @@ import {
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingAlertNotification,
-} from 'products/alerts/frontend/logic/alerts'
+} from 'products/alerts/frontend/logic/alertNotifications'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../logic/alertNotificationLogic'
 

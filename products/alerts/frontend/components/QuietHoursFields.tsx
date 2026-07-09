@@ -39,7 +39,7 @@ export function QuietHoursFields({
     onChange,
 }: QuietHoursFieldsProps): JSX.Element {
     const enabled = !!scheduleRestriction?.blocked_windows?.length
-    const windows = scheduleRestriction?.blocked_windows ?? []
+    const windows = useMemo(() => scheduleRestriction?.blocked_windows ?? [], [scheduleRestriction?.blocked_windows])
 
     const setWindows = (nextWindows: BlockedWindow[]): void => {
         if (nextWindows.length === 0) {

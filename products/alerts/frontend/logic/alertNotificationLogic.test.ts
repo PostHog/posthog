@@ -9,7 +9,7 @@ import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
-} from 'products/alerts/frontend/logic/alerts'
+} from 'products/alerts/frontend/logic/alertNotifications'
 
 import { alertNotificationLogic } from './alertNotificationLogic'
 
