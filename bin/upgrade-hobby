@@ -290,6 +290,17 @@ if grep -qE 'postgres:12-alpine|postgres:12' posthog/docker-compose.hobby.yml 2>
     fi
 fi
 
+# Async migrations only exist for upgrades from versioned releases (the last one
+# targets PostHog <= 1.49.99). Every versioned release ships posthog/version.py and
+# it was removed once PostHog moved to continuous deployment, so its presence in the
+# current checkout (inspected before git pull replaces it) tells us whether the
+# async migrations check is needed. CHECK_ASYNC_MIGRATIONS=1/0 overrides either way.
+ASYNC_MIGRATIONS_CHECK_NEEDED=FALSE
+if [ -f posthog/posthog/version.py ]; then
+    ASYNC_MIGRATIONS_CHECK_NEEDED=TRUE
+    echo "Detected an old versioned PostHog release ($(grep VERSION posthog/posthog/version.py || true)), the async migrations check will run"
+fi
+
 cd posthog
 git pull --prune
 cd ../
@@ -329,13 +340,27 @@ rm docker-compose.yml.tmpl
 
 docker-compose pull
 
-# Async migrations only matter when upgrading from much older PostHog versions,
-# and the check needs the old stack (Postgres) to still be running, so it's opt-in.
+RUN_ASYNC_MIGRATIONS_CHECK="$ASYNC_MIGRATIONS_CHECK_NEEDED"
 if [[ "${CHECK_ASYNC_MIGRATIONS:-}" =~ ^([yY][eE][sS]|[yY]|1|[tT][rR][uU][eE])$ ]]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=TRUE
+elif [[ "${CHECK_ASYNC_MIGRATIONS:-}" =~ ^([nN][oO]|[nN]|0|[fF][aA][lL][sS][eE])$ ]]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=FALSE
+fi
+
+# Mid pg12 -> pg15 migration the postgres volume is empty until data is restored
+# after the stack restarts, so there is no async migration state to check yet.
+if [ -f ".pg12_migration_pending" ]; then
+    RUN_ASYNC_MIGRATIONS_CHECK=FALSE
+fi
+
+if [ "$RUN_ASYNC_MIGRATIONS_CHECK" == 'TRUE' ]; then
     echo "Checking if async migrations are up to date"
+    # The check reads async migration state from Postgres, so make sure it's up
+    # (a previously interrupted upgrade can leave the stack stopped).
+    sudo -E docker-compose up -d db
     sudo -E docker-compose run --rm asyncmigrationscheck
 else
-    echo "Skipping async migrations check (set CHECK_ASYNC_MIGRATIONS=1 to run it, only needed when upgrading from an old version)"
+    echo "Skipping async migrations check, it's only needed when upgrading from a versioned release (set CHECK_ASYNC_MIGRATIONS=1 to force it)"
 fi
 
 echo "Stopping the stack!"
