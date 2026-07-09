@@ -138,9 +138,12 @@ export function startServer(
         console.log(`image-scrub sidecar metrics listening on 0.0.0.0:${metricsPort}`)
     )
 
-    for (const server of [scrubServer, metricsServer]) {
+    for (const [name, server] of [
+        ['scrub', scrubServer],
+        ['metrics', metricsServer],
+    ] as const) {
         server.on('error', (err) => {
-            console.error(`image-scrub sidecar server error: ${String(err)}`)
+            console.error(`image-scrub sidecar ${name} listener error: ${String(err)}`)
             process.exit(1)
         })
     }
