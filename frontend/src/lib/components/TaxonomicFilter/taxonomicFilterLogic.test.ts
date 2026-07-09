@@ -781,6 +781,48 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('MCP properties group by event scope', () => {
+        // Mirrors the rebuild-side assertions in utils/mcpProperties.test.ts — the two
+        // variants define the group independently, so both sides guard against drift.
+        it.each([
+            { eventNames: ['$mcp_tool_call'], expectPresent: true },
+            { eventNames: ['$pageview'], expectPresent: false },
+            { eventNames: undefined, expectPresent: false },
+        ])(
+            'MCP group present=$expectPresent for eventNames=$eventNames',
+            ({ eventNames, expectPresent }: { eventNames?: string[]; expectPresent: boolean }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testMcp-${eventNames?.join('-') ?? 'none'}`,
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.MCPProperties,
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.EventFeatureFlags,
+                    ],
+                    eventNames,
+                })
+                testLogic.mount()
+
+                const groupTypes = testLogic.values.taxonomicGroupTypes
+                expect(groupTypes.includes(TaxonomicFilterGroupType.MCPProperties)).toBe(expectPresent)
+                if (expectPresent) {
+                    // The curated schema leads the tabs when in scope — the separation is the point.
+                    expect(groupTypes.indexOf(TaxonomicFilterGroupType.MCPProperties)).toBeLessThan(
+                        groupTypes.indexOf(TaxonomicFilterGroupType.EventProperties)
+                    )
+                    const suggested = testLogic.values.taxonomicGroups.find(
+                        (g) => g.type === TaxonomicFilterGroupType.SuggestedFilters
+                    )
+                    expect(suggested?.options).toContainEqual({
+                        name: '$mcp_is_error',
+                        group: TaxonomicFilterGroupType.EventProperties,
+                    })
+                }
+
+                testLogic.unmount()
+            }
+        )
+    })
+
     describe('SuggestedFilters presence by variant', () => {
         afterEach(() => {
             featureFlagLogic.actions.setFeatureFlags([], {

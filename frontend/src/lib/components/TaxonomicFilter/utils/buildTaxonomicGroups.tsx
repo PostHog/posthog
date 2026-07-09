@@ -17,6 +17,12 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
+import {
+    MCP_TOOL_CALL_EVENT,
+    MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
+    getMCPPropertyFilterOptions,
+    includesMCPAnalyticsEvents,
+} from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -380,6 +386,26 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getIcon: getPropertyDefinitionIcon,
             getPopoverHeader: () => 'Internal event properties',
         },
+        // Only offered when the picker is scoped to canonical MCP events, so the
+        // known @posthog/mcp schema is separated out without adding a tab anywhere else.
+        ...(includesMCPAnalyticsEvents(eventNames)
+            ? [
+                  {
+                      name: 'MCP properties',
+                      searchPlaceholder: 'MCP properties',
+                      type: TaxonomicFilterGroupType.MCPProperties,
+                      options: getMCPPropertyFilterOptions().map((value) => ({
+                          name: value,
+                          value,
+                          group: TaxonomicFilterGroupType.EventProperties,
+                      })),
+                      getName: (option: SimpleOption) => option.name,
+                      getValue: (option: SimpleOption) => option.name,
+                      getIcon: getPropertyDefinitionIcon,
+                      getPopoverHeader: () => 'MCP property',
+                  },
+              ]
+            : []),
         {
             name: 'Event metadata',
             searchPlaceholder: 'event metadata',
@@ -1052,6 +1078,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                     ? (['text', 'selector'] as const).map((name) => ({
                           name,
                           group: TaxonomicFilterGroupType.Elements,
+                      }))
+                    : []),
+                ...(eventNames.includes(MCP_TOOL_CALL_EVENT)
+                    ? MCP_TOOL_CALL_SUGGESTED_PROPERTIES.map((name) => ({
+                          name,
+                          group: TaxonomicFilterGroupType.EventProperties,
                       }))
                     : []),
             ],

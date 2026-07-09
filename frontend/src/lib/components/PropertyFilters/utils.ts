@@ -514,6 +514,11 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.Event
     }
 
+    if (filterType === TaxonomicFilterGroupType.MCPProperties) {
+        // The curated $mcp_* schema is a subgroup of event properties
+        return PropertyFilterType.Event
+    }
+
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {
         return PropertyFilterType.DataWarehouse
     }
