@@ -754,6 +754,7 @@ export interface ConversationsSettings {
     slack_notify_on_join?: boolean
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
+    slack_nudge_enabled?: boolean
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -1099,6 +1100,9 @@ export enum ExperimentStatus {
     Draft = 'draft',
     Running = 'running',
     Paused = 'paused',
+    // Running with enrollment frozen to the already-exposed cohort while metrics keep flowing.
+    // Derived from the feature flag, not stored — see Experiment.is_exposure_frozen.
+    ExposureFrozen = 'exposure_frozen',
     Stopped = 'stopped',
 }
 
@@ -1131,6 +1135,7 @@ export enum PropertyFilterType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -1229,6 +1234,11 @@ export interface LogPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface MetricPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.MetricAttribute
+    operator: PropertyOperator
+}
+
 export type SpanPropertyFilterType =
     | PropertyFilterType.Span
     | PropertyFilterType.SpanAttribute
@@ -1290,6 +1300,7 @@ export type AnyPropertyFilter =
     | DataWarehousePersonPropertyFilter
     | ErrorTrackingIssueFilter
     | LogPropertyFilter
+    | MetricPropertyFilter
     | SpanPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | WorkflowVariablePropertyFilter
@@ -2550,6 +2561,8 @@ export interface EndpointType extends WithAccessControl {
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
     tags?: string[]
+    /** Breakdown property names that may be omitted on /run. Defaults to [] — every breakdown variable is required. */
+    optional_breakdown_properties?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2646,6 +2659,7 @@ export type DashboardTemplateStoredTextTile = {
 }
 
 export type DashboardTemplateStoredButtonTile = {
+    type: 'BUTTON'
     button_tile: {
         url: string
         text: string
@@ -4232,6 +4246,10 @@ export interface FeatureFlagGroupType {
     sort_key?: string | null // Client-side only stable id for sorting.
     description?: string | null
     aggregation_group_type_index?: integer | null
+    /** Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition. */
+    exposure_frozen?: boolean
+    /** Snapshot cohort the exposure freeze AND'd into this group's properties. */
+    exposure_frozen_cohort?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -4262,6 +4280,12 @@ export interface FeatureFlagFilters {
     payloads?: Record<string, JsonType>
     early_exit?: boolean
     feature_enrollment?: boolean
+    /** Experiment holdout exclusion, evaluated by the flag matcher before release conditions. */
+    holdout?: { id: number; exclusion_percentage: number } | null
+    /** Legacy holdout representation, also evaluated before release conditions. */
+    holdout_groups?: FeatureFlagGroupType[] | null
+    /** Early access enrollment conditions, evaluated before release conditions. */
+    super_groups?: FeatureFlagGroupType[] | null
 }
 
 export interface FeatureFlagBasicType {
@@ -4684,6 +4708,7 @@ export enum PropertyDefinitionType {
     Log = 'log',
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
+    MetricAttribute = 'metric_attribute',
     Span = 'span',
     SpanAttribute = 'span_attribute',
     SpanResourceAttribute = 'span_resource_attribute',
@@ -7644,6 +7669,7 @@ export interface LLMPrompt {
     name: string
     prompt: string
     version: number
+    version_description?: string | null
     created_by: UserBasicType
     created_at: string
     updated_at: string
@@ -7671,6 +7697,7 @@ export interface LLMPromptPublic {
 export interface LLMPromptVersionSummary {
     id: string
     version: number
+    version_description?: string | null
     created_by: UserBasicType
     created_at: string
     is_latest: boolean

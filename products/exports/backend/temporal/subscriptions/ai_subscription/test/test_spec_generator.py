@@ -16,11 +16,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    AI_QUERY_PLAN_VERSION,
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
     ReportWindow,
+    StoredPlanInvalidError,
     _event_property_names,
     _extract_quoted_event_tokens,
     _group_type_labels,
@@ -30,6 +32,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _recent_event_names,
     _select_relevant_events,
     build_context_blob,
+    build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
     sanitize_prompt,
@@ -619,9 +622,12 @@ class TestComputeReportWindow:
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_states_explicit_window_bounds_in_project_timezone(self, _mock_top: object, _mock_groups: object) -> None:
-        # The window-text regression: the blob must hand the planner concrete `[start, end)` literals
-        # (so it never writes `now() - INTERVAL`), not the old "last N day(s)" relative phrasing.
+    def test_states_window_bounds_and_placeholder_in_project_timezone(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        # The blob hands the planner the concrete `[start, end)` bounds for context, but instructs it to
+        # filter via the `{{date_range}}` placeholder (the executor substitutes the real window at run
+        # time) — never literal dates or the old "last N day(s)" relative phrasing.
         self.team.timezone = "Australia/Sydney"
         self.team.save()
         window = compute_report_window(
@@ -635,12 +641,10 @@ class TestContextBlob(APIBaseTest):
 
         assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
         assert f"Analysis window end (exclusive, project timezone): {window.end_literal}" in blob
-        assert (
-            f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
-            in blob
-        )
-        # The prior-period anchor for period-over-period growth is injected as its own literal, so the
-        # planner never reaches for `now() - INTERVAL` to build a "vs last week" baseline.
+        # The filter instruction names the placeholder, not the literal bounds — so a frozen plan stays
+        # window-agnostic and the dates never get baked into the planner's HogQL.
+        assert "{{date_range}}" in blob
+        assert f"toDateTime('{window.start_literal}')" not in blob
         assert (
             f"Previous-period start (for period-over-period comparisons only, project timezone): "
             f"{window.compare_start_literal}" in blob
@@ -662,7 +666,10 @@ class TestContextBlob(APIBaseTest):
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
-        assert "Group/account types (reference as group_<index>.properties.<name>" in blob
+        assert "properties via group_<index>.properties.<name>" in blob
+        # the raw group-key aggregation hint must be present so the planner counts accounts with
+        # $group_<index> rather than a bare group_<index> that fails with "Field not found"
+        assert "$group_<index>" in blob
         assert "group_0 = organization" in blob
 
     @parameterized.expand(
@@ -739,3 +746,58 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         with pytest.raises(PromptRejectedError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+
+
+class TestBuildFrozenPrompt(APIBaseTest):
+    """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
+
+    def _stored_plan(self) -> dict:
+        return {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": QueryPlan(
+                overall_intent="count events",
+                steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+            ).model_dump(),
+        }
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    @patch(f"{_SG}._select_relevant_events")
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_reconstructs_plan_without_calling_any_llm(
+        self, _mock_top: object, _mock_groups: object, mock_select: MagicMock, mock_chat: MagicMock
+    ) -> None:
+        stored = self._stored_plan()
+
+        spec = build_frozen_prompt(
+            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
+        )
+
+        # Neither the event-selection model nor the planner runs on the frozen path...
+        mock_select.assert_not_called()
+        mock_chat.assert_not_called()
+        # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
+        assert spec.plan.model_dump() == stored["plan"]
+        assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @parameterized.expand(
+        [
+            # A corrupted plan and a stale schema version both raise StoredPlanInvalidError, NOT
+            # PromptRejectedError — the caller self-heals by re-planning live, so neither a QueryPlan
+            # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
+            (
+                "malformed_plan",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                "malformed",
+            ),
+            ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_invalid_stored_plan_raises_recoverable_error(
+        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+    ) -> None:
+        with pytest.raises(StoredPlanInvalidError, match=match):
+            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)

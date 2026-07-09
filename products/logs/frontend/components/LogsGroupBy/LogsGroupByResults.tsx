@@ -34,9 +34,19 @@ export function LogsGroupByResults({ id }: { id: string }): JSX.Element {
     const { setOrderGroupsBy } = useActions(logsGroupByLogic({ id }))
     const { groupBy } = useValues(logsViewerConfigLogic({ id }))
 
+    // The Group view with no key chosen: prompt for one instead of showing an empty table.
+    // No query runs in this state (the logic's loader guards on a null key).
+    if (!groupBy) {
+        return (
+            <div className="flex-1 min-h-0 flex items-center justify-center text-muted" data-attr="logs-group-by-empty">
+                Pick an attribute to group by
+            </div>
+        )
+    }
+
     const columns: LemonTableColumns<_LogsGroupByGroupApi> = [
         {
-            title: groupBy?.key,
+            title: groupBy.key,
             dataIndex: 'value',
             render: (_, row) => <span className="font-mono text-xs">{row.value}</span>,
         },

@@ -19,12 +19,14 @@ from .adyen.source import AdyenSource
 from .agilecrm.source import AgileCRMSource
 from .aha.source import AhaSource
 from .ahrefs.source import AhrefsSource
+from .aikido_security.source import AikidoSecuritySource
 from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
 from .airtable.source import AirtableSource
 from .akeneo.source import AkeneoSource
 from .algolia.source import AlgoliaSource
+from .alguna.source import AlgunaSource
 from .alpaca_broker_api.source import AlpacaBrokerAPISource
 from .alpha_vantage.source import AlphaVantageSource
 from .amazon_ads.source import AmazonAdsSource
@@ -36,6 +38,7 @@ from .amazon_selling_partner.source import AmazonSellingPartnerSource
 from .amazon_sns.source import AmazonSNSSource
 from .amazon_sqs.source import AmazonSQSSource
 from .amplitude.source import AmplitudeSource
+from .anthropic.source import AnthropicSource
 from .apify_dataset.source import ApifyDatasetSource
 from .apollo.source import ApolloSource
 from .appcues.source import AppcuesSource
@@ -46,6 +49,7 @@ from .applovin.source import AppLovinSource
 from .appsflyer.source import AppsFlyerSource
 from .appstack.source import AppstackSource
 from .apptivo.source import ApptivoSource
+from .appwrite.source import AppwriteSource
 from .asana.source import AsanaSource
 from .ashby.source import AshbySource
 from .assemblyai.source import AssemblyAISource
@@ -68,6 +72,7 @@ from .bigmailer.source import BigMailerSource
 from .bigquery.source import BigQuerySource
 from .bing_ads.source import BingAdsSource
 from .bitly.source import BitlySource
+from .bland_ai.source import BlandAISource
 from .blogger.source import BloggerSource
 from .bluetally.source import BluetallySource
 from .boldsign.source import BoldSignSource
@@ -80,6 +85,8 @@ from .breezometer.source import BreezometerSource
 from .breezy_hr.source import BreezyHRSource
 from .brevo.source import BrevoSource
 from .brex.source import BrexSource
+from .browse_ai.source import BrowseAISource
+from .browser_use.source import BrowserUseSource
 from .bugsnag.source import BugsnagSource
 from .buildbetter.source import BuildBetterSource
 from .buildkite.source import BuildkiteSource
@@ -101,6 +108,7 @@ from .chameleon.source import ChameleonSource
 from .chargebee.source import ChargebeeSource
 from .chargedesk.source import ChargedeskSource
 from .chargify.source import ChargifySource
+from .charthop.source import ChartHopSource
 from .chartmogul.source import ChartMogulSource
 from .chatwoot.source import ChatwootSource
 from .checkout_com.source import CheckoutComSource
@@ -126,6 +134,7 @@ from .coassemble.source import CoassembleSource
 from .cockroachdb.source import CockroachDBSource
 from .coda.source import CodaSource
 from .codefresh.source import CodefreshSource
+from .cody.source import CodySource
 from .coin_api.source import CoinApiSource
 from .coingecko.source import CoinGeckoSource
 from .coinmarketcap.source import CoinMarketCapSource
@@ -143,6 +152,7 @@ from .coupa.source import CoupaSource
 from .criteo.source import CriteoSource
 from .crunchbase.source import CrunchbaseSource
 from .culture_amp.source import CultureAmpSource
+from .cursor.source import CursorSource
 from .curve.source import CurveSource
 from .custom.source import CustomSource
 from .customer_io.source import CustomerIOSource
@@ -153,7 +163,9 @@ from .datascope.source import DatascopeSource
 from .datorama.source import DatoramaSource
 from .db2.source import Db2Source
 from .dbt.source import DbtSource
+from .decagon.source import DecagonSource
 from .deel.source import DeelSource
+from .deepgram.source import DeepgramSource
 from .delighted.source import DelightedSource
 from .deputy.source import DeputySource
 from .devin_ai.source import DevinAISource
@@ -179,6 +191,7 @@ from .easypromos.source import EasypromosSource
 from .ebay.source import EbaySource
 from .elasticemail.source import ElasticemailSource
 from .elasticsearch.source import ElasticsearchSource
+from .elevenlabs.source import ElevenLabsSource
 from .eloqua.source import EloquaSource
 from .emailoctopus.source import EmailOctopusSource
 from .employment_hero.source import EmploymentHeroSource
@@ -260,6 +273,8 @@ from .guardian.source import GuardianSource
 from .guru.source import GuruSource
 from .gusto.source import GustoSource
 from .harness.source import HarnessSource
+from .harvey.source import HarveySource
+from .healthchecks.source import HealthchecksSource
 from .heap.source import HeapSource
 from .height.source import HeightSource
 from .hellobaton.source import HellobatonSource
@@ -273,9 +288,11 @@ from .hubspot.source import HubspotSource
 from .hugging_face.source import HuggingFaceSource
 from .humanitix.source import HumanitixSource
 from .huntr.source import HuntrSource
+from .hyperspell.source import HyperspellSource
 from .ikas.source import IkasSource
 from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
+from .impact.source import ImpactSource
 from .incident_io.source import IncidentIoSource
 from .inflowinventory.source import InflowinventorySource
 from .infor_nexus.source import InforNexusSource
@@ -312,6 +329,7 @@ from .knock.source import KnockSource
 from .kustomer.source import KustomerSource
 from .kyve.source import KYVESource
 from .lago.source import LagoSource
+from .langfuse.source import LangfuseSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .leadfeeder.source import LeadfeederSource
@@ -324,6 +342,7 @@ from .liana.source import LianaSource
 from .lightfield.source import LightfieldSource
 from .lightspeed_retail.source import LightspeedRetailSource
 from .linear.source import LinearSource
+from .lingo_dev.source import LingoDevSource
 from .linkedin_ads.source import LinkedInAdsSource
 from .linkedin_pages.source import LinkedinPagesSource
 from .linkrunner.source import LinkrunnerSource
@@ -333,6 +352,7 @@ from .lokalise.source import LokaliseSource
 from .looker.source import LookerSource
 from .loops.source import LoopsSource
 from .luma.source import LumaSource
+from .m3ter.source import M3terSource
 from .mailchimp.source import MailchimpSource
 from .mailerlite.source import MailerLiteSource
 from .mailersend.source import MailerSendSource
@@ -344,6 +364,7 @@ from .mantle.source import MantleSource
 from .marketo.source import MarketoSource
 from .marketstack.source import MarketstackSource
 from .matomo.source import MatomoSource
+from .maxio.source import MaxioSource
 from .mendeley.source import MendeleySource
 from .mention.source import MentionSource
 from .mercado_ads.source import MercadoAdsSource
@@ -351,6 +372,7 @@ from .mercury.source import MercurySource
 from .merge.source import MergeSource
 from .meta_ads.source import MetaAdsSource
 from .metabase.source import MetabaseSource
+from .metorial.source import MetorialSource
 from .metricool.source import MetricoolSource
 from .metronome.source import MetronomeSource
 from .microsoft_dataverse.source import MicrosoftDataverseSource
@@ -400,6 +422,7 @@ from .open_exchange_rates.source import OpenExchangeRatesSource
 from .openai_ads.source import OpenAIAdsSource
 from .openaq.source import OpenAQSource
 from .openfda.source import OpenFDASource
+from .openrouter.source import OpenRouterSource
 from .openweather.source import OpenWeatherSource
 from .opinion_stage.source import OpinionStageSource
 from .opsgenie.source import OpsgenieSource
@@ -429,6 +452,7 @@ from .payfit.source import PayFitSource
 from .paylocity.source import PaylocitySource
 from .paypal.source import PayPalSource
 from .paystack.source import PaystackSource
+from .peec_ai.source import PeecAISource
 from .pendo.source import PendoSource
 from .pennylane.source import PennylaneSource
 from .perigon.source import PerigonSource
@@ -596,6 +620,7 @@ from .timely.source import TimelySource
 from .tinyemail.source import TinyemailSource
 from .tmdb.source import TMDbSource
 from .todoist.source import TodoistSource
+from .together_ai.source import TogetherAISource
 from .toggl.source import TogglSource
 from .track_pms.source import TrackPMSSource
 from .trello.source import TrelloSource
@@ -615,8 +640,10 @@ from .uptick.source import UptickSource
 from .us_census.source import USCensusSource
 from .uservoice.source import UservoiceSource
 from .vantage.source import VantageSource
+from .vapi.source import VapiSource
 from .veeqo.source import VeeqoSource
 from .vercel.source import VercelSource
+from .vespa.source import VespaSource
 from .visma_economic.source import VismaEconomicSource
 from .vitally.source import VitallySource
 from .vwo.source import VWOSource
@@ -634,6 +661,7 @@ from .workflowmax.source import WorkflowmaxSource
 from .workos.source import WorkOSSource
 from .workramp.source import WorkrampSource
 from .wrike.source import WrikeSource
+from .writesonic.source import WritesonicSource
 from .wufoo.source import WufooSource
 from .xero.source import XeroSource
 from .xsolla.source import XsollaSource

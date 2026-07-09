@@ -318,8 +318,6 @@ describe('BatchWritingGroupStore', () => {
                 groupKey: 'test',
                 distinctId: `${teamId}:test`,
             },
-            category: 'size',
-            severity: 'error',
             pipelineStep: 'group-store',
         })
     })

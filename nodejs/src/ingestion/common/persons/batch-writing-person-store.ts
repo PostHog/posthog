@@ -796,8 +796,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                             teamId: update.team_id,
                             message: 'Person properties exceeds size limit and was rejected',
                         },
-                        category: 'size',
-                        severity: 'error',
                         pipelineStep: 'person-store',
                     })
                     personWriteMethodAttemptCounter.inc({
@@ -1006,8 +1004,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     personId: update.uuid,
                     distinctId: update.distinct_id,
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'person-store',
             })
             personWriteMethodAttemptCounter.inc({
@@ -1027,8 +1023,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     teamId: update.team_id,
                     message: 'Person properties exceeds size limit and was rejected',
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'person-store',
             })
             personWriteMethodAttemptCounter.inc({

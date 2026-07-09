@@ -97,8 +97,6 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                                 distinctId: serialized.distinct_id,
                                 personId: serialized.person_id,
                             },
-                            category: 'size',
-                            severity: 'error',
                             pipelineStep: 'emit-event',
                         })
                         // The event was not ingested, so there is no info to resolve with

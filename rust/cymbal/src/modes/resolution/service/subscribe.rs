@@ -54,6 +54,8 @@ pub(super) fn load_event_stream(
                 draining: snapshot.draining,
                 sequence,
                 message: String::new(),
+                in_flight: snapshot.in_flight,
+                max_in_flight: snapshot.max_in_flight,
             });
         }
     }

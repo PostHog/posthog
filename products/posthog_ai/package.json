@@ -12,6 +12,7 @@
         "monaco-editor": "^0.55.1",
         "posthog-js": "catalog:",
         "react-intersection-observer": "^9.5.3",
+        "react-textarea-autosize": "*",
         "tailwind-merge": "*"
     },
     "devDependencies": {
