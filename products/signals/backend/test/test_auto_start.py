@@ -13,6 +13,7 @@ from posthog.models.organization import OrganizationMembership
 from products.signals.backend.auto_start import (
     ReviewerContent,
     _create_implementation_task_if_absent,
+    _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
@@ -84,6 +85,21 @@ def test_resolve_autostart_assignee(
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.parametrize(
+    ("report_priority", "team_default_priority", "expected"),
+    [
+        (Priority.P0, Priority.P2, True),  # above the team threshold → fallback may fire
+        (Priority.P2, Priority.P2, True),  # at the team threshold → fallback may fire
+        (Priority.P3, Priority.P2, False),  # below a stricter team threshold → gated out
+        (Priority.P4, Priority.P4, True),  # default "all priorities" admits the lowest priority
+    ],
+)
+def test_report_meets_team_autostart_threshold(report_priority, team_default_priority, expected):
+    # Guards the reviewer-less fallback against auto-opening PRs for reports below the team's
+    # configured default_autostart_priority (per-user priorities are intentionally ignored here).
+    assert _report_meets_team_autostart_threshold(report_priority, team_default_priority) is expected
 
 
 @pytest.mark.django_db

@@ -64,6 +64,17 @@ def _effective_threshold(config: SignalUserAutonomyConfig | None, team_default_p
     return Priority(config.autostart_priority) if config and config.autostart_priority else team_default_priority
 
 
+def _report_meets_team_autostart_threshold(report_priority: Priority, team_default_priority: Priority) -> bool:
+    """Whether the report's priority is at or above the team's default autostart threshold.
+
+    Gates the reviewer-less fallback so a team that set ``default_autostart_priority`` (e.g. P2)
+    doesn't get autonomous PRs for lower-priority reports. Lower rank = higher priority; the team
+    default is P4 ("all priorities") when the team has no config row, so the gate is a no-op then.
+    Per-user autostart priorities are intentionally not consulted — the fallback has no named user.
+    """
+    return _priority_rank(report_priority) <= _priority_rank(team_default_priority)
+
+
 def _build_autostart_task_description(
     *, report_id: str, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
@@ -322,10 +333,12 @@ async def maybe_autostart_implementation_task(
 
     Suggested reviewers no longer gate the pipeline path: an immediately-actionable report
     whose reviewers don't resolve to a connected-GitHub member (or has none) still auto-starts
-    under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`), so
-    a clear fix isn't dropped just because nobody linked GitHub. It's skipped only when no such
-    member exists. The user-triggered path (a reviewer edit) still runs strictly as the editing
-    user and never falls back, so it can't act under another member's identity.
+    under the member who enabled signals for the team (see `_resolve_autostart_fallback_user`),
+    provided the report meets the team's ``default_autostart_priority``, so a clear fix isn't
+    dropped just because nobody linked GitHub. It's skipped when the report is below that team
+    threshold or no such member exists. The user-triggered path (a reviewer edit) still runs
+    strictly as the editing user and never falls back, so it can't act under another member's
+    identity.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -367,17 +380,17 @@ async def maybe_autostart_implementation_task(
         task_user = await database_sync_to_async(_resolve_autostart_assignee, thread_sensitive=False)(
             team_id, priority.priority, reviewers_content, team_default_priority
         )
-        if task_user is None:
-            # No suggested reviewer resolved to a connected-GitHub member. The report is still
-            # immediately actionable, so run it under the member who enabled signals for the team
-            # rather than dropping the PR.
+        if task_user is None and _report_meets_team_autostart_threshold(priority.priority, team_default_priority):
+            # No suggested reviewer resolved to a connected-GitHub member, but the report meets the
+            # team's default autostart priority, so run it under the member who enabled signals for
+            # the team rather than dropping the PR.
             task_user = await database_sync_to_async(_resolve_autostart_fallback_user, thread_sensitive=False)(team_id)
     if task_user is None:
         logger.info(
             "signals auto-start skipped",
             report_id=report_id,
             team_id=team_id,
-            reason="no reviewer resolved and no signals-enabling member to run the task as",
+            reason="no autostart runner: no reviewer met threshold, and no enabling member for a report at/above the team autostart priority",
         )
         return
 
@@ -502,8 +515,9 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
         report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
     )
     # Empty / unresolved reviewers no longer short-circuit here: `maybe_autostart_implementation_task`
-    # falls back to a member who opted into auto-start (for the system/scout path), while a user-edited
-    # list still runs strictly as the editing user via `triggering_user_id` below.
+    # falls back to the member who enabled signals for the team (for the system/scout path, gated by
+    # the team autostart priority), while a user-edited list still runs strictly as the editing user
+    # via `triggering_user_id` below.
     reviewers_content, editor_user_id = await _latest_reviewers_content(report_id)
 
     await maybe_autostart_implementation_task(
