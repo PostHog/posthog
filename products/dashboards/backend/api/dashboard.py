@@ -1221,6 +1221,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         required=False,
         help_text="ID of an existing dashboard to duplicate.",
     )
+    insight_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        help_text="Only used when creating a dashboard: IDs of existing saved insights to add to the new dashboard as tiles. Each insight must belong to the same project and be visible to you. Ignored on updates.",
+    )
     delete_insights = serializers.BooleanField(
         write_only=True,
         required=False,
@@ -1236,6 +1242,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "tiles",
             "use_template",
             "use_dashboard",
+            "insight_ids",
             "delete_insights",
             "_create_in_folder",
         ]
@@ -1268,6 +1275,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         )
         use_template: str = validated_data.pop("use_template", None)
         use_dashboard: int = validated_data.pop("use_dashboard", None)
+        insight_ids: list[int] | None = validated_data.pop("insight_ids", None)
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
@@ -1285,6 +1293,31 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # so the caller must have at least viewer access to the source — mirrors the copy_tile/move_tile checks.
             if not user_access_control.check_access_level_for_object(existing_dashboard, "viewer"):
                 raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+
+        # Resolve insights to attach before creating anything: create() runs in autocommit,
+        # so failing any later would leave an orphaned dashboard behind.
+        insights_to_attach: list[Insight] = []
+        if insight_ids:
+            unique_insight_ids = list(dict.fromkeys(insight_ids))
+            insights_by_id = {
+                insight.id: insight
+                for insight in Insight.objects.filter(id__in=unique_insight_ids, team_id=team_id, deleted=False)
+            }
+            missing_ids = [str(insight_id) for insight_id in unique_insight_ids if insight_id not in insights_by_id]
+            if missing_ids:
+                raise serializers.ValidationError({"insight_ids": f"Insights not found: {', '.join(missing_ids)}"})
+            insights_to_attach = [insights_by_id[insight_id] for insight_id in unique_insight_ids]
+            for insight in insights_to_attach:
+                # Attaching renders the insight on the new dashboard, so the caller must have viewer
+                # access to each insight — an insight can be restricted independently of its dashboards.
+                if not user_access_control.check_access_level_for_object(insight, "viewer"):
+                    raise exceptions.PermissionDenied(f"You don't have permission to view insight: {insight.id}")
+            check_count_limit(
+                team=team,
+                key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
+                current_count=len(insights_to_attach) - 1,
+                user=request.user,
+            )
 
         request_filters = request.data.get("filters")
         if request_filters:
@@ -1344,6 +1377,25 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 else:
                     existing_tile.copy_to_dashboard(dashboard)
 
+        for insight in insights_to_attach:
+            # get_or_create: duplicating via use_dashboard may already have linked this insight to the new dashboard
+            DashboardTile.objects_including_soft_deleted.get_or_create(
+                insight=insight,
+                dashboard=dashboard,
+                defaults={"team_id": dashboard.team_id, "last_refresh": now()},
+            )
+            report_user_action(
+                request.user,
+                "dashboard tile added",
+                {
+                    "tile_type": "insight",
+                    "insight_type": _get_insight_type(insight),
+                    "dashboard_id": dashboard.id,
+                },
+                team=dashboard.team,
+                request=request,
+            )
+
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)
 
@@ -1356,6 +1408,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
                 "duplicated_from_dashboard_id": use_dashboard,
+                "attached_insights_count": len(insights_to_attach),
             },
             team=dashboard.team,
             request=request,
@@ -1504,6 +1557,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
         validated_data.pop("use_template", None)  # Remove attribute if present
+        validated_data.pop("insight_ids", None)  # attach-at-creation only, per the field's contract
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:

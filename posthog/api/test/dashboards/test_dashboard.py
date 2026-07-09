@@ -524,6 +524,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         instance = Dashboard.objects.get(id=response_data["id"])
         self.assertEqual(instance.name, "My new dashboard")
 
+    def test_create_dashboard_with_insight_ids_attaches_insights_as_tiles(self):
+        insight_one_id, _ = self.dashboard_api.create_insight({"name": "insight one"})
+        insight_two_id, _ = self.dashboard_api.create_insight({"name": "insight two"})
+
+        # a repeated ID must not produce a duplicate tile
+        _, response_data = self.dashboard_api.create_dashboard(
+            {"name": "dashboard with insights", "insight_ids": [insight_one_id, insight_two_id, insight_one_id]}
+        )
+
+        self.assertEqual(
+            sorted(tile["insight"]["id"] for tile in response_data["tiles"]),
+            sorted([insight_one_id, insight_two_id]),
+        )
+
+    @parameterized.expand(["nonexistent", "soft_deleted", "other_team"])
+    def test_create_dashboard_with_invalid_insight_id_creates_nothing(self, case: str) -> None:
+        valid_insight_id, _ = self.dashboard_api.create_insight({"name": "valid insight"})
+        if case == "nonexistent":
+            invalid_id = 999999
+        elif case == "soft_deleted":
+            invalid_id, _ = self.dashboard_api.create_insight({"name": "deleted insight"})
+            Insight.objects.filter(id=invalid_id).update(deleted=True)
+        else:
+            other_team = Team.objects.create(organization=self.organization)
+            invalid_id = Insight.objects.create(team=other_team, name="other team insight").id
+
+        dashboard_count_before = Dashboard.objects.count()
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "should not be created", "insight_ids": [valid_insight_id, invalid_id]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertIn(str(invalid_id), response["detail"])
+        self.assertEqual(Dashboard.objects.count(), dashboard_count_before)
+
+    def test_create_dashboard_with_insight_ids_overlapping_duplicated_dashboard(self):
+        source_dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "shared insight", "dashboards": [source_dashboard_id]}
+        )
+
+        _, response_data = self.dashboard_api.create_dashboard(
+            {"name": "copy", "use_dashboard": source_dashboard_id, "insight_ids": [insight_id]}
+        )
+
+        insight_tiles = [tile for tile in response_data["tiles"] if tile["insight"] is not None]
+        self.assertEqual([tile["insight"]["id"] for tile in insight_tiles], [insight_id])
+
     def test_update_dashboard(self):
         dashboard = Dashboard.objects.create(
             team=self.team,

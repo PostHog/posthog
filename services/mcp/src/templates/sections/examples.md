@@ -50,9 +50,9 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Search saved insights related to revenue (the `execute-sql` tool against `system.insights` — check `execute-sql` for SQL guidance)
 3. Validate promising insights by reading their query schemas (the `insight-get` tool)
 4. Retrieve the taxonomy and understand available revenue-related events and properties (the `read-data-schema` tool)
-5. Create the dashboard first, with a name and description (the `dashboard-create` tool — it cannot attach insights itself)
-6. Test queries for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
-7. Save each new insight with `name`, `description`, and `dashboards: [<dashboard_id>]` set at creation (the `insight-create` tool); attach existing insights by appending the dashboard ID to their `dashboards` list (the `insight-update` tool)
+5. Test queries for metrics not covered by existing insights (the `query-trends` tool or appropriate query tool)
+6. Save each new insight with `name` and `description` set at creation (the `insight-create` tool)
+7. Create the dashboard, attaching both existing and newly created insights in one call via `insight_ids` (the `dashboard-create` tool)
 8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 <reasoning>
@@ -60,6 +60,6 @@ Assistant: I'll help you create a revenue dashboard. Let me plan the steps.
 2. Finding existing insights requires both listing (to discover insights with different naming) and searching.
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
-5. Creating the dashboard before saving insights lets every new insight be assigned via `dashboards` at creation — one call per insight instead of a create-then-update pair.
+5. Attaching insights via `insight_ids` at dashboard creation wires the whole dashboard in one call — no per-insight update calls afterwards.
 </reasoning>
 </example>
