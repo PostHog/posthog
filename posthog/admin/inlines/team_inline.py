@@ -44,6 +44,7 @@ class TeamInline(TabularInlinePaginated):
             "internal_properties",
             "delete_recordings",
             "remote_config_cache_actions",
+            "flags_staff_tools_link",
             "api_token_display",
             "admit_state",
             "ai_gateway_actions",

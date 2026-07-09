@@ -182,12 +182,14 @@ def enqueue_chunks(
                         id, team_id, schema_id, source_id, job_id, run_uuid,
                         batch_index, s3_path, row_count, byte_size, is_final_batch,
                         total_batches, total_rows, sync_type, cumulative_row_count,
-                        resource_name, is_resume, is_first_ever_sync, metadata
+                        resource_name, is_resume, is_first_ever_sync, metadata,
+                        latest_state, latest_attempt, state_changed_at
                     ) VALUES (
                         %(id)s, %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
                         %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, false,
                         %(total_batches)s, NULL, 'full_refresh', 0,
-                        %(resource_name)s, true, false, %(metadata)s
+                        %(resource_name)s, true, false, %(metadata)s,
+                        'succeeded', 1, now()
                     )
                     """,
                     {

@@ -183,6 +183,7 @@ def _get_image_source_label(
     provider: str | None,
     resume_snapshot_external_id: str | None,
     snapshot: SandboxSnapshot | None,
+    custom_image_name: str | None = None,
 ) -> tuple[str, str]:
     if resume_snapshot_external_id:
         return "resume_snapshot", f"resume snapshot {resume_snapshot_external_id}"
@@ -190,6 +191,9 @@ def _get_image_source_label(
     if snapshot is not None:
         external_id = snapshot.external_id or str(snapshot.id)
         return "repository_snapshot", f"repository snapshot {external_id}"
+
+    if custom_image_name:
+        return "custom_image", f"custom base image {custom_image_name}"
 
     if provider == "docker":
         return "docker_base_image", "local Docker sandbox image"
@@ -210,6 +214,8 @@ def _build_environment_variables(
         "POSTHOG_PERSONAL_API_KEY": access_token,
         "POSTHOG_API_URL": get_sandbox_api_url(),
         "POSTHOG_PROJECT_ID": str(ctx.team_id),
+        "POSTHOG_TASK_ID": str(ctx.task_id),
+        "POSTHOG_TASK_RUN_ID": str(ctx.run_id),
         "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
     }
 
@@ -315,7 +321,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and ctx.github_integration_id is not None:
+        # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
+        # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
+        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
@@ -420,6 +428,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             provider=provider,
             resume_snapshot_external_id=resume_snapshot_external_id,
             snapshot=snapshot if not resume_snapshot_external_id else None,
+            custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
         return PrepareSandboxForRepositoryOutput(
@@ -465,6 +474,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         config = SandboxConfig(
             name=prepared.sandbox_name,
             template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,

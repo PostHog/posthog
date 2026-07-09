@@ -124,6 +124,9 @@
     --lemon-switch-active-translate: translateX(
         calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter))
     );
+    --lemon-switch-indeterminate-translate: translateX(
+        calc((var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter)) / 2)
+    );
 
     position: relative;
     width: var(--lemon-switch-handle-width);
@@ -145,6 +148,24 @@
         transform: var(--lemon-switch-active-translate);
     }
 
+    // Indeterminate: the handle parks mid-track on the neutral track, carrying a gray dash
+    .LemonSwitch--indeterminate & {
+        transform: var(--lemon-switch-indeterminate-translate);
+    }
+
+    // The spinner replaces the dash while loading
+    .LemonSwitch--indeterminate:not(.LemonSwitch--loading) &::after {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 55%;
+        height: 2px;
+        content: '';
+        background-color: var(--color-text-secondary);
+        border-radius: 1px;
+        transform: translate(-50%, -50%);
+    }
+
     .LemonSwitch--active & {
         --lemon-switch-handle-width: calc(var(--lemon-switch-handle-size) * 1.2);
 
@@ -153,6 +174,10 @@
 
     .LemonSwitch--active.LemonSwitch--checked & {
         transform: var(--lemon-switch-active-translate);
+    }
+
+    .LemonSwitch--active.LemonSwitch--indeterminate & {
+        transform: var(--lemon-switch-indeterminate-translate);
     }
 }
 

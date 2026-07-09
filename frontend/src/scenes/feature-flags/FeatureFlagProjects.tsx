@@ -19,6 +19,8 @@ import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType 
 import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+import { FlagActiveToggleTag } from './FlagActiveToggleTag'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from './updateFlagActiveInProject'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
@@ -42,10 +44,14 @@ const getColumns = ({
     aggregationLabel,
     currentTeamId,
     currentOrganization,
+    projectFlagsToggling,
+    onToggleFlagActive,
 }: {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
     currentTeamId: number | null
     currentOrganization: OrganizationType | null
+    projectFlagsToggling: Record<string, boolean>
+    onToggleFlagActive: (record: OrganizationFeatureFlag, active: boolean) => void
 }): LemonTableColumns<OrganizationFeatureFlag> => {
     return [
         {
@@ -89,15 +95,19 @@ const getColumns = ({
         {
             title: 'Status',
             dataIndex: 'active',
-            render: (dataValue) => {
-                return dataValue ? (
-                    <LemonTag type="success" className="uppercase">
-                        Enabled
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="default" className="uppercase">
-                        Disabled
-                    </LemonTag>
+            render: (_, record) => {
+                const canToggle = record.team_id !== null && record.flag_id !== null
+                const toggling =
+                    record.team_id !== null &&
+                    record.flag_id !== null &&
+                    !!projectFlagsToggling[flagToggleKey(record.team_id, record.flag_id)]
+                return (
+                    <FlagActiveToggleTag
+                        active={record.active}
+                        toggling={toggling}
+                        onToggle={canToggle ? (active) => onToggleFlagActive(record, active) : undefined}
+                        data-attr="feature-flag-projects-toggle"
+                    />
                 )
             },
         },
@@ -229,8 +239,8 @@ function FeatureFlagCopySection(): JSX.Element {
 }
 
 export default function FeatureFlagProjects(): JSX.Element {
-    const { projectsWithCurrentFlag, featureFlag } = useValues(featureFlagLogic)
-    const { loadProjectsWithCurrentFlag, loadScheduledChanges } = useActions(featureFlagLogic)
+    const { projectsWithCurrentFlag, featureFlag, projectFlagsToggling } = useValues(featureFlagLogic)
+    const { loadProjectsWithCurrentFlag, loadScheduledChanges, toggleProjectFlagActive } = useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -242,6 +252,19 @@ export default function FeatureFlagProjects(): JSX.Element {
         }
     })
 
+    const onToggleFlagActive = (record: OrganizationFeatureFlag, active: boolean): void => {
+        if (record.team_id === null || record.flag_id === null) {
+            return
+        }
+        const teamId = record.team_id
+        const flagId = record.flag_id
+        confirmFlagActiveToggleInProject({
+            teamName: currentOrganization?.teams?.find((t) => t.id === teamId)?.name ?? `Project ${teamId}`,
+            active,
+            onConfirm: () => toggleProjectFlagActive(teamId, flagId, active),
+        })
+    }
+
     return (
         <div>
             <InfoBanner />
@@ -249,7 +272,13 @@ export default function FeatureFlagProjects(): JSX.Element {
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
-                columns={getColumns({ currentTeamId, currentOrganization, aggregationLabel })}
+                columns={getColumns({
+                    currentTeamId,
+                    currentOrganization,
+                    aggregationLabel,
+                    projectFlagsToggling,
+                    onToggleFlagActive,
+                })}
                 emptyState="This feature flag is not being used in any other project."
             />
         </div>

@@ -177,20 +177,22 @@ export class IngestionConsumer {
             redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
         })
 
-        // Create overflow redirect service only when overflow is enabled (main lane)
-        if (this.overflowEnabled()) {
+        // Overflow role for this consumer (redirect / consume / disabled).
+        const overflowMode = this.config.INGESTION_OVERFLOW_MODE
+
+        // Redirect hot partitions to the overflow topic (main lane).
+        if (overflowMode === 'redirect') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                 overflowType: 'events',
             })
         }
 
-        // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        // Drain the overflow topic and refresh stateful TTLs (overflow lane).
+        if (overflowMode === 'consume') {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -267,7 +269,7 @@ export class IngestionConsumer {
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
@@ -442,13 +444,6 @@ export class IngestionConsumer {
             }
             result = await this.joinedPipeline.next()
         }
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }
 

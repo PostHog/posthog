@@ -9,7 +9,7 @@ Tests cover:
 """
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import TestCase, override_settings
 
@@ -172,6 +172,44 @@ class TestFixAndRecord(BaseTest):
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
         assert self.team.id not in result.fixed_team_ids
+
+    @parameterized.expand(
+        [
+            ("under_cap", 0, True),
+            ("at_cap", 1, False),
+        ]
+    )
+    def test_fix_detail_info_log_respects_cap(self, _name, initial_logs_emitted, should_log):
+        mock_config = MagicMock()
+        mock_config.update_fn.return_value = True
+
+        result = VerificationResult(fix_detail_info_logs_emitted=initial_logs_emitted)
+
+        with (
+            patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 1),
+            patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
+        ):
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_mismatch",
+                cache_type="test_cache",
+                result=result,
+                verification={"status": "mismatch", "diff_fields": ["payload"]},
+            )
+
+        fix_detail_call = call(
+            "Fixing cache entry",
+            team_id=self.team.id,
+            issue_type="cache_mismatch",
+            cache_type="test_cache",
+            diff_fields=["payload"],
+        )
+        if should_log:
+            assert fix_detail_call in mock_info.call_args_list
+        else:
+            assert fix_detail_call not in mock_info.call_args_list
+        assert result.fix_detail_info_logs_emitted == 1
 
     def test_exception_in_update_fn_increments_fix_failed(self):
         """Test that exception in update_fn increments fix_failed."""
@@ -894,6 +932,124 @@ class TestVerifyAndFixAllTeams(BaseTest):
         # All teams should have been fixed (cache miss)
         assert result.total == result.cache_miss_fixed
         assert len(result.fixed_team_ids) == result.total
+
+    def test_fixed_batches_under_progress_interval_emit_batch_fix_logs(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[self.team.id, team2.id])
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with (
+            patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 0),
+            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 999),
+            patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
+            patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
+        ):
+            result = verify_and_fix_all_teams(
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                chunk_size=1,
+            )
+
+        assert result.total == 2
+        assert result.total_fixed == 2
+        assert [mock_call.args for mock_call in mock_info.call_args_list] == [
+            ("Batch completed with fixes",),
+            ("Batch completed with fixes",),
+        ]
+        assert [mock_call.kwargs["batch_number"] for mock_call in mock_info.call_args_list] == [1, 2]
+        assert [mock_call.kwargs["batch_verified"] for mock_call in mock_info.call_args_list] == [1, 1]
+        assert [mock_call.kwargs["batch_fixed"] for mock_call in mock_info.call_args_list] == [1, 1]
+        assert [mock_call.kwargs["teams_verified_total"] for mock_call in mock_info.call_args_list] == [1, 2]
+        assert [mock_call.kwargs["teams_fixed_total"] for mock_call in mock_info.call_args_list] == [1, 2]
+
+    def test_fix_detail_info_logs_are_capped_during_verification_run(self):
+        teams = [
+            self.team,
+            Team.objects.create(organization=self.organization, name="Team 2"),
+            Team.objects.create(organization=self.organization, name="Team 3"),
+        ]
+
+        mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[team.id for team in teams])
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+        mock_config.get_team_ids_to_skip_fix_fn = None
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with (
+            patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 2),
+            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 999),
+            patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
+            patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
+        ):
+            result = verify_and_fix_all_teams(
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                chunk_size=1,
+            )
+
+        fix_detail_calls = [
+            mock_call for mock_call in mock_info.call_args_list if mock_call.args == ("Fixing cache entry",)
+        ]
+        assert len(fix_detail_calls) == 2
+        assert result.fix_detail_info_logs_emitted == 2
+        assert result.total == 3
+        assert result.total_fixed == 3
+
+    def test_periodic_progress_log_reports_aggregate_fix_and_failure_counts(self):
+        team2 = Team.objects.create(organization=self.organization, name="Team 2")
+
+        mock_config = MagicMock()
+        mock_config.get_teams_queryset.return_value = Team.objects.filter(id__in=[self.team.id, team2.id])
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.side_effect = [True, False]
+        mock_config.get_team_ids_to_skip_fix_fn = None
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with (
+            patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 0),
+            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 1),
+            patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
+            patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
+        ):
+            result = verify_and_fix_all_teams(
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                chunk_size=2,
+            )
+
+        assert result.total == 2
+        assert result.total_fixed == 1
+        assert result.fix_failed == 1
+        mock_info.assert_called_once()
+
+        call_args = mock_info.call_args
+        assert call_args.args == ("Verification progress",)
+        assert call_args.kwargs["batch_fixed"] == 1
+        assert call_args.kwargs["batch_fix_failures"] == 1
+        assert call_args.kwargs["teams_verified_total"] == 2
+        assert call_args.kwargs["teams_fixed_total"] == 1
+        assert call_args.kwargs["cache_miss_fixed_total"] == 1
+        assert call_args.kwargs["cache_mismatch_fixed_total"] == 0
+        assert call_args.kwargs["expiry_missing_fixed_total"] == 0
+        assert call_args.kwargs["fix_failures_total"] == 1
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

@@ -50,9 +50,11 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            # Needed by the "Derive Node-only product workspace exclusions" step below,
-            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
-            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter exclude step, which must exist on disk. The
+            # remote dorny filter step needs no checkout (it diffs via the API), so this
+            # job didn't check out before those two were added.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -121,19 +123,19 @@ jobs:
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: a plain `!...` in the broad
-            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
-            # output comment above). With `every`, the filter is true only when some changed
-            # file lives OUTSIDE every excluded dir.
+            # A separate step is required because the main filter above still runs on
+            # dorny/paths-filter, whose default `some` quantifier neutralizes a plain
+            # `!...` (same gotcha as the output comment above). The vendored action's
+            # exclude semantics make this generated exclude-only filter true only when
+            # some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.

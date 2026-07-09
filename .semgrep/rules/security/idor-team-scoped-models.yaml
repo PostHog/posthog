@@ -146,6 +146,7 @@ rules:
                               |ExportedRecording
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
                               |TeamExperimentsConfig
@@ -211,9 +212,12 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -247,6 +251,7 @@ rules:
                               |Tag
                               |Tagger
                               |Task
+                              |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
@@ -427,6 +432,7 @@ rules:
                         |ExportedRecording
                         |ExternalDataJob
                         |ExternalDataSchema
+                        |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
                         |TeamExperimentsConfig
@@ -488,9 +494,12 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
@@ -524,6 +533,7 @@ rules:
                         |Tag
                         |Tagger
                         |Task
+                        |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun

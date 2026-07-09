@@ -58,7 +58,7 @@ describe('custom tool sandbox: real e2e', () => {
                 'tools/echoer/compiled.js': ECHOER_COMPILED,
                 'tools/echoer/schema.json': JSON.stringify({
                     description: 'echoes its input',
-                    args: { type: 'object' },
+                    args_schema: { type: 'object' },
                 }),
             },
         })
@@ -121,7 +121,7 @@ describe('custom tool sandbox: real e2e', () => {
                 'agent.md': 'echo agent',
                 'tools/echoer/source.ts': '// source',
                 'tools/echoer/compiled.js': ECHOER_COMPILED,
-                'tools/echoer/schema.json': JSON.stringify({ description: 'echoes', args: { type: 'object' } }),
+                'tools/echoer/schema.json': JSON.stringify({ description: 'echoes', args_schema: { type: 'object' } }),
             },
         })
         const res = await request(c.ingress).post('/agents/tracked-agent/run').send({ message: 'fire' })

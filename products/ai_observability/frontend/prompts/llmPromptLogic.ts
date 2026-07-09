@@ -91,6 +91,8 @@ export interface PublishConflict {
     latestVersion: number | null
 }
 
+export type PromptSnippetLanguage = 'python' | 'node'
+
 async function fetchResolvedPrompt(
     promptName: string,
     params?: { version?: number; offset?: number; before_version?: number; limit?: number }
@@ -125,6 +127,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     return {
         id: prompt.id,
         version: prompt.version,
+        version_description: prompt.version_description ?? null,
         created_by: prompt.created_by,
         created_at: prompt.created_at,
         is_latest: isLatest,
@@ -166,6 +169,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         requestPublish: true,
         openPublishReview: true,
         closePublishReview: true,
+        setVersionDescription: (versionDescription: string) => ({ versionDescription }),
+        setSnippetLanguage: (snippetLanguage: PromptSnippetLanguage) => ({ snippetLanguage }),
     }),
 
     reducers(({ props }) => ({
@@ -248,6 +253,21 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setMode: () => false,
             },
         ],
+        versionDescription: [
+            '',
+            {
+                setVersionDescription: (_, { versionDescription }) => versionDescription,
+                submitPromptFormSuccess: () => '',
+                closePublishReview: () => '',
+                setMode: () => '',
+            },
+        ],
+        snippetLanguage: [
+            'python' as PromptSnippetLanguage,
+            {
+                setSnippetLanguage: (_, { snippetLanguage }) => snippetLanguage,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -303,9 +323,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                             throw new Error('Cannot publish prompt version: prompt data not loaded')
                         }
 
+                        const versionDescription = values.versionDescription.trim()
                         savedPrompt = await api.llmPrompts.update(props.promptName, {
                             prompt: formValues.prompt,
                             base_version: currentPrompt.latest_version,
+                            ...(versionDescription ? { version_description: versionDescription } : {}),
                         })
                         llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                         lemonToast.success(`Published v${savedPrompt.version}`)
