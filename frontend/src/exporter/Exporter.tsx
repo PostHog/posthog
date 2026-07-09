@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { lazy, Suspense, useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -12,6 +12,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from 'scenes/dashboard/dashboardConstants'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -20,12 +21,12 @@ import { ExportType, ExportedData } from '~/exporter/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
-const LazyDashboardScene = lazy(() => import('./scenes/ExporterDashboardScene'))
-const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
-const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
-const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
-const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
-const LazyInterviewScene = lazy(() => import('./scenes/ExporterInterviewScene'))
+const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
+const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
+const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
+const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
+const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
+const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
     return (

@@ -1,13 +1,16 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import { IconX } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 import { WrappingLoadingSkeleton } from '../WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 
-const ButtonPrimitive = lazy(() => import('../Button/ButtonPrimitives').then((m) => ({ default: m.ButtonPrimitive })))
+const ButtonPrimitive = lazyWithRetry(() =>
+    import('../Button/ButtonPrimitives').then((m) => ({ default: m.ButtonPrimitive }))
+)
 
 function DialogPrimitive({
     children,

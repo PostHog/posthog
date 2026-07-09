@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense } from 'react'
 
 import {
     ActivityLogItem,
@@ -10,6 +10,7 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { isObject } from 'lib/utils/guards'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTypeType } from '~/types'
@@ -22,7 +23,7 @@ const nameOrLinkToHogFunction = (id?: string | null, name?: string | null): stri
     return id ? <Link to={urls.hogFunction(id)}>{displayName}</Link> : displayName
 }
 
-const LazyDiff = lazy(() => import('./Diff').then((m) => ({ default: m.Diff })))
+const LazyDiff = lazyWithRetry(() => import('./Diff').then((m) => ({ default: m.Diff })))
 
 /** Lazy so the activity describer registry (imported app-wide) doesn't pull monaco into its chunk. */
 export function Diff(props: DiffProps): JSX.Element {

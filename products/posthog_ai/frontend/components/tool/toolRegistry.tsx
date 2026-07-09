@@ -1,4 +1,4 @@
-import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
+import { type ComponentType, type LazyExoticComponent } from 'react'
 
 import {
     IconAI,
@@ -18,6 +18,7 @@ import {
 
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
@@ -75,12 +76,16 @@ class MapBackedRegistry implements ToolRegistry {
 // sandbox conversation pulls a renderer's chunk on first use, not at thread mount. The built-in tools
 // and the generic MCP card share one chunk (`builtinToolRenderers`); each heavy data-tool adapter and
 // the Monaco-backed diff renderer stay in their own chunks.
-const BuiltinToolRenderer = lazy(() =>
+const BuiltinToolRenderer = lazyWithRetry(() =>
     import('./builtinToolRenderers').then((m) => ({ default: m.BuiltinToolRenderer }))
 )
-const EditToolRenderer = lazy(() => import('./EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer })))
-const QuestionRenderer = lazy(() => import('../QuestionRenderer').then((m) => ({ default: m.QuestionRenderer })))
-const PostHogCodeToolRenderer = lazy(() =>
+const EditToolRenderer = lazyWithRetry(() =>
+    import('./EditDiffRenderer').then((m) => ({ default: m.EditDiffRenderer }))
+)
+const QuestionRenderer = lazyWithRetry(() =>
+    import('../QuestionRenderer').then((m) => ({ default: m.QuestionRenderer }))
+)
+const PostHogCodeToolRenderer = lazyWithRetry(() =>
     import('./posthogCodeToolRenderers').then((m) => ({ default: m.PostHogCodeToolRenderer }))
 )
 

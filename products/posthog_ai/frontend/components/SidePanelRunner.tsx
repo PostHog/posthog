@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 import type { SidePanelRunnerImplProps } from '../scenes/TaskTracker/components/SidePanelRunnerImpl'
 
@@ -9,7 +10,7 @@ export type SidePanelRunnerProps = SidePanelRunnerImplProps
 // The compact side-panel task-run surface (composer -> pending thread -> live run, no list/detail chrome) is
 // loaded on demand so a consumer that only links to it — e.g. Max's side panel — doesn't statically pull the
 // TaskTracker scene's components into its own chunk. Only `react` + a lightweight spinner load eagerly.
-const Lazy = lazy(() =>
+const Lazy = lazyWithRetry(() =>
     import('../scenes/TaskTracker/components/SidePanelRunnerImpl').then((m) => ({ default: m.SidePanelRunnerImpl }))
 )
 

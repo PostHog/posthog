@@ -1,9 +1,10 @@
-import { Suspense, lazy, memo } from 'react'
+import { Suspense, memo } from 'react'
 
 import { IconDocument, IconGlobe, IconMagicWand, IconSearch, IconTerminal, IconWrench } from '@posthog/icons'
 
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
@@ -29,7 +30,7 @@ import { ToolBody, ToolBodySection, ToolOutput } from './ToolOutput'
 import type { ToolRendererProps } from './toolRegistry'
 
 // Monaco-backed read-only file view, lazy so monaco stays out of the always-loaded built-in chunk.
-const ReadFileContent = lazy(() => import('./ReadFileContent').then((m) => ({ default: m.ReadFileContent })))
+const ReadFileContent = lazyWithRetry(() => import('./ReadFileContent').then((m) => ({ default: m.ReadFileContent })))
 
 function asString(value: unknown): string {
     return typeof value === 'string' ? value : ''

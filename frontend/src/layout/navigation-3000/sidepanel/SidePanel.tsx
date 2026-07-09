@@ -1,7 +1,7 @@
 import './SidePanel.scss'
 
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 
 import { IconLock, IconLogomark, IconNotebook } from '@posthog/icons'
 
@@ -9,8 +9,9 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
-const NotebookPanel = lazy(() =>
+const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
 )
 

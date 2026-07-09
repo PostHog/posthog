@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 export interface TextCardModalBodyFieldProps {
     shouldUseLegacyMarkdownEditor: boolean
@@ -8,13 +9,13 @@ export interface TextCardModalBodyFieldProps {
     onChange: (value: string) => void
 }
 
-const LazyLegacyMarkdownEditor = lazy(() =>
+const LazyLegacyMarkdownEditor = lazyWithRetry(() =>
     import('lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown').then((m) => ({
         default: m.LemonTextAreaMarkdown,
     }))
 )
 
-const LazyRichMarkdownEditor = lazy(() =>
+const LazyRichMarkdownEditor = lazyWithRetry(() =>
     import('lib/components/Cards/TextCard/TextCardMarkdownEditor').then((m) => ({
         default: m.TextCardMarkdownEditor,
     }))

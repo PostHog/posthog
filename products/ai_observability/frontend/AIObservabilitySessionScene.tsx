@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { type Ref, Suspense, lazy, useEffect, useRef } from 'react'
+import { type Ref, Suspense, useEffect, useRef } from 'react'
 
 import { IconWarning, IconWrench } from '@posthog/icons'
 import { LemonButton, LemonDrawer, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -12,6 +12,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -38,7 +39,7 @@ import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic
 import { sessionPlaybackLogic } from './sessionPlaybackLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
-const LLMASessionFeedbackDisplay = lazy(() =>
+const LLMASessionFeedbackDisplay = lazyWithRetry(() =>
     import('./LLMASessionFeedbackDisplay').then((m) => ({ default: m.LLMASessionFeedbackDisplay }))
 )
 

@@ -1,8 +1,9 @@
 import { BuiltLogic, LogicWrapper } from 'kea'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { MarketingAnalyticsOverview } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsOverview/MarketingAnalyticsOverview'
 
@@ -53,8 +54,10 @@ import {
     isWebVitalsQuery,
 } from '../utils'
 
-const WebVitals = lazy(() => import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals })))
-const WebVitalsPathBreakdown = lazy(() =>
+const WebVitals = lazyWithRetry(() =>
+    import('~/queries/nodes/WebVitals/WebVitals').then((m) => ({ default: m.WebVitals }))
+)
+const WebVitalsPathBreakdown = lazyWithRetry(() =>
     import('../nodes/WebVitals/WebVitalsPathBreakdown').then((m) => ({ default: m.WebVitalsPathBreakdown }))
 )
 

@@ -4,7 +4,7 @@ import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -20,6 +20,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -29,7 +30,7 @@ import { AccessDenied } from '../AccessDenied'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
-const MonacoDiffEditor = lazy(() => import('../MonacoDiffEditor'))
+const MonacoDiffEditor = lazyWithRetry(() => import('../MonacoDiffEditor'))
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number

@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
-import { lazy, Suspense, useCallback, useMemo } from 'react'
+import { Suspense, useCallback, useMemo } from 'react'
 
 import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
 
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
 
-const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
+const NavTabChat = lazyWithRetry(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
 // Renders the currently-active panel (Project tree, Notifications, Chat, etc.). Extracted so the
 // same active-panel JSX can be mounted at different positions in the DOM/stacking tree depending
