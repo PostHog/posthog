@@ -1933,10 +1933,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Inbox',
-        displayLabel: 'Inbox',
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
+        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },

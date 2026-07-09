@@ -154,6 +154,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
