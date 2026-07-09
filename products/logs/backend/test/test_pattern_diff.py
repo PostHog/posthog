@@ -126,6 +126,19 @@ class TestDiffPatterns(TestCase):
         assert entries[0]["classification"] == "new"
         assert entries[0]["pattern"]["pattern"] == "connect to <ip> failed"
 
+    def test_error_severity_on_a_non_representative_group_member_still_clears_the_floor(self) -> None:
+        # A below-floor group whose largest (representative) template is info but which contains a
+        # smaller error-severity template must surface as "new": the error line is the whole point.
+        entries = self._diff(
+            [
+                _pattern("connect to <ip> failed", count=3, share=0.4, severities={"info": 3}),
+                _pattern("connect to <*> failed", count=2, share=0.4, severities={"error": 2}),
+            ],
+            [],
+        )
+        assert len(entries) == 1
+        assert entries[0]["classification"] == "new"
+
     def test_entries_ordered_by_interest(self) -> None:
         entries = self._diff(
             [
