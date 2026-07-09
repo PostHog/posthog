@@ -868,6 +868,55 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert budget is None, f"warmer trigger {trigger} must keep the framework default budget"
             assert grace is None, f"warmer trigger {trigger} must not serve stale"
 
+    @parameterized.expand(
+        [
+            # First ensure burned 9.5s of the 10s budget: the compare ensure must be
+            # skipped entirely (fallback to raw) instead of getting a fresh budget.
+            ("budget_spent_skips_compare", 9.5, None),
+            # First ensure took 2s: the compare ensure runs with the 8s remainder,
+            # not a fresh PATHS_USER_ENSURE_WAIT_SECONDS.
+            ("remainder_passed_to_compare", 2.0, 8.0),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_user_ensure_budget_is_shared_across_compare_periods(
+        self, _name: str, first_ensure_seconds: float, expected_compare_budget: float | None
+    ) -> None:
+
+        from posthog.clickhouse.query_tagging import reset_query_tags
+
+        from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod
+
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(compare=True))
+        reset_query_tags()
+
+        # perf_counter sequence: overall_started, ensure_started, after first ensure;
+        # everything after sticks to the last value so later timing reads are stable.
+        ticks = [0.0, 0.0, first_ensure_seconds]
+
+        def fake_perf_counter() -> float:
+            return ticks.pop(0) if len(ticks) > 1 else ticks[0]
+
+        with (
+            patch.object(
+                mod,
+                "ensure_web_stats_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+            ) as ensure_mock,
+            patch.object(mod, "execute_read_query", return_value=[]),
+            patch.object(mod.time, "perf_counter", side_effect=fake_perf_counter),
+        ):
+            result = mod.execute_lazy_precomputed_read(
+                runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0
+            )
+
+        if expected_compare_budget is None:
+            assert result is None, "spent budget must skip the compare ensure and fall back to raw"
+            assert ensure_mock.call_count == 1
+        else:
+            assert ensure_mock.call_count == 2
+            assert ensure_mock.call_args_list[1].kwargs["wait_budget_seconds"] == expected_compare_budget
+
     @parameterized.expand([("no_compare", False), ("compare", True)])
     @freeze_time("2024-01-15T12:00:00Z")
     def test_read_scan_is_pruned_to_requested_windows(self, _name: str, compare: bool) -> None:
