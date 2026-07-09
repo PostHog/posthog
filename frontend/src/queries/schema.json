@@ -42454,7 +42454,15 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
+            "enum": [
+                "assistant:write",
+                "canvases:write",
+                "channels:manage",
+                "commands",
+                "files:write",
+                "im:history",
+                "mpim:read"
+            ],
             "type": "string"
         },
         "SlashCommandName": {
