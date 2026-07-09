@@ -43,12 +43,16 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
     if not inputs.condition_hashes:
         return EventDateCheckResult(date=inputs.date, already_backfilled=False)
 
+    # Only rows written by the backfill count: the realtime consumer also writes to this
+    # table (stamped with its ingestion day), so its rows would otherwise mask days whose
+    # pre-cohort events were never scanned - e.g. the hours before a cohort was created.
     query = """
         SELECT count(DISTINCT condition) as condition_count
         FROM precalculated_events
         WHERE team_id = %(team_id)s
           AND date = %(date)s
           AND condition IN %(condition_hashes)s
+          AND source LIKE 'cohort_event_backfill%%'
     """
     query_params = {
         "team_id": inputs.team_id,
@@ -68,6 +72,21 @@ async def check_day_already_backfilled_activity(inputs: EventDateCheckInputs) ->
 
     already_backfilled = condition_count >= len(inputs.condition_hashes)
     return EventDateCheckResult(date=inputs.date, already_backfilled=already_backfilled)
+
+
+def compute_day_ranges(now: dt.datetime, days_to_backfill: int) -> list[tuple[dt.datetime, dt.datetime]]:
+    """Partition the backfill window into daily [start, end) ranges, most recent first.
+
+    Today's range is partial: it ends at `now` rather than at the end of the day.
+    """
+    day_ranges: list[tuple[dt.datetime, dt.datetime]] = []
+    for day_offset in range(days_to_backfill):
+        day_start = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + dt.timedelta(days=1)
+        if day_offset == 0:
+            day_end = now
+        day_ranges.append((day_start, day_end))
+    return day_ranges
 
 
 @dataclasses.dataclass
@@ -176,14 +195,7 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
 
         # Compute the daily time ranges to process (most recent first for faster value delivery)
         now = temporalio.workflow.now()
-        day_ranges: list[tuple[dt.datetime, dt.datetime]] = []
-        for day_offset in range(inputs.days_to_backfill):
-            day_start = (now - dt.timedelta(days=day_offset)).replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day_start + dt.timedelta(days=1)
-            # For today's partial day, use now as the end
-            if day_offset == 0:
-                day_end = now
-            day_ranges.append((day_start, day_end))
+        day_ranges = compute_day_ranges(now, inputs.days_to_backfill)
 
         workflow_logger.info(
             f"Partitioned into {len(day_ranges)} daily chunks, "
@@ -199,8 +211,11 @@ class BackfillPrecalculatedEventsCoordinatorWorkflow(PostHogWorkflow):
         for day_start, day_end in day_ranges:
             date_str = day_start.strftime("%Y-%m-%d")
 
-            # Check if this day is already backfilled (skippable unless force_reprocess is set)
-            if not inputs.force_reprocess:
+            # Check if this day is already backfilled (skippable unless force_reprocess is set).
+            # Today's partial day is never skipped: existing rows only prove coverage up to an
+            # earlier run's start time, not up to now.
+            is_full_day = day_end - day_start >= dt.timedelta(days=1)
+            if not inputs.force_reprocess and is_full_day:
                 check_result = await temporalio.workflow.execute_activity(
                     check_day_already_backfilled_activity,
                     EventDateCheckInputs(

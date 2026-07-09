@@ -1,3 +1,5 @@
+import datetime as dt
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -5,6 +7,7 @@ from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workfl
     BackfillPrecalculatedEventsCoordinatorInputs,
     EventDateCheckInputs,
     check_day_already_backfilled_activity,
+    compute_day_ranges,
 )
 
 
@@ -112,3 +115,36 @@ class TestCheckDayAlreadyBackfilledActivity:
 
         assert result.date == "2024-01-15"
         assert result.already_backfilled is expected_backfilled
+
+    @pytest.mark.asyncio
+    async def test_day_check_counts_only_backfill_written_rows(self):
+        inputs = EventDateCheckInputs(
+            team_id=1,
+            condition_hashes=["hash1"],
+            date="2024-01-15",
+        )
+
+        mock_client = AsyncMock()
+        mock_client.read_query = AsyncMock(return_value=b"1\n")
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow.get_client",
+            return_value=mock_client,
+        ):
+            await check_day_already_backfilled_activity(inputs)
+
+        executed_query = mock_client.read_query.call_args[0][0]
+        assert "source LIKE 'cohort_event_backfill%%'" in executed_query
+
+
+class TestComputeDayRanges:
+    def test_today_is_partial_and_past_days_are_full(self):
+        now = dt.datetime(2026, 7, 9, 15, 30, 45, tzinfo=dt.UTC)
+        ranges = compute_day_ranges(now, 3)
+        assert ranges == [
+            (dt.datetime(2026, 7, 9, tzinfo=dt.UTC), now),
+            (dt.datetime(2026, 7, 8, tzinfo=dt.UTC), dt.datetime(2026, 7, 9, tzinfo=dt.UTC)),
+            (dt.datetime(2026, 7, 7, tzinfo=dt.UTC), dt.datetime(2026, 7, 8, tzinfo=dt.UTC)),
+        ]
