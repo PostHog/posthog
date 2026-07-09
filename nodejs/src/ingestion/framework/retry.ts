@@ -48,7 +48,7 @@ export function withStepRetry<T, U, R extends string = never>(
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
-            logger.error('🔥', `Step ${step.name} failed`, {
+            logger.error('🔥', `Step ${name} failed`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: (error as Error).stack,
                 isRetriable,
@@ -103,7 +103,7 @@ export function withBatchRetry<T, U, R extends string = never>(
         } catch (error) {
             const isRetriable = (error as any)?.isRetriable
 
-            logger.error('🔥', `Batch step ${step.name} failed`, {
+            logger.error('🔥', `Batch step ${name} failed`, {
                 error: error instanceof Error ? error.message : String(error),
                 stack: (error as Error).stack,
                 batchSize: values.length,
