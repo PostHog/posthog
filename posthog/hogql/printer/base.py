@@ -1025,6 +1025,11 @@ class BasePrinter(Visitor[str]):
                 node.name,
                 function_term="aggregation",
             )
+            # `DISTINCT` needs something to deduplicate on. A malformed `count(DISTINCT)`
+            # parses to zero args with distinct set, which prints as `count(DISTINCT )` and
+            # blows up as an opaque ClickHouse error, so reject it as a validation error here.
+            if node.distinct and len(node.args) == 0:
+                raise QueryError(f"Aggregation '{node.name}' with DISTINCT requires at least one argument")
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")

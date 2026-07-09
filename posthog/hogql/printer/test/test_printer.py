@@ -1314,6 +1314,7 @@ class TestPrinter(BaseTest):
             "Aggregation 'countIf' expects at most 2 arguments, found 3",
         )
         self._assert_expr_error("uniq()", "Aggregation 'uniq' expects at least 1 argument, found 0")
+        self._assert_expr_error("count(DISTINCT)", "Aggregation 'count' with DISTINCT requires at least one argument")
         self._assert_expr_error(
             "quantile(event)",
             "Aggregation 'quantile' requires parameters in addition to arguments",
