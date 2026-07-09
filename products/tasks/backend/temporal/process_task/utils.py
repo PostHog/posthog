@@ -148,13 +148,13 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     *CODEX_REASONING_EFFORTS,
     ReasoningEffort.XHIGH,
 )
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
+CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
 
 # Canonical list of Codex models. The runtime technically accepts any
 # `gpt-*` identifier passed through, but only models on this list are
 # considered tested and surfaced in pickers. Extend when a new Codex model
 # ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5")
+CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
