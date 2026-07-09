@@ -185,6 +185,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },

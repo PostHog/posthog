@@ -78,6 +78,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "error_tracking",
     "logs",
     "tracing",
+    "toolbar",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources

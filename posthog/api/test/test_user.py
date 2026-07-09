@@ -4,6 +4,7 @@ from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
 
+import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest import mock
@@ -24,6 +25,7 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -35,6 +37,11 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
 from products.dashboards.backend.models.dashboard import Dashboard
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -2138,6 +2145,73 @@ class TestUserAPI(APIBaseTest):
                 "pipeline_notifications_disabled": {},  # Default value
             },
         )
+
+
+@pytest.mark.ee
+class TestToolbarAccessControl(APIBaseTest):
+    """The toolbar launch endpoints must respect the `toolbar` resource's access control."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+    def _deny_toolbar_access(self):
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="toolbar",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+
+    def test_redirect_to_site_denied_without_toolbar_access(self):
+        self._deny_toolbar_access()
+
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_redirect_to_site_allowed_with_default_access(self):
+        response = self.client.get("/api/user/redirect_to_site/?appUrl=http%3A%2F%2F127.0.0.1%3A8010")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+    @patch("posthog.api.user.get_or_create_toolbar_oauth_application")
+    def test_toolbar_oauth_authorize_denied_without_toolbar_access(self, mock_get_or_create_app):
+        self._deny_toolbar_access()
+
+        response = self.client.get(
+            "/toolbar_oauth/authorize/?redirect=http%3A%2F%2F127.0.0.1%3A8010&code_challenge=abc"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_or_create_app.assert_not_called()
+
+    def test_get_toolbar_preloaded_flags_denied_without_toolbar_access(self):
+        cache.set("toolbar_flags_test-key", {"feature_flags": {"a-flag": True}, "team_id": self.team.id}, timeout=300)
+        self._deny_toolbar_access()
+
+        response = self.client.get("/api/user/get_toolbar_preloaded_flags/?key=test-key")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthog.api.user.get_flags_from_service")
+    def test_prepare_toolbar_preloaded_flags_denied_without_toolbar_access(self, mock_get_flags):
+        mock_get_flags.return_value = {"flags": {}}
+        self._deny_toolbar_access()
+
+        response = self.client.post(
+            "/api/user/prepare_toolbar_preloaded_flags/", {"distinct_id": "user123"}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_flags.assert_not_called()
 
 
 class TestSessionAuthEndpoints(APIBaseTest):

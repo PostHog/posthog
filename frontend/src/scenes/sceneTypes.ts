@@ -336,6 +336,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Revenue analytics
     [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 
+    // Toolbar
+    [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
+
     // Web Analytics
     [Scene.WebAnalytics]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,

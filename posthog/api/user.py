@@ -99,6 +99,7 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
@@ -1441,6 +1442,11 @@ class UserViewSet(
 # Toolbar
 
 
+def _user_can_access_toolbar(user: User, team: Team) -> bool:
+    """Whether the user is allowed to launch the toolbar for this team."""
+    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+
+
 @require_http_methods(["GET"])
 def toolbar_oauth_authorize(request):
     """
@@ -1461,6 +1467,9 @@ def toolbar_oauth_authorize(request):
     team = request.user.team
     if not team:
         return HttpResponse("No project found", status=400)
+
+    if not _user_can_access_toolbar(request.user, team):
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
 
     try:
         app_url = normalize_and_validate_app_url(team, redirect_url)
@@ -1653,6 +1662,9 @@ def get_toolbar_preloaded_flags(request):
         )
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    if not _user_can_access_toolbar(request.user, request.user.team):
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
     feature_flags = cache_data.get("feature_flags", {})
 
     return JsonResponse({"featureFlags": feature_flags})
@@ -1677,6 +1689,9 @@ def prepare_toolbar_preloaded_flags(request):
         if not team:
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
+
+        if not _user_can_access_toolbar(request.user, team):
+            return JsonResponse({"error": "Unauthorized"}, status=403)
 
         # Use Rust flags service. Pass the internal token so this Django -> Rust
         # call bypasses the team's billing limiter and isn't counted as customer
@@ -1724,7 +1739,11 @@ def redirect_to_site(request):
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
+    if not team or not _user_can_access_toolbar(request.user, team):
+        REDIRECT_TO_SITE_FAILED_COUNTER.inc()
+        return HttpResponse("You don't have access to the toolbar for this project.", status=403)
+
+    if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
         parsed_app_url = urllib.parse.urlparse(app_url)
         hostname = parsed_app_url.hostname or app_url

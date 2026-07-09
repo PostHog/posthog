@@ -309,6 +309,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.ErrorTracking,
                     AccessControlResourceType.Survey,
                     AccessControlResourceType.WebAnalytics,
+                    AccessControlResourceType.Toolbar,
                 ]
 
                 return allResources.filter((resource) => {
