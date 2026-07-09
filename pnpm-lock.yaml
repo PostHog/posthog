@@ -2528,6 +2528,9 @@ importers:
       '@posthog/agent-runner':
         specifier: workspace:*
         version: link:../agent-runner
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.0
       node-rdkafka:
         specifier: ^3.4.0
         version: 3.6.1
@@ -2535,9 +2538,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.18.8
-      esbuild:
-        specifier: ^0.25.10
-        version: 0.25.12
       tsx:
         specifier: ^4.7.0
         version: 4.20.5
@@ -6135,6 +6135,7 @@ packages:
 
   '@clickhouse/client-common@1.12.0':
     resolution: {integrity: sha512-cyI4n7u9jK30d9q1q0ceQ7IwJ/MtTs5HxoQfc8yHpN+ok5wqaU2jAtq5hpa1z7C7sS1pDy/ZOFmOzg1v1F683g==}
+    deprecated: 'Deprecated: import from @clickhouse/client or @clickhouse/client-web instead.'
 
   '@clickhouse/client@1.12.0':
     resolution: {integrity: sha512-vJUSX8THhTzlVn0WxPukVjOgNRaSoY02ubQkB0LpqNoHFxXuF5jQZZAYvGZWpBGbYQ/4gfPrqu8g4TX5UKeNxA==}
@@ -19773,6 +19774,7 @@ packages:
     engines: {node: '>=0.6.0', teleport: '>=0.2.0'}
     deprecated: |-
       You or someone you depend on is using Q, the JavaScript Promise library that gave JavaScript developers strong feelings about promises. They can almost certainly migrate to the native JavaScript promise now. Thank you literally everyone for joining me in this bet against the odds. Be excellent to each other.
+
       (For a CapTP with native promises, see @endo/eventual-send and @endo/captp)
 
   qrcode.react@4.2.0:
