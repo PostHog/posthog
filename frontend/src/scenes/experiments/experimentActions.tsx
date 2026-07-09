@@ -71,7 +71,7 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>): void {
         primaryButton: {
             children: 'Freeze exposure',
             type: 'primary',
-            onClick: async () => await onConfirm(),
+            onClick: () => onConfirm(),
             size: 'small',
         },
         secondaryButton: {
@@ -102,7 +102,7 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
         primaryButton: {
             children: 'Unfreeze exposure',
             type: 'primary',
-            onClick: async () => await onConfirm(),
+            onClick: () => onConfirm(),
             size: 'small',
         },
         secondaryButton: {
