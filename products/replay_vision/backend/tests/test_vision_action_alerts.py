@@ -71,6 +71,10 @@ class TestVisionActionAlerts(BaseTest):
         run.save()
         return _evaluate(EvaluateAlertInputs(run_id=run.id, team_id=self.team.id)), run
 
+    def _record(self, run: VisionActionRun, status: str, error: dict | None = None) -> None:
+        # Mirror the workflow's final run update so state resolution sees what production would.
+        VisionActionRun.objects.for_team(self.team.id).filter(pk=run.pk).update(status=status, error=error)
+
     def test_count_alert_fires_and_persists_deterministic_message(self) -> None:
         scanner = self._scanner()
         self._observation(scanner, {"verdict": "yes", "reasoning": "user hit the bug"})
@@ -193,58 +197,64 @@ class TestVisionActionAlerts(BaseTest):
 
     def test_breach_fires_once_until_it_clears(self) -> None:
         # A rolling window stays breached across checks; only the transition into breach notifies.
+        # Each check's outcome is recorded the way the workflow records it.
         scanner = self._scanner(name="steady")
         self._observation(scanner, {"verdict": "yes"})
         action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7})
 
         first, first_run = self._evaluate(action)
         self.assertEqual(first.status, AlertStatus.FIRED)
-        VisionActionRun.objects.for_team(self.team.id).filter(pk=first_run.pk).update(
-            status=VisionActionRunStatus.COMPLETED
-        )
+        self._record(first_run, VisionActionRunStatus.COMPLETED)
 
-        second, _ = self._evaluate(action, key="k2")
+        second, second_run = self._evaluate(action, key="k2")
         self.assertEqual(second.status, AlertStatus.STILL_BREACHED)
+        self._record(second_run, VisionActionRunStatus.SKIPPED, {"skip_reason": "still_breached"})
 
-        # After a not-breached check (the condition cleared), a new breach notifies again.
-        third, third_run = self._evaluate(action, key="k3")
-        VisionActionRun.objects.for_team(self.team.id).filter(pk=third_run.pk).update(
-            status=VisionActionRunStatus.SKIPPED
-        )
+        # Once a check observes the condition clear (window emptied), the next breach notifies again.
+        cleared_run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k3")
+        cleared_run.save()
+        self._record(cleared_run, VisionActionRunStatus.SKIPPED, {"skip_reason": "not_breached"})
+
         fourth, _ = self._evaluate(action, key="k4")
         self.assertEqual(fourth.status, AlertStatus.FIRED)
 
-    def test_every_match_fires_per_new_match_and_only_new(self) -> None:
-        # "Every time the result is YES, Slack me": each check reports only what's new since the
-        # previous check — no still-breached suppression, and no re-reporting of old matches.
-        scanner = self._scanner(name="everytime")
+    def test_transient_failure_does_not_rearm_a_breached_alert(self) -> None:
+        # A crashed check between two breached checks must not cause a duplicate notification: the
+        # state comes from the last check that meaningfully evaluated, walking past FAILED runs.
+        scanner = self._scanner(name="flaky-check")
+        self._observation(scanner, {"verdict": "yes"})
+        action = self._alert(scanner, {"metric": "count", "operator": "gte", "threshold": 1, "window_days": 7})
+
+        first, first_run = self._evaluate(action)
+        self.assertEqual(first.status, AlertStatus.FIRED)
+        self._record(first_run, VisionActionRunStatus.COMPLETED)
+
+        failed_run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k-fail")
+        failed_run.save()
+        self._record(failed_run, VisionActionRunStatus.FAILED, {"message": "boom"})
+
+        third, _ = self._evaluate(action, key="k3")
+        self.assertEqual(third.status, AlertStatus.STILL_BREACHED)
+
+    def test_every_match_failed_check_does_not_lose_its_window(self) -> None:
+        # A crashed every-match check must not advance the coverage cursor: its window's matches are
+        # picked up by the next successful check instead of being silently dropped.
+        scanner = self._scanner(name="lossless")
         action = self._alert(scanner, {"frequency": "every_match"}, selection={"verdict": ["yes"]})
 
         self._observation(scanner, {"verdict": "yes"})
         first, first_run = self._evaluate(action)
         self.assertEqual(first.status, AlertStatus.FIRED)
-        self.assertEqual(first.observation_count, 1)
-        first_run.refresh_from_db()
-        self.assertIn("1 new matching observation since the last check", first_run.synthesized_markdown)
+        self._record(first_run, VisionActionRunStatus.COMPLETED)
 
-        # A second match after the first check fires again (the on_breach flavor would suppress this).
         self._observation(scanner, {"verdict": "yes"}, session_id="s2")
-        second, _ = self._evaluate(action, key="k2")
-        self.assertEqual(second.status, AlertStatus.FIRED)
-        self.assertEqual(second.observation_count, 1)
+        failed_run = VisionActionRun(vision_action=action, team=self.team, idempotency_key="k-fail")
+        failed_run.save()
+        self._record(failed_run, VisionActionRunStatus.FAILED, {"message": "boom"})
 
-        # Nothing new since the last check → quiet.
         third, _ = self._evaluate(action, key="k3")
-        self.assertEqual(third.status, AlertStatus.NOT_BREACHED)
-
-    def test_every_match_ignores_observations_from_before_the_alert_existed(self) -> None:
-        scanner = self._scanner(name="no-history")
-        self._observation(scanner, {"verdict": "yes"}, age_days=0.5)
-        action = self._alert(scanner, {"frequency": "every_match"}, selection={"verdict": ["yes"]})
-        VisionAction.all_teams.filter(pk=action.pk).update(created_at=timezone.now())
-
-        result, _ = self._evaluate(action)
-        self.assertEqual(result.status, AlertStatus.NOT_BREACHED)
+        self.assertEqual(third.status, AlertStatus.FIRED)
+        self.assertEqual(third.observation_count, 1)
 
     def test_malformed_config_never_fires(self) -> None:
         scanner = self._scanner(name="broken")

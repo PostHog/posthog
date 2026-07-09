@@ -51,6 +51,11 @@ EXAMPLE_LINES = 5
 # Rolling evaluation windows the condition may look back over, in days.
 ALERT_WINDOW_DAYS = (1, 3, 7, 14, 30)
 DEFAULT_ALERT_WINDOW_DAYS = 1
+# Skip reasons that mean a check ran to completion and observed the alert's state.
+_EVALUATED_SKIP_REASONS = {"not_breached", "still_breached"}
+# How many prior runs to scan for the last meaningful evaluation before giving up (an alert with
+# this many consecutive failed checks has bigger problems than firing state).
+_STATE_SCAN_LIMIT = 20
 
 _OPERATORS = {
     AlertOperator.GT: operator.gt,
@@ -117,13 +122,7 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
         logger.warning("vision_action.alert.invalid_config", vision_action_id=str(action.id))
         return EvaluateAlertResult(status=AlertStatus.NOT_BREACHED, observation_count=0)
 
-    previous = (
-        VisionActionRun.objects.for_team(team.id)
-        .filter(vision_action_id=action.id)
-        .exclude(pk=run.pk)
-        .order_by("-created_at")
-        .first()
-    )
+    previous, previous_breached = _last_evaluated_run(team.id, action.id, run.pk)
 
     window_end = run.scheduled_at or datetime.now(UTC)
     if every_match:
@@ -173,13 +172,33 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
         )
 
     # Fire on the transition into breach only: a rolling window can stay breached across many checks,
-    # and re-notifying every tick would be spam. The previous check's outcome is the state.
-    if previous is not None and previous.status == VisionActionRunStatus.COMPLETED:
+    # and re-notifying every tick would be spam. The last meaningful evaluation's outcome is the state.
+    if previous is not None and previous_breached:
         return EvaluateAlertResult(
             status=AlertStatus.STILL_BREACHED, observation_count=matched_count, metric_value=metric_value
         )
 
     return _persist_fired(run, action, alert_config, metric_value, matched_count, observations_qs, team)
+
+
+def _last_evaluated_run(team_id: int, action_id: Any, exclude_pk: Any) -> tuple[VisionActionRun | None, bool]:
+    """The most recent prior run whose outcome reflects the alert's state, and whether it observed a
+    breach: a fired run (message persisted, even if delivery later failed) or an evaluated skip.
+    Failed or interrupted checks are walked past so a transient failure can't re-arm a still-breached
+    alert, and so an every-match window that a failed check never covered gets re-covered."""
+    runs = (
+        VisionActionRun.objects.for_team(team_id)
+        .filter(vision_action_id=action_id)
+        .exclude(pk=exclude_pk)
+        .order_by("-created_at")[:_STATE_SCAN_LIMIT]
+    )
+    for prev in runs:
+        if prev.synthesized_markdown:
+            return prev, True
+        error = prev.error if isinstance(prev.error, dict) else {}
+        if prev.status == VisionActionRunStatus.SKIPPED and error.get("skip_reason") in _EVALUATED_SKIP_REASONS:
+            return prev, error.get("skip_reason") == "still_breached"
+    return None, False
 
 
 def _persist_fired(
