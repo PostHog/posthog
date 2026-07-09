@@ -416,7 +416,7 @@ export function createCdpCoreServices(
             trackedFetch: cdpTrackedFetch,
             maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
         },
-        deps.redis
+        redis
     )
 
     const hogExecutor = new HogExecutorService(
