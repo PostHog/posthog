@@ -8,7 +8,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
-import { lightenDarkenColor } from 'lib/utils/colors'
+import { getContrastingTextColor, lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -213,23 +213,23 @@ export const Table = (props: TableProps): JSX.Element => {
                         const ruleColor = conditionalFormattingMatches.rule.color
                         const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
 
-                        // If the color mode matches the current theme, return as it was saved
+                        let backgroundColor: string
                         if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                            return {
-                                backgroundColor: ruleColor,
-                            }
+                            // The color mode matches the current theme, use it as it was saved
+                            backgroundColor = ruleColor
+                        } else if (colorMode === 'dark' && !isDarkModeOn) {
+                            // The color mode is dark, but we're in light mode - lighten the color
+                            backgroundColor = lightenDarkenColor(ruleColor, 30)
+                        } else {
+                            // The color mode is light, but we're in dark mode - darken the color
+                            backgroundColor = lightenDarkenColor(ruleColor, -30)
                         }
 
-                        // If the color mode is dark, but we're in light mode - then lighten the color
-                        if (colorMode === 'dark' && !isDarkModeOn) {
-                            return {
-                                backgroundColor: lightenDarkenColor(ruleColor, 30),
-                            }
-                        }
-
-                        // If the color mode is light, but we're in dark mode - then darken the color
+                        // Pin the text color to the cell background rather than inheriting the theme's
+                        // text color, which is near-white in dark mode and unreadable on light backgrounds
                         return {
-                            backgroundColor: lightenDarkenColor(ruleColor, -30),
+                            backgroundColor,
+                            color: getContrastingTextColor(backgroundColor),
                         }
                     }
 

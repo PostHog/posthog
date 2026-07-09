@@ -1,0 +1,123 @@
+{
+  "id": 22,
+  "short_id": "cFmT9x2k",
+  "name": "Table with conditional formatting",
+  "derived_name": null,
+  "filters": {},
+  "query": {
+    "kind": "DataVisualizationNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT product, revenue, growth, conversion FROM plans"
+    },
+    "display": "ActionsTable",
+    "tableSettings": {
+      "columns": [
+        { "column": "product", "settings": { "formatting": { "prefix": "", "suffix": "" } } },
+        { "column": "revenue", "settings": { "formatting": { "prefix": "$", "suffix": "" } } },
+        { "column": "growth", "settings": { "formatting": { "prefix": "", "suffix": "%" } } },
+        { "column": "conversion", "settings": { "formatting": { "prefix": "", "suffix": "%" } } }
+      ],
+      "conditionalFormatting": [
+        {
+          "id": "rule-revenue-high",
+          "templateId": "greater_than",
+          "columnName": "revenue",
+          "input": "5000",
+          "color": "#C1FBA4",
+          "colorMode": "light",
+          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 13, 38]
+        },
+        {
+          "id": "rule-revenue-low",
+          "templateId": "less_than",
+          "columnName": "revenue",
+          "input": "1000",
+          "color": "#FDFFB6",
+          "colorMode": "light",
+          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 15, 38]
+        },
+        {
+          "id": "rule-growth-negative",
+          "templateId": "less_than",
+          "columnName": "growth",
+          "input": "0",
+          "color": "#FFADAD",
+          "colorMode": "light",
+          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 15, 38]
+        },
+        {
+          "id": "rule-conversion-high",
+          "templateId": "greater_than",
+          "columnName": "conversion",
+          "input": "20",
+          "color": "#A0C4FF",
+          "colorMode": "light",
+          "bytecode": ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 13, 38]
+        }
+      ]
+    }
+  },
+  "order": null,
+  "deleted": false,
+  "dashboards": [],
+  "dashboard_tiles": [],
+  "last_refresh": "2026-03-04T16:10:59.052768Z",
+  "cache_target_age": "2026-03-04T22:10:59.052768Z",
+  "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
+  "result": [
+    ["Enterprise", 12000, 8.5, 34],
+    ["Pro", 6400, -2.1, 22],
+    ["Starter", 850, 15.2, 12],
+    ["Free", 210, -30.0, 4]
+  ],
+  "hasMore": false,
+  "columns": ["product", "revenue", "growth", "conversion"],
+  "created_at": "2026-03-04T16:11:08.460573Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "description": null,
+  "updated_at": "2026-03-04T16:11:08.460609Z",
+  "favorited": false,
+  "saved": true,
+  "last_modified_at": "2026-03-04T16:11:08.456506Z",
+  "last_modified_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "is_sample": false,
+  "effective_restriction_level": 21,
+  "effective_privilege_level": 37,
+  "user_access_level": "manager",
+  "timezone": "UTC",
+  "is_cached": true,
+  "query_status": null,
+  "hogql": "SELECT product, revenue, growth, conversion FROM plans LIMIT 101 OFFSET 0",
+  "types": [
+    ["product", "String"],
+    ["revenue", "Int64"],
+    ["growth", "Float64"],
+    ["conversion", "Int64"]
+  ],
+  "resolved_date_range": null,
+  "alerts": [],
+  "last_viewed_at": "2026-03-04T16:11:30.018817Z",
+  "tags": [],
+  "filters_hash": "cache_1_eb04b61fff884f29a4c74600aea3684fb7769ff1fa6e0d4e59865ee187c3b58c"
+}
