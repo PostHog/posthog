@@ -22,6 +22,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
     count_in_flight_applies_activity,
+    count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
     refresh_prompt_suggestion_activity,
 )
@@ -90,15 +91,27 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # min of the two headrooms. Skip entirely when saturated. Keeps any single tenant from flooding the
         # shared rasterizer + provider concurrency. A DB error fails the count (single attempt), so the sweep
         # skips this tick rather than dispatching against an unknown load; the next tick retries in 5 minutes.
-        in_flight = await wf.execute_activity(
-            count_in_flight_applies_activity,
-            CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-            start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
-        )
+        count_inputs = CountInFlightAppliesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id)
+        if wf.patched("replay-vision-team-in-flight-caps"):
+            in_flight = await wf.execute_activity(
+                count_in_flight_by_team_activity,
+                count_inputs,
+                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
+            )
+            scanner_in_flight, team_in_flight = in_flight.scanner, in_flight.team
+        else:
+            # Pre-deploy sweeps replay the legacy scanner-only counter's recorded int; no team cap for them.
+            scanner_in_flight = await wf.execute_activity(
+                count_in_flight_applies_activity,
+                count_inputs,
+                start_to_close_timeout=COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
+                retry_policy=common.RetryPolicy(maximum_attempts=1),
+            )
+            team_in_flight = 0
         headroom = min(
-            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - in_flight.scanner,
-            MAX_IN_FLIGHT_APPLIES_PER_TEAM - in_flight.team,
+            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
+            MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
         )
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
@@ -106,8 +119,8 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 "replay_vision.sweep_throttled",
                 extra={
                     "scanner_id": str(inputs.scanner_id),
-                    "scanner_in_flight": in_flight.scanner,
-                    "team_in_flight": in_flight.team,
+                    "scanner_in_flight": scanner_in_flight,
+                    "team_in_flight": team_in_flight,
                 },
             )
             return

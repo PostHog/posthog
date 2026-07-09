@@ -15,7 +15,10 @@ from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
-from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
+    count_in_flight_applies_activity,
+    count_in_flight_by_team_activity,
+)
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
 from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
     refresh_prompt_suggestion_activity,
@@ -254,7 +257,7 @@ class _SweepMocks:
     async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
         self.activity_calls.append((activity_fn, activity_input))
         # Default to 0 in-flight (full headroom) unless a test overrides it.
-        if activity_fn is count_in_flight_applies_activity and activity_fn not in self.activity_results:
+        if activity_fn is count_in_flight_by_team_activity and activity_fn not in self.activity_results:
             return InFlightApplyCounts(scanner=0, team=0)
         # Default to no due vision actions unless a test overrides it.
         if activity_fn is evaluate_due_vision_actions_activity and activity_fn not in self.activity_results:
@@ -277,7 +280,7 @@ def _sweep_inputs() -> SweepScannerInputs:
     return SweepScannerInputs(scanner_id=uuid.uuid4(), team_id=42)
 
 
-async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
+async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None, patched: bool = True) -> None:
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -293,7 +296,7 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
         # `workflow.patched` also needs the runtime; new executions take the patched branch.
-        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -311,7 +314,7 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
     assert [fn for fn, _ in mocks.activity_calls] == [
         evaluate_due_vision_actions_activity,
         refresh_prompt_suggestion_activity,
-        count_in_flight_applies_activity,
+        count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
     ]
     assert mocks.child_calls == []
@@ -420,7 +423,7 @@ async def test_inflight_cap_gates_the_sweep(
 ) -> None:
     mocks = _SweepMocks(
         activity_results={
-            count_in_flight_applies_activity: in_flight,
+            count_in_flight_by_team_activity: in_flight,
             find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
         },
     )
@@ -433,11 +436,32 @@ async def test_inflight_cap_gates_the_sweep(
         assert [fn for fn, _ in mocks.activity_calls] == [
             evaluate_due_vision_actions_activity,
             refresh_prompt_suggestion_activity,
-            count_in_flight_applies_activity,
+            count_in_flight_by_team_activity,
         ]
         assert mocks.child_calls == []
     else:
         assert find_calls[0].candidate_limit == expected_candidate_limit
+
+
+@pytest.mark.asyncio
+async def test_unpatched_sweep_replays_legacy_scanner_counter() -> None:
+    # A sweep that started before the team-cap patch must replay the legacy scanner-only counter (its
+    # recorded int result), never the team-aware activity that returns a different type; otherwise the
+    # in-flight execution wedges on a deserialization mismatch across the deploy.
+    mocks = _SweepMocks(
+        activity_results={
+            count_in_flight_applies_activity: 3,
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+    )
+
+    await _run_sweep(mocks, patched=False)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert count_in_flight_applies_activity in called
+    assert count_in_flight_by_team_activity not in called
+    find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
+    assert find_calls[0].candidate_limit == MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 3
 
 
 # SweepScannerWorkflow vision-action dispatch (the "and then…" trigger riding the sweep)
