@@ -182,6 +182,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     // so the analysis window select renders the effective default instead of empty.
                     return {
                         ...subscription,
+                        // Write-only, so never present on the API response: default the edit form's
+                        // "Send a test run now" toggle to on, matching the create flow.
+                        send_test_now: true,
                         ai_prompt_config: {
                             ...subscription.ai_prompt_config,
                             window: {
