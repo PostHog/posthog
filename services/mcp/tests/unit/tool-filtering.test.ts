@@ -746,6 +746,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'mcp-feedback-tool',
                 'user-interviews',
                 'customer-analytics-csp',
+                'customer-analytics-event-stream',
                 'notebooks-collaboration',
                 'replay-vision',
                 'tasks',

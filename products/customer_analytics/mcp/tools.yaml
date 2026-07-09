@@ -396,6 +396,119 @@ tools:
     customer-profile-configs-update:
         operation: customer_profile_configs_update
         enabled: false
+    event-streams-add-account:
+        operation: event_streams_add_account_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add account to my event stream
+        description: >
+            Add a Customer Analytics account to the caller's event stream so its users' matching events start posting
+            to their Slack channel. Provide the stream `id` and the `account_id` to add. Idempotent — adding an account
+            that is already in the stream is a no-op. Only accounts with an `external_id` actually deliver (the
+            external_id is how events are matched to the account).
+        feature_flag: customer-analytics-event-stream
+    event-streams-create:
+        operation: event_streams_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create my event stream
+        description: >
+            Create the caller's personal Customer Analytics event stream — a live feed of selected accounts' events
+            posted to a Slack channel of their choice. Each user has at most one stream per project (409 if one already
+            exists; use event-streams-list first). Provide `event_names` to watch, and optionally `slack_integration`
+            + `slack_channel_id` for delivery — the stream only delivers once events, a Slack channel, and at least one
+            member account are all configured and `enabled` is true.
+        feature_flag: customer-analytics-event-stream
+    event-streams-destroy:
+        operation: event_streams_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete my event stream
+        description: >
+            Delete the caller's event stream and its account memberships, and stop its Slack delivery. Only the
+            caller's own stream can be deleted.
+        feature_flag: customer-analytics-event-stream
+    event-streams-list:
+        operation: event_streams_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my event stream
+        description: >
+            The caller's Customer Analytics event stream, as a 0-or-1 element array — each user has at most one stream
+            per project. Returns its `id` (needed by the other event-stream tools), enabled state, watched
+            `event_names`, Slack delivery target, and member `account_ids`.
+        feature_flag: customer-analytics-event-stream
+    event-streams-partial-update:
+        operation: event_streams_partial_update
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update my event stream
+        description: >
+            Update the caller's event stream configuration — `enabled`, watched `event_names`, or the Slack delivery
+            target (`slack_integration`, `slack_channel_id`, `slack_channel_name`). Omitted fields are left unchanged.
+            Manage member accounts via the add/remove account tools, not here.
+        feature_flag: customer-analytics-event-stream
+    event-streams-remove-account:
+        operation: event_streams_remove_account_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Remove account from my event stream
+        description: >
+            Remove a Customer Analytics account from the caller's event stream so its events stop posting to their
+            Slack channel. Provide the stream `id` and the `account_id` to remove. Idempotent — removing an account
+            that is not in the stream is a no-op.
+        feature_flag: customer-analytics-event-stream
+    event-streams-retrieve:
+        operation: event_streams_retrieve
+        enabled: false
+    event-streams-send-test-message:
+        operation: event_streams_send_test_message_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send event stream test message
+        description: >
+            Post a test message to the Slack channel configured on the caller's event stream, to verify delivery works
+            end to end. Fails with a validation error when the stream has no saved Slack workspace + channel, or when
+            Slack rejects the message (e.g. the PostHog bot is not in the channel).
+        feature_flag: customer-analytics-event-stream
+    event-streams-update:
+        operation: event_streams_update
+        enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create
         enabled: true
