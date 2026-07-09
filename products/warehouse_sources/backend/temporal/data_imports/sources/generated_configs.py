@@ -3685,7 +3685,9 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WritesonicSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_url: str
+    project_id: str | None = None
 
 
 @config.config

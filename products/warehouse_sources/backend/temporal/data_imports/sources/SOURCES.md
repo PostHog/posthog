@@ -359,6 +359,7 @@ the row lists both.
 | workable                | HTTP                        | requests                                                        | ✅                          |
 | workos                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
+| writesonic              | HTTP                        | requests                                                        | ✅                          |
 | wufoo                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
@@ -753,7 +754,6 @@ doesn't conflict with concurrent PRs.
 - workday
 - workflowmax
 - workramp
-- writesonic
 - wufoo
 - xero
 - xsolla
