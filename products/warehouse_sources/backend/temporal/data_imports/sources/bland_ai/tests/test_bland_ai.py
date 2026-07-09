@@ -2,8 +2,9 @@ from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlencode
 
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.bland_ai import (
     BASE_URL,
@@ -51,27 +52,28 @@ def _url_router(responses: dict[str, Any]) -> Any:
 
 
 class TestFormatStartDate:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
-            (None, None),
+            ("none", None, None),
             # A naive watermark is stamped UTC so the server-side filter is unambiguous.
-            (datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05+00:00"),
-            (datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05+00:00"),
-            (date(2026, 1, 2), "2026-01-02"),
-            ("2026-01-02T03:04:05+00:00", "2026-01-02T03:04:05+00:00"),
-        ],
+            ("naive_datetime", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05+00:00"),
+            ("aware_datetime", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05+00:00"),
+            ("date", date(2026, 1, 2), "2026-01-02"),
+            ("iso_string", "2026-01-02T03:04:05+00:00", "2026-01-02T03:04:05+00:00"),
+        ]
     )
-    def test_format_start_date(self, value: Any, expected: str | None) -> None:
+    def test_format_start_date(self, _name: str, value: Any, expected: str | None) -> None:
         assert _format_start_date(value) == expected
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected: bool) -> None:
-        mock_session.return_value.get.return_value = _resp({}, status=status_code)
-        assert validate_credentials("key") is expected
+    @parameterized.expand(
+        [("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False), ("error", 500, False)]
+    )
+    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _resp({}, status=status_code)
+            assert validate_credentials("key") is expected
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
@@ -239,29 +241,26 @@ class TestGetCallTranscriptRows:
 
 
 class TestGetPathwayRows:
-    @pytest.mark.parametrize(
-        "api_response, expected_ids",
+    @parameterized.expand(
         [
             # Bare list of pathway objects.
-            ([{"id": "p1"}, {"id": "p2"}], ["p1", "p2"]),
+            ("bare_list", [{"id": "p1"}, {"id": "p2"}], ["p1", "p2"]),
             # Wrapped list variants.
-            ({"pathways": [{"id": "p1"}]}, ["p1"]),
-            ({"data": [{"id": "p1"}]}, ["p1"]),
+            ("wrapped_pathways", {"pathways": [{"id": "p1"}]}, ["p1"]),
+            ("wrapped_data", {"data": [{"id": "p1"}]}, ["p1"]),
             # A single bare object (the shape the docs' response example shows).
-            ({"id": "p1", "name": "Demo", "nodes": []}, ["p1"]),
-        ],
+            ("single_object", {"id": "p1", "name": "Demo", "nodes": []}, ["p1"]),
+        ]
     )
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_normalizes_response_shapes(
-        self, mock_session: mock.MagicMock, api_response: Any, expected_ids: list[str]
-    ) -> None:
-        responses = {f"{BASE_URL}/v1/pathway": api_response}
-        mock_session.return_value.get.side_effect = _url_router(responses)
+    def test_normalizes_response_shapes(self, _name: str, api_response: Any, expected_ids: list[str]) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            responses = {f"{BASE_URL}/v1/pathway": api_response}
+            mock_session.return_value.get.side_effect = _url_router(responses)
 
-        batches = list(get_rows("key", "pathways", mock.MagicMock(), _make_manager()))
-        rows = [row for batch in batches for row in batch]
+            batches = list(get_rows("key", "pathways", mock.MagicMock(), _make_manager()))
+            rows = [row for batch in batches for row in batch]
 
-        assert [r["id"] for r in rows] == expected_ids
+            assert [r["id"] for r in rows] == expected_ids
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_empty_pathway_list_yields_nothing(self, mock_session: mock.MagicMock) -> None:
@@ -275,15 +274,14 @@ class TestBlandAISourceResponse:
     def test_endpoints_inventory(self) -> None:
         assert ENDPOINTS == ("calls", "call_transcripts", "pathways")
 
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys, partition_keys",
+    @parameterized.expand(
         [
             ("calls", ["call_id"], ["created_at"]),
             # The composite key keeps utterances unique table-wide; partitioning uses the parent
             # call's stable creation time.
             ("call_transcripts", ["call_id", "id"], ["call_created_at"]),
             ("pathways", ["id"], None),
-        ],
+        ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_keys: list[str]) -> None:
         response = bland_ai_source("key", endpoint, mock.MagicMock(), _make_manager())

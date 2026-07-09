@@ -1,5 +1,6 @@
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -54,8 +55,7 @@ class TestBlandAISource:
         documented = self.source.get_documented_tables()
         assert [t["name"] for t in documented] == ["calls", "call_transcripts", "pathways"]
 
-    @pytest.mark.parametrize(
-        "endpoint, supports_incremental, should_sync_default",
+    @parameterized.expand(
         [
             # GET /v1/calls has a server-side `start_date` filter, so both call endpoints are incremental.
             ("calls", True, True),
@@ -63,7 +63,7 @@ class TestBlandAISource:
             ("call_transcripts", True, False),
             # Pathways have no timestamp filters at all — full refresh only.
             ("pathways", False, True),
-        ],
+        ]
     )
     def test_get_schemas_incremental_support(self, endpoint, supports_incremental, should_sync_default):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -79,47 +79,44 @@ class TestBlandAISource:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["pathways"])] == ["pathways"]
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.bland.ai/v1/calls?from=0&limit=1000",
-            "401 Client Error: Unauthorized for url: https://api.bland.ai/v1/pathway",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.bland.ai/v1/calls?from=0&limit=1000",),
+            ("401 Client Error: Unauthorized for url: https://api.bland.ai/v1/pathway",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
-    @pytest.mark.parametrize(
-        "other_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.bland.ai/v1/calls",
-            "429 Client Error: Too Many Requests for url: https://api.bland.ai/v1/calls",
-            "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.bland.ai/v1/calls",),
+            ("429 Client Error: Too Many Requests for url: https://api.bland.ai/v1/calls",),
+            ("401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",),
+        ]
     )
     def test_non_retryable_errors_does_not_match_transient_or_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (True, True, None),
-            (False, False, "Invalid Bland AI API key"),
-        ],
+            ("valid", True, True, None),
+            ("invalid", False, False, "Invalid Bland AI API key"),
+        ]
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.validate_bland_ai_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials(self, _name, mock_return, expected_valid, expected_message):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.validate_bland_ai_credentials"
+        ) as mock_validate:
+            mock_validate.return_value = mock_return
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
-        assert is_valid is expected_valid
-        assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key)
+            assert is_valid is expected_valid
+            assert error_message == expected_message
+            mock_validate.assert_called_once_with(self.config.api_key)
 
     def test_get_resumable_source_manager_binds_resume_config(self):
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -127,33 +124,32 @@ class TestBlandAISource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is BlandAIResumeConfig
 
-    @pytest.mark.parametrize(
-        "should_use_incremental_field, expected_last_value",
+    @parameterized.expand(
         [
-            (True, "2026-01-01"),
+            ("incremental", True, "2026-01-01"),
             # The watermark must not leak into a full-refresh run.
-            (False, None),
-        ],
+            ("full_refresh", False, None),
+        ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.bland_ai_source")
-    def test_source_for_pipeline_plumbs_arguments(
-        self, mock_bland_ai_source, should_use_incremental_field, expected_last_value
-    ):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "calls"
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        manager = mock.MagicMock()
+    def test_source_for_pipeline_plumbs_arguments(self, _name, should_use_incremental_field, expected_last_value):
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.bland_ai.source.bland_ai_source"
+        ) as mock_bland_ai_source:
+            inputs = mock.MagicMock()
+            inputs.schema_name = "calls"
+            inputs.should_use_incremental_field = should_use_incremental_field
+            inputs.db_incremental_field_last_value = "2026-01-01"
+            manager = mock.MagicMock()
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+            self.source.source_for_pipeline(self.config, manager, inputs)
 
-        mock_bland_ai_source.assert_called_once()
-        kwargs = mock_bland_ai_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "calls"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is should_use_incremental_field
-        assert kwargs["db_incremental_field_last_value"] == expected_last_value
+            mock_bland_ai_source.assert_called_once()
+            kwargs = mock_bland_ai_source.call_args.kwargs
+            assert kwargs["api_key"] == "key"
+            assert kwargs["endpoint"] == "calls"
+            assert kwargs["resumable_source_manager"] is manager
+            assert kwargs["should_use_incremental_field"] is should_use_incremental_field
+            assert kwargs["db_incremental_field_last_value"] == expected_last_value
 
     def test_canonical_descriptions_keyed_by_endpoint(self):
         descriptions = self.source.get_canonical_descriptions()
