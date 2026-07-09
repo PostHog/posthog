@@ -12,7 +12,7 @@ import SourceForm from 'products/data_warehouse/frontend/shared/components/forms
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
-import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { CI_SIGNALS_REQUIRED_TABLES, signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 
 // Each signal source reads from specific tables – pre-select them and make them required
@@ -84,6 +84,7 @@ function DataSourceSetup({
     onComplete: () => void
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
+    const { dataSourceSetupIntent } = useValues(signalSourcesLogic)
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
@@ -99,7 +100,10 @@ function DataSourceSetup({
             logic={sourceWizardLogic}
             props={{
                 availableSources,
-                requiredTables: SIGNAL_SOURCE_REQUIRED_TABLES[product],
+                requiredTables:
+                    dataSourceSetupIntent === 'ci_signals'
+                        ? CI_SIGNALS_REQUIRED_TABLES
+                        : SIGNAL_SOURCE_REQUIRED_TABLES[product],
                 onComplete,
             }}
         >

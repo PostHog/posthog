@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DataWarehouseSource } from '../../signalSourcesLogic'
 import { SignalSourceProduct } from '../../types'
 
@@ -15,6 +17,7 @@ export type AgentRosterSource =
     | 'linear'
     | 'zendesk'
     | 'pganalyze'
+    | 'engineering_analytics'
 
 export interface AgentRosterDefinition {
     source: AgentRosterSource
@@ -25,6 +28,8 @@ export interface AgentRosterDefinition {
     docsUrl?: string
     docsLabel?: string
     alpha?: boolean
+    /** Show this entry only while the given feature flag is enabled (alpha rollouts). */
+    flag?: string
     /**
      * For data-warehouse-backed sources, the wizard product passed to
      * `initiateDataWarehouseSourceToggle`. Absent for native PostHog sources
@@ -86,6 +91,15 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 label: 'GitHub Issues',
                 description: 'Issues filed in GitHub.',
                 dataWarehouseSource: 'Github',
+            },
+            {
+                source: 'engineering_analytics',
+                sourceProduct: SignalSourceProduct.EngineeringAnalytics,
+                label: 'GitHub CI',
+                description: 'Flaky checks, broken master, and slowing workflows in GitHub Actions.',
+                dataWarehouseSource: 'Github',
+                alpha: true,
+                flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             },
             {
                 source: 'linear',

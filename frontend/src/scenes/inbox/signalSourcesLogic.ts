@@ -26,6 +26,22 @@ export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
     SignalSourceType.IssueSpiking,
 ]
 
+/** Matches the CI detectors in `products/engineering_analytics/backend/logic/signals`. */
+export const CI_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
+    SignalSourceType.CiFlakyCheck,
+    SignalSourceType.CiBrokenMaster,
+    SignalSourceType.CiDurationRegression,
+]
+
+/** The GitHub warehouse tables the CI detectors read (SPEC: curated read layer). */
+export const CI_SIGNALS_REQUIRED_TABLES = ['workflow_runs', 'pull_requests']
+
+/**
+ * Which signal source a data-warehouse setup flow was opened for — GitHub backs both
+ * issue signals and CI signals, so completion must enable the right one.
+ */
+export type DataSourceSetupIntent = 'issue_signals' | 'ci_signals'
+
 const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
     DataWarehouseSource,
     {
@@ -135,7 +151,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSessionAnalysis: true,
         toggleDataWarehouseSource: (dwSource: DataWarehouseSource) => ({ dwSource }),
         initiateDataWarehouseSourceToggle: (dwSource: DataWarehouseSource) => ({ dwSource }),
-        openDataSourceSetup: (product: ExternalDataSourceType) => ({ product }),
+        openDataSourceSetup: (product: ExternalDataSourceType, intent?: DataSourceSetupIntent) => ({
+            product,
+            intent: intent ?? ('issue_signals' as DataSourceSetupIntent),
+        }),
         closeDataSourceSetup: true,
         onDataSourceSetupComplete: (product: ExternalDataSourceType) => ({ product }),
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
@@ -143,6 +162,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
+        toggleCiSignals: (viaSetupWizard?: boolean) => ({ viaSetupWizard: viaSetupWizard ?? false }),
+        toggleCiSignalsComplete: true,
         toggleHealthChecks: true,
         toggleEvalReports: true,
         toggleConversations: true,
@@ -184,6 +205,12 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 openDataSourceSetup: (_, { product }) => product,
                 closeDataSourceSetup: () => null,
                 closeSourcesModal: () => null,
+            },
+        ],
+        dataSourceSetupIntent: [
+            'issue_signals' as DataSourceSetupIntent,
+            {
+                openDataSourceSetup: (_, { intent }) => intent,
             },
         ],
         sourceConfigs: {
@@ -230,6 +257,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 toggleErrorTrackingComplete: (state) => {
                     const next = new Set(state)
                     next.delete('error_tracking')
+                    return next
+                },
+                toggleCiSignals: (state) => {
+                    const next = new Set(state)
+                    next.add('engineering_analytics')
+                    return next
+                },
+                toggleCiSignalsComplete: (state) => {
+                    const next = new Set(state)
+                    next.delete('engineering_analytics')
                     return next
                 },
             },
@@ -356,6 +393,31 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
         ],
+        ciSignalsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find((c) => c.source_product === SignalSourceProduct.EngineeringAnalytics) ?? null,
+        ],
+        ciSignalsIsFullyEnabled: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): boolean => {
+                if (!sourceConfigs?.length) {
+                    return false
+                }
+                return CI_SIGNAL_SOURCE_TYPES.every((sourceType) => {
+                    const c = sourceConfigs.find(
+                        (row) =>
+                            row.source_product === SignalSourceProduct.EngineeringAnalytics &&
+                            row.source_type === sourceType
+                    )
+                    return c?.enabled === true
+                })
+            },
+        ],
+        isCiSignalsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has('engineering_analytics'),
+        ],
         isSessionAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
@@ -426,6 +488,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleDataWarehouseSource(dwSource)
             },
             onDataSourceSetupComplete: ({ product }: { product: ExternalDataSourceType }) => {
+                if (product === 'Github' && values.dataSourceSetupIntent === 'ci_signals') {
+                    actions.toggleCiSignals(true)
+                    actions.closeDataSourceSetup()
+                    return
+                }
                 const mapping: Partial<
                     Record<ExternalDataSourceType, { sourceProduct: SignalSourceProduct; sourceType: SignalSourceType }>
                 > = {
@@ -522,6 +589,72 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     breakpoint() // re-throws if superseded, skipping the lines below
                     actions.toggleErrorTrackingComplete()
                     const errorMessage = error?.detail || error?.message || 'Failed to toggle Error tracking signals'
+                    lemonToast.error(errorMessage)
+                    actions.loadSourceConfigs()
+                }
+            },
+            toggleCiSignals: async ({ viaSetupWizard }, breakpoint) => {
+                const desiredEnabled = !values.ciSignalsIsFullyEnabled
+                const configs = values.sourceConfigs ?? []
+                // First connection when no persisted CI-signals config existed before this enable.
+                const wasConnected = configs.some(
+                    (c) => c.source_product === SignalSourceProduct.EngineeringAnalytics && !c.id.startsWith('new_')
+                )
+                // The setup wizard just connected GitHub with the CI tables preselected, so both
+                // checks below would race the still-refreshing sources list — skip them.
+                if (desiredEnabled && !viaSetupWizard) {
+                    const hasGithubSource =
+                        values.dataWarehouseSources?.results?.some(
+                            (s: ExternalDataSource) => s.source_type === 'Github'
+                        ) ?? false
+                    if (!hasGithubSource) {
+                        actions.toggleCiSignalsComplete()
+                        actions.openDataSourceSetup('Github', 'ci_signals')
+                        return
+                    }
+                    try {
+                        for (const tableName of CI_SIGNALS_REQUIRED_TABLES) {
+                            await ensureRequiredTableSyncing('Github', tableName)
+                        }
+                    } catch (error: any) {
+                        actions.toggleCiSignalsComplete()
+                        lemonToast.error(error?.detail || error?.message || 'Failed to enable GitHub CI signals')
+                        return
+                    }
+                }
+                try {
+                    for (const sourceType of CI_SIGNAL_SOURCE_TYPES) {
+                        const existing = configs.find(
+                            (c) =>
+                                c.source_product === SignalSourceProduct.EngineeringAnalytics &&
+                                c.source_type === sourceType
+                        )
+                        if (existing && !existing.id.startsWith('new_')) {
+                            await api.signalSourceConfigs.update(existing.id, { enabled: desiredEnabled })
+                        } else if (desiredEnabled) {
+                            await api.signalSourceConfigs.create({
+                                source_product: SignalSourceProduct.EngineeringAnalytics,
+                                source_type: sourceType,
+                                enabled: true,
+                                config: {},
+                            })
+                        }
+                    }
+                    breakpoint()
+                    actions.toggleCiSignalsComplete()
+                    if (desiredEnabled) {
+                        captureSignalSourceConnected({
+                            sourceProduct: SignalSourceProduct.EngineeringAnalytics,
+                            sourceType: SignalSourceType.CiFlakyCheck,
+                            isFirstConnection: !wasConnected,
+                            viaSetupWizard,
+                        })
+                    }
+                    actions.loadSourceConfigs()
+                } catch (error: any) {
+                    breakpoint() // re-throws if superseded, skipping the lines below
+                    actions.toggleCiSignalsComplete()
+                    const errorMessage = error?.detail || error?.message || 'Failed to toggle GitHub CI signals'
                     lemonToast.error(errorMessage)
                     actions.loadSourceConfigs()
                 }

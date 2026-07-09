@@ -5,6 +5,7 @@ import { IconArrowUpRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus } from '../../types'
@@ -156,6 +157,8 @@ export function AgentsRoster(): JSX.Element {
         linearIssuesConfig,
         zendeskTicketsConfig,
         pgAnalyzeIssuesConfig,
+        ciSignalsConfig,
+        ciSignalsIsFullyEnabled,
         errorTrackingIsFullyEnabled,
         isSessionAnalysisToggling,
         isConversationsToggling,
@@ -165,14 +168,17 @@ export function AgentsRoster(): JSX.Element {
         isLinearIssuesToggling,
         isZendeskTicketsToggling,
         isPgAnalyzeIssuesToggling,
+        isCiSignalsToggling,
     } = useValues(signalSourcesLogic)
     const {
         toggleSessionAnalysis,
         toggleConversations,
         toggleErrorTracking,
         toggleEvalReports,
+        toggleCiSignals,
         initiateDataWarehouseSourceToggle,
     } = useActions(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const stateFor = useCallback(
         (source: AgentRosterSource): AgentSourceState => {
@@ -220,6 +226,13 @@ export function AgentsRoster(): JSX.Element {
                     return dwState(zendeskTicketsConfig, isZendeskTicketsToggling)
                 case 'pganalyze':
                     return dwState(pgAnalyzeIssuesConfig, isPgAnalyzeIssuesToggling)
+                case 'engineering_analytics':
+                    return {
+                        armed: ciSignalsIsFullyEnabled,
+                        loading: isCiSignalsToggling,
+                        requiresSetup: ciSignalsConfig === null,
+                        syncStatus: ciSignalsConfig?.status,
+                    }
             }
         },
         [
@@ -239,6 +252,9 @@ export function AgentsRoster(): JSX.Element {
             isZendeskTicketsToggling,
             pgAnalyzeIssuesConfig,
             isPgAnalyzeIssuesToggling,
+            ciSignalsConfig,
+            ciSignalsIsFullyEnabled,
+            isCiSignalsToggling,
         ]
     )
 
@@ -269,6 +285,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'pganalyze':
                     initiateDataWarehouseSourceToggle('PgAnalyze')
                     return
+                case 'engineering_analytics':
+                    toggleCiSignals()
+                    return
             }
         },
         [
@@ -276,6 +295,7 @@ export function AgentsRoster(): JSX.Element {
             toggleConversations,
             toggleSessionAnalysis,
             toggleEvalReports,
+            toggleCiSignals,
             initiateDataWarehouseSourceToggle,
         ]
     )
@@ -286,14 +306,16 @@ export function AgentsRoster(): JSX.Element {
                 <div key={group.label} className="flex flex-col gap-2">
                     <span className="text-[13px] font-medium text-muted">{group.label}</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {group.agents.map((agent) => (
-                            <AgentCard
-                                key={agent.source}
-                                agent={agent}
-                                state={stateFor(agent.source)}
-                                onToggle={handleToggle}
-                            />
-                        ))}
+                        {group.agents
+                            .filter((agent) => !agent.flag || featureFlags[agent.flag])
+                            .map((agent) => (
+                                <AgentCard
+                                    key={agent.source}
+                                    agent={agent}
+                                    state={stateFor(agent.source)}
+                                    onToggle={handleToggle}
+                                />
+                            ))}
                     </div>
                 </div>
             ))}
