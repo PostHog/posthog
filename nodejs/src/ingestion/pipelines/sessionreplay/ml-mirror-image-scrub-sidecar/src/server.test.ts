@@ -10,16 +10,21 @@ const PNG = Buffer.from(
 
 describe('image-scrub sidecar server', () => {
     let base: string
-    let server: ReturnType<typeof startServer>
+    let metricsBase: string
+    let servers: ReturnType<typeof startServer>
 
     beforeAll(async () => {
-        server = startServer(0, 4, 1024)
-        await once(server, 'listening')
-        base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        servers = startServer(0, 0, 4, 1024)
+        await Promise.all([once(servers.scrub, 'listening'), once(servers.metrics, 'listening')])
+        base = `http://127.0.0.1:${(servers.scrub.address() as AddressInfo).port}`
+        metricsBase = `http://127.0.0.1:${(servers.metrics.address() as AddressInfo).port}`
     })
     afterAll((done) => {
-        server.closeAllConnections()
-        server.close(() => done())
+        let remaining = 2
+        for (const server of [servers.scrub, servers.metrics]) {
+            server.closeAllConnections()
+            server.close(() => --remaining === 0 && done())
+        }
     })
 
     it('scrubs posted image bytes into different (blurred) bytes', async () => {
@@ -50,10 +55,15 @@ describe('image-scrub sidecar server', () => {
         expect(res.status).toBe(422)
     })
 
-    it('serves health + metrics', async () => {
-        expect((await fetch(`${base}/_health`)).status).toBe(200)
-        const metrics = await fetch(`${base}/metrics`)
+    it('serves health + metrics on the metrics listener, not the scrub listener', async () => {
+        expect((await fetch(`${metricsBase}/_health`)).status).toBe(200)
+        const metrics = await fetch(`${metricsBase}/metrics`)
         expect(metrics.status).toBe(200)
         expect(await metrics.text()).toContain('ml_mirror_image_scrub_scrubbed_total')
+    })
+
+    it('does not expose /scrub on the metrics listener', async () => {
+        const res = await fetch(`${metricsBase}/scrub`, { method: 'POST', body: PNG })
+        expect(res.status).toBe(404)
     })
 })

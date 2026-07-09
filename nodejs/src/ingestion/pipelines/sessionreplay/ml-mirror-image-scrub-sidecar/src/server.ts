@@ -14,22 +14,23 @@ async function scrub(input: Buffer, signal: AbortSignal): Promise<Buffer> {
     return blurOnly(input)
 }
 
-export function startServer(port: number, maxConcurrency: number, maxBodyBytes: number): Server {
+export interface SidecarServers {
+    // /scrub, bound to loopback — the pod IP must never expose it.
+    scrub: Server
+    // /metrics + health, bound to all interfaces so Prometheus and the kubelet can reach the pod IP.
+    metrics: Server
+}
+
+export function startServer(
+    port: number,
+    metricsPort: number,
+    maxConcurrency: number,
+    maxBodyBytes: number
+): SidecarServers {
     let inFlight = 0
     const app = express()
     app.disable('x-powered-by')
     app.disable('etag')
-
-    app.get(['/_health', '/_ready'], (_req, res) => {
-        res.status(200).send('ok')
-    })
-
-    app.get('/metrics', (_req, res, next) => {
-        register
-            .metrics()
-            .then((body) => res.set('Content-Type', register.contentType).send(body))
-            .catch(next)
-    })
 
     const shedIfBusy = (_req: Request, res: Response, next: NextFunction): void => {
         if (inFlight >= maxConcurrency) {
@@ -115,12 +116,33 @@ export function startServer(port: number, maxConcurrency: number, maxBodyBytes: 
     })
 
     // Loopback only: the consumer shares the pod netns; the pod IP must not expose /scrub.
-    const server = app.listen(port, '127.0.0.1', () =>
+    const scrubServer = app.listen(port, '127.0.0.1', () =>
         console.log(`image-scrub sidecar listening on 127.0.0.1:${port} (maxConcurrency ${maxConcurrency})`)
     )
-    server.on('error', (err) => {
-        console.error(`image-scrub sidecar server error: ${String(err)}`)
-        process.exit(1)
+
+    // Observability lives on its own listener bound to all interfaces: Prometheus scrapes the pod IP, which the
+    // loopback /scrub listener above deliberately can't answer. It exposes no image bytes, only counters + probes.
+    const obs = express()
+    obs.disable('x-powered-by')
+    obs.disable('etag')
+    obs.get(['/_health', '/_ready'], (_req, res) => {
+        res.status(200).send('ok')
     })
-    return server
+    obs.get('/metrics', (_req, res, next) => {
+        register
+            .metrics()
+            .then((body) => res.set('Content-Type', register.contentType).send(body))
+            .catch(next)
+    })
+    const metricsServer = obs.listen(metricsPort, '0.0.0.0', () =>
+        console.log(`image-scrub sidecar metrics listening on 0.0.0.0:${metricsPort}`)
+    )
+
+    for (const server of [scrubServer, metricsServer]) {
+        server.on('error', (err) => {
+            console.error(`image-scrub sidecar server error: ${String(err)}`)
+            process.exit(1)
+        })
+    }
+    return { scrub: scrubServer, metrics: metricsServer }
 }
