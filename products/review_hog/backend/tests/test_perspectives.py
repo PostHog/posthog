@@ -112,6 +112,8 @@ class TestSyncCanonicalPerspectives(BaseTest):
 
     def test_prune_tombstones_a_removed_canonical(self) -> None:
         sync_canonical_perspectives(self.team)
+        removed = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"
+        updated_at_before = LLMSkill.objects.get(team=self.team, name=removed).updated_at
         # A canonical that no longer exists on disk (only logic-correctness remains) → its seeded row
         # is soft-deleted when pruning.
         with patch(
@@ -120,9 +122,12 @@ class TestSyncCanonicalPerspectives(BaseTest):
         ):
             result = sync_canonical_perspectives(self.team, prune=True)
 
-        removed = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"
         assert removed in result.pruned_skill_names
         assert not LLMSkill.objects.filter(team=self.team, name=removed, deleted=False, is_latest=True).exists()
+        # The queryset tombstone bypasses auto_now — it must bump updated_at itself, or the
+        # marketplace plugin version (Max(updated_at) over all rows) never advances and the cached
+        # repo keeps serving the pruned skill.
+        assert LLMSkill.objects.get(team=self.team, name=removed).updated_at > updated_at_before
 
     def test_resync_resurrects_an_archived_canonical(self) -> None:
         # Archiving a canonical via the general Skills UI must not stick: the config toggle is the

@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import yaml
 
@@ -477,9 +478,12 @@ def _sync_canonicals(
             if stored_hash is None or _compute_row_hash(row, list(row.files.all())) != stored_hash:
                 diverged.append(row.name)
                 continue
+            # `updated_at=now` matters: queryset updates bypass auto_now, and the marketplace plugin
+            # version is Max(updated_at) over ALL team rows — without the bump, the cached repo keeps
+            # serving the pruned skill (same invariant archive_skill guards in skill_services.py).
             LLMSkill.objects.filter(
                 team=team, name=row.name, deleted=False, metadata__seeded_by=REVIEW_HOG_SEEDED_BY
-            ).update(deleted=True, is_latest=False)
+            ).update(deleted=True, is_latest=False, updated_at=timezone.now())
             pruned.append(row.name)
 
     if created or updated or resurrected or pruned:
