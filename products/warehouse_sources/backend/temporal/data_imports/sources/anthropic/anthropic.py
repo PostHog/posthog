@@ -98,8 +98,10 @@ def _flatten_report_buckets(buckets: list[dict[str, Any]], config: AnthropicEndp
     primary key, so re-fetched windows merge instead of duplicating."""
     rows: list[dict[str, Any]] = []
     for bucket in buckets:
-        bucket_starting_at = bucket.get("starting_at")
-        bucket_ending_at = bucket.get("ending_at")
+        # Direct access: a missing bucket boundary must fail loudly rather than seed rows with a
+        # None primary key, watermark, and partition key.
+        bucket_starting_at = bucket["starting_at"]
+        bucket_ending_at = bucket["ending_at"]
         for result in bucket.get("results") or []:
             row = dict(result)
             row["bucket_starting_at"] = bucket_starting_at

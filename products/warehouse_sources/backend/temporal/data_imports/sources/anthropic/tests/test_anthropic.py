@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     AnthropicResumeConfig,
     _build_url,
@@ -57,20 +59,19 @@ def _query(url: str) -> dict[str, list[str]]:
 
 
 class TestHelpers:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
-            (None, None),
-            (datetime(2026, 7, 1, 12, 0, tzinfo=UTC), datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
-            (datetime(2026, 7, 1, 12, 0), datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
-            (date(2026, 7, 1), datetime(2026, 7, 1, tzinfo=UTC)),
-            ("2026-07-01T12:00:00Z", datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
-            ("2026-07-01T12:00:00+00:00", datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
-            ("not-a-date", None),
-            (12345, None),
-        ],
+            ("none", None, None),
+            ("aware_datetime", datetime(2026, 7, 1, 12, 0, tzinfo=UTC), datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
+            ("naive_datetime", datetime(2026, 7, 1, 12, 0), datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
+            ("date", date(2026, 7, 1), datetime(2026, 7, 1, tzinfo=UTC)),
+            ("iso_z_string", "2026-07-01T12:00:00Z", datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
+            ("iso_offset_string", "2026-07-01T12:00:00+00:00", datetime(2026, 7, 1, 12, 0, tzinfo=UTC)),
+            ("garbage_string", "not-a-date", None),
+            ("int", 12345, None),
+        ]
     )
-    def test_to_start_datetime(self, value, expected):
+    def test_to_start_datetime(self, _name, value, expected):
         assert _to_start_datetime(value) == expected
 
     def test_compute_starting_at_defaults_on_first_sync(self):
@@ -148,22 +149,21 @@ class TestHelpers:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected",
+    @parameterized.expand(
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ],
+            ("ok", 200, True),
+            ("unauthorized", 401, False),
+            ("forbidden", 403, False),
+            ("server_error", 500, False),
+        ]
     )
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
+    def test_validate_credentials_status_mapping(self, _name, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
-        mock_session.return_value.get.return_value = response
 
-        assert validate_credentials("sk-ant-admin-test") is expected
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = response
+            assert validate_credentials("sk-ant-admin-test") is expected
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_validate_credentials_swallows_exceptions(self, mock_session):
@@ -392,7 +392,7 @@ class TestErrorHandling:
 
 
 class TestAnthropicSource:
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
+    @parameterized.expand(ENDPOINTS)
     def test_source_response_shape(self, endpoint):
         response = anthropic_source("key", endpoint, mock.MagicMock(), _make_manager())
 
@@ -400,7 +400,7 @@ class TestAnthropicSource:
         assert response.primary_keys == ANTHROPIC_ENDPOINTS[endpoint].primary_keys
         assert response.sort_mode == "asc"
 
-    @pytest.mark.parametrize("endpoint", ["usage_report", "cost_report"])
+    @parameterized.expand(["usage_report", "cost_report"])
     def test_report_endpoints_partition_on_bucket_start(self, endpoint):
         response = anthropic_source("key", endpoint, mock.MagicMock(), _make_manager())
 
@@ -408,7 +408,7 @@ class TestAnthropicSource:
         assert response.partition_format == "month"
         assert response.partition_keys == ["bucket_starting_at"]
 
-    @pytest.mark.parametrize("endpoint", ["users", "invites", "workspaces", "workspace_members", "api_keys"])
+    @parameterized.expand(["users", "invites", "workspaces", "workspace_members", "api_keys"])
     def test_entity_endpoints_are_not_partitioned(self, endpoint):
         response = anthropic_source("key", endpoint, mock.MagicMock(), _make_manager())
 
