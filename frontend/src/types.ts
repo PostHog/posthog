@@ -285,6 +285,7 @@ export enum AccessControlResourceType {
     LlmAnalytics = 'llm_analytics',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
     Survey = 'survey',
     Logs = 'logs',
@@ -5519,6 +5520,7 @@ export interface SharingConfigurationType {
     password_required: boolean
     settings?: SharingConfigurationSettings
     share_passwords?: SharePasswordType[]
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExporterFormat {

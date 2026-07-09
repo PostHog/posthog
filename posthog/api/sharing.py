@@ -39,7 +39,12 @@ from posthog.models import SessionRecording, SharePassword, SharingConfiguration
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import (
+    UserAccessControl,
+    UserAccessControlSerializerMixin,
+    access_level_satisfied_for_resource,
+)
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
@@ -309,14 +314,22 @@ class SharePasswordCreateSerializer(serializers.Serializer):
         return value
 
 
-class SharingConfigurationSerializer(serializers.ModelSerializer):
+class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
 
     class Meta:
         model = SharingConfiguration
-        fields = ["created_at", "enabled", "access_token", "settings", "password_required", "share_passwords"]
-        read_only_fields = ["created_at", "access_token", "share_passwords"]
+        fields = [
+            "created_at",
+            "enabled",
+            "access_token",
+            "settings",
+            "password_required",
+            "share_passwords",
+            "user_access_level",
+        ]
+        read_only_fields = ["created_at", "access_token", "share_passwords", "user_access_level"]
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -342,7 +355,9 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
 
 
 @extend_schema(extensions={"x-product": "core"})
-class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class SharingConfigurationViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+):
     scope_object = "sharing_configuration"
     scope_object_write_actions = [
         "create",

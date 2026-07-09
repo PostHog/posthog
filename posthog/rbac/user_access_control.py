@@ -97,6 +97,12 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # A SharingConfiguration can belong to a dashboard, insight, recording, or notebook, but
+    # the inheritance map only supports a single parent per child. Dashboard is picked as the
+    # one primary parent, so orgs configure sharing access via the "dashboard" resource-level
+    # rule; per-object access (e.g. a specific recording's share) is still enforced separately
+    # through the underlying resource's own editor check in posthog/api/sharing.py.
+    "sharing_configuration": "dashboard",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
@@ -293,6 +299,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "plugin"
     if name == "sessionrecording":
         return "session_recording"
+    if name == "sharingconfiguration":
+        return "sharing_configuration"
     if name == "exportedasset":
         return "export"
     if name == "sessionrecordingplaylist":
