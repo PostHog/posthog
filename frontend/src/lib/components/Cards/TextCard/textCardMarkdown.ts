@@ -92,6 +92,31 @@ const markdownManager = new MarkdownManager({
     extensions: TEXT_CARD_MARKDOWN_EXTENSIONS,
 })
 
+// @tiptap/markdown closes a text node's marks in array order, so when `code` is not the
+// innermost mark it emits malformed markdown (e.g. **`snippet**` instead of **`snippet`**).
+// That broke the round trip and made the controlled editor reset itself while typing. Force
+// `code` innermost (first in the marks array) so its backticks always sit inside bold/italic/strike.
+function withCodeMarkInnermost(doc: JSONContent): JSONContent {
+    const visit = (node: JSONContent): JSONContent => {
+        let next = node
+        const marks = node.marks
+        if (marks && marks.length > 1 && marks.some((mark) => mark.type === 'code')) {
+            const code = marks.filter((mark) => mark.type === 'code')
+            const others = marks.filter((mark) => mark.type !== 'code')
+            next = { ...node, marks: [...code, ...others] }
+        }
+        if (next.content) {
+            next = { ...next, content: next.content.map(visit) }
+        }
+        return next
+    }
+    return visit(doc)
+}
+
+function serializeTextCardDoc(doc: JSONContent): string {
+    return markdownManager.serialize(withCodeMarkInnermost(doc))
+}
+
 const EMPTY_DOC_CONTENT: JSONContent['content'] = [{ type: 'paragraph' }]
 
 export const EMPTY_TEXT_CARD_DOC: JSONContent = {
@@ -155,7 +180,7 @@ export function textCardDocToMarkdown(doc: JSONContent): string {
             return ''
         }
 
-        const markdown = markdownManager.serialize(doc).trimEnd()
+        const markdown = serializeTextCardDoc(doc).trimEnd()
         if (!markdown) {
             return ''
         }
@@ -173,7 +198,7 @@ export function isTextCardMarkdownRoundTripSafe(markdown: string | null | undefi
     try {
         const expanded = expandFlattenedMarkdownTables(markdown)
         const originalDoc = markdownManager.parse(expanded) as JSONContent
-        const roundTripDoc = markdownManager.parse(markdownManager.serialize(originalDoc).trimEnd()) as JSONContent
+        const roundTripDoc = markdownManager.parse(serializeTextCardDoc(originalDoc).trimEnd()) as JSONContent
         return JSON.stringify(originalDoc) === JSON.stringify(roundTripDoc)
     } catch {
         return false

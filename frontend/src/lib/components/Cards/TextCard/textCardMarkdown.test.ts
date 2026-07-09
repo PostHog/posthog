@@ -124,6 +124,34 @@ describe('textCardMarkdown', () => {
         expect(roundTripDoc).not.toEqual(richDoc)
     })
 
+    it.each([
+        ['bold', 'bold'],
+        ['italic', 'italic'],
+        ['strike', 'strike'],
+    ])('keeps inline code innermost when a text node is also %s', (_name, markType) => {
+        const doc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    content: [
+                        { type: 'text', text: 'before ' },
+                        { type: 'text', text: "ai_product='signals'", marks: [{ type: markType }, { type: 'code' }] },
+                        { type: 'text', text: ' after' },
+                    ],
+                },
+            ],
+        }
+
+        const markdown = textCardDocToMarkdown(doc)
+        // The code span's backticks must sit inside the surrounding mark, e.g. **`code`** — not
+        // the malformed **`code**` that @tiptap/markdown emits when code is not innermost.
+        expect(markdown).toContain("`ai_product='signals'`")
+        // Round-trips cleanly, so the controlled editor no longer resets while typing near this span.
+        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
+        expect(markdownToTextCardDoc(markdown)).toEqual(markdownToTextCardDoc(textCardDocToMarkdown(markdownToTextCardDoc(markdown))))
+    })
+
     it('supports underline markdown round-trip', () => {
         const markdown = '++underlined++'
         const doc = markdownToTextCardDoc(markdown)
