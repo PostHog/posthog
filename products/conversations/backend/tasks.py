@@ -1729,7 +1729,9 @@ def emit_ticket_sla_events() -> None:
                 if _emit_sla_events_for_ticket(ticket, now):
                     total += 1
 
-            last_key = (batch[-1].sla_due_at, batch[-1].id)
+            last_ticket = batch[-1]
+            assert last_ticket.sla_due_at is not None  # guaranteed by the sla_due_at__isnull=False filter
+            last_key = (last_ticket.sla_due_at, last_ticket.id)
 
         if len(batch) < SLA_SWEEP_BATCH_SIZE:
             break
