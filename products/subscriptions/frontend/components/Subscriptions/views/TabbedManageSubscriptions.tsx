@@ -167,6 +167,7 @@ export function TabbedManageSubscriptions({
                     onChange={setActiveTab}
                     tabs={tabs}
                     data-attr="manage-subscriptions-tabs"
+                    rightSlotClassName="bg-transparent"
                     rightSlot={
                         <LemonButton type="primary" onClick={() => onSelect('new')} data-attr="add-subscription">
                             Add subscription
