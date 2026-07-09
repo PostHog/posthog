@@ -379,6 +379,34 @@ class TestGetInstallations(TestCallMCPServerTool):
 
         self.assertEqual(result, [])
 
+    def test_dead_personal_does_not_shadow_ready_shared(self):
+        owner = self._create_teammate()
+        self._install_shared_server(owner, url="https://mcp.linear.app/mcp")
+        self._install_server(
+            name="My Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["scope"], "shared")
+
+    def test_keeps_unready_personal_without_shared_alternative(self):
+        self._install_server(
+            name="My Linear",
+            url="https://mcp.linear.app/mcp",
+            auth_type="oauth",
+            sensitive_configuration={"needs_reauth": True},
+        )
+
+        result = _get_installations(self.team, self.user)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["display_name"], "My Linear")
+
     def test_excludes_teammates_personal_installations(self):
         owner = self._create_teammate()
         MCPServerInstallation.objects.create(

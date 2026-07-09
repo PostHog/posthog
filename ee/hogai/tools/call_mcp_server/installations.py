@@ -8,13 +8,7 @@ from products.mcp_store.backend.models import MCPServerInstallation, MCPServerIn
 from products.mcp_store.backend.oauth import refresh_installation_token
 
 
-def _is_shared_row_ready(row: dict) -> bool:
-    """A shared row is only usable when the owner's credential is live.
-
-    Personal rows always surface (the user can be prompted to reauth their
-    own connection), but a teammate can't fix someone else's shared
-    credential, so unready shared rows are hidden from the agent instead of
-    failing at call time."""
+def _is_row_ready(row: dict) -> bool:
     if row["auth_type"] != "oauth":
         return True
     sensitive = row.get("sensitive_configuration") or {}
@@ -23,10 +17,15 @@ def _is_shared_row_ready(row: dict) -> bool:
 
 def _get_installations(team: Team, user: User) -> list[dict]:
     """Return the MCP installations available to this user's agent: their
-    personal installations plus team-shared ones. When the user has a
-    personal installation for the same URL as a shared one, the personal
-    row wins — the agent acts as the user rather than through a teammate's
-    shared credential."""
+    personal installations plus team-shared ones.
+
+    Per-URL resolution matches the sandbox facade and PostHog Code: a ready
+    personal installation wins over a shared one (the agent acts as the user
+    rather than through a teammate's shared credential), but a dead personal
+    row doesn't shadow a working shared one. Unready shared rows are hidden
+    entirely — a teammate can't fix someone else's credential, while an
+    unready personal row still surfaces so Max can walk the user through
+    reauth."""
     rows = [
         dict(row)
         for row in MCPServerInstallation.objects.filter(team=team, is_enabled=True)
@@ -40,12 +39,16 @@ def _get_installations(team: Team, user: User) -> list[dict]:
             "scope",
         )
     ]
-    personal_urls = {row["url"] for row in rows if row["scope"] != "shared"}
-    return [
-        row
-        for row in rows
-        if row["scope"] != "shared" or (row["url"] not in personal_urls and _is_shared_row_ready(row))
-    ]
+    ready_shared_by_url = {row["url"]: row for row in rows if row["scope"] == "shared" and _is_row_ready(row)}
+    results: list[dict] = []
+    for row in rows:
+        if row["scope"] == "shared":
+            continue
+        if _is_row_ready(row) or row["url"] not in ready_shared_by_url:
+            results.append(row)
+            ready_shared_by_url.pop(row["url"], None)
+    results.extend(ready_shared_by_url.values())
+    return results
 
 
 def _get_cached_tools(installation_id: str) -> list[dict]:
