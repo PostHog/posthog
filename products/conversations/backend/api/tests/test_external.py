@@ -680,3 +680,31 @@ class TestExternalTicketAPI(BaseTest):
         activity = self._latest_ticket_activity(activity="assigned")
         assert activity is not None
         self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_unchanged_assignee_logs_no_activity(self):
+        # Callers send the assignee whenever it's in the payload (the ticket UI always sends the
+        # full form), so a no-op assignment must not write "assigned to unassigned" entries or
+        # fire assignment-triggered workflows on every save.
+        response = self.client.patch(
+            self.url,
+            {"assignee": None},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(self._latest_ticket_activity(activity="assigned"))
+
+        for _ in range(2):
+            response = self.client.patch(
+                self.url,
+                {"assignee": {"type": "user", "id": self.user.id}},
+                content_type="application/json",
+                **self._auth_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="assigned"
+            ).count(),
+            1,
+        )
