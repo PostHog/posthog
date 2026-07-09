@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { SourceScopeChip } from '../components/ScopeBar'
-import { StatCard } from '../components/StatCard'
+import { HeroStat } from '../components/StatCard'
 import { CIStatusFilter, PRStateFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsPullRequests(): JSX.Element {
@@ -24,6 +22,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         search,
         hasActiveFilters,
         activeCard,
+        readyCount,
+        thrashCount,
         sourceId,
         activeSource,
         notConnected,
@@ -41,38 +41,60 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
-    const failingPct =
-        cards && cards.openPrs > 0 ? `${Math.round((cards.failingCi / cards.openPrs) * 100)}% of open` : undefined
-
     return (
         <div className="flex flex-col gap-4">
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <StatCard
+
+            <div className="flex flex-wrap items-center gap-1">
+                <HeroStat
                     label="Open PRs"
-                    value={cards ? humanFriendlyNumber(cards.openPrs) : '—'}
+                    value={cards?.openPrs ?? null}
+                    align="start"
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('open')}
                     active={activeCard === 'open'}
-                    filterHint="Filter the list to open PRs"
+                    filterHint="Show all open PRs"
                 />
-                <StatCard
+                <span className="mx-1 h-8 w-px bg-border" />
+                <HeroStat
                     label="Failing CI"
-                    value={cards ? humanFriendlyNumber(cards.failingCi) : '—'}
-                    caption={failingPct}
+                    value={cards?.failingCi ?? null}
+                    tone="danger"
+                    align="start"
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('failing')}
                     active={activeCard === 'failing'}
-                    filterHint="Filter the list to open PRs with failing CI"
+                    filterHint="Show open PRs with failing CI"
                 />
-                <StatCard
-                    label="Stuck > 7d"
-                    value={cards ? humanFriendlyNumber(cards.stuck) : '—'}
-                    caption="excludes drafts and bots"
+                <HeroStat
+                    label="Stuck >7d"
+                    value={cards?.stuck ?? null}
+                    tone="warning"
+                    align="start"
                     loading={cardsLoading}
                     onClick={() => applyCardFilter('stuck')}
                     active={activeCard === 'stuck'}
-                    filterHint="Filter the list to PRs stuck open for over 7 days"
+                    filterHint="Show PRs stuck open over 7 days (excludes drafts and bots)"
+                />
+                <HeroStat
+                    label="CI thrash"
+                    value={thrashCount}
+                    tone="warning"
+                    align="start"
+                    loading={pullRequestsLoading}
+                    onClick={() => applyCardFilter('thrash')}
+                    active={activeCard === 'thrash'}
+                    filterHint="Show open PRs burning re-run cycles"
+                />
+                <HeroStat
+                    label="Ready"
+                    value={readyCount}
+                    tone="success"
+                    align="start"
+                    loading={pullRequestsLoading}
+                    onClick={() => applyCardFilter('ready')}
+                    active={activeCard === 'ready'}
+                    filterHint="Show open, non-draft PRs with green CI"
                 />
             </div>
 

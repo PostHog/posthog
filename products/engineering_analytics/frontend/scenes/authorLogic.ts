@@ -110,6 +110,11 @@ export const authorLogic = kea<authorLogicType>([
                 return minutes.length ? minutes.reduce((sum, m) => sum + m, 0) : null
             },
         ],
+        // A loop is one push and the CI it triggered; total loops = pushes across the in-window PRs.
+        totalLoops: [
+            (s) => [s.windowedRows],
+            (rows: PullRequestRow[]): number => rows.reduce((sum, pr) => sum + pr.pushes, 0),
+        ],
         openPrCount: [
             (s) => [s.prs],
             (prs: PullRequestRow[]): number => prs.filter((pr) => pr.state === 'open').length,

@@ -20,6 +20,7 @@ import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivi
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
 import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
 import { Section, scrollToSection } from '../components/Section'
+import { HeroStat } from '../components/StatCard'
 import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
@@ -31,33 +32,6 @@ import { repoOverviewLogic } from './repoOverviewLogic'
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
-}
-
-/** A right-now backlog count in the hero: number over a small label, colored only when it's a pressure. */
-function HeroStat({
-    label,
-    value,
-    tone = 'default',
-}: {
-    label: string
-    value: number | null | undefined
-    tone?: 'default' | 'danger' | 'warning'
-}): JSX.Element {
-    const pressing = value != null && value > 0
-    const color =
-        pressing && tone === 'danger'
-            ? 'text-danger'
-            : pressing && tone === 'warning'
-              ? 'text-warning-dark'
-              : 'text-primary'
-    return (
-        <div className="flex flex-col items-end">
-            <span className={cn('text-xl font-semibold leading-none tabular-nums', color)}>
-                {value == null ? '—' : humanFriendlyNumber(value)}
-            </span>
-            <span className="mt-1 text-[11px] text-tertiary whitespace-nowrap">{label}</span>
-        </div>
-    )
 }
 
 /** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog

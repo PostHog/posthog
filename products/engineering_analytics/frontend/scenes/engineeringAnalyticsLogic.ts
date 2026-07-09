@@ -42,7 +42,7 @@ export type PRState = 'open' | 'closed' | 'merged'
 /** 'draft' narrows open PRs; the other values mirror PRState. */
 export type PRStateFilter = PRState | 'draft' | 'all'
 export type CIStatusFilter = CIStatus | 'all'
-export type CardFilter = 'open' | 'failing' | 'stuck'
+export type CardFilter = 'open' | 'failing' | 'stuck' | 'ready' | 'thrash'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
@@ -219,6 +219,8 @@ export interface PullRequestFilters {
     ciStatus: CIStatusFilter
     search: string
     stuckOnly: boolean
+    readyOnly: boolean
+    thrashOnly: boolean
 }
 
 export const DEFAULT_FILTERS: PullRequestFilters = {
@@ -228,10 +230,22 @@ export const DEFAULT_FILTERS: PullRequestFilters = {
     ciStatus: 'all',
     search: '',
     stuckOnly: false,
+    readyOnly: false,
+    thrashOnly: false,
 }
 
 export function isStuck(row: PullRequestRow, stuckCutoffMs: number): boolean {
     return row.state === 'open' && !row.isDraft && !row.isBot && Date.parse(row.createdAt) < stuckCutoffMs
+}
+
+/** Open, ready-for-review, and green — the "unblocked, could merge" pile. */
+export function isReady(row: PullRequestRow): boolean {
+    return row.state === 'open' && !row.isDraft && ciStatusOf(row) === 'passing'
+}
+
+/** Open and burning re-run cycles — CI thrash worth a look. */
+export function isThrashing(row: PullRequestRow): boolean {
+    return row.state === 'open' && row.rerunCycles > 0
 }
 
 function matchesStateFilter(row: PullRequestRow, state: PRStateFilter): boolean {
@@ -257,6 +271,12 @@ export function filterPullRequests(
             return false
         }
         if (filters.stuckOnly && !isStuck(row, stuckCutoffMs)) {
+            return false
+        }
+        if (filters.readyOnly && !isReady(row)) {
+            return false
+        }
+        if (filters.thrashOnly && !isThrashing(row)) {
             return false
         }
         if (filters.author && row.authorHandle !== filters.author) {
@@ -534,6 +554,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setWorkflowStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
             resetWorkflowFilters: true,
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
+            setReadyOnly: (ready: boolean) => ({ ready }),
+            setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -728,6 +750,22 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
                 },
             ],
+            readyOnly: [
+                DEFAULT_FILTERS.readyOnly,
+                {
+                    setReadyOnly: (_, { ready }) => ready,
+                    setStateFilter: () => false,
+                    resetFilters: () => DEFAULT_FILTERS.readyOnly,
+                },
+            ],
+            thrashOnly: [
+                DEFAULT_FILTERS.thrashOnly,
+                {
+                    setThrashOnly: (_, { thrash }) => thrash,
+                    setStateFilter: () => false,
+                    resetFilters: () => DEFAULT_FILTERS.thrashOnly,
+                },
+            ],
             workflowSearch: [
                 DEFAULT_WORKFLOW_FILTERS.search,
                 {
@@ -864,24 +902,50 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null),
             ],
             filters: [
-                (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
-                (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({
+                (s) => [
+                    s.stateFilter,
+                    s.author,
+                    s.repo,
+                    s.ciStatusFilter,
+                    s.search,
+                    s.stuckOnly,
+                    s.readyOnly,
+                    s.thrashOnly,
+                ],
+                (
+                    stateFilter,
+                    author,
+                    repo,
+                    ciStatus,
+                    search,
+                    stuckOnly,
+                    readyOnly,
+                    thrashOnly
+                ): PullRequestFilters => ({
                     state: stateFilter,
                     author,
                     repo,
                     ciStatus,
                     search,
                     stuckOnly,
+                    readyOnly,
+                    thrashOnly,
                 }),
             ],
             activeCard: [
-                (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly],
-                (stateFilter, ciStatus, stuckOnly): CardFilter | null => {
+                (s) => [s.stateFilter, s.ciStatusFilter, s.stuckOnly, s.readyOnly, s.thrashOnly],
+                (stateFilter, ciStatus, stuckOnly, readyOnly, thrashOnly): CardFilter | null => {
                     if (stateFilter !== 'open') {
                         return null
                     }
                     if (stuckOnly) {
                         return 'stuck'
+                    }
+                    if (readyOnly) {
+                        return 'ready'
+                    }
+                    if (thrashOnly) {
+                        return 'thrash'
                     }
                     if (ciStatus === 'failing') {
                         return 'failing'
@@ -907,6 +971,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (pullRequests): string[] =>
                     Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
             ],
+            // Counted over the loaded list (the "most recent 1000" cap applies), not a separate backend
+            // aggregate like the ci_cards counts — fine while a repo's open backlog fits in that window.
+            readyCount: [(s) => [s.pullRequests], (pullRequests): number => pullRequests.filter(isReady).length],
+            thrashCount: [(s) => [s.pullRequests], (pullRequests): number => pullRequests.filter(isThrashing).length],
             anyLoading: [
                 (s) => [s.cardsLoading, s.pullRequestsLoading, s.workflowHealthLoading, s.quarantineLoading],
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading, quarantineLoading): boolean =>
@@ -999,11 +1067,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
-                // Clicking the already-active card toggles back to the plain open view.
+                // Clicking the already-active card toggles back to the plain open view. setStateFilter('open')
+                // runs first and clears every lens flag, so the explicit sets below leave exactly one active.
                 const target: CardFilter = values.activeCard === card ? 'open' : card
                 actions.setStateFilter('open')
                 actions.setCiStatusFilter(target === 'failing' ? 'failing' : 'all')
                 actions.setStuckOnly(target === 'stuck')
+                actions.setReadyOnly(target === 'ready')
+                actions.setThrashOnly(target === 'thrash')
             },
             applyQuarantineCard: ({ card }) => {
                 // Toggling a card off clears only the lifecycle/mode lens, leaving search and owner intact.

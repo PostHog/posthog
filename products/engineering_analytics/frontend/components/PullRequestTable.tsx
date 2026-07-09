@@ -12,7 +12,7 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { compactHoursLabel } from '../lib/format'
+import { compactAgeLabel, compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
@@ -83,7 +83,7 @@ export function PullRequestTable({
                             to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
                             target="_blank"
                             targetBlankIcon
-                            className="font-mono text-[11px] text-tertiary"
+                            className="font-mono text-[11px] text-tertiary hover:text-accent"
                         >
                             #{row.number}
                         </Link>
@@ -133,38 +133,27 @@ export function PullRequestTable({
         {
             title: 'CI',
             key: 'ci',
-            width: 190,
-            render: (_, row) => (
-                <div className="flex flex-col gap-0.5">
-                    <CIStatusTag rollup={row} />
-                    {row.failingWorkflows.length > 0 && (
-                        <span className="text-[10.5px] leading-tight text-tertiary">
-                            {row.failingWorkflows.slice(0, 3).join(' · ')}
-                            {row.failingWorkflows.length > 3 && ` +${row.failingWorkflows.length - 3}`}
-                        </span>
-                    )}
-                </div>
-            ),
+            width: 120,
+            render: (_, row) => <CIStatusTag rollup={row} />,
         },
         ...(costLensEnabled
             ? ([
                   {
                       title: 'Pushes',
                       key: 'pushes',
-                      width: 100,
+                      width: 0,
                       align: 'right',
-                      tooltip:
-                          'Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.',
-                      sorter: (a, b) => a.pushes - b.pushes,
                       render: (_, row) => (
-                          <span className="text-xs tabular-nums whitespace-nowrap">
-                              {humanFriendlyNumber(row.pushes)}
-                              {row.rerunCycles > 0 && (
-                                  <LemonTag type="warning" className="ml-1.5">
-                                      +{row.rerunCycles}
-                                  </LemonTag>
-                              )}
-                          </span>
+                          <Tooltip title="Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.">
+                              <span className="text-xs tabular-nums whitespace-nowrap">
+                                  {humanFriendlyNumber(row.pushes)}
+                                  {row.rerunCycles > 0 && (
+                                      <LemonTag type="warning" className="ml-1.5">
+                                          +{row.rerunCycles}
+                                      </LemonTag>
+                                  )}
+                              </span>
+                          </Tooltip>
                       ),
                   },
                   {
@@ -186,33 +175,35 @@ export function PullRequestTable({
                   {
                       title: 'Created',
                       key: 'created',
-                      width: 110,
+                      width: 0,
                       align: 'right',
-                      tooltip: 'When the pull request was opened.',
                       sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
                       render: (_, row) => (
                           <Tooltip title={dayjs(row.createdAt).format('MMM D, YYYY HH:mm')}>
                               <span className="text-xs tabular-nums whitespace-nowrap text-secondary">
-                                  {dayjs(row.createdAt).format('MMM D')}
+                                  {compactAgeLabel(dayjs().diff(dayjs(row.createdAt), 'second'))} ago
                               </span>
                           </Tooltip>
                       ),
                   },
               ] as LemonTableColumns<PullRequestRow>)
-            : []),
-        {
-            title: 'Open time',
-            key: 'age',
-            width: 100,
-            align: 'right',
-            tooltip: 'How long the pull request has been open (or was, until it merged).',
-            sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
-            render: (_, row) => (
-                <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
-                    <span className="text-xs tabular-nums whitespace-nowrap">{openTimeOf(row)?.label ?? '—'}</span>
-                </Tooltip>
-            ),
-        },
+            : ([
+                  {
+                      title: 'Open time',
+                      key: 'age',
+                      width: 100,
+                      align: 'right',
+                      tooltip: 'How long the pull request has been open (or was, until it merged).',
+                      sorter: (a, b) => (openTimeOf(a)?.seconds ?? -1) - (openTimeOf(b)?.seconds ?? -1),
+                      render: (_, row) => (
+                          <Tooltip title={<>opened {dayjs(row.createdAt).format('MMM D, HH:mm')}</>}>
+                              <span className="text-xs tabular-nums whitespace-nowrap">
+                                  {openTimeOf(row)?.label ?? '—'}
+                              </span>
+                          </Tooltip>
+                      ),
+                  },
+              ] as LemonTableColumns<PullRequestRow>)),
     ]
 
     return (
