@@ -8350,6 +8350,47 @@ export namespace Schemas {
       results: AgentFleetLiveSessionSummary[];
     }
 
+    /**
+     * Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.
+     */
+    export interface AgentInvokeRequest {
+      /** The user message that starts the session. Required, non-empty. */
+      message: string;
+      /** Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one. */
+      external_key?: string;
+    }
+
+    export interface AgentInvokeResponse {
+      /** The newly-created (or resumed, if external_key matched) session id. Feed to agent-applications-send / agent-applications-listen. */
+      session_id: string;
+      /** Session state right after enqueue — `queued`. Poll agent-applications-listen for progress.
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+      /** True if an existing session matched `external_key` and was resumed, rather than a new one being created. */
+      resumed: boolean;
+    }
+
+    export interface AgentListenResponse {
+      session_id: string;
+      state: AgentSessionStateEnum;
+      /** Total messages in the conversation so far. */
+      turns: number;
+      /** Pass back as `cursor` on the next call to page forward — high-water mark of messages seen. */
+      next_cursor: number;
+      /** Compact, payload-free progress summary: last assistant text, one-line tool activity, state/usage. */
+      digest: string;
+      /** True when the digest was clipped to `max_chars` — read the full transcript via `agent-applications-sessions-retrieve`. */
+      truncated: boolean;
+      /** True once the current turn has finished (`completed`) or the session ended (`closed`/`cancelled`/`failed`) — stop polling. A `completed` session is still open: `agent-applications-send` to continue it. */
+      done: boolean;
+    }
+
     export interface AgentMemoryFile {
       /** Full markdown body. */
       content: string;
@@ -8650,6 +8691,28 @@ export namespace Schemas {
       Langgraph: 'langgraph',
       Sandbox: 'sandbox',
     } as const;
+
+    /**
+     * Body for `agent-applications-send` — append a message to an existing live session.
+     */
+    export interface AgentSendRequest {
+      /** The session to append to (returned by agent-applications-invoke). Must belong to this agent. */
+      session_id: string;
+      /** The user message to append. Required, non-empty. */
+      message: string;
+    }
+
+    export interface AgentSendResponse {
+      /** Session state after the message was appended — `queued` (a new turn will run).
+       *
+       * * `queued` - queued
+       * * `running` - running
+       * * `completed` - completed
+       * * `closed` - closed
+       * * `cancelled` - cancelled
+       * * `failed` - failed */
+      state: AgentSessionStateEnum;
+    }
 
     export interface AgentTableHeader {
       /** Table name. */
@@ -63790,6 +63853,21 @@ export namespace Schemas {
      * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
      */
     state?: string;
+    };
+
+    export type AgentApplicationsListenParams = {
+    /**
+     * `next_cursor` from the previous call. Omit on the first read; pass it back to summarize only what's new.
+     */
+    cursor?: number;
+    /**
+     * Digest character budget (default 4000, range 1–20000). The digest is clipped to fit and `truncated` is set.
+     */
+    max_chars?: number;
+    /**
+     * Session to read (must belong to this agent).
+     */
+    session_id: string;
     };
 
     export type AgentApplicationsPreviewProxyGetParams = {

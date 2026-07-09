@@ -20,6 +20,7 @@ class AgentInternalAudience(Enum):
     """
 
     INGRESS_PREVIEW = "agent-ingress.preview"
+    INGRESS_RPC = "agent-ingress.rpc"
     JANITOR_RPC = "agent-janitor.rpc"
 
 

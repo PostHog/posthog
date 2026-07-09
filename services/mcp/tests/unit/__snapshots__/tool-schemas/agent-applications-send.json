@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this agent application.",
+            "type": "string"
+        },
+        "message": {
+            "description": "The user message to append. Required, non-empty.",
+            "type": "string"
+        },
+        "session_id": {
+            "description": "The session to append to (returned by agent-applications-invoke). Must belong to this agent.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "session_id", "message"],
+    "type": "object"
+}
