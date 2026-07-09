@@ -2491,7 +2491,7 @@ class PandaDocSourceConfig(config.Config):
 
 @config.config
 class PaperformSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

@@ -262,6 +262,7 @@ the row lists both.
 | optimizely              | HTTP                        | requests                                                        | ✅                          |
 | pagerduty               | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                | HTTP                        | requests                                                        | ✅                          |
+| paperform               | HTTP                        | requests                                                        | ✅                          |
 | papersign               | HTTP                        | requests                                                        | ✅                          |
 | partnerize              | HTTP                        | requests                                                        | ✅                          |
 | partnerstack            | HTTP                        | requests                                                        | ✅                          |
@@ -626,7 +627,6 @@ doesn't conflict with concurrent PRs.
 - oveit
 - pabbly_subscriptions_billing
 - pagerduty
-- paperform
 - pardot
 - payfit
 - paylocity
