@@ -3807,7 +3807,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3823,7 +3825,9 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
+            {
+                "message": "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, and Redshift sources."
+            },
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
