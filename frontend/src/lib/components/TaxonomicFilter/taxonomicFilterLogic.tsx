@@ -496,17 +496,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (eventNames) => eventNames ?? [],
             { resultEqualityCheck: objectsEqual },
         ],
-        // Combined selector that returns both event names and the distinct primary properties
-        // for those events. Combined into a single selector so taxonomicGroups stays under
-        // kea's 16-dep tuple type limit; consumers destructure both fields.
+        // Combined selector that returns the event names, the distinct primary properties for
+        // those events, and the known MCP schema to hide from Event properties when the MCP tab
+        // hosts it. Combined into a single selector so taxonomicGroups stays under kea's 16-dep
+        // tuple type limit; consumers destructure the fields.
         eventNamesWithPrimaryProperties: [
-            (s) => [s.eventNames, s.primaryProperties],
+            (s) => [s.eventNames, s.primaryProperties, (_, props) => props.taxonomicGroupTypes],
             (
                 eventNames: string[],
-                primaryProperties: Record<string, string>
+                primaryProperties: Record<string, string>,
+                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined
             ): {
                 eventNames: string[]
                 primaryPropertiesForContextEvents: string[]
+                mcpExcludedEventProperties: string[]
             } => {
                 const distinct = new Set<string>()
                 for (const eventName of eventNames) {
@@ -518,6 +521,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 return {
                     eventNames,
                     primaryPropertiesForContextEvents: Array.from(distinct),
+                    mcpExcludedEventProperties: getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
                 }
             },
             { resultEqualityCheck: objectsEqual },
@@ -618,7 +622,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.endpointFilters,
                 s.hogQLExpressionComponentProps,
                 s.featureFlags,
-                (_, props) => props.taxonomicGroupTypes,
             ],
             (
                 currentTeam: TeamType,
@@ -628,6 +631,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventNamesWithPrimaryProperties: {
                     eventNames: string[]
                     primaryPropertiesForContextEvents: string[]
+                    mcpExcludedEventProperties: string[]
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
@@ -648,10 +652,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     globals?: Record<string, any>
                     showBreakdownLabelHint: boolean
                 },
-                featureFlags: Record<string, boolean | string | undefined>,
-                taxonomicGroupTypes: TaxonomicFilterGroupType[] | undefined
+                featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
-                const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
+                const { eventNames, primaryPropertiesForContextEvents, mcpExcludedEventProperties } =
+                    eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -843,7 +847,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 : []),
                             // The known MCP schema lives only in its own group when that tab is
                             // present — exclusive, the way autocapture separates element properties.
-                            ...getMCPExcludedEventProperties(eventNames, taxonomicGroupTypes),
+                            ...mcpExcludedEventProperties,
                         ],
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
