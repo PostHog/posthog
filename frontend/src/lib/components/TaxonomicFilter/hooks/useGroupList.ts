@@ -212,7 +212,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // The cache is shared across pickers, and two pickers can build the same endpoint with
     // different group-level exclusions/allowlists (e.g. the MCP tab excludes its schema from
     // Event properties only when present) — those are fetch-time params, so key on them too.
-    // Sorted so content-equal sets in a different order share an entry.
+    // Sorted so content-equal sets in a different order share an entry: safe because the
+    // backend set-converts these params, so order never changes the response. (The allowlist
+    // also rides order-sensitively inside `group.endpoint`, so it doesn't get the collapse.)
     const excludedPropertiesKey = JSON.stringify([...(group.excludedProperties ?? [])].sort())
     const propertyAllowListKey = JSON.stringify([...(group.propertyAllowList ?? [])].sort())
 
@@ -262,8 +264,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             }),
         // Long staleTime for client-filtered groups — the cached first page
         // is the single source of truth for the whole typing session.
-        // Cohort create/update should invalidate via `invalidateTaxonomicResource`
-        // (TODO) so a fresh fetch picks up the new item.
+        // Cohort mutations invalidate both key families via
+        // `invalidateTaxonomicResourcesWhere` in cohortsModel.
         {
             enabled: remoteEnabled,
             staleTime: clientFilter ? 5 * 60_000 : 60_000,

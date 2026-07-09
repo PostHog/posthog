@@ -119,12 +119,13 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
 /**
  * Predicate for `invalidateTaxonomicResourcesWhere` — matches the cache
  * entries belonging to the `Cohorts` / `CohortsWithAllUsers` taxonomic
- * groups. The key shape is set by `remoteKey` in `useGroupList.ts` —
- * `['taxonomic-list', groupType, ...fetch params]` — and grows with new
+ * groups. `useGroupList.ts` caches under two key families — `remoteKey`
+ * (`'taxonomic-list'`) and `serverSearchKey` (`'taxonomic-list-search'`) —
+ * both shaped `[family, groupType, ...fetch params]` and growing with new
  * fetch params, so rely only on the leading two positions here.
  */
 function isCohortTaxonomicListKey(key: unknown[]): boolean {
-    if (key[0] !== 'taxonomic-list') {
+    if (key[0] !== 'taxonomic-list' && key[0] !== 'taxonomic-list-search') {
         return false
     }
     return key[1] === TaxonomicFilterGroupType.Cohorts || key[1] === TaxonomicFilterGroupType.CohortsWithAllUsers
