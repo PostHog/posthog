@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,66 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check error capture', () => {
+        // Transient network / CORS / timeout failures are expected for unreachable or
+        // reverse-proxy hosts. They must not mint an error tracking issue — only genuinely
+        // unexpected failures (a real HTTP error from the app) should be captured.
+        const mockHeadCheck = (headResponse: () => Promise<any>): void => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? headResponse()
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            )
+        }
+
+        it.each([
+            [
+                'network/CORS TypeError',
+                (): Promise<any> => Promise.reject(new TypeError('Failed to fetch')),
+                'network_or_cors',
+            ],
+            [
+                'request timeout',
+                (): Promise<any> => Promise.reject(new DOMException('aborted', 'AbortError')),
+                'timeout',
+            ],
+        ])('does not capture an exception for expected %s failures', async (_label, headResponse, expectedType) => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation()
+            mockHeadCheck(headResponse)
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            // The failure is still recorded via the analytics event, just not as an exception.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: expectedType })
+            )
+
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('still captures an exception for unexpected HTTP-error reachability failures', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            mockHeadCheck(() => Promise.resolve({ ok: false, status: 500 }))
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+            )
+
+            captureExceptionSpy.mockRestore()
         })
     })
 

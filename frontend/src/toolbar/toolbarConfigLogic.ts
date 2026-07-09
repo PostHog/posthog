@@ -657,13 +657,19 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Network / CORS / timeout failures are expected for unreachable or reverse-proxy
+            // hosts and aren't actionable PostHog bugs — track them via the analytics event below
+            // rather than minting an error tracking issue for each one.
+            if (errorType === 'http_error' || errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
