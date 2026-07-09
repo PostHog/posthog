@@ -135,6 +135,11 @@ class ExternalAccount:
     consumes stays byte-identical to the pre-facade response — a validated
     pydantic pass-through, not a re-typed projection. ``id`` is the stringified
     UUID, matching the wire shape.
+
+    ``custom_properties`` contains every team-defined custom property definition
+    keyed by definition name, with the account's current scalar value (or ``None``
+    when unset). Every definition is present so result paths are deterministic even
+    when a property hasn't been set on this account yet.
     """
 
     id: str
@@ -143,6 +148,7 @@ class ExternalAccount:
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
+    custom_properties: dict[str, float | bool | str | None] = field(default_factory=dict)
 
 
 class ExternalAccountUpdateError(Enum):

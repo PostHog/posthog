@@ -1,9 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
 import { WorkflowLogicProps, sanitizeWorkflow, workflowLogic } from '../../workflowLogic'
+import { OutputMappingSuggestion } from '../hogFlowEditorLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import type { HogflowTestResult } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import type { hogFlowOutputMappingLogicType } from './hogFlowOutputMappingLogicType'
@@ -63,8 +66,38 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
         setTestError: (error: string | null) => ({ error }),
         setTestResultData: (data: unknown | null) => ({ data }),
         setShakePickButton: (shake: boolean) => ({ shake }),
+        applySuggestion: (suggestion: OutputMappingSuggestion) => ({ suggestion }),
     }),
+    loaders(({ values }) => ({
+        suggestions: {
+            __default: [] as OutputMappingSuggestion[],
+            loadSuggestions: async (): Promise<OutputMappingSuggestion[]> => {
+                const { selectedNode } = values
+                if (!selectedNode) {
+                    return []
+                }
+                const templateId = selectedNode.data?.config?.template_id
+                if (!templateId) {
+                    return []
+                }
+                const nodeDef = getRegisteredActionNodeCategories()
+                    .flatMap((c) => c.nodes)
+                    .find((n) => n.config?.template_id === templateId)
+                if (!nodeDef?.getOutputMappingSuggestions) {
+                    return []
+                }
+                try {
+                    return await nodeDef.getOutputMappingSuggestions()
+                } catch {
+                    return []
+                }
+            },
+        },
+    })),
     reducers({
+        suggestions: {
+            setSelectedActionId: () => [],
+        },
         selectedActionId: [
             null as string | null,
             {
@@ -125,6 +158,14 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
     }),
     selectors({
         selectedAction: [(s) => [s.selectedNode], (selectedNode) => selectedNode?.data ?? null],
+        pendingSuggestions: [
+            (s) => [s.suggestions, s.mappings],
+            (suggestions, mappings): OutputMappingSuggestion[] => {
+                const usedResultPaths = new Set(mappings.map((m) => m.result_path).filter(Boolean))
+                const usedKeys = new Set(mappings.map((m) => m.key).filter(Boolean))
+                return suggestions.filter((s) => !usedResultPaths.has(s.result_path) && !usedKeys.has(s.key))
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => {
         const persistMappings = (newMappings: OutputMapping[]): void => {
@@ -151,6 +192,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 const selectedNode = values.selectedNode
                 if (selectedNode) {
                     actions.initMappings(normalizeOutputVariable(selectedNode.data.output_variable))
+                    actions.loadSuggestions()
                 }
             },
             setMappings: ({ mappings }) => {
@@ -187,6 +229,21 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 if (!values.shakePickButton) {
                     actions.setShakePickButton(true)
                     setTimeout(() => actions.setShakePickButton(false), 1000)
+                }
+            },
+            applySuggestion: ({ suggestion }) => {
+                const newMappings = [...values.mappings, { key: suggestion.key, result_path: suggestion.result_path }]
+                actions.setMappings(newMappings)
+
+                const { workflow } = values
+                const existingVars = workflow.variables ?? []
+                if (!existingVars.some((v) => v.key === suggestion.key)) {
+                    workflowLogic(props).actions.setWorkflowInfo({
+                        variables: [
+                            ...existingVars,
+                            { key: suggestion.key, label: suggestion.label, type: 'string' as const, default: '' },
+                        ],
+                    })
                 }
             },
             runOutputTest: async () => {
