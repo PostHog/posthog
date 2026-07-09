@@ -115,6 +115,24 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
 
+    def test_insight_saves_with_metrics_query(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/",
+            {
+                "name": "queue depth",
+                "saved": True,
+                "query": {
+                    "kind": "MetricsQuery",
+                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "dateRange": {"date_from": "-24h"},
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["query"]["kind"] == "MetricsQuery"
+
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
