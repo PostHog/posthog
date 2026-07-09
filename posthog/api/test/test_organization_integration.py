@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from rest_framework import status
 
@@ -130,6 +131,36 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
         self.assertFalse(Integration.objects.filter(id=team_integration.id).exists())
+
+    def test_delete_org_integration_blocked_when_billing_has_open_invoices(self):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        team_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.VERCEL,
+            integration_id=str(self.team.id),
+            config={"type": "connectable"},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
+        with (
+            patch(
+                "ee.vercel.integration.VercelIntegration.delete_installation",
+                side_effect=BillingServiceOpenInvoicesError("Open invoices must be resolved first"),
+            ),
+            patch("posthog.api.organization_integration.capture_exception") as mock_capture,
+        ):
+            response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        # An expected billing condition should not be reported as a crash.
+        mock_capture.assert_not_called()
+        # The local integration must survive so the UI disconnect can't sidestep the billing guard.
+        self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
+        self.assertTrue(Integration.objects.filter(id=team_integration.id).exists())
 
     def test_delete_organization_integration_unauthorized(self):
         self.client.logout()
