@@ -1,8 +1,9 @@
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import pytest
 from unittest import mock
+
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.onepagecrm import (
     OnepagecrmResumeConfig,
@@ -57,8 +58,7 @@ def _list_page(
 
 
 class TestToEpoch:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
             (None, None),
             (True, None),
@@ -194,16 +194,15 @@ class TestGetRows:
         assert list(get_rows("uid", "key", "contacts", mock.MagicMock(), manager)) == []
         manager.save_state.assert_not_called()
 
-    @pytest.mark.parametrize(
-        "endpoint, body, expected_ids",
+    @parameterized.expand(
         [
             ("users", {"data": [{"user": {"id": "u1"}}, {"user": {"id": "u2"}}]}, ["u1", "u2"]),
             ("statuses", {"data": [{"status": {"id": "s1"}}]}, ["s1"]),
             ("lead_sources", {"data": [{"id": "advertisement"}, {"id": "web"}]}, ["advertisement", "web"]),
-        ],
+        ]
     )
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_config_endpoints_yield_bare_array_records(self, mock_session, endpoint, body, expected_ids):
+    def test_config_endpoints_yield_bare_array_records(self, endpoint, body, expected_ids, mock_session):
         mock_session.return_value.get.return_value = _response(body)
 
         manager = _make_manager()
@@ -214,17 +213,16 @@ class TestGetRows:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_message",
+    @parameterized.expand(
         [
             (200, True, None),
             (401, False, "Invalid OnePageCRM user ID or API key"),
             (403, False, "Invalid OnePageCRM user ID or API key"),
             (500, False, "OnePageCRM returned HTTP 500"),
-        ],
+        ]
     )
     @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session, status_code, expected_valid, expected_message):
+    def test_status_mapping(self, status_code, expected_valid, expected_message, mock_session):
         mock_session.return_value.get.return_value = _response({}, status_code=status_code)
 
         valid, message = validate_credentials("uid", "key")
@@ -243,7 +241,7 @@ class TestValidateCredentials:
 
 
 class TestOnepagecrmSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint):
         config = ONEPAGECRM_ENDPOINTS[endpoint]
         response = onepagecrm_source("uid", "key", endpoint, mock.MagicMock(), _make_manager())
@@ -258,6 +256,6 @@ class TestOnepagecrmSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("config", [c for c in ONEPAGECRM_ENDPOINTS.values() if c.partition_key])
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "created_at"
+    @parameterized.expand([(name,) for name, c in ONEPAGECRM_ENDPOINTS.items() if c.partition_key])
+    def test_partition_keys_are_stable_creation_fields(self, endpoint):
+        assert ONEPAGECRM_ENDPOINTS[endpoint].partition_key == "created_at"

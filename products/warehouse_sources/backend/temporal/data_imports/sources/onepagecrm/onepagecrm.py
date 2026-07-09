@@ -50,6 +50,15 @@ def _headers(user_id: str, api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(user_id: str, api_key: str) -> requests.Session:
+    # Redact the derived Basic token as well as the raw key so neither survives in
+    # tracked-transport logs or captured samples if an upstream ever reflects it back.
+    return make_tracked_session(
+        headers=_headers(user_id, api_key),
+        redact_values=(api_key, _basic_auth_token(user_id, api_key)),
+    )
+
+
 def _to_epoch(value: Any) -> Optional[int]:
     """Coerce an incremental cursor value to a UNIX timestamp for the `modified_since` filter.
 
@@ -141,7 +150,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = ONEPAGECRM_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(user_id, api_key), redact_values=(api_key,))
+    session = _make_session(user_id, api_key)
 
     @retry(
         retry=retry_if_exception_type((OnepagecrmRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -263,7 +272,7 @@ def check_access(user_id: str, api_key: str, path: str = DEFAULT_PROBE_PATH) -> 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(user_id, api_key), redact_values=(api_key,))
+    session = _make_session(user_id, api_key)
     try:
         response = session.get(f"{ONEPAGECRM_BASE_URL}{path}", params={"per_page": 1}, timeout=15)
     except Exception as e:
