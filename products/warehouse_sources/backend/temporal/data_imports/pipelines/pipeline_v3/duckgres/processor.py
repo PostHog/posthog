@@ -356,7 +356,7 @@ def _process_backfill_batch(
                 mark_primed,
             )
 
-            mark_primed(batch.schema_id, chunks_applied=chunk_count)
+            mark_primed(batch.schema_id, run_uuid=batch.run_uuid, chunks_applied=chunk_count)
         return
 
     chunk_paths = _backfill_chunk_paths(batch)
@@ -425,7 +425,7 @@ def _process_backfill_batch(
             mark_primed,
         )
 
-        mark_primed(batch.schema_id, chunks_applied=chunk_count)
+        mark_primed(batch.schema_id, run_uuid=batch.run_uuid, chunks_applied=chunk_count)
         logger.info(
             "duckgres_backfill_swapped",
             team_id=batch.team_id,

@@ -248,11 +248,16 @@ def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
     return eligible
 
 
-def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
+def mark_primed(schema_id: str, *, run_uuid: str, chunks_applied: int | None = None) -> None:
     """Fast path called by the processor right after the swap commits.
 
     CAS from BACKFILLING only — the reconciler is the authoritative healer,
-    and a late call must never clobber a state that has since moved on.
+    and a late call must never clobber a state that has since moved on. The
+    CAS is also pinned to the run generation: a replan can retire run R1 and
+    plan R2 while R1's final chunk is still mid-swap (its duckgres transaction
+    cannot be cancelled), and R1's late mark_primed must not flip R2's row —
+    that would unblock live batches over a table R2's own swap later replaces,
+    silently dropping them.
     """
     updates: dict[str, Any] = {
         "state": DuckgresSinkSchemaState.State.PRIMED,
@@ -262,9 +267,11 @@ def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:
     }
     if chunks_applied is not None:
         updates["chunks_applied"] = chunks_applied
-    DuckgresSinkSchemaState.objects.filter(schema_id=schema_id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
-        **updates
-    )
+    DuckgresSinkSchemaState.objects.filter(
+        schema_id=schema_id,
+        state=DuckgresSinkSchemaState.State.BACKFILLING,
+        backfill_run_uuid=run_uuid,
+    ).update(**updates)
 
 
 def mark_schema_diverged(schema_id: str, *, run_uuid: str, error: str) -> None:
@@ -539,6 +546,59 @@ def _revert_to_pending(state_id: Any, error: str | None = None, *, record_failur
     ).update(**updates)
 
 
+def _has_inflight_replace_run(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str) -> bool:
+    """A replace-head live run that Delta accepted but duckgres has not finished.
+
+    Batch 0 replace-shaped and delta-succeeded, with no terminal Delta failure,
+    duckgres-succeeded final marker (completion), or duckgres-failed batch for
+    the run. Planning must wait these out: the snapshot would cover the run's
+    head and orphan its tail (see the guard in _plan_one).
+    """
+    row = conn.execute(
+        f"""
+        SELECT 1
+        FROM {BATCH_TABLE} h
+        JOIN v_latest_source_batch_status hds ON hds.batch_id = h.id
+        WHERE h.team_id = %(team_id)s
+            AND h.schema_id = %(schema_id)s
+            AND h.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND h.batch_index = 0
+            AND h.is_final_batch = false
+            AND h.is_resume = false
+            AND (h.sync_type = 'full_refresh' OR (h.sync_type = 'incremental' AND h.is_first_ever_sync))
+            AND hds.job_state = 'succeeded'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_status xds ON xds.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xds.job_state = 'failed'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} f
+                JOIN v_latest_source_batch_duckgres_status fdgs ON fdgs.batch_id = f.id
+                WHERE f.run_uuid = h.run_uuid
+                    AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND f.is_final_batch = true
+                    AND fdgs.job_state = 'succeeded'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM {BATCH_TABLE} x
+                JOIN v_latest_source_batch_duckgres_status xdgs ON xdgs.batch_id = x.id
+                WHERE x.run_uuid = h.run_uuid
+                    AND x.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    AND xdgs.job_state = 'failed'
+            )
+        LIMIT 1
+        """,
+        {"team_id": team_id, "schema_id": schema_id},
+    ).fetchone()
+    return row is not None
+
+
 def _plan_one(state: DuckgresSinkSchemaState) -> None:
     """Runs only on the pod that won the lease claim.
 
@@ -570,6 +630,19 @@ def _plan_one(state: DuckgresSinkSchemaState) -> None:
         keepalives_interval=15,
         keepalives_count=4,
     ) as conn:
+        if _has_inflight_replace_run(conn, team_id=schema.team_id, schema_id=str(state.schema_id)):
+            # Planning now would pin a snapshot mid-run and pre-apply the
+            # replace run's head: its post-snapshot tail would then apply into
+            # the doomed pre-swap table (the replace-head gate bypass admits
+            # it), and the swap would silently drop those rows while their
+            # apply markers prevent any re-apply. Defer until the run reaches
+            # a terminal duckgres state; the planner retries every tick.
+            logger.info(
+                "duckgres_backfill_plan_deferred_for_inflight_replace",
+                schema_id=str(state.schema_id),
+                team_id=schema.team_id,
+            )
+            return
         plan = resolve_snapshot_plan(schema)
         snapshot_version = plan.snapshot_version
         chunks = plan.chunks
@@ -727,8 +800,14 @@ def _reconcile_one(conn: psycopg.Connection[Any], state: DuckgresSinkSchemaState
     if state.chunk_count and applied >= state.chunk_count:
         # Full application proves the swap committed (the last chunk's apply
         # marker shares the swap's transaction). CAS so a stale pass can never
-        # resurrect a state another pod already advanced.
-        DuckgresSinkSchemaState.objects.filter(id=state.id, state=DuckgresSinkSchemaState.State.BACKFILLING).update(
+        # resurrect a state another pod already advanced — pinned to the run
+        # the applied-count evidence was gathered for, so a replan that swapped
+        # generations mid-pass cannot be promoted on the old run's counts.
+        DuckgresSinkSchemaState.objects.filter(
+            id=state.id,
+            state=DuckgresSinkSchemaState.State.BACKFILLING,
+            backfill_run_uuid=run_uuid,
+        ).update(
             state=DuckgresSinkSchemaState.State.PRIMED,
             chunks_applied=applied,
             last_error=None,
