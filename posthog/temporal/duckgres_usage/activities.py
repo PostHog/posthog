@@ -101,7 +101,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
 
 
 def _read_recorded_watermark() -> dt.datetime | None:
-    cursor = DuckgresUsageCursor.objects.filter(pk=1).first()
+    cursor = DuckgresUsageCursor.objects.first()
     return cursor.last_acked_watermark if cursor is not None else None
 
 
@@ -109,5 +109,7 @@ def _persist(response: UsageResponse, watermark_to_record: dt.datetime | None) -
     with transaction.atomic():
         rows_written = replace_window(response)
         if watermark_to_record is not None:
-            DuckgresUsageCursor.objects.update_or_create(pk=1, defaults={"last_acked_watermark": watermark_to_record})
+            DuckgresUsageCursor.objects.update_or_create(
+                singleton=1, defaults={"last_acked_watermark": watermark_to_record}
+            )
     return rows_written

@@ -78,14 +78,14 @@ DAY_6_END = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)
 usage_count = sync_to_async(lambda: DuckgresDailyUsage.objects.count())
 storage_count = sync_to_async(lambda: DuckgresDailyStorageUsage.objects.count())
 cursor_exists = sync_to_async(lambda: DuckgresUsageCursor.objects.exists())
-get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(pk=1).last_acked_watermark)
+get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_acked_watermark)
 usage_dates = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("date", flat=True)))
 storage_dates = sync_to_async(lambda: sorted(DuckgresDailyStorageUsage.objects.values_list("date", flat=True)))
 
 
 @sync_to_async
 def create_cursor(last_acked: dt.datetime) -> None:
-    DuckgresUsageCursor.objects.create(pk=1, last_acked_watermark=last_acked)
+    DuckgresUsageCursor.objects.create(singleton=1, last_acked_watermark=last_acked)
 
 
 def _patched(response, ack_side_effect=None):

@@ -175,15 +175,17 @@ class DuckgresDailyStorageUsage(UUIDModel):
         ]
 
 
-class DuckgresUsageCursor(models.Model):
-    """Single-row bookkeeping of the last watermark we acked to duckgres.
+class DuckgresUsageCursor(UUIDModel):
+    """Single-row record of the last watermark the poller acked to duckgres.
 
-    Advisory only — duckgres owns the authoritative cursor; this exists so the
-    poller can warn on watermark desync (a duckgres cursor reset would surface
-    as `watermark_low` disagreeing with this row) and so operators can see when
-    custody last advanced. Always addressed as pk=1.
+    Load-bearing: the poller cross-checks this against duckgres's own cursor
+    (`watermark_low`) each pull and refuses to ack when duckgres is ahead of it
+    (a possible hole in billable usage). Written in the same transaction as the
+    mirror rows, before the ack. One row per deployment — `singleton` is a
+    unique constant so it's addressable without relying on a magic pk.
     """
 
+    singleton = models.PositiveSmallIntegerField(default=1, unique=True)
     last_acked_watermark = models.DateTimeField()
     updated_at = models.DateTimeField(auto_now=True)
 
