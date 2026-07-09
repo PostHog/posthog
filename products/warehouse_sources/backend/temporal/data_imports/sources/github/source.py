@@ -290,6 +290,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             return result
         try:
             access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
         except Exception as e:
             # A broken credential (deleted integration, suspended installation) must become a
             # per-table reason here rather than propagate: the schema-picker caller swallows
@@ -308,7 +309,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             for name in org_endpoints:
                 result[name] = reason
             return result
-        reason = check_org_endpoint_permission(access_token, config.repository)
+        reason = check_org_endpoint_permission(access_token, config.repository, egress_identity)
         for name in org_endpoints:
             result[name] = reason
         return result

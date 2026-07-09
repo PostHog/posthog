@@ -295,16 +295,34 @@ _ORG_PERMISSION_REASON = (
 )
 
 
-def check_org_endpoint_permission(personal_access_token: str, repository: str) -> str | None:
+def check_org_endpoint_permission(
+    personal_access_token: str, repository: str, egress_identity: GithubEgressIdentity | None = None
+) -> str | None:
     """Probe the org teams endpoint once. Returns None when reachable, or a short reason when the
-    org grant is missing. Only a real denial (401/403/404) is a missing scope; throttles, 5xx, and
-    network errors mean we could not tell, so treat those as reachable (the sync will surface a real
-    failure if there is one) rather than mislabeling a transient blip as a permission problem."""
+    org grant is missing. Only a real denial (401/403/404) is a missing scope; rate limits, 5xx,
+    egress-budget denials, and network errors mean we could not tell, so treat those as reachable
+    (the sync will surface a real failure if there is one) rather than mislabeling a transient blip
+    as a permission problem."""
     organization = _organization_from_repository(repository)
     url = f"{GITHUB_BASE_URL}/orgs/{organization}/teams?per_page=1"
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(personal_access_token), timeout=10)
-    except requests.exceptions.RequestException:
+        # Same gated + recorded transport as the data plane. NORMAL, not BATCH: a single interactive
+        # schema-picker probe is not deferrable bulk; if the limiter sheds it anyway, that maps to
+        # "could not tell" below rather than a wrong permission verdict.
+        response = github_request(
+            "GET",
+            url,
+            source="warehouse",
+            headers=_get_headers(personal_access_token),
+            installation_id=installation_id,
+            priority=Priority.NORMAL,
+            timeout=10,
+            session=make_tracked_session(),
+        )
+        # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.exceptions.RequestException):
         return None
     if response.status_code in (401, 403, 404):
         return _ORG_PERMISSION_REASON

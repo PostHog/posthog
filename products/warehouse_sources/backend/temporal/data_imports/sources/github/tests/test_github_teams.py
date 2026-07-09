@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 
@@ -130,22 +131,35 @@ def test_team_members_fan_out_respects_per_parent_page_cap() -> None:
 @pytest.mark.parametrize("status_code", [401, 403, 404])
 def test_org_permission_probe_reports_missing_grant(status_code: int) -> None:
     # A denial on the org teams probe must surface the friendly reason naming the grant, so the
-    # schema picker can flag the org tables instead of the whole source failing.
-    session = mock.Mock()
-    session.get.return_value = mock.Mock(status_code=status_code)
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
+    # schema picker can flag the org tables instead of the whole source failing. The probe must ride
+    # the gated egress transport (github_request) like the data plane, not a raw session.
+    response = mock.Mock(status_code=status_code, headers={}, text="Forbidden")
+    with mock.patch.object(github, "github_request", return_value=response) as request:
         reason = github.check_org_endpoint_permission("tok", "acme/widgets")
 
     assert reason is not None
     assert "Members: Read" in reason
     assert "read:org" in reason
+    assert "/orgs/acme/teams" in request.call_args.args[1]
 
 
-@pytest.mark.parametrize("status_code", [200, 429, 500])
-def test_org_permission_probe_treats_non_denial_as_reachable(status_code: int) -> None:
-    # Only a real denial is a missing scope; a success, throttle, or 5xx must not be mislabeled as a
-    # permission problem (which would wrongly block the org tables).
-    session = mock.Mock()
-    session.get.return_value = mock.Mock(status_code=status_code)
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
+@pytest.mark.parametrize(
+    "request_behavior",
+    [
+        pytest.param({"return_value": mock.Mock(status_code=200, headers={}, text="")}, id="ok"),
+        pytest.param({"return_value": mock.Mock(status_code=500, headers={}, text="")}, id="server-error"),
+        pytest.param({"return_value": mock.Mock(status_code=429, headers={}, text="")}, id="secondary-rate-limit"),
+        pytest.param(
+            {"return_value": mock.Mock(status_code=403, headers={"x-ratelimit-remaining": "0"}, text="")},
+            id="primary-rate-limit-403",
+        ),
+        pytest.param({"side_effect": github.GitHubEgressBudgetExhausted("deferring")}, id="egress-budget-shed"),
+        pytest.param({"side_effect": requests.exceptions.ConnectionError()}, id="network-error"),
+    ],
+)
+def test_org_permission_probe_treats_non_denial_as_reachable(request_behavior: dict[str, Any]) -> None:
+    # Only a real denial is a missing scope; a success, rate limit (even a 403-shaped one), 5xx,
+    # egress-budget shed, or network error must not be mislabeled as a permission problem (which
+    # would wrongly block the org tables).
+    with mock.patch.object(github, "github_request", **request_behavior):
         assert github.check_org_endpoint_permission("tok", "acme/widgets") is None
