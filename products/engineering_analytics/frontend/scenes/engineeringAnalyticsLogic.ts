@@ -541,7 +541,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'branchHealthParams']],
         })),
 
         actions({
@@ -606,7 +606,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
                             date_from: values.dateFrom ?? undefined,
                             date_to: values.dateTo ?? undefined,
-                            branch: values.appliedBranch || undefined,
+                            ...values.branchHealthParams,
                             source_id: values.sourceId ?? undefined,
                         })
                         return items.map(
@@ -1052,6 +1052,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadWorkflowHealth()
             },
             [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
+                actions.loadWorkflowHealth()
+            },
+            [engineeringAnalyticsFiltersLogic.actionTypes.scopeToPullRequests]: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
