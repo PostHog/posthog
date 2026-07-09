@@ -126,33 +126,33 @@ Hog functions (`products/cdp/`) execute inside the Node plugin-server, backed by
 
 ## Async work: which queue to use
 
-| System | Use for | Lives in |
-| --- | --- | --- |
-| Celery | Short, best-effort tasks (cache warming, emails, small computations) | `posthog/tasks/`, `products/*/backend/tasks/` |
-| Temporal | Durable, multi-step, retryable workflows (batch exports, warehouse syncs, experiments, error tracking jobs). Payloads are capped around 2 MiB, so pass references, not data | `products/*/backend/temporal/`, worker via `manage.py start_temporal_worker` |
-| Dagster | Scheduled data jobs against ClickHouse (backfills, deletions, materialized columns) | `posthog/dags/` |
-| Kafka consumer | Per-event processing at ingestion scale | `nodejs/` (plugin-server modes) or a Rust service |
+| System         | Use for                                                                                                                                                                     | Lives in                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Celery         | Short, best-effort tasks (cache warming, emails, small computations)                                                                                                        | `posthog/tasks/`, `products/*/backend/tasks/`                                |
+| Temporal       | Durable, multi-step, retryable workflows (batch exports, warehouse syncs, experiments, error tracking jobs). Payloads are capped around 2 MiB, so pass references, not data | `products/*/backend/temporal/`, worker via `manage.py start_temporal_worker` |
+| Dagster        | Scheduled data jobs against ClickHouse (backfills, deletions, materialized columns)                                                                                         | `posthog/dags/`                                                              |
+| Kafka consumer | Per-event processing at ingestion scale                                                                                                                                     | `nodejs/` (plugin-server modes) or a Rust service                            |
 
 ## Code to runtime mapping
 
-| Directory | What it deploys |
-| --- | --- |
-| `posthog/` + `frontend/` + `products/` | The main image (`Dockerfile`): Django web, Celery workers, Temporal Django worker, static frontend |
-| `nodejs/` | One image (`Dockerfile.node`), many services selected via `PLUGIN_SERVER_MODE` (ingestion, replay, error tracking, logs, traces, CDP, recording API) |
-| `rust/` | One Cargo workspace (~60 crates), one parameterized Dockerfile per binary: capture, feature-flags, personhog, cymbal, cyclotron, kafka tooling, and more |
-| `livestream/` | Go SSE service for the live events view |
-| `services/` | Independently deployed services owned by no single product: MCP server, LLM gateway, agent proxy, OAuth proxy, Stripe app |
-| `posthog/dags/` | Dagster Cloud code location (`dagster_cloud.yaml`) |
+| Directory                              | What it deploys                                                                                                                                          |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog/` + `frontend/` + `products/` | The main image (`Dockerfile`): Django web, Celery workers, Temporal Django worker, static frontend                                                       |
+| `nodejs/`                              | One image (`Dockerfile.node`), many services selected via `PLUGIN_SERVER_MODE` (ingestion, replay, error tracking, logs, traces, CDP, recording API)     |
+| `rust/`                                | One Cargo workspace (~60 crates), one parameterized Dockerfile per binary: capture, feature-flags, personhog, cymbal, cyclotron, kafka tooling, and more |
+| `livestream/`                          | Go SSE service for the live events view                                                                                                                  |
+| `services/`                            | Independently deployed services owned by no single product: MCP server, LLM gateway, agent proxy, OAuth proxy, Stripe app                                |
+| `posthog/dags/`                        | Dagster Cloud code location (`dagster_cloud.yaml`)                                                                                                       |
 
 ## Data stores
 
-| Store | Role |
-| --- | --- |
-| Postgres | App state (Django), plus per-product databases via `products/db_routing.yaml`, person data (via personhog only), Cyclotron queues, Temporal state |
-| ClickHouse | Events, sessions, logs, app metrics: everything analytical, queried through HogQL |
-| Kafka | The ingestion bus between capture, workers, and ClickHouse |
-| Redis | Caching, Celery broker, feature flag and remote config caches, rate limiting |
-| SeaweedFS / S3 | Object storage: replay blobs, exports, source maps (MinIO is being phased out, do not add new dependencies on it) |
-| Temporal (+ Elasticsearch) | Workflow orchestration and its visibility store |
-| OpenSearch | LLM trace reverse index (`products/ai_observability`) |
-| etcd | personhog writer coordination |
+| Store                      | Role                                                                                                                                              |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Postgres                   | App state (Django), plus per-product databases via `products/db_routing.yaml`, person data (via personhog only), Cyclotron queues, Temporal state |
+| ClickHouse                 | Events, sessions, logs, app metrics: everything analytical, queried through HogQL                                                                 |
+| Kafka                      | The ingestion bus between capture, workers, and ClickHouse                                                                                        |
+| Redis                      | Caching, Celery broker, feature flag and remote config caches, rate limiting                                                                      |
+| SeaweedFS / S3             | Object storage: replay blobs, exports, source maps (MinIO is being phased out, do not add new dependencies on it)                                 |
+| Temporal (+ Elasticsearch) | Workflow orchestration and its visibility store                                                                                                   |
+| OpenSearch                 | LLM trace reverse index (`products/ai_observability`)                                                                                             |
+| etcd                       | personhog writer coordination                                                                                                                     |
