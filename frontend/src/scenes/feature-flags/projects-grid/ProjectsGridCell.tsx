@@ -58,11 +58,7 @@ export function ProjectsGridCell({
                 onToggle={onToggle}
                 data-attr="projects-grid-cell-toggle"
             />
-            <Link
-                subtle
-                to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`}
-                className="text-xs text-tertiary mt-1"
-            >
+            <Link to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`} className="text-xs mt-1">
                 <span data-attr="projects-grid-cell-present">
                     {rollout} · {evals} evals · 7d
                 </span>

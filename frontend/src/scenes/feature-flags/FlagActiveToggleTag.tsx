@@ -20,34 +20,25 @@ export function FlagActiveToggleTag({
         )
     }
 
-    const handleToggle = (): void => {
-        if (!toggling) {
-            onToggle(!active)
-        }
-    }
-
     return (
         <LemonTag
             type={active ? 'success' : 'default'}
-            className="uppercase gap-1"
-            onClick={handleToggle}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    handleToggle()
-                }
-            }}
-            tabIndex={0}
-            role="switch"
-            aria-checked={active}
-            aria-label="Feature flag active in this project"
-            disabledReason={toggling ? 'Updating…' : undefined}
+            className="uppercase"
+            aria-busy={toggling || undefined}
             data-attr={dataAttr}
         >
-            <span aria-hidden className="pointer-events-none flex items-center">
-                <LemonSwitch checked={active} size="xxsmall" loading={toggling} sliderColorOverrideChecked="success" />
-            </span>
-            {label}
+            <LemonSwitch
+                checked={active}
+                onChange={() => onToggle(!active)}
+                size="xxsmall"
+                loading={toggling}
+                disabledReason={toggling ? 'Updating…' : undefined}
+                sliderColorOverrideChecked="success"
+                aria-label="Feature flag active in this project"
+                label={label}
+                // LemonSwitch renders the label before the switch; reverse to keep the switch on the left
+                className="flex-row-reverse"
+            />
         </LemonTag>
     )
 }

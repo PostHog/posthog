@@ -29,6 +29,7 @@ export function confirmFlagActiveToggleInProject({
         primaryButton: {
             children: 'Confirm',
             type: 'primary',
+            status: active ? 'default' : 'danger',
             size: 'small',
             onClick: onConfirm,
         },
@@ -38,6 +39,19 @@ export function confirmFlagActiveToggleInProject({
             size: 'small',
         },
     })
+}
+
+/**
+ * Handle an approval-required 409 from a flag update: show the approval toast and announce
+ * the created change request. Returns whether the error was an approval-required response.
+ */
+export function handleFlagApprovalRequired(e: any, flagId: number, actionDescription: string): boolean {
+    if (e?.status === 409 && e?.data?.change_request_id) {
+        showApprovalRequiredToast(e.data.change_request_id, actionDescription)
+        dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
+        return true
+    }
+    return false
 }
 
 /**
@@ -60,10 +74,7 @@ export async function updateFlagActiveInProject({
         lemonToast.success(`Feature flag ${active ? 'enabled' : 'disabled'}`)
         return updatedFlag
     } catch (e: any) {
-        if (e?.status === 409 && e?.data?.change_request_id) {
-            showApprovalRequiredToast(e.data.change_request_id, actionDescription)
-            dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: flagId })
-        } else {
+        if (!handleFlagApprovalRequired(e, flagId, actionDescription)) {
             lemonToast.error(e?.detail || e?.data?.detail || `Failed to ${actionDescription}`)
         }
         return null

@@ -225,12 +225,13 @@ describe('projectsGridLogic', () => {
                     '/api/organizations/:org/feature_flags/:key/': [],
                 },
                 patch: {
-                    '/api/projects/:team_id/feature_flags/:id/': ({ request, params }) => {
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
                         patchedUrls.push(new URL(request.url).pathname)
                         if (params.team_id === '99') {
                             return [403, { detail: "You don't have edit access" }]
                         }
-                        return [200, { id: Number(params.id), active: false }]
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
                     },
                 },
             })
@@ -241,24 +242,34 @@ describe('projectsGridLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('PATCHes the flag in its own project and syncs grid state', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.siblingsLoaded('flag_1', [
-                { flag_id: 1, team_id: 1, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
-                { flag_id: 42, team_id: 2, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
-            ])
+        it.each([false, true])(
+            'PATCHes the flag in its own project and syncs grid state (active → %s)',
+            async (active) => {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.siblingsLoaded('flag_1', [
+                    { flag_id: 1, team_id: 1, filters: { groups: [] }, active: true, created_by: null, created_at: '' },
+                    {
+                        flag_id: 42,
+                        team_id: 2,
+                        filters: { groups: [] },
+                        active: !active,
+                        created_by: null,
+                        created_at: '',
+                    },
+                ])
 
-            logic.actions.toggleFlagActive('flag_1', 2, 42, false)
-            expect(logic.values.togglingFlagIds).toEqual({ '2:42': true })
+                logic.actions.toggleFlagActive('flag_1', 2, 42, active)
+                expect(logic.values.togglingFlagIds).toEqual({ '2:42': true })
 
-            await expectLogic(logic).toDispatchActions(['flagActiveUpdated']).toFinishAllListeners()
-            expect(patchedUrls).toEqual(['/api/projects/2/feature_flags/42/'])
-            expect(logic.values.siblingsByFlagKey['flag_1']).toMatchObject([
-                { team_id: 1, active: true },
-                { team_id: 2, active: false },
-            ])
-            expect(logic.values.togglingFlagIds).toEqual({})
-        })
+                await expectLogic(logic).toDispatchActions(['flagActiveUpdated']).toFinishAllListeners()
+                expect(patchedUrls).toEqual(['/api/projects/2/feature_flags/42/'])
+                expect(logic.values.siblingsByFlagKey['flag_1']).toMatchObject([
+                    { team_id: 1, active: true },
+                    { team_id: 2, active },
+                ])
+                expect(logic.values.togglingFlagIds).toEqual({})
+            }
+        )
 
         it('syncs the representative row when the toggled flag backs it', async () => {
             await expectLogic(logic).toFinishAllListeners()
