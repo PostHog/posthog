@@ -329,8 +329,14 @@ rm docker-compose.yml.tmpl
 
 docker-compose pull
 
-echo "Checking if async migrations are up to date"
-sudo -E docker-compose run asyncmigrationscheck
+# Async migrations only matter when upgrading from much older PostHog versions,
+# and the check needs the old stack (Postgres) to still be running, so it's opt-in.
+if [[ "${CHECK_ASYNC_MIGRATIONS:-}" =~ ^([yY][eE][sS]|[yY]|1|[tT][rR][uU][eE])$ ]]; then
+    echo "Checking if async migrations are up to date"
+    sudo -E docker-compose run --rm asyncmigrationscheck
+else
+    echo "Skipping async migrations check (set CHECK_ASYNC_MIGRATIONS=1 to run it, only needed when upgrading from an old version)"
+fi
 
 echo "Stopping the stack!"
 docker-compose stop
