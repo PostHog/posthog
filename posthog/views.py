@@ -1,4 +1,5 @@
 import os
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
@@ -110,16 +111,58 @@ def login_required(view):
     return handler
 
 
+# The deprecated `_health` probe returns 503 while Django migrations are pending. During a
+# normal deploy new pods come up before the migration job finishes, so a pending state is
+# expected and transient. Only escalate to error tracking once it has persisted, so a routine
+# deploy stays quiet while a genuinely stuck migration still alerts.
+MIGRATIONS_PENDING_SINCE_KEY = "@posthog/health/migrations_pending_since"
+MIGRATIONS_PENDING_ALERTED_KEY = "@posthog/health/migrations_pending_alerted"
+MIGRATIONS_PENDING_ALERT_AFTER = timedelta(minutes=15)
+# Anchor the "pending since" timestamp long enough to outlast a genuinely stuck migration
+# while still self-cleaning if the marker is never cleared.
+_MIGRATIONS_PENDING_SINCE_TTL = int(timedelta(hours=6).total_seconds())
+
+
+def _clear_migrations_pending_marker() -> None:
+    try:
+        get_client().delete(MIGRATIONS_PENDING_SINCE_KEY, MIGRATIONS_PENDING_ALERTED_KEY)
+    except Exception:
+        logger.warning("health_check_migrations_redis_unavailable", exc_info=True)
+
+
+def _report_pending_migrations() -> None:
+    logger.warning("health_check_migrations_not_up_to_date")
+
+    try:
+        client = get_client()
+        now = int(time.time())
+        # Record when we first saw pending migrations; NX keeps the original anchor on later hits.
+        client.set(MIGRATIONS_PENDING_SINCE_KEY, now, nx=True, ex=_MIGRATIONS_PENDING_SINCE_TTL)
+        pending_since = int(client.get(MIGRATIONS_PENDING_SINCE_KEY) or now)
+        # Escalate at most once per alert window while the condition persists, so a stuck
+        # migration keeps surfacing without flooding error tracking on every probe hit.
+        should_alert = now - pending_since >= MIGRATIONS_PENDING_ALERT_AFTER.total_seconds() and bool(
+            client.set(
+                MIGRATIONS_PENDING_ALERTED_KEY, now, nx=True, ex=int(MIGRATIONS_PENDING_ALERT_AFTER.total_seconds())
+            )
+        )
+    except Exception:
+        # Never let the health probe fail because Redis is unavailable.
+        logger.warning("health_check_migrations_redis_unavailable", exc_info=True)
+        return
+
+    if should_alert:
+        capture_exception(Exception("Migrations are not up to date. If this continues migrations have failed"))
+
+
 def health(request):
     executor = MigrationExecutor(connections[DEFAULT_DB_ALIAS])
     plan = executor.migration_plan(executor.loader.graph.leaf_nodes())
-    status = 503 if plan else 200
-    if status == 503:
-        err = Exception("Migrations are not up to date. If this continues migrations have failed")
-        capture_exception(err)
-        return HttpResponse("Migrations are not up to date", status=status, content_type="text/plain")
-    if status == 200:
-        return HttpResponse("ok", status=status, content_type="text/plain")
+    if plan:
+        _report_pending_migrations()
+        return HttpResponse("Migrations are not up to date", status=503, content_type="text/plain")
+    _clear_migrations_pending_marker()
+    return HttpResponse("ok", status=200, content_type="text/plain")
 
 
 def stats(request):
