@@ -1,5 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -46,10 +47,22 @@ def _format_watermark(value: Any) -> str:
 
     Truncates to whole seconds, rounding the lower bound *down* — an incremental sync re-fetches at
     most a few boundary rows (merge dedupes them on `id`) rather than skipping any.
+
+    Accepts the shapes the pipeline can hand back for a DateTime field (datetime/date, ISO-8601
+    string, epoch seconds) and raises for anything else — a malformed filter value would make
+    Metorial silently return unfiltered/unexpected results rather than erroring.
     """
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError(f"Unsupported Metorial incremental watermark value: {value!r}")
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        value = datetime.fromtimestamp(value, tz=UTC)
+
     normalized = coerce_datetime_to_utc(value)
     if normalized is None:
-        return str(value)
+        raise ValueError(f"Unsupported Metorial incremental watermark value: {value!r}")
     return normalized.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

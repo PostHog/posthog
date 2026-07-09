@@ -60,13 +60,29 @@ class TestBuildUrl:
         url = _build_url("/sessions", after="ses_123", incremental_field=None, db_incremental_field_last_value=None)
         assert _query(url)["after"] == ["ses_123"]
 
-    def test_incremental_filter_uses_bracket_gt_syntax(self) -> None:
-        watermark = datetime(2025, 6, 1, 12, 30, 45, 999999, tzinfo=UTC)
+    @parameterized.expand(
+        [
+            # Sub-second precision must be truncated DOWN so boundary rows are re-fetched, never skipped.
+            ("aware_datetime", datetime(2025, 6, 1, 12, 30, 45, 999999, tzinfo=UTC), "2025-06-01T12:30:45Z"),
+            ("naive_datetime", datetime(2025, 6, 1, 12, 30, 45), "2025-06-01T12:30:45Z"),
+            # The pipeline can hand the stored watermark back as an ISO-8601 string or epoch seconds.
+            ("iso_string_z", "2025-06-01T12:30:45.999Z", "2025-06-01T12:30:45Z"),
+            ("iso_string_offset", "2025-06-01T14:30:45+02:00", "2025-06-01T12:30:45Z"),
+            ("epoch_seconds", 1748781045, "2025-06-01T12:30:45Z"),
+        ]
+    )
+    def test_incremental_filter_uses_bracket_gt_syntax(self, _name: str, watermark: Any, expected: str) -> None:
         url = _build_url(
             "/sessions", after=None, incremental_field="updated_at", db_incremental_field_last_value=watermark
         )
-        # Sub-second precision must be truncated DOWN so boundary rows are re-fetched, never skipped.
-        assert _query(url)["updated_at[gt]"] == ["2025-06-01T12:30:45Z"]
+        assert _query(url)["updated_at[gt]"] == [expected]
+
+    def test_unparseable_watermark_raises_instead_of_sending_garbage(self) -> None:
+        # A malformed filter value would make Metorial silently return unexpected results.
+        with pytest.raises(ValueError, match="Unsupported Metorial incremental watermark"):
+            _build_url(
+                "/sessions", after=None, incremental_field="updated_at", db_incremental_field_last_value="not-a-date"
+            )
 
     def test_no_filter_when_watermark_is_none(self) -> None:
         url = _build_url("/sessions", after=None, incremental_field="updated_at", db_incremental_field_last_value=None)
