@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from products.review_hog.backend.models import ReviewSkillConfig
@@ -106,3 +108,21 @@ class TestReviewBlindSpotsConfigAPI(APIBaseTest):
         )
         assert config.team_id == self.team.id
         assert config.enabled is True
+
+    @parameterized.expand(
+        [
+            ("llm_skill_read_allowed", ["llm_skill:read"], 200),
+            ("unrelated_scope_denied", ["insight:read"], 403),
+        ]
+    )
+    def test_list_api_key_scope_is_llm_skill(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        # The menu returns skill body/description, so the endpoint is scoped `llm_skill` like the
+        # skills API — a revert to INTERNAL would reject the read-scoped key here AND silently skip
+        # the llm_analytics RBAC gate for session users.
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        res = self.client.get(f"{self.base}/")
+
+        assert res.status_code == expected_status
