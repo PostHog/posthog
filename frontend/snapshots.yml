@@ -1204,6 +1204,14 @@ snapshots:
         hash: v1.k794b7964.69f3b0ede33d4b597caa7a923520e58945a4626196e203e552a7a1e029a0f525.pBiwxxHtJ2_3NfrUuKzwnrTNZ4b_y4zd49UQyDKRrec
     components-markdown-notebook--malformed-markdown-recovery--light:
         hash: v1.k794b7964.373448e5fe950e05adac4cf223b38920fa8d894d0d0034485cbbd7bdfd41566d.GDrMJvhqrK0U3zs9zESTR84PtJDeR9FOke5qH0EOWd4
+    components-markdown-notebook--mermaid-diagram--dark:
+        hash: v1.k794b7964.589721efcc9d9efdb1930cb039e66dab9ea9516207ddc05f3689cf4b6bc0c27d.AWJhZym7PMuQeiCOTvsUQrCFPlZ7VY7rDxe7Zlc11TI
+    components-markdown-notebook--mermaid-diagram--light:
+        hash: v1.k794b7964.ec3e04b44131032aa29e84c556bc3b4841395142e9da7b8301ebbb4e2867aeb6.rpDwy4CgTFLUY8oCU2_ThyHEtNdU71cJhKmjQ1W9ou8
+    components-markdown-notebook--mermaid-diagram-fallback--dark:
+        hash: v1.k794b7964.7de80ff52b2ce7b92eedeade9bc30798e8ad982aa65847e86db9f25f6887cc62.7LSRLYDjHMg2Ov4r-pgv_pY1Dmtwktb5cbGeTmu-D6k
+    components-markdown-notebook--mermaid-diagram-fallback--light:
+        hash: v1.k794b7964.0fbcb8280d6dc731e40f4fb62e29a7f9ce79b14a947baad028a8432fc90db2e4.m2ZkjN-5n1jwaxuauppqNOmzy8dRYpmrXZC3Nhj9J88
     components-markdown-notebook--mocked-collaboration--dark:
         hash: v1.k794b7964.e11be709065cefe6516361185b66e7aca286b7aeaf851f6f4f731a7b5a44625e.0cF2H1FOanpkyljIOsGiywdkMmu5WtzsAkxQ9xY9tts
     components-markdown-notebook--mocked-collaboration--light:
