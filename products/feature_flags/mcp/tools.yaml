@@ -291,6 +291,12 @@ tools:
     feature-flags-staff-team-config-set-create:
         operation: feature_flags_staff_team_config_set_create
         enabled: false
+    feature-flags-staff-cache-warm-run-cancel-create:
+        operation: feature_flags_staff_cache_warm_run_cancel_create
+        enabled: false
+    feature-flags-staff-cache-warm-run-retrieve:
+        operation: feature_flags_staff_cache_warm_run_retrieve
+        enabled: false
     feature-flags-staff-teams-list:
         operation: feature_flags_staff_teams_list
         enabled: false
