@@ -128,6 +128,12 @@ export const authorLogic = kea<authorLogicType>([
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },
+                {
+                    key: 'EngineeringAnalyticsPullRequests',
+                    name: 'Pull requests',
+                    path: urls.engineeringAnalyticsPullRequestList(),
+                    iconType: 'health',
+                },
                 { key: ['EngineeringAnalyticsAuthor', handle], name: handle, iconType: 'health' },
             ],
         ],

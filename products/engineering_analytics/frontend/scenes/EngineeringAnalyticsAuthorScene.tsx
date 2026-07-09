@@ -71,7 +71,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name={handle} resourceType={{ type: 'health' }} />
+            <SceneTitleSection name="Author" resourceType={{ type: 'health' }} />
             <ScopeBar
                 repoSlot={
                     <RepoScopeChip
@@ -117,11 +117,15 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
             <div className="flex flex-col gap-4">
                 {/* The scope-bar date picker scopes these cost tiles (and the breakdown below) only — the PR
                     list stays the author's recent PRs, loaded over a fixed year window. */}
+                {/* The window scopes these tiles by filtering the already-loaded PRs client-side, so a date
+                    change updates them instantly (no skeleton). The skeleton is only for the initial PR
+                    fetch, so the tiles don't flash a zero before the list lands. */}
                 <div className="flex flex-wrap gap-2.5">
                     <MetricTile
                         label="Pull requests opened"
                         value={windowedRows.length.toLocaleString()}
                         sub="in the selected window"
+                        loading={prsLoading}
                     />
                     <MetricTile
                         label="CI cost"
@@ -132,6 +136,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                 ? `${formatMinutes(totalBillableMinutes)} billable`
                                 : 'no cost data yet'
                         }
+                        loading={prsLoading}
                     />
                     <MetricTile
                         label="Cost per loop"
@@ -142,6 +147,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                 ? `${totalLoops.toLocaleString()} loops in the window`
                                 : 'no cost data yet'
                         }
+                        loading={prsLoading}
                     />
                 </div>
 

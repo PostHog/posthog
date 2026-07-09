@@ -3,7 +3,7 @@
 
 import { ReactNode } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
@@ -71,6 +71,7 @@ export function MetricTile({
     valueSuffix,
     delta,
     sub,
+    loading = false,
     className,
 }: {
     label: string
@@ -82,6 +83,9 @@ export function MetricTile({
     delta?: ReactNode
     /** Visible caption — only for an answer worth a glance (what's failing, why there's no value). */
     sub?: ReactNode
+    /** Backend load in flight: skeleton the value so it doesn't flash a stale/zero number. Only for a
+     *  genuine reload — client-side-instant derivations should never pass this. */
+    loading?: boolean
     className?: string
 }): JSX.Element {
     const labelSpan = <span className="text-xs text-secondary">{label}</span>
@@ -97,12 +101,18 @@ export function MetricTile({
             ) : (
                 labelSpan
             )}
-            <span className="flex items-baseline gap-2">
-                <span className="text-2xl font-semibold leading-none tabular-nums">{value}</span>
-                {valueSuffix && <span className="text-xs font-medium text-tertiary">{valueSuffix}</span>}
-                {delta}
-            </span>
-            {sub && <span className="text-xs text-tertiary">{sub}</span>}
+            {loading ? (
+                <LemonSkeleton className="my-1 h-6 w-20" />
+            ) : (
+                <>
+                    <span className="flex items-baseline gap-2">
+                        <span className="text-2xl font-semibold leading-none tabular-nums">{value}</span>
+                        {valueSuffix && <span className="text-xs font-medium text-tertiary">{valueSuffix}</span>}
+                        {delta}
+                    </span>
+                    {sub && <span className="text-xs text-tertiary">{sub}</span>}
+                </>
+            )}
         </LemonCard>
     )
 }

@@ -32,7 +32,7 @@ import { MetricTile } from '../components/MetricTile'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
-import { Section, SectionNav } from '../components/Section'
+import { Section } from '../components/Section'
 import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
@@ -461,6 +461,16 @@ function PrWorkflowsTable({
     setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
+    const isWorkflowFailing = (workflowName: string): boolean => {
+        const latest = latestByWorkflow.get(workflowName)
+        return latest?.conclusion != null && !isPassingConclusion(latest.conclusion)
+    }
+    // Failing workflows first — the order a reviewer triages in — then alphabetical.
+    const orderedRows = [...rows].sort(
+        (a, b) =>
+            Number(isWorkflowFailing(b.workflowName)) - Number(isWorkflowFailing(a.workflowName)) ||
+            a.workflowName.localeCompare(b.workflowName)
+    )
     const columns: LemonTableColumns<PrWorkflowRow> = [
         {
             title: 'Workflow',
@@ -552,7 +562,7 @@ function PrWorkflowsTable({
     ]
     return (
         <LemonTable
-            dataSource={rows}
+            dataSource={orderedRows}
             columns={columns}
             size="small"
             loading={loading}
@@ -640,7 +650,7 @@ export function PullRequestDetailScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={pullRequest?.title ?? 'Pull request'}
+                name="Pull request"
                 resourceType={{ type: 'health' }}
                 actions={
                     githubUrl ? (
@@ -758,28 +768,11 @@ export function PullRequestDetailScene(): JSX.Element {
                             value={prCost?.jobs_available ? compactUsd(prCost.estimated_cost_usd) : '—'}
                             sub={prCost?.jobs_available ? undefined : 'Job-level source not synced'}
                         />
-                        <MetricTile
-                            label={
-                                summary?.mergedAt ? 'Open → merge' : summary?.closedAt ? 'Open → close' : 'Open so far'
-                            }
-                            value={gapBetween(
-                                summary?.openedAt ?? pullRequest.created_at,
-                                summary?.mergedAt ?? summary?.closedAt ?? dayjs().toISOString()
-                            )}
-                        />
                     </div>
                 </>
             ) : (
                 <LemonSkeleton className="h-24 w-full" />
             )}
-
-            <SectionNav
-                items={[
-                    { id: 'pr-timeline', label: 'Lifecycle' },
-                    { id: 'pr-runs', label: 'CI runs' },
-                    { id: 'pr-failures', label: 'Failures' },
-                ]}
-            />
 
             <Section id="pr-timeline" title="Lifecycle">
                 {summary && pullRequest ? (
