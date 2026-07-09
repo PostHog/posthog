@@ -55,6 +55,21 @@ export const QuillWithTime: Story = {
     parameters: quillEnabled,
 }
 
+export const QuillWithTime24Hour: Story = {
+    render: () => <Template value={dayjs('2023-01-15T21:30')} granularity="minute" use24HourFormat />,
+    parameters: quillEnabled,
+}
+
+export const QuillPastOnly: Story = {
+    render: () => <Template placeholder="Select a past date" selectionPeriod="past" />,
+    parameters: quillEnabled,
+}
+
+export const QuillUpcomingOnly: Story = {
+    render: () => <Template placeholder="Select an upcoming date" selectionPeriod="upcoming" />,
+    parameters: quillEnabled,
+}
+
 export const QuillSmallSecondary: Story = {
     render: () => <Template value={dayjs('2023-01-15')} size="small" type="secondary" fullWidth={false} />,
     parameters: quillEnabled,

@@ -1,24 +1,32 @@
+import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCalendar, IconX } from '@posthog/icons'
-import { Button, cn, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+import {
+    Button,
+    cn,
+    DatePicker as QuillDatePicker,
+    type Day,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { teamLogic } from 'scenes/teamLogic'
 
 /**
  * Design-system-agnostic single-date picker — the migration seam between the LemonUI
- * calendar family and Quill's DateTimePicker. Callers depend on this dayjs-facing API;
+ * calendar family and Quill's DatePicker. Callers depend on this dayjs-facing API;
  * the internal rendering swaps from LemonUI to Quill in one place without touching callers.
  *
  * The swap is gated by the `QUILL_DATE_PICKER` feature flag so LemonUI and Quill run side
- * by side and roll back without a revert. The Quill panel does not yet cover the whole
- * feature surface, so `quillCanRender` falls back to LemonUI whenever a request needs a
- * capability Quill is missing: hour-only granularity, 12-hour time entry, selection
- * windows, multi-month, or controlled visibility. Day/minute granularity (with an optional
- * include-time toggle) is handled; minute entry renders in 24-hour time. Each Quill panel
- * increment removes one fallback condition.
+ * by side and roll back without a revert. The Quill panel covers the full prop surface:
+ * day/minute granularity, 12/24-hour time entry, selection windows (rendered as datetime
+ * bounds computed here, in the selection timezone), and controlled visibility. The LemonUI
+ * renderer remains only as the flag-off path until the flag is removed.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
@@ -37,7 +45,7 @@ export interface DatePickerProps {
     value: dayjs.Dayjs | null
     onChange: (value: dayjs.Dayjs | null) => void
     /** Precision of the selected value. */
-    granularity?: 'day' | 'hour' | 'minute'
+    granularity?: 'day' | 'minute'
     /** Restrict selectable dates relative to now. */
     selectionPeriod?: 'past' | 'upcoming'
     /** Timezone used to decide which past/upcoming dates are selectable (defaults to browser local). */
@@ -47,9 +55,7 @@ export interface DatePickerProps {
     onToggleTime?: (includeTime: boolean) => void
     /** Use 24-hour time entry instead of 12-hour with AM/PM. */
     use24HourFormat?: boolean
-    /** Number of calendar months to render side by side. */
-    months?: number
-    /** Latest selectable date. Bounds the Quill panel; when omitted Quill caps at today, so future-date callers must pass this. The LemonUI fallback has no equivalent and stays unbounded above. */
+    /** Latest selectable date. When omitted the picker is unbounded above. */
     maxDate?: dayjs.Dayjs
     /** Placeholder shown on the trigger when no value is set. */
     placeholder?: string
@@ -79,7 +85,8 @@ export interface DatePickerProps {
 }
 
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
-const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
+const QUILL_TRIGGER_DATETIME_FORMAT_24H = 'MMMM D, YYYY HH:mm'
+const QUILL_TRIGGER_DATETIME_FORMAT_12H = 'MMMM D, YYYY h:mm A'
 
 const QUILL_TRIGGER_VARIANT: Record<NonNullable<DatePickerProps['type']>, 'primary' | 'outline' | 'default'> = {
     primary: 'primary',
@@ -93,22 +100,9 @@ const QUILL_TRIGGER_SIZE: Record<NonNullable<DatePickerProps['size']>, 'default'
     large: 'lg',
 }
 
-function quillCanRender(props: DatePickerProps): boolean {
-    return (
-        props.granularity !== 'hour' &&
-        props.use24HourFormat !== false &&
-        props.selectionPeriod === undefined &&
-        props.months === undefined &&
-        props.visible === undefined &&
-        props.onOpen === undefined &&
-        props.onClickOutside === undefined &&
-        props.onClose === undefined
-    )
-}
-
 export function DatePicker(props: DatePickerProps): JSX.Element {
     const quillEnabled = useFeatureFlag('QUILL_DATE_PICKER')
-    if (quillEnabled && quillCanRender(props)) {
+    if (quillEnabled) {
         return <DatePickerQuill {...props} />
     }
     return <DatePickerLemon {...props} />
@@ -118,8 +112,11 @@ function DatePickerQuill({
     value,
     onChange,
     granularity,
+    selectionPeriod,
+    selectionPeriodTimezone,
     showTimeToggle,
     onToggleTime,
+    use24HourFormat,
     placeholder,
     clearable,
     format,
@@ -129,12 +126,49 @@ function DatePickerQuill({
     className,
     disabledReason,
     maxDate,
+    visible,
+    onOpen,
+    onClickOutside,
+    onClose,
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
-    const [open, setOpen] = useState(false)
+    const { weekStartDay } = useValues(teamLogic)
+    const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [includeTime, setIncludeTime] = useState(granularity === 'minute')
-    const labelFormat = format ?? (includeTime ? QUILL_TRIGGER_DATETIME_FORMAT : QUILL_TRIGGER_FORMAT)
+
+    const open = visible ?? uncontrolledOpen
+    const labelFormat =
+        format ??
+        (includeTime
+            ? use24HourFormat
+                ? QUILL_TRIGGER_DATETIME_FORMAT_24H
+                : QUILL_TRIGGER_DATETIME_FORMAT_12H
+            : QUILL_TRIGGER_FORMAT)
     const label = value ? value.format(labelFormat) : (placeholder ?? 'Select date')
+
+    // Quill has no relative selection-window concept, only absolute bounds — so evaluate "now"
+    // here (as the selection timezone's wall clock, comparable to the panel's naive dates) and
+    // hand the panel the resulting min/max. The panel's calendar disables by day and clamps
+    // applied datetimes, matching the LemonUI behavior of blocking wrong-direction times.
+    const selectionNow = selectionPeriod
+        ? selectionPeriodTimezone
+            ? dayjsNowInTimezone(selectionPeriodTimezone)
+            : dayjs()
+        : null
+    const panelMinDate = selectionPeriod === 'upcoming' && selectionNow ? selectionNow.toDate() : undefined
+    const panelMaxDate =
+        selectionPeriod === 'past' && selectionNow
+            ? (maxDate && maxDate.isBefore(selectionNow) ? maxDate : selectionNow).toDate()
+            : maxDate?.toDate()
+
+    const handleOpenChange = (nextOpen: boolean): void => {
+        if (nextOpen) {
+            onOpen?.()
+        } else {
+            onClickOutside?.()
+        }
+        setUncontrolledOpen(nextOpen)
+    }
 
     const handleIncludeTimeChange = (next: boolean): void => {
         setIncludeTime(next)
@@ -143,12 +177,12 @@ function DatePickerQuill({
 
     const applyDate = (next: Date): void => {
         onChange(dayjs(next))
-        setOpen(false)
+        setUncontrolledOpen(false)
     }
 
     return (
         <div className={fullWidth ? 'flex w-full items-center gap-1' : 'flex items-center gap-1'}>
-            <Popover open={open} onOpenChange={setOpen}>
+            <Popover open={open} onOpenChange={handleOpenChange}>
                 <PopoverTrigger
                     render={
                         <Button
@@ -168,12 +202,18 @@ function DatePickerQuill({
                 <PopoverContent align="start" className="w-auto p-0">
                     <QuillDatePicker
                         value={value ? value.toDate() : new Date()}
-                        maxDate={maxDate?.toDate()}
+                        minDate={panelMinDate}
+                        maxDate={panelMaxDate}
+                        weekStartsOn={weekStartDay as Day}
+                        hourCycle={use24HourFormat ? 24 : 12}
                         showTime={includeTime}
                         showTimeToggle={!!showTimeToggle}
                         onIncludeTimeChange={handleIncludeTimeChange}
                         onApply={applyDate}
-                        onCancel={() => setOpen(false)}
+                        onCancel={() => {
+                            onClose?.()
+                            setUncontrolledOpen(false)
+                        }}
                     />
                 </PopoverContent>
             </Popover>
@@ -201,7 +241,6 @@ function DatePickerLemon({
     showTimeToggle,
     onToggleTime,
     use24HourFormat,
-    months,
     placeholder,
     clearable,
     format,
@@ -244,7 +283,6 @@ function DatePickerLemon({
             showTimeToggle={showTimeToggle}
             onToggleTime={onToggleTime}
             use24HourFormat={use24HourFormat}
-            months={months}
             placeholder={placeholder}
             clearable={clearable}
             format={format}

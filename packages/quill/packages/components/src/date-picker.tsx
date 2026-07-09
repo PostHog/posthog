@@ -5,7 +5,7 @@ import * as React from 'react'
 import { Badge, Button, Separator, Switch, cn } from '@posthog/quill-primitives'
 
 import { Calendar } from './calendar-grid'
-import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
+import { SegmentedDateInput, type DateFormatOrder, type HourCycle } from './segmented-date-input'
 import { Day } from './use-calendar'
 
 // Minute precision, no seconds — deliberately differs from DateTimePicker's HH:mm:ss; don't unify.
@@ -13,6 +13,11 @@ const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     MDY: 'MM/dd/yy HH:mm',
     DMY: 'dd/MM/yy HH:mm',
     YMD: 'yy-MM-dd HH:mm',
+}
+const DATE_TIME_FORMATS_12H: Record<DateFormatOrder, string> = {
+    MDY: 'MM/dd/yy h:mm a',
+    DMY: 'dd/MM/yy h:mm a',
+    YMD: 'yy-MM-dd h:mm a',
 }
 const DATE_ONLY_FORMATS: Record<DateFormatOrder, string> = {
     MDY: 'MM/dd/yy',
@@ -25,6 +30,7 @@ export interface DatePickerProps {
     onApply: (value: Date) => void
     onCancel?: () => void
     minDate?: Date
+    /** Latest selectable date. Omit for no upper bound (calendar navigation still caps ten years out). */
     maxDate?: Date
     dateFormat?: DateFormatOrder
     weekStartsOn?: Day
@@ -35,6 +41,8 @@ export interface DatePickerProps {
     showTimeToggle?: boolean
     /** Fired when the "Include time" toggle changes. */
     onIncludeTimeChange?: (includeTime: boolean) => void
+    /** 12 renders 1-12 hour entry with an AM/PM toggle; 24 (default) renders 0-23. */
+    hourCycle?: HourCycle
     className?: string
 }
 
@@ -44,17 +52,16 @@ export function DatePicker({
     onApply,
     onCancel,
     minDate,
-    maxDate: maxDateProp,
+    maxDate,
     dateFormat = 'MDY',
     weekStartsOn,
     onDateTimeSettings,
     showTime = false,
     showTimeToggle = showTime,
     onIncludeTimeChange,
+    hourCycle = 24,
     className,
 }: DatePickerProps): React.ReactElement {
-    const maxDate = maxDateProp ?? new Date()
-    const hasExplicitMaxDate = maxDateProp !== undefined
     const [selected, setSelected] = React.useState<Date>(value)
     const [includeTime, setIncludeTime] = React.useState<boolean>(showTime)
     const [viewing, setViewing] = React.useState<Date>(new Date(getYear(value), getMonth(value), 1))
@@ -72,10 +79,25 @@ export function DatePicker({
         setSelected(next)
     }
 
+    // The calendar disables out-of-bounds days and the segmented input caps its date segments at
+    // maxDate, but neither bounds the time of day — a typed time (or the time carried over from a
+    // previous selection) can still land outside minDate/maxDate on a boundary day. Clamping here
+    // guarantees the value never escapes the advertised bounds. Date-only values clamp against the
+    // bounds' days, not their times, so the calendar's day-granular rules stay authoritative.
+    const clampToBounds = (date: Date, dayGranular: boolean): Date => {
+        const min = minDate ? (dayGranular ? startOfDay(minDate) : minDate) : undefined
+        const max = maxDate ? (dayGranular ? startOfDay(maxDate) : maxDate) : undefined
+        if (min && date.getTime() < min.getTime()) {
+            return min
+        }
+        if (max && date.getTime() > max.getTime()) {
+            return max
+        }
+        return date
+    }
+
     const handleInputChange = (next: Date): void => {
-        // The segmented input caps its segments at maxDate but has no lower bound,
-        // so a typed value below minDate would otherwise bypass the advertised bound.
-        const clamped = minDate && next.getTime() < minDate.getTime() ? minDate : next
+        const clamped = clampToBounds(next, !includeTime)
         if (clamped.getTime() === selected.getTime()) {
             return
         }
@@ -89,10 +111,11 @@ export function DatePicker({
     }
 
     const handleApply = (): void => {
-        onApply(includeTime ? selected : startOfDay(selected))
+        onApply(includeTime ? clampToBounds(selected, false) : clampToBounds(startOfDay(selected), true))
     }
 
-    const presentational = format(selected, includeTime ? DATE_TIME_FORMATS[dateFormat] : DATE_ONLY_FORMATS[dateFormat])
+    const timeFormat = hourCycle === 12 ? DATE_TIME_FORMATS_12H[dateFormat] : DATE_TIME_FORMATS[dateFormat]
+    const presentational = format(selected, includeTime ? timeFormat : DATE_ONLY_FORMATS[dateFormat])
 
     return (
         <div
@@ -103,14 +126,14 @@ export function DatePicker({
         >
             <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-t-lg">
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date</span>
-                {(minDate || hasExplicitMaxDate) && (
+                {(minDate || maxDate) && (
                     <div className="flex items-center gap-1 ml-auto">
                         {minDate && (
                             <Badge variant="default" className="text-[10px] px-1.5 py-0">
                                 Min: {format(minDate, 'MMM d, yy')}
                             </Badge>
                         )}
-                        {hasExplicitMaxDate && (
+                        {maxDate && (
                             <Badge variant="default" className="text-[10px] px-1.5 py-0">
                                 Max: {format(maxDate, 'MMM d, yy')}
                             </Badge>
@@ -138,6 +161,7 @@ export function DatePicker({
                         onChange={handleInputChange}
                         dateFormat={dateFormat}
                         showTime={includeTime}
+                        hourCycle={hourCycle}
                     />
                 </div>
             </div>

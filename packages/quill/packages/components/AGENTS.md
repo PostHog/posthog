@@ -76,11 +76,12 @@ import { DatePicker } from '@posthog/quill-components'
   onApply={(next) => setDate(next)}
   onCancel={() => close()}
   minDate={minDate}
-  maxDate={new Date()}
+  maxDate={maxDate} // omit for no upper bound (calendar navigation still caps ten years out)
   dateFormat="MDY" // or 'DMY' | 'YMD'
   showTime // include time in the value initially (hour/minute inputs shown)
   showTimeToggle // render the "Include time" toggle; defaults to showTime. false = fixed precision
   onIncludeTimeChange={(includeTime) => ...} // fired when the toggle flips
+  hourCycle={12} // 1-12 hour entry with an AM/PM toggle; default 24
 />
 ```
 
@@ -89,7 +90,9 @@ Rules:
 - `value`/`onApply` are a single `Date`, not `{ start, end, range }`. Use this for the single-date PostHog callers (currently `LemonCalendarSelect`); reach for `DateTimePicker` only when you need a start→end range.
 - `showTime` seeds whether time is included; `showTimeToggle` (defaults to `showTime`) decides whether the "Include time" toggle renders. Set `showTimeToggle={false}` with `showTime` for a fixed time precision (no opt-out); pass `showTimeToggle` alone to start date-only but let the user add time. `onIncludeTimeChange` reports toggle changes so a wrapper can mirror the state (e.g. to update a trigger label).
 - Without time included the applied value is floored to start-of-day; with it, the value keeps its hour/minute.
-- Shares the calendar grid and `minDate`/`maxDate` day-granular bounds with `DateTimePicker` (both render `Calendar` from `calendar-grid.tsx`).
+- `maxDate` has no default — omit it and future dates are selectable (unlike `DateTimePicker`, which caps at now when unset).
+- Calendar day disabling is day-granular, but applied values clamp to the full datetime bounds — a carried-over or typed time outside `minDate`/`maxDate` on a boundary day is clamped, so `onApply` never returns an out-of-bounds value. Date-only applies clamp against the bounds' days, not their times.
+- `hourCycle={12}` switches the segmented time entry to 1-12 with an AM/PM toggle (the value stays a plain `Date`; only entry and display change). `DateTimePicker` remains 24-hour only.
 - Always a single calendar; there is no `compact`/dual-calendar mode.
 
 ## useCalendar

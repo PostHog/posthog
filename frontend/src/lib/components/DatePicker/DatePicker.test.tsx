@@ -2,7 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
-import { dayjs } from 'lib/dayjs'
+import { dayjs, dayjsNowInTimezone } from 'lib/dayjs'
 
 import { DatePicker, DatePickerProps } from './DatePicker'
 
@@ -19,7 +19,14 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 }))
 
 const QUILL_STUB_DATE = new Date(2023, 0, 20)
-const mockQuillPanelProps: { maxDate?: Date; showTime?: boolean; showTimeToggle?: boolean } = {}
+const mockQuillPanelProps: {
+    minDate?: Date
+    maxDate?: Date
+    showTime?: boolean
+    showTimeToggle?: boolean
+    hourCycle?: 12 | 24
+    weekStartsOn?: number
+} = {}
 jest.mock('@posthog/quill', () => {
     const react = require('react')
     return {
@@ -28,20 +35,29 @@ jest.mock('@posthog/quill', () => {
             onApply,
             onCancel,
             onIncludeTimeChange,
+            minDate,
             maxDate,
             showTime,
             showTimeToggle,
+            hourCycle,
+            weekStartsOn,
         }: {
             onApply: (value: Date) => void
             onCancel: () => void
             onIncludeTimeChange?: (includeTime: boolean) => void
+            minDate?: Date
             maxDate?: Date
             showTime?: boolean
             showTimeToggle?: boolean
+            hourCycle?: 12 | 24
+            weekStartsOn?: number
         }) => {
+            mockQuillPanelProps.minDate = minDate
             mockQuillPanelProps.maxDate = maxDate
             mockQuillPanelProps.showTime = showTime
             mockQuillPanelProps.showTimeToggle = showTimeToggle
+            mockQuillPanelProps.hourCycle = hourCycle
+            mockQuillPanelProps.weekStartsOn = weekStartsOn
             return react.createElement('div', null, [
                 react.createElement('button', { key: 'apply', onClick: () => onApply(QUILL_STUB_DATE) }, 'stub-apply'),
                 react.createElement('button', { key: 'cancel', onClick: onCancel }, 'stub-cancel'),
@@ -159,22 +175,99 @@ describe('DatePicker', () => {
             expect(container.querySelector('[data-quill]')?.className).toContain(expectedClass)
         })
 
-        it.each<[string, Partial<DatePickerProps>]>([
-            ['hour granularity', { granularity: 'hour' }],
-            ['12-hour time', { granularity: 'minute', use24HourFormat: false }],
-            ['selectionPeriod', { selectionPeriod: 'past' }],
-            ['months', { months: 2 }],
-        ])('falls back to LemonUI when %s is requested', (_name, props) => {
-            const { container } = renderDatePicker(dayjs('2023-01-15'), props)
-
-            expect(container.querySelector('[data-quill]')).toBeNull()
-        })
-
         it('renders minute granularity in Quill with a time-bearing label', () => {
             const { container } = renderDatePicker(dayjs('2023-01-15T09:30'), { granularity: 'minute' })
 
             expect(container.querySelector('[data-quill]')).toBeTruthy()
-            expect(within(container).getByText('January 15, 2023 09:30')).toBeTruthy()
+            expect(within(container).getByText('January 15, 2023 9:30 AM')).toBeTruthy()
+        })
+
+        it.each<[string, Partial<DatePickerProps>, 12 | 24]>([
+            // LemonUI's default is 12-hour with AM/PM, so an unset prop must stay 12-hour under Quill too.
+            ['unset use24HourFormat -> 12-hour entry', { granularity: 'minute' }, 12],
+            ['use24HourFormat -> 24-hour entry', { granularity: 'minute', use24HourFormat: true }, 24],
+        ])('maps %s onto the Quill panel', async (_name, props, hourCycle) => {
+            const { container } = renderDatePicker(dayjs('2023-01-15T09:30'), props)
+
+            await userEvent.click(container.querySelector('[data-quill]') as HTMLElement)
+            await screen.findByText('stub-apply')
+
+            expect(mockQuillPanelProps.hourCycle).toBe(hourCycle)
+        })
+
+        it.each<[string, DatePickerProps['selectionPeriod'], 'minDate' | 'maxDate', 'minDate' | 'maxDate']>([
+            ['upcoming bounds below by now', 'upcoming', 'minDate', 'maxDate'],
+            ['past bounds above by now', 'past', 'maxDate', 'minDate'],
+        ])('selectionPeriod %s', async (_name, selectionPeriod, boundedSide, openSide) => {
+            const { container } = renderDatePicker(dayjs('2023-01-15'), { selectionPeriod })
+
+            await userEvent.click(container.querySelector('[data-quill]') as HTMLElement)
+            await screen.findByText('stub-apply')
+
+            const bound = mockQuillPanelProps[boundedSide]
+            expect(bound).toBeInstanceOf(Date)
+            expect(Math.abs((bound as Date).getTime() - Date.now())).toBeLessThan(5000)
+            expect(mockQuillPanelProps[openSide]).toBeUndefined()
+        })
+
+        it('evaluates selection bounds in the selection timezone, not browser-local time', async () => {
+            // UTC+14 with no DST — differs from any realistic CI timezone, so ignoring the
+            // timezone (falling back to local "now") shows up as an hours-wide mismatch.
+            const timezone = 'Pacific/Kiritimati'
+            const { container } = renderDatePicker(dayjs('2023-01-15'), {
+                selectionPeriod: 'upcoming',
+                selectionPeriodTimezone: timezone,
+            })
+
+            await userEvent.click(container.querySelector('[data-quill]') as HTMLElement)
+            await screen.findByText('stub-apply')
+
+            const expected = dayjsNowInTimezone(timezone).toDate().getTime()
+            expect(Math.abs((mockQuillPanelProps.minDate as Date).getTime() - expected)).toBeLessThan(5000)
+        })
+
+        it('passes the team week start to the Quill panel', async () => {
+            const { container } = renderDatePicker(dayjs('2023-01-15'))
+
+            await userEvent.click(container.querySelector('[data-quill]') as HTMLElement)
+            await screen.findByText('stub-apply')
+
+            // teamLogic's default in tests is 0 (Sunday); the contract is that the prop is wired, not undefined.
+            expect(mockQuillPanelProps.weekStartsOn).toBe(0)
+        })
+
+        it('supports the controlled visibility trio', async () => {
+            const onOpen = jest.fn()
+            const onClose = jest.fn()
+
+            const { rerender } = render(
+                <DatePicker
+                    value={dayjs('2023-01-15')}
+                    onChange={jest.fn()}
+                    visible={false}
+                    onOpen={onOpen}
+                    onClose={onClose}
+                />
+            )
+
+            expect(screen.queryByText('stub-apply')).toBeNull()
+            await userEvent.click(screen.getByText('January 15, 2023'))
+            expect(onOpen).toHaveBeenCalledTimes(1)
+            // The panel only opens once the caller flips `visible` — the trigger click alone must not open it.
+            expect(screen.queryByText('stub-apply')).toBeNull()
+
+            rerender(
+                <DatePicker
+                    value={dayjs('2023-01-15')}
+                    onChange={jest.fn()}
+                    visible={true}
+                    onOpen={onOpen}
+                    onClose={onClose}
+                />
+            )
+
+            await userEvent.click(await screen.findByText('stub-cancel'))
+            expect(onClose).toHaveBeenCalledTimes(1)
         })
 
         it.each<[string, Partial<DatePickerProps>, boolean, boolean]>([
@@ -213,7 +306,7 @@ describe('DatePicker', () => {
             await userEvent.click(await screen.findByText('stub-time-on'))
 
             const updatedTrigger = within(container).getByRole('button', { name: /January 15, 2023/ }) // nosemgrep: jest-no-byrole-name-queries
-            expect(updatedTrigger.textContent).toBe('January 15, 2023 09:30')
+            expect(updatedTrigger.textContent).toBe('January 15, 2023 9:30 AM')
             expect(mockQuillPanelProps.showTime).toBe(true)
         })
 
