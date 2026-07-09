@@ -3297,8 +3297,8 @@ class ExperimentService:
         # flag and is passed via feature_flag_config below.
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Variants, payloads, and experience continuity come from the source experiment's feature
-        # flag (the source of truth), in the flag's own write shape.
+        # Variants, payloads, group aggregation, and experience continuity come from the source
+        # experiment's feature flag (the source of truth), in the flag's own write shape.
         clone_variants = deepcopy(source_experiment.feature_flag.variants)
 
         # An existing flag in the target project wins — reuse its variants instead.
@@ -3316,6 +3316,11 @@ class ExperimentService:
         source_payloads = source_experiment.feature_flag.get_filters().get("payloads")
         if source_payloads:
             clone_filters["payloads"] = deepcopy(source_payloads)
+        # Group index 0 is valid, so guard on `is not None`; dropping it would silently convert a
+        # group-scoped experiment into a person-scoped one.
+        source_group_type_index = source_experiment.feature_flag.aggregation_group_type_index
+        if source_group_type_index is not None:
+            clone_filters["aggregation_group_type_index"] = source_group_type_index
         feature_flag_config = {
             "filters": clone_filters,
             # bool() so a NULL continuity clones as off — the create path treats None as "unset" and

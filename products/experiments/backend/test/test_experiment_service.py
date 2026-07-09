@@ -2202,6 +2202,21 @@ class TestExperimentService(APIBaseTest):
         assert len(links) == 1
         assert links[0].saved_metric_id == sm.id
 
+    # index 0 is the truthiness edge case: a `if index:` guard would wrongly drop it.
+    @parameterized.expand([("index_zero", 0), ("index_one", 1)])
+    def test_duplicate_experiment_preserves_group_aggregation(self, _name: str, group_index: int):
+        flag = self._create_flag(key="dup-group-source")
+        flag.filters = {**flag.filters, "aggregation_group_type_index": group_index}
+        flag.save()
+        service = self._service()
+        source = service.create_experiment(name="Group Source", feature_flag_key="dup-group-source")
+
+        # New key forces a fresh flag through _ensure_feature_flag rather than reusing the source.
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-group-target")
+
+        assert dup.feature_flag.id != source.feature_flag.id
+        assert dup.feature_flag.aggregation_group_type_index == group_index
+
     # ------------------------------------------------------------------
     # Launch experiment
     # ------------------------------------------------------------------
