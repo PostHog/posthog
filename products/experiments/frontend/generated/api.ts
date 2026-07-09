@@ -19,15 +19,16 @@ import type {
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
+    ExperimentWriteApi,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentBasicListApi,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentSavedMetricListApi,
-    PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
+    PatchedExperimentWriteApi,
     RecalculateMetricsRequestApi,
     RunningTimeCalculationInputApi,
     RunningTimeCalculationResultApi,
@@ -310,14 +311,14 @@ export const getExperimentsCreateUrl = (projectId: string) => {
  */
 export const experimentsCreate = async (
     projectId: string,
-    experimentApi: NonReadonly<ExperimentApi>,
+    experimentWriteApi: NonReadonly<ExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
+        body: JSON.stringify(experimentWriteApi),
     })
 }
 
@@ -353,14 +354,14 @@ export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
 export const experimentsUpdate = async (
     projectId: string,
     id: number,
-    experimentApi: NonReadonly<ExperimentApi>,
+    experimentWriteApi: NonReadonly<ExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
+        body: JSON.stringify(experimentWriteApi),
     })
 }
 
@@ -369,19 +370,19 @@ export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) =>
 }
 
 /**
- * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.
  */
 export const experimentsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentApi?: NonReadonly<PatchedExperimentApi>,
+    patchedExperimentWriteApi?: NonReadonly<PatchedExperimentWriteApi>,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExperimentApi),
+        body: JSON.stringify(patchedExperimentWriteApi),
     })
 }
 

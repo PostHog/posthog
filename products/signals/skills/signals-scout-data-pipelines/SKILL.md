@@ -108,7 +108,7 @@ The watcher tracks execution health, not delivery semantics — a destination er
 
 Failure share = `failed / triggered` within the same window — never compare either against `filtered`, which is usually orders of magnitude larger and healthy by construction (the filter doing its job). A candidate needs sustained contradiction: share ≥ ~10% over 24h with ≥ ~50 triggered, against a flat-or-quiet history. Two special shapes worth catching:
 
-- **Born broken** — a destination created in the last days failing ~100% since creation (≥ ~20 attempts): a botched setup the team believes is working. `created_at` is in the list response; the activity log (`scope: "HogFunction"`) dates config edits.
+- **Born broken** — a destination created in the last days failing ~100% since creation (≥ ~20 attempts): a botched setup the team believes is working. `created_at` is in the list response; the activity log (`scopes: ["HogFunction"]`) dates config edits.
 - **Filter starvation** — `triggered` collapsing to ~zero while `filtered` keeps flowing: the filter stopped matching, usually because an upstream event was renamed or stopped firing. The destination isn't failing — it's starving. Confirm the filtered events still exist before calling it (one `execute-sql` count on the filter's event).
 
 #### Batch export failures and stalls
@@ -118,7 +118,7 @@ For each live export, read the 10 `latest_runs` off `batch-export-get`:
 - **`Failed` runs** are terminal — retries exhausted; that interval's data did not land and won't until someone backfills. `latest_error` carries the reason (auth expiry, schema mismatch, destination quota). One `Failed` run is already a data gap; file a report with the interval bounds. `FailedRetryable` / `Running` / `Starting` are in-flight states — not findings.
 - **Stalls** — compare the newest run's `data_interval_end` against now: a gap over ~2× the export interval with no running run means the schedule itself stopped.
 - **Record-level failures** — `records_failed > 0` on Completed runs: partial delivery, worth a memory entry and a report only if it grows or persists.
-- **Volume cliffs** — `records_completed` collapsing across consecutive runs while event ingestion held steady points at a filter/config change; check `last_updated_at` and the activity log (`scope: "BatchExport"`) before calling it unexplained.
+- **Volume cliffs** — `records_completed` collapsing across consecutive runs while event ingestion held steady points at a filter/config change; check `last_updated_at` and the activity log (`scopes: ["BatchExport"]`) before calling it unexplained.
 
 #### Flow failure concentration (hog flows)
 
@@ -198,7 +198,7 @@ Direct calls (read-only):
 - `workflows-global-stats` — per-flow succeeded/failed for the whole fleet in one call, most-failing first. Hog flows only — it does not cover destinations.
 - `workflows-stats` / `workflows-list-invocations` / `workflows-logs` — one flow's time series, per-recipient outcomes (`error_kind`, `error_message`, `person_id`), and step trace.
 - `execute-sql` against `system.hog_functions`, `system.hog_flows`, `system.batch_exports` — bulk roster reads without pagination (name your columns; no watcher state here; integer booleans).
-- `activity-log-list` (`scope: "HogFunction"` / `"HogFlow"` / `"BatchExport"`) — dating config edits against delivery shifts.
+- `advanced-activity-logs-list` (`scopes: ["HogFunction"]` / `["HogFlow"]` / `["BatchExport"]`) — dating config edits against delivery shifts.
 
 Inbox & reviewer routing:
 

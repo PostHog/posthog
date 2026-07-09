@@ -185,6 +185,7 @@ the row lists both.
 | height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
+| humanitix               | HTTP                        | requests                                                        | ✅                          |
 | hubplanner              | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
@@ -303,11 +304,13 @@ the row lists both.
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
+| sendowl                 | HTTP                        | requests                                                        | ✅                          |
 | sentry                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow              | HTTP                        | requests                                                        | ✅                          |
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
 | shortcut                | HTTP                        | requests                                                        | ✅                          |
+| shortio                 | HTTP                        | requests                                                        | ✅                          |
 | simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -324,6 +327,7 @@ the row lists both.
 | surveymonkey            | HTTP                        | requests                                                        | ✅                          |
 | svix                    | HTTP                        | requests                                                        | ✅                          |
 | taboola                 | HTTP                        | requests                                                        | ✅                          |
+| tavus                   | HTTP                        | requests                                                        | ✅                          |
 | teamtailor              | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
@@ -345,6 +349,7 @@ the row lists both.
 | wufoo                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
+| zenloop                 | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
 | zoom                    | HTTP                        | requests                                                        | ✅                          |
 | zuora                   | HTTP                        | requests                                                        | ✅                          |
@@ -507,7 +512,6 @@ doesn't conflict with concurrent PRs.
 - hoorayhr
 - hubplanner
 - hugging_face
-- humanitix
 - ikas
 - illumina_basespace
 - imagga
@@ -650,7 +654,6 @@ doesn't conflict with concurrent PRs.
 - sap_successfactors
 - savvycal
 - search_ads_360
-- sendowl
 - sendpulse
 - senseforce
 - serpstat
@@ -687,7 +690,6 @@ doesn't conflict with concurrent PRs.
 - survicate
 - svix
 - systeme
-- tavus
 - tawk_to
 - teachable
 - tempo

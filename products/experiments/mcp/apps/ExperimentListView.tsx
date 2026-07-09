@@ -64,10 +64,10 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                             ),
                     },
                     {
-                        key: 'parameters' as keyof ExperimentData,
+                        key: 'feature_flag' as keyof ExperimentData,
                         header: 'Variants',
                         render: (row): ReactNode => {
-                            const variants = row.parameters?.feature_flag_variants
+                            const variants = row.feature_flag?.filters?.multivariate?.variants
                             if (!variants || variants.length === 0) {
                                 return <span className="text-muted-foreground">&mdash;</span>
                             }

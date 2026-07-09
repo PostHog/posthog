@@ -130,17 +130,9 @@ function ChartLegendStory({
     )
 }
 
+// One position suffices — the BuiltInToggle set below pins all four via the same ChartLegendLayout
 export const LayoutTop: Story = {
     render: () => <ChartLegendStory position="top" />,
-}
-export const LayoutBottom: Story = {
-    render: () => <ChartLegendStory position="bottom" />,
-}
-export const LayoutLeft: Story = {
-    render: () => <ChartLegendStory position="left" />,
-}
-export const LayoutRight: Story = {
-    render: () => <ChartLegendStory position="right" />,
 }
 export const LegendHidden: Story = {
     render: () => <ChartLegendStory show={false} position="top" />,

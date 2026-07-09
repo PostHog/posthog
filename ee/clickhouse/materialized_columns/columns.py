@@ -97,7 +97,10 @@ class MaterializedColumn:
 
     @staticmethod
     def _get_all(table: TablesWithMaterializedColumns) -> list[tuple[str, str, str, bool, list[str]]]:
-        refresh_cache = random.random() < 0.002  # we run around 50 of those queries per minute
+        # In TEST mode never do the probabilistic refresh: test-mode cache is process-local and
+        # every schema mutation invalidates the key explicitly, so a random bypass would cause
+        # non-deterministic extra system.columns queries that break assertNumQueries / snapshot tests.
+        refresh_cache = not TEST and random.random() < 0.002  # we run around 50 of those queries per minute
         if table in MATERIALIZATION_VALID_TABLES and not refresh_cache and MATERIALIZED_COLUMNS_USE_CACHE:
             cache_key = get_materialized_columns_cache_key(table)
 
