@@ -246,7 +246,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "audit_logs"
     },
     "advanced-activity-logs-list": {
         "description": "List activity log entries — who changed what and when (feature flag changes, dashboard edits, experiment launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type, user, item, date range, and free-text search. Use this to audit a specific resource's history or to see what changed recently across the project.",
@@ -260,7 +261,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_entitlement": "audit_logs"
     },
     "agent-applications-create": {
         "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote. Playbook: read the `authoring-new-agents` playbook via `agent-resolve-resource` for the end-to-end authoring flow.",

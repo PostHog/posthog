@@ -2491,7 +2491,7 @@ class PandaDocSourceConfig(config.Config):
 
 @config.config
 class PaperformSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2876,7 +2876,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplyIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3386,7 +3386,7 @@ class TeamworkSourceConfig(config.Config):
 
 @config.config
 class TempoSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config

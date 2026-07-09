@@ -263,6 +263,7 @@ the row lists both.
 | optimizely              | HTTP                        | requests                                                        | ✅                          |
 | pagerduty               | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                | HTTP                        | requests                                                        | ✅                          |
+| paperform               | HTTP                        | requests                                                        | ✅                          |
 | papersign               | HTTP                        | requests                                                        | ✅                          |
 | partnerize              | HTTP                        | requests                                                        | ✅                          |
 | partnerstack            | HTTP                        | requests                                                        | ✅                          |
@@ -295,6 +296,7 @@ the row lists both.
 | reddit_ads              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | rentcast                | HTTP                        | requests                                                        | ✅                          |
+| reply_io                | HTTP                        | requests                                                        | ✅                          |
 | resend                  | HTTP                        | requests                                                        | ✅                          |
 | retently                | HTTP                        | requests                                                        | ✅                          |
 | revenuecat              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -340,6 +342,7 @@ the row lists both.
 | tavus                   | HTTP                        | requests                                                        | ✅                          |
 | teamtailor              | HTTP                        | requests                                                        | ✅                          |
 | teamwork                | HTTP                        | requests                                                        | ✅                          |
+| tempo                   | HTTP                        | requests                                                        | ✅                          |
 | temporalio              | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | testrail                | HTTP                        | requests                                                        | ✅                          |
 | thinkific               | HTTP                        | requests                                                        | ✅                          |
@@ -626,7 +629,6 @@ doesn't conflict with concurrent PRs.
 - oveit
 - pabbly_subscriptions_billing
 - pagerduty
-- paperform
 - pardot
 - payfit
 - paylocity
@@ -664,7 +666,6 @@ doesn't conflict with concurrent PRs.
 - redis
 - referralhero
 - repairshopr
-- reply_io
 - retail_express
 - revolut_merchant
 - ringcentral
@@ -718,7 +719,6 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tawk_to
 - teachable
-- tempo
 - thinkific_courses
 - thrive_learning
 - ticketmaster

@@ -4547,33 +4547,33 @@ snapshots:
     products-data-modeling-lineage-graph--single-node--light:
         hash: v1.k794b7964.965d630c09110769bac58d2fc162856dc5303d9a98e97995aec4cc48098581da.Gi_VbiOcJVaHaHybXL8911KOWXwBMAGtbHwCIA2HO0E
     products-posthog-ai-composer--default--dark:
-        hash: v1.k794b7964.46b58701d85781d463019c60ff4249a090bf3997b48bce436de397764443a239.r1kxyzWoJ0j9b9_aBUh9MByfQRFFKUkIP9a8eYD9qCQ
+        hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.E61uR16UwC5qC1XkQquxMh1z3bonN6IYLdYDyzcorTA
     products-posthog-ai-composer--default--light:
-        hash: v1.k794b7964.be07c7ce42d999598811678f63b63aa314bc654339e28c4fc0509002e14a0027.5EojcUuBOtRxaf2AzgK4fsuxj3Pm4HKX3uI2xdW9Jj0
+        hash: v1.k794b7964.c05f338ff4a0eb1317b8c10a45f62e9369d453338567690d98aad588bbb3e052.vMaiwV6AjlHPYwFhvcMfUx1GTX8QIfDYlofgldtSY8w
     products-posthog-ai-composer--disabled--dark:
-        hash: v1.k794b7964.46b58701d85781d463019c60ff4249a090bf3997b48bce436de397764443a239.PA5jTdAlMaLlGPy17mYmVWNVz-6PPqU0q6X3UKwXhs0
+        hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.GZXszXQ19-vaAtfrA0TA9whSgdKzZ2uWMatck_t2cn8
     products-posthog-ai-composer--disabled--light:
-        hash: v1.k794b7964.be07c7ce42d999598811678f63b63aa314bc654339e28c4fc0509002e14a0027.ABS00oRzoMx2ZPOAa10BxrWeJkiGagHnstIIsrRKFpg
+        hash: v1.k794b7964.c05f338ff4a0eb1317b8c10a45f62e9369d453338567690d98aad588bbb3e052.4FLfOe11pP2xuuFyF8-JBXDjyB4WCWgSn6swEFDpZlY
     products-posthog-ai-composer--filled--dark:
-        hash: v1.k794b7964.3cc118c848f2014aa5c227880c5568e2e53e5d597850dd8c59ce92c765924a49.MAFXYb0oiVLhoyJ47PwPNo81ZrR93qLxuq9Zevv_XEE
+        hash: v1.k794b7964.cad4f6cb3968e1749346a1fa16b4c80f181a8179ff16719daab603f61e1c3a66.5qaQqKeNCAGKe9mpch7l_ITo7e9lsgh1AaKhKgMfkYg
     products-posthog-ai-composer--filled--light:
-        hash: v1.k794b7964.2aa3efd7d256b43dd5bc4e2d79c38637e538fedc5a894ef029c3891c85f5c2db.Dq9JqVwFXNP23I6fjnG5Vlm7Zs-5EyubrZ9dvfT--cw
+        hash: v1.k794b7964.7951d540b52889083aa1ab997c276b3eecc5a9e9efcd74fc3af89f919d250e27.C54RQPQyIDovJNUYB2T764siz0fOBAcX7Uz2GcZhnYQ
     products-posthog-ai-composer--follow-up--dark:
-        hash: v1.k794b7964.38b7d94b57b3ed964e0a0ceb7908f95136fa59f0496116c4f0dae2b55e65502d.GFvNpZtHbnwiyvuCznLRRwChoY4FYjkqnLCD5C9faLQ
+        hash: v1.k794b7964.dee38622789bbe9a3b07e09ab36d5b1b7c9eb26463df50006ac3a2ffe153aaf7.UDrsK8EQc6sVVM_JaxysboTKsh9m8HhSWWlLgsHgjA4
     products-posthog-ai-composer--follow-up--light:
-        hash: v1.k794b7964.d85d6336cdbb067b045d6c5c5683f61937ea7ff8cf0ee1a058a302ba252b76d3._Ge5IgxWN900F4ub2TfPHafDxZ3zlXPRBN5Jf5F--OA
+        hash: v1.k794b7964.de1b5807b60110b55f3cd9aee4d93ec17c3ea9dc887b7d4bc6d0ff158fdedcd2.h3WAEGykdXg5ekvSVkY94k_0HXzUx93TSEF3qQRCEI8
     products-posthog-ai-composer--sticky--dark:
-        hash: v1.k794b7964.1e4a68786ddf18c54f6cb1c705f31e8c9c8b0a3dfd533f1a7f29eb5078388226.vH3ZMS3ri4ku9tAFdMWsCzgiL7PY3DU2WcIV1-a35R8
+        hash: v1.k794b7964.de4a523033a10250834aa0917403e6ec61e3d3cdd99300830676e6ba81869e5b.AD54AJl9xbBHB2tql3MqC62FAcU85AgoIV4-aEgzV3s
     products-posthog-ai-composer--sticky--light:
-        hash: v1.k794b7964.f5e0899993568ec282e1323e0623e4da892d4fe1f72f05a6193750811644ccf9.XcQWY-4yjXcX917lNL2hrmwneB6wOOzV54JtrFvtUes
+        hash: v1.k794b7964.91c7a1b9be80ab39efcb23561be33d7431da793f1e254a9dc4341515603767b6.zTpu8qftYG9C2ZtNdxPVN6GAx47a4kCDE6JGUOd-UJ8
     products-posthog-ai-composer--with-footer--dark:
-        hash: v1.k794b7964.0c470ab933ccfcf3ac3efdee18bcddf901f93297a512caf508514728f13407c5.rhKRUzmJt0iOO2xiKpU49-jCnmOG9ANQXL2o_dImiH8
+        hash: v1.k794b7964.e977c79afa7cb140f9a12a3b293a7b5f4274b0c847df0570fbd7405b2c6fe2ac.p7BBWHL-FLdmdqwtVGk_J0vB2r3rh2VapbBAr0Hk-w4
     products-posthog-ai-composer--with-footer--light:
-        hash: v1.k794b7964.4373d41d53166542a39af8ccb802c6f32de9f58e14c274fd09f7f7e7f193d891.JRQl6GmryXSHZunbeYYKBzZGg6huT62z_VbQtRnrdoo
+        hash: v1.k794b7964.b0f44b7692f6ad25f611d7a2a33c1cfbd67b66c7c884617a09eb5c4c8f5cb887.oWsTs14NYxOkVJ_dZdLZJAvmERZeHYqYM-T4YH9AXGU
     products-posthog-ai-composer--with-up-next-queue--dark:
-        hash: v1.k794b7964.140c0f20b63444bf9f2f9a6ba00798b90243f5f43cff4aaf01fb226b732c557b.RvfMzUqid4-6uiSvPjbdwk9NLfDOesIzOCrGBMoTSio
+        hash: v1.k794b7964.e893edaa31202a96439233ff254af446b1ae72107ca4d187a0ab27abc87db8ac.ClRtYW3AIl8tt8UNlaLx_52ymgYxs4FUUHPusEIzAs8
     products-posthog-ai-composer--with-up-next-queue--light:
-        hash: v1.k794b7964.b7e1c8da8701294265a9abf4722bad1e4a89299b4e92965b4676da67088feb47.fp3qfFzcx1YFlYJqOmrym-v4SNYLKKSgSsesPc8gAME
+        hash: v1.k794b7964.c6aa2aa587283120fba069845efe3f499ad93f57f01a44fe60714bf6de06aa77.sXADx8Z_E97Ez10RF94ejn6saVtul9mmzMW6g6F-M8U
     products-posthog-ai-queuedmessagelist--empty--dark:
         hash: v1.k794b7964.4313fbb59e762d6fc4a87fed828bb6c814697c489997e23111f95df3d84be347.VRvN01m1Gf36IcNO8lzu8q3mqxKWwSRROgPqtbxMiSU
     products-posthog-ai-queuedmessagelist--empty--light:
