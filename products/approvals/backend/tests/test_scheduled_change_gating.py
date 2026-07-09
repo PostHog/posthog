@@ -636,6 +636,61 @@ class TestScheduledChangeGating(APIBaseTest):
         assert ChangeRequest.objects.count() == 0
         assert ScheduledChange.objects.filter(record_id=str(flag.id)).count() == 0
 
+    def test_rolled_back_orphan_cr_does_not_notify_approvers(self, _mock_enabled):
+        # The approver notification is deferred to transaction.on_commit, so a rolled-back orphan CR
+        # (the row insert fails after the gate mints the CR) must NOT ping an approver about a change
+        # request that no longer exists. Django's TestCase wraps each test in a transaction, so an
+        # on_commit callback only runs if the outer block explicitly commits; here the inner atomic
+        # rolls back, so the callback is discarded and the notification never fires.
+        from django.db import IntegrityError
+
+        from rest_framework import serializers
+
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        with patch("products.approvals.backend.decorators.send_approval_requested_notification") as mock_notify:
+            with patch.object(serializers.ModelSerializer, "create", side_effect=IntegrityError("boom")):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/scheduled_changes/",
+                    {
+                        "record_id": str(flag.id),
+                        "model_name": "FeatureFlag",
+                        "payload": {"operation": "update_status", "value": True},
+                        "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                    },
+                    format="json",
+                )
+
+        assert response.status_code == 500, response.content
+        assert ChangeRequest.objects.count() == 0
+        mock_notify.assert_not_called()
+
+    def test_successful_scheduled_create_notifies_approvers_once(self, _mock_enabled):
+        # Happy path for the deferred notification: on a successful gated scheduled create the CR
+        # commits and the on_commit callback fires exactly once. captureOnCommitCallbacks(execute=True)
+        # is required because TestCase's surrounding transaction otherwise swallows on_commit.
+        self._enable_policy()
+        flag = self._disabled_flag()
+
+        with patch("products.approvals.backend.decorators.send_approval_requested_notification") as mock_notify:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/scheduled_changes/",
+                    {
+                        "record_id": str(flag.id),
+                        "model_name": "FeatureFlag",
+                        "payload": {"operation": "update_status", "value": True},
+                        "scheduled_at": (timezone.now() + timedelta(hours=1)).isoformat(),
+                    },
+                    format="json",
+                )
+
+        assert response.status_code == 201, response.content
+        cr = ChangeRequest.objects.get(resource_id=str(flag.id))
+        assert cr.state == ChangeRequestState.PENDING
+        mock_notify.assert_called_once_with(cr)
+
     def test_approved_then_stale_cr_is_not_applied(self, _mock_enabled):
         self._enable_policy()
         flag = self._disabled_flag()

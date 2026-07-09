@@ -2343,6 +2343,40 @@ class ExperimentService:
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
         update_data.pop("get_feature_flag_key", None)
 
+        # --- validate updated fields (BEFORE any mutation) --------------------
+        # Run the pure payload validations that can raise 400 *before* the flag
+        # write below. PostHog has no ATOMIC_REQUESTS, so _sync_feature_flag_on_update
+        # autocommits; validating after it would let an invalid payload persist a
+        # flag change while the request still 400s, leaving the flag and experiment
+        # inconsistent. These checks read update_data + the experiment only (no DB
+        # writes), so they are safe to hoist ahead of the flag write.
+        # Revalidate the baseline whenever either side of the constraint changes:
+        # the stats_config itself, or the variant set it references. A variants-only
+        # PATCH (e.g. updateDistribution) that renames/removes the current baseline
+        # must not leave a dangling baseline_variant_key behind.
+        update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
+        if "stats_config" in update_data or update_variants is not None:
+            variant_keys = self._resolved_variant_keys(experiment, update_data)
+            effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+            self.validate_stats_config(effective_stats_config, variant_keys)
+
+        # Validate excluded_variants against the resolved flag variants — no
+        # feature_flag_variants resend required.
+        if "excluded_variants" in update_data:
+            new_excluded = update_data["excluded_variants"]
+            if new_excluded:
+                variant_keys = self._resolved_variant_keys(experiment, update_data)
+                effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+                baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
+                self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
+
+        # Defense-in-depth: only validate the inline metric lists this update
+        # is actually touching. Dedup-on-input has already made these lists
+        # unique; validating the stored arrays would block a soft-delete (or any
+        # other PATCH) on rows that pre-date the dedup logic.
+        if "metrics" in update_data or "metrics_secondary" in update_data:
+            self.validate_no_duplicate_metric_uuids(update_data.get("metrics"), update_data.get("metrics_secondary"))
+
         # --- feature flag sync (OUTSIDE the atomic block) ---------------------
         # The flag write goes through the FeatureFlagSerializer approval gate.
         # It runs before (and outside) the experiment-state transaction below so
@@ -2413,35 +2447,9 @@ class ExperimentService:
                         saved_metric_serializer.is_valid(raise_exception=True)
                         saved_metric_serializer.save()
 
-            # --- validate updated fields ------------------------------------------
-            # Revalidate the baseline whenever either side of the constraint changes:
-            # the stats_config itself, or the variant set it references. A variants-only
-            # PATCH (e.g. updateDistribution) that renames/removes the current baseline
-            # must not leave a dangling baseline_variant_key behind.
-            update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
-            if "stats_config" in update_data or update_variants is not None:
-                variant_keys = self._resolved_variant_keys(experiment, update_data)
-                effective_stats_config = update_data.get("stats_config", experiment.stats_config)
-                self.validate_stats_config(effective_stats_config, variant_keys)
-
-            # Validate excluded_variants against the resolved flag variants — no
-            # feature_flag_variants resend required.
-            if "excluded_variants" in update_data:
-                new_excluded = update_data["excluded_variants"]
-                if new_excluded:
-                    variant_keys = self._resolved_variant_keys(experiment, update_data)
-                    effective_stats_config = update_data.get("stats_config", experiment.stats_config)
-                    baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
-                    self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
-
-            # Defense-in-depth: only validate the inline metric lists this update
-            # is actually touching. Dedup-on-input has already made these lists
-            # unique; validating the stored arrays would block a soft-delete (or any
-            # other PATCH) on rows that pre-date the dedup logic.
-            if "metrics" in update_data or "metrics_secondary" in update_data:
-                self.validate_no_duplicate_metric_uuids(
-                    update_data.get("metrics"), update_data.get("metrics_secondary")
-                )
+            # (stats_config / excluded_variants / duplicate-metric-uuid validation
+            # runs before the flag write above so a 400 can't leave a committed flag
+            # change behind.)
 
             # --- fingerprint recalculation -------------------------------------
             start_date = update_data.get("start_date", experiment.start_date)
@@ -2469,6 +2477,11 @@ class ExperimentService:
                     )
 
             # --- metric ordering sync + validation -----------------------------
+            # Unlike the pure validations hoisted above the flag write, ordering
+            # validation is coupled to the saved-metrics DB sync (it consumes
+            # old_saved_metric_uuids and the ordering mutations above), so it stays
+            # here. The residual — an invalid explicit ordering array combined with a
+            # flag change in the same request — is far narrower than the hoisted cases.
             self._sync_ordering_with_metric_changes(experiment, update_data)
             self._sync_ordering_for_saved_metrics_on_update(
                 experiment,

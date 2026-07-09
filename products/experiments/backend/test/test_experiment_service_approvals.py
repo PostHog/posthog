@@ -3,6 +3,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.constants import AvailableFeature
@@ -200,3 +201,40 @@ class TestExperimentServiceApprovals(APIBaseTest):
         assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants
         assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
         assert ChangeRequest.objects.filter(state=ChangeRequestState.APPLIED).count() == 0
+
+    def test_update_experiment_invalid_payload_does_not_commit_flag_variant_change(self, _mock_enabled):
+        # A single update that both rewrites the flag's variant rollout (update_feature_flag_params=True)
+        # and carries an invalid stats_config must fail closed WITHOUT committing the flag change. The flag
+        # write autocommits (no ATOMIC_REQUESTS), so the payload validation has to run before it — otherwise
+        # a 400 would leave the flag rewritten while the experiment stays untouched (flag/experiment drift).
+        # No policy here: without the pre-flag validation the flag write would succeed and commit.
+        experiment = self._create_launched_experiment("update-invalid-payload")
+        original_variants = experiment.feature_flag.filters["multivariate"]["variants"]
+
+        new_variants = [
+            {"key": "control", "rollout_percentage": 10},
+            {"key": "test", "rollout_percentage": 90},
+        ]
+        context = {
+            "request": self._request(),
+            "team_id": self.team.id,
+            "project_id": self.team.project_id,
+            "get_team": lambda: self.team,
+            "get_organization": lambda: self.organization,
+        }
+
+        with self.assertRaises(ValidationError):
+            self._service().update_experiment(
+                experiment,
+                {
+                    "parameters": {"feature_flag_variants": new_variants},
+                    "update_feature_flag_params": True,
+                    # baseline_variant_key references a variant that does not exist in the resolved set.
+                    "stats_config": {"baseline_variant_key": "nonexistent"},
+                },
+                serializer_context=context,
+            )
+
+        experiment.feature_flag.refresh_from_db()
+        # The invalid payload must not have committed the flag's variant rewrite.
+        assert experiment.feature_flag.filters["multivariate"]["variants"] == original_variants

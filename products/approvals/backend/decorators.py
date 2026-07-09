@@ -4,6 +4,7 @@ from functools import wraps
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from rest_framework import status
@@ -163,7 +164,15 @@ def _create_change_request(
         request=request,
     )
 
-    send_approval_requested_notification(change_request)
+    # Fire the approval-requested notification only after the surrounding
+    # transaction commits. On the scheduled-change create/update and copy-flags
+    # paths this runs inside a `with transaction.atomic()` block; if that
+    # transaction rolls back (e.g. the ScheduledChange insert fails a constraint),
+    # the CR row is rolled back too, so notifying synchronously would ping an
+    # approver about a change request that no longer exists. on_commit fires
+    # immediately on the autocommit (direct-request) path, so behavior there is
+    # unchanged.
+    transaction.on_commit(lambda: send_approval_requested_notification(change_request))
 
     return change_request
 
