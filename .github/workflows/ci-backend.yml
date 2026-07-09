@@ -680,7 +680,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
@@ -869,7 +869,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -991,7 +991,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   # Reuse the app token already minted above instead of a second mint.
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
@@ -1081,7 +1081,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1744,7 +1744,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
@@ -1965,7 +1965,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -1979,7 +1979,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -1993,7 +1993,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -2021,7 +2021,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2034,7 +2034,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2047,7 +2047,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2064,7 +2064,7 @@ jobs:
                           | .value + {
                               segment: "Core",
                               "person-on-events": false,
-                              "python-version": "3.13.13",
+                              "python-version": "3.13",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
                             }
