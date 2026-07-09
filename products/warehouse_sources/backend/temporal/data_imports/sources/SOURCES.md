@@ -737,7 +737,6 @@ doesn't conflict with concurrent PRs.
 - twitter
 - twitter_ads
 - tyntec_sms
-- ubidots
 - uppromote
 - uptick
 - us_census
