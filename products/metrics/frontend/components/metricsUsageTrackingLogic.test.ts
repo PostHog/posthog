@@ -8,6 +8,7 @@ import {
     metricsSamplesCreate,
     metricsValuesRetrieve,
 } from 'products/metrics/frontend/generated/api'
+import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -30,7 +31,7 @@ const SECRET_METRIC = 'customer_secret_metric'
 const SECRET_LABEL = 'customer-secret-service'
 const SECRET_ATTR_VALUE = 'customer-secret-endpoint'
 
-const SAMPLE = {
+const SAMPLE: _MetricEventSampleApi = {
     timestamp: '2026-07-09T05:46:28.132600+00:00',
     metric_name: SECRET_METRIC,
     metric_type: 'histogram',
