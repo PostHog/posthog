@@ -43,15 +43,20 @@ class _FakeResumableManager:
 
 
 class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
+    def _session_returning(
+        self,
+        status_code: int,
+        body: Any = None,
+        url: str = "https://api.printify.com/v1/shops.json",
+        reason: str = "Error",
+    ) -> MagicMock:
         response = MagicMock()
         response.status_code = status_code
         response.ok = status_code < 400
         response.json.return_value = body if body is not None else []
         response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
+        response.url = url
+        response.reason = reason
         session = MagicMock()
         session.get.return_value = response
         return session
@@ -63,10 +68,21 @@ class TestFetchPage:
             _fetch_page_unwrapped(session, "/shops.json", None, None, MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
+    def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
         session = self._session_returning(status)
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, "/shops.json", None, None, MagicMock())
+
+    def test_client_error_scrubs_query_string_and_keeps_non_retryable_prefix(self) -> None:
+        # Printify authenticates via header today, but a redirect or future query-param auth must
+        # never land in the rebuilt HTTPError (surfaced as the schema's latest_error). The status
+        # and host prefix stays stable so get_non_retryable_errors() still matches.
+        session = self._session_returning(
+            401, url="https://api.printify.com/v1/shops.json?token=SECRET&page=1", reason="Unauthorized"
+        )
+        with pytest.raises(requests.HTTPError) as exc:
+            _fetch_page_unwrapped(session, "/shops.json", 1, None, MagicMock())
+        assert str(exc.value) == "401 Client Error: Unauthorized for url: https://api.printify.com/v1/shops.json"
 
     def test_bare_array_response_has_no_more_pages(self) -> None:
         session = self._session_returning(200, [{"id": 1}, {"id": 2}])
