@@ -91,8 +91,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
                     limit: PLAYLISTS_PER_PAGE,
                     offset: Math.max(0, (filters.page - 1) * PLAYLISTS_PER_PAGE),
                     order: '-last_modified_at',
-                    created_by:
-                        filters.createdBy && filters.createdBy !== 'All users' ? filters.createdBy : undefined,
+                    created_by: filters.createdBy && filters.createdBy !== 'All users' ? filters.createdBy : undefined,
                     search: filters.search || undefined,
                     date_from: undefined,
                     date_to: undefined,
