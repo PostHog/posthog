@@ -187,7 +187,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         sub_id = self._create_subscription().json()["id"]
         self.mock_temporal_client.start_workflow.reset_mock()
         self.mock_temporal_client.start_workflow.side_effect = WorkflowAlreadyStartedError(
-            f"test-delivery-subscription-{sub_id}", "handle-subscription-value-change"
+            f"send-test-now-subscription-{sub_id}", "handle-subscription-value-change"
         )
 
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})

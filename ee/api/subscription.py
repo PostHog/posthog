@@ -843,10 +843,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             return instance
 
         temporal = sync_connect()
-        # Deterministic ID shared with the test-delivery action: a caller spamming
-        # send_test_now (or racing it against test-delivery) dedupes to one in-flight
-        # delivery per subscription instead of fanning out real sends.
-        workflow_id = f"test-delivery-subscription-{instance.id}"
+        # Deterministic ID so a caller spamming send_test_now dedupes to one in-flight
+        # delivery per subscription instead of fanning out real sends. Kept distinct from
+        # the test-delivery action's ID family so the two flows stay tellable apart.
+        workflow_id = f"send-test-now-subscription-{instance.id}"
         try:
             asyncio.run(
                 temporal.start_workflow(
