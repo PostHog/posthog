@@ -1,4 +1,4 @@
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { extractGroupIdentify } from '~/ingestion/common/steps/event-processing/groups'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
@@ -49,8 +49,23 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                     if (!groupIdentify) {
                         continue
                     }
-                    const groupTypeIndex = groupTypesByProject[event.team.project_id]?.[groupIdentify.groupType]
-                    if (groupTypeIndex === undefined) {
+                    // The group type name is attacker-controlled and the mappings are plain objects:
+                    // a name like "__proto__" or "toString" would resolve to an INHERITED property
+                    // (an object or function, not undefined) and flow into the int[] query param,
+                    // producing a non-retriable Postgres error from the fire-and-forget prefetch.
+                    // Guard with an own-property lookup AND a numeric-range check so neither alone
+                    // can be regressed away.
+                    const projectTypes = groupTypesByProject[event.team.project_id]
+                    const groupTypeIndex =
+                        projectTypes && Object.prototype.hasOwnProperty.call(projectTypes, groupIdentify.groupType)
+                            ? projectTypes[groupIdentify.groupType]
+                            : undefined
+                    if (
+                        typeof groupTypeIndex !== 'number' ||
+                        !Number.isInteger(groupTypeIndex) ||
+                        groupTypeIndex < 0 ||
+                        groupTypeIndex >= MAX_GROUP_TYPES_PER_TEAM
+                    ) {
                         continue
                     }
 
@@ -67,6 +82,11 @@ export function prefetchGroupsStep<T extends PrefetchGroupsStepInput>(
                     })
                 }
 
+                // Fire-and-forget is safe here: every entry is validated above (own-property type
+                // resolution, integer index in [0, MAX_GROUP_TYPES_PER_TEAM), sanitized key), so no
+                // event-derived input can produce a non-retriable rejection. prefetchGroups swallows
+                // retriable failures itself and rethrows only genuine code/schema bugs, which should
+                // crash loudly — the same contract as prefetchPersons above.
                 for (const [store, entries] of entriesByStore) {
                     void store.prefetchGroups(entries)
                 }

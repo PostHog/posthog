@@ -92,6 +92,30 @@ describe('prefetchGroupsStep', () => {
         ])
     })
 
+    // The group-type mappings are plain objects, so an attacker-chosen $group_type naming an
+    // Object.prototype member would resolve to an inherited function/object instead of undefined
+    // and flow a non-integer into the prefetch's int[] query — a non-retriable error rejecting a
+    // fire-and-forget promise, i.e. an unhandled rejection that downs the worker.
+    it.each(['__proto__', 'toString', 'constructor', 'valueOf', 'hasOwnProperty'])(
+        'skips $group_type %s that resolves to an inherited property, not a real index',
+        async (poisonType) => {
+            const store = createStore(1)
+            const groupTypeManager = createGroupTypeManager({ 10: { company: 0 } })
+            const step = prefetchGroupsStep<TestInput>(true, groupTypeManager)
+
+            const results = await step([
+                createInput('$groupidentify', { $group_type: poisonType, $group_key: 'poison' }, 3, 10, store),
+                createInput('$groupidentify', { $group_type: 'company', $group_key: 'acme' }, 3, 10, store),
+            ])
+
+            expect(results.map((result) => result.type)).toEqual([PipelineResultType.OK, PipelineResultType.OK])
+            // Only the legit entry reaches the store — the poison type never becomes an "index".
+            expect(store.prefetchGroups).toHaveBeenCalledWith([
+                { teamId: 3, groupTypeIndex: 0, groupKey: 'acme', batchId: 1 },
+            ])
+        }
+    )
+
     it('passes events through without prefetching when disabled', async () => {
         const store = createStore(1)
         const groupTypeManager = createGroupTypeManager({ 10: { company: 0 } })
