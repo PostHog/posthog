@@ -809,6 +809,9 @@ def execute_lazy_precomputed_read(
         )
         if result.stale:
             WEB_STATS_PATHS_LAZY_STALE_SERVED.inc()
+            # Tag the upcoming read query so query_log can split stale-served vs fresh
+            # reads (the Prometheus counter above can't be joined against query latency).
+            tag_queries(precompute_stale=True)
 
         if not result.job_ids:
             return None
