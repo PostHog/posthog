@@ -153,9 +153,23 @@ class WhereClauseExtractor(CloningVisitor):
     def visit_not(self, node: ast.Not) -> ast.Expr:
         if self.is_join:
             return ast.Constant(value=True)
-        response = self.visit(node.expr)
+        # This extractor over-approximates in positive polarity: a predicate it can't lift becomes the
+        # constant True, True conjuncts are dropped from ANDs, and an OR containing an unliftable disjunct
+        # collapses to True. Negating such an over-approximation flips it into an under-approximation that
+        # would prune valid rows from the inner aggregation (e.g. `NOT (a OR b OR c)` collapsing to `NOT True`
+        # = False, dropping every session). Buffered timestamp bounds are over-approximations too, so disable
+        # that rewrite while inspecting the operand. Only negate an operand that lifts to an exact predicate;
+        # otherwise fail safe to True and let the outer WHERE do the filtering.
+        previous_capture = self.capture_timestamp_comparisons
+        self.capture_timestamp_comparisons = False
+        try:
+            response = self.visit(node.expr)
+        finally:
+            self.capture_timestamp_comparisons = previous_capture
         if has_tombstone(response, self.tombstone_string):
             return ast.Constant(value=self.tombstone_string)
+        if contains_boolean_constant(response):
+            return ast.Constant(value=True)
         return ast.Not(expr=response)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
@@ -166,6 +180,10 @@ class WhereClauseExtractor(CloningVisitor):
         elif node.name == "not":
             if self.is_join:
                 return ast.Constant(value=True)
+            # Route the `not(...)` call form through visit_not so it gets the same over-approximation
+            # guard as the `ast.Not` node form; otherwise it would fall through and rebuild `not(True)`.
+            if len(node.args) == 1:
+                return self.visit_not(ast.Not(expr=node.args[0]))
 
         elif node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -713,6 +731,27 @@ class HasTombstoneVisitor(TraversingVisitor):
     def visit_constant(self, node: ast.Constant):
         if node.value == self.tombstone_string:
             self.has_tombstone = True
+
+
+class _BooleanConstantFinder(TraversingVisitor):
+    """Detects a boolean True/False constant anywhere in an expression. Such a constant is the sentinel
+    this extractor substitutes for a predicate it can't lift (or produces when simplifying an AND/OR), so
+    its presence means the surrounding expression is a positive-polarity over-approximation that must not
+    be negated."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, bool):
+            self.found = True
+
+
+def contains_boolean_constant(expr: ast.Expr) -> bool:
+    finder = _BooleanConstantFinder()
+    finder.visit(expr)
+    return finder.found
 
 
 def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:
