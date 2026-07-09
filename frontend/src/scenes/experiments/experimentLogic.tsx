@@ -609,6 +609,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
         pauseExperiment: true,
         resumeExperiment: true,
+        freezeExposure: true,
+        setFreezeExposureLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
@@ -1169,6 +1171,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setEndExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        freezeExposureLoading: [
+            false,
+            {
+                setFreezeExposureLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1463,6 +1471,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.closeResumeExperimentModal()
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to resume experiment')
+            }
+        },
+        freezeExposure: async () => {
+            if (values.freezeExposureLoading) {
+                return
+            }
+            actions.setFreezeExposureLoading(true)
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to freeze exposure')
+            } finally {
+                actions.setFreezeExposureLoading(false)
             }
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {
