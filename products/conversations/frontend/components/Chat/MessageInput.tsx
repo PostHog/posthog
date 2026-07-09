@@ -26,6 +26,8 @@ export interface MessageInputProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button */
     extraActions?: React.ReactNode
+    /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
+    replyDisabledReason?: string | JSX.Element
 }
 
 export function MessageInput({
@@ -40,6 +42,7 @@ export function MessageInput({
     isPrivate: controlledIsPrivate,
     onPrivateChange,
     extraActions,
+    replyDisabledReason,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -55,6 +58,10 @@ export function MessageInput({
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
     const handleSubmit = (): void => {
+        // Guards the Cmd+Enter path too, not just the (disabled) button
+        if (replyDisabledReason && !isPrivate) {
+            return
+        }
         if (editorRef.current && !isEmpty) {
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
@@ -121,7 +128,15 @@ export function MessageInput({
                         type="primary"
                         onClick={handleSubmit}
                         loading={messageSending}
-                        disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
+                        disabledReason={
+                            replyDisabledReason && !isPrivate
+                                ? replyDisabledReason
+                                : isEmpty
+                                  ? 'No message'
+                                  : isUploading
+                                    ? 'Uploading image...'
+                                    : undefined
+                        }
                     >
                         {isPrivate ? 'Attach' : buttonText}
                     </LemonButton>

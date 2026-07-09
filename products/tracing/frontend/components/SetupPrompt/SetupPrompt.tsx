@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { HedgehogXRay } from '@posthog/brand/hoggies'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useInterval } from 'lib/hooks/useInterval'
 import goImage from 'scenes/onboarding/shared/logos/go.svg'
@@ -16,6 +17,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://opentelemetry.io/docs/languages/js/' },

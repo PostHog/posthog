@@ -1,7 +1,15 @@
 name: Migration & Service Separation Check
 
+# Reusable workflow, called by pr-housekeeping.yml on every PR push.
+# merge_group stays as a direct trigger for the merge queue.
+
 on:
-    pull_request:
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID:
+                required: false
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: false
     merge_group:
 
 permissions:
@@ -29,7 +37,7 @@ jobs:
                   GITHUB_REF: ${{ github.ref }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
               run: |
-                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                  if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "workflow_call" ]; then
                       labels="$PR_LABELS_JSON"
                   elif [ "$EVENT_NAME" = "merge_group" ]; then
                       # GITHUB_REF looks like refs/heads/gh-readonly-queue/<base>/pr-<num>-<sha>

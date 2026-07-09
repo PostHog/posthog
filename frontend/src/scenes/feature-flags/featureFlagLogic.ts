@@ -1716,7 +1716,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     })),
-    // Extends the projectsWithCurrentFlag loader's reducer, so this block must come after loaders().
+    // Extends the projectsWithCurrentFlag loader's reducer. Must stay after loaders(); do NOT merge
+    // into the reducers() block above — it runs before the loader defines projectsWithCurrentFlag,
+    // so the extension would be silently dropped.
     reducers({
         projectsWithCurrentFlag: {
             projectFlagActiveUpdated: (state, { teamId, flagId, active }) =>

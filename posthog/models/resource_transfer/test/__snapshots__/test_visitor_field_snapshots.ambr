@@ -699,6 +699,7 @@
     'holdout_id',
     'id',
     'is_draft',
+    'is_exposure_frozen',
     'is_launched',
     'is_paused',
     'is_running',

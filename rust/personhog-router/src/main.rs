@@ -263,8 +263,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 num_partitions,
                 timeout: config.backend_timeout(),
                 retry_config: config.retry_config(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -323,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keepalive_interval: config.coordinator_keepalive_interval(),
                 election_retry_interval: config.coordinator_election_retry_interval(),
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+                reconcile_interval: config.coordinator_reconcile_interval(),
             },
             Arc::new(StickyBalancedStrategy),
             k8s_awareness,

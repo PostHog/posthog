@@ -1220,28 +1220,34 @@ describe('featureFlagLogic', () => {
         beforeEach(() => {
             useMocks({
                 patch: {
-                    '/api/projects/:team_id/feature_flags/:id/': ({ params }) => [
-                        200,
-                        { id: Number(params.id), active: false },
-                    ],
+                    '/api/projects/:team_id/feature_flags/:id/': async ({ request, params }) => {
+                        const body = (await request.json()) as { active: boolean }
+                        return [200, { id: Number(params.id), active: body.active }]
+                    },
                 },
             })
         })
 
-        it('updates the toggled project row without touching the current flag', async () => {
-            logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1), projectRow(555, 42)])
+        it.each([false, true])(
+            'updates the toggled project row without touching the current flag (active → %s)',
+            async (active) => {
+                logic.actions.loadProjectsWithCurrentFlagSuccess([
+                    projectRow(MOCK_TEAM_ID, 1),
+                    { ...projectRow(555, 42), active: !active },
+                ])
 
-            logic.actions.toggleProjectFlagActive(555, 42, false)
-            expect(logic.values.projectFlagsToggling).toEqual({ '555:42': true })
+                logic.actions.toggleProjectFlagActive(555, 42, active)
+                expect(logic.values.projectFlagsToggling).toEqual({ '555:42': true })
 
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.projectsWithCurrentFlag).toMatchObject([
-                { team_id: MOCK_TEAM_ID, active: true },
-                { team_id: 555, active: false },
-            ])
-            expect(logic.values.featureFlag.active).toBe(true)
-            expect(logic.values.projectFlagsToggling).toEqual({})
-        })
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.projectsWithCurrentFlag).toMatchObject([
+                    { team_id: MOCK_TEAM_ID, active: true },
+                    { team_id: 555, active },
+                ])
+                expect(logic.values.featureFlag.active).toBe(true)
+                expect(logic.values.projectFlagsToggling).toEqual({})
+            }
+        )
 
         it('syncs featureFlag.active when the current project row is toggled', async () => {
             logic.actions.loadProjectsWithCurrentFlagSuccess([projectRow(MOCK_TEAM_ID, 1)])

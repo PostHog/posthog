@@ -7,6 +7,8 @@ import StarterKit from '@tiptap/starter-kit'
 
 import { expandFlattenedMarkdownTables } from 'lib/utils/markdown'
 
+import { WordArtExtension } from './WordArt/WordArtExtension'
+
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
@@ -45,6 +47,7 @@ const TEXT_CARD_MARKDOWN_BASE_EXTENSIONS = [
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+    WordArtExtension,
 ]
 
 const TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
