@@ -5663,13 +5663,18 @@ class TestExperimentCRUD(APILicensedTest):
 
     @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
     @patch(
+        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
+        new=lambda team_id, uuids: uuids,
+    )
+    @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
         return_value=["00000000-0000-0000-0000-000000000001"],
     )
     def test_unfreeze_exposure_endpoint(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
         data = self._create_running_experiment(name="Unfreeze Endpoint", flag_key="unfreeze-endpoint-flag")
         experiment_id = data["id"]
-        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/")
+        freeze_response = self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/")
+        self.assertEqual(freeze_response.status_code, status.HTTP_200_OK)
 
         unfreeze_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/unfreeze_exposure/",

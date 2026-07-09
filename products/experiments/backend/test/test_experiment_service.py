@@ -3665,25 +3665,23 @@ class TestExperimentService(APIBaseTest):
         flag = frozen.feature_flag
         flag.refresh_from_db()
 
-        # While frozen, a user adds their own condition to the frozen group and a brand-new group.
+        # While frozen, a user adds their own condition to the frozen group. The group keeps its
+        # freeze stamp, so the experiment stays frozen and can still be unfrozen. (Adding a brand-new
+        # unstamped group instead reopens enrollment and reverts the experiment to "running" — see
+        # test_flag_update_adding_unstamped_group_reopens_exposure.)
         edited = deepcopy(flag.filters)
         user_condition = {"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}
         edited["groups"][0]["properties"].append(user_condition)
-        edited["groups"].append({"properties": [], "rollout_percentage": 25})
         self._update_flag_filters(flag, edited)
 
         unfrozen = self._service().unfreeze_exposure(frozen, request=self._make_request())
         unfrozen.feature_flag.refresh_from_db()
 
         groups = unfrozen.feature_flag.filters["groups"]
-        assert len(groups) == 2
+        assert len(groups) == 1
         # Only the snapshot-cohort condition was removed from the frozen group — the user's stays.
         assert groups[0]["properties"] == [user_condition]
         assert EXPOSURE_FROZEN_GROUP_KEY not in groups[0]
-        # The group added during the freeze is untouched (modulo serializer normalization).
-        assert groups[1]["properties"] == []
-        assert groups[1]["rollout_percentage"] == 25
-        assert EXPOSURE_FROZEN_GROUP_KEY not in groups[1]
 
     def test_unfreeze_exposure_when_not_frozen_raises(self) -> None:
         experiment = self._create_running_experiment(name="UF Not Frozen", feature_flag_key="uf-not-frozen-flag")
