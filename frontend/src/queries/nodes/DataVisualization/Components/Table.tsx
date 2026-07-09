@@ -8,7 +8,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
-import { hexToRGB, lightenDarkenColor } from 'lib/utils/colors'
+import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -18,6 +18,7 @@ import { QueryContext } from '~/queries/types'
 import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
+import { getContrastingTextClass } from '../colorUtils'
 import { TableDataCell, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
 
 interface TableProps {
@@ -29,29 +30,6 @@ interface TableProps {
 }
 
 export const DEFAULT_PAGE_SIZE = 500
-
-/**
- * Returns a text color utility class that stays readable on a conditionally-formatted cell's
- * background. Accepts either a hex string ('#RRGGBB') or an 'rgb(r,g,b)' string (the dark/light
- * adjustment path returns the latter). Uses relative luminance so the class contrasts with the
- * cell background regardless of the current theme.
- */
-function getContrastingTextClass(background: string): 'text-white' | 'text-black' {
-    let r: number
-    let g: number
-    let b: number
-
-    const rgbMatch = background.match(/rgba?\(([^)]+)\)/)
-    if (rgbMatch) {
-        ;[r, g, b] = rgbMatch[1].split(',').map((v) => parseInt(v.trim(), 10))
-    } else {
-        ;({ r, g, b } = hexToRGB(background))
-    }
-
-    // Perceived luminance (0-255). Below the midpoint, use light text; otherwise dark text.
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return luminance < 140 ? 'text-white' : 'text-black'
-}
 
 function formatColumnTitle(title: string): React.ReactNode {
     const parts = title.split(/([_-])/)
