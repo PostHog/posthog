@@ -5,9 +5,7 @@ import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { cn } from 'lib/utils/css-classes'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -22,6 +20,7 @@ import { PullRequestTable } from '../components/PullRequestTable'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import { ShareRow } from '../components/ShareRow'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
@@ -151,7 +150,6 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         rows={prs}
                         loading={prsLoading}
                         sourceId={sourceId}
-                        costLensEnabled
                         showAuthor={false}
                         showCreated
                         dataAttr="engineering-analytics-author-pr-table"
@@ -166,7 +164,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                             {Array.from({ length: 6 }).map((_, i) => (
                                 <div
                                     key={i}
-                                    className="flex items-center gap-4 border-b border-primary px-1 py-2.5 last:border-b-0"
+                                    className="flex items-center gap-3 border-b border-primary px-1 py-2 last:border-b-0"
                                 >
                                     <div className="w-48 shrink-0">
                                         <LemonSkeleton className="h-3.5 w-32" />
@@ -188,55 +186,29 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                             {rankedCosts.slice(0, 8).map((cost) => {
                                 const usd = cost.estimated_cost_usd ?? 0
                                 const share = workflowCostsTotal > 0 ? usd / workflowCostsTotal : 0
-                                const to = singleRepo
-                                    ? combineUrl(
-                                          urls.engineeringAnalyticsWorkflowRuns(
-                                              singleRepo.repoOwner,
-                                              singleRepo.repoName,
-                                              cost.workflow_name
-                                          ),
-                                          sourceId ? { source: sourceId } : {}
-                                      ).url
-                                    : undefined
-                                const row = (
-                                    <div
-                                        className={cn(
-                                            'flex items-center gap-4 border-b border-primary px-1 py-2.5 last:border-b-0',
-                                            to && 'cursor-pointer hover:bg-fill-button-tertiary-hover'
-                                        )}
-                                    >
-                                        <div className="w-48 shrink-0 min-w-0">
-                                            <span className="block truncate text-[13px] font-medium text-primary">
-                                                {cost.workflow_name || '(unknown workflow)'}
-                                            </span>
-                                            <span className="block text-[11px] text-tertiary">
-                                                {formatMinutes(cost.billable_minutes)} billable
-                                            </span>
-                                        </div>
-                                        <LemonProgress
-                                            percent={share * 100}
-                                            strokeColor="var(--data-color-1)"
-                                            bgColor="var(--color-bg-fill-tertiary)"
-                                            smoothing={false}
-                                            className="flex-1"
-                                        />
-                                        <div className="w-24 shrink-0 text-right">
-                                            <span className="block text-[13px] font-semibold tabular-nums text-primary">
-                                                {formatCost(usd)}
-                                            </span>
-                                            <span className="block text-[10px] tabular-nums text-tertiary">
-                                                {Math.round(share * 100)}%
-                                            </span>
-                                        </div>
-                                    </div>
-                                )
-                                const key = cost.workflow_name || '(unknown)'
-                                return to ? (
-                                    <Link key={key} to={to} className="block">
-                                        {row}
-                                    </Link>
-                                ) : (
-                                    <div key={key}>{row}</div>
+                                return (
+                                    <ShareRow
+                                        key={cost.workflow_name || '(unknown)'}
+                                        label={cost.workflow_name || '(unknown workflow)'}
+                                        sub={`${formatMinutes(cost.billable_minutes)} billable`}
+                                        value={formatCost(usd)}
+                                        valueSub={`${Math.round(share * 100)}%`}
+                                        share={share}
+                                        color="var(--data-color-1)"
+                                        fullWidthBar
+                                        to={
+                                            singleRepo
+                                                ? combineUrl(
+                                                      urls.engineeringAnalyticsWorkflowRuns(
+                                                          singleRepo.repoOwner,
+                                                          singleRepo.repoName,
+                                                          cost.workflow_name
+                                                      ),
+                                                      sourceId ? { source: sourceId } : {}
+                                                  ).url
+                                                : undefined
+                                        }
+                                    />
                                 )
                             })}
                             {workflowCosts.length > 8 && (

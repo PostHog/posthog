@@ -136,7 +136,6 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                 rows={filteredPullRequests}
                 loading={pullRequestsLoading}
                 sourceId={sourceId}
-                costLensEnabled
                 showCreated
                 emptyState={
                     hasActiveFilters ? (

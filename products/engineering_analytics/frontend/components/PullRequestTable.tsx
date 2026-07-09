@@ -43,8 +43,6 @@ export interface PullRequestTableProps {
     loading: boolean
     /** Threaded into row links so the PR's detail page reads the same source. */
     sourceId: string | null
-    /** Show the pushes / re-runs / CI cost columns. */
-    costLensEnabled: boolean
     /** Author column is redundant on the author page (every row is the same author) — hide it there. */
     showAuthor?: boolean
     /** Show the Created date column and default the sort to newest-first. Off for the hub's triage order. */
@@ -61,7 +59,6 @@ export function PullRequestTable({
     rows,
     loading,
     sourceId,
-    costLensEnabled,
     showAuthor = true,
     showCreated = false,
     pageSize = 25,
@@ -136,40 +133,34 @@ export function PullRequestTable({
             width: 120,
             render: (_, row) => <CIStatusTag rollup={row} />,
         },
-        ...(costLensEnabled
-            ? ([
-                  {
-                      title: 'Pushes',
-                      key: 'pushes',
-                      width: 0,
-                      align: 'right',
-                      render: (_, row) => (
-                          <Tooltip title="Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.">
-                              <span className="text-xs tabular-nums whitespace-nowrap">
-                                  {humanFriendlyNumber(row.pushes)}
-                                  {row.rerunCycles > 0 && (
-                                      <LemonTag type="warning" className="ml-1.5">
-                                          +{row.rerunCycles}
-                                      </LemonTag>
-                                  )}
-                              </span>
-                          </Tooltip>
-                      ),
-                  },
-                  {
-                      title: 'CI cost',
-                      key: 'estimatedCostUsd',
-                      width: 130,
-                      align: 'right',
-                      tooltip:
-                          'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history — not the selected window. Excludes still-running jobs, so it can rise as they settle. "—" when the job-level source isn’t synced.',
-                      sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
-                      render: (_, row) => (
-                          <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />
-                      ),
-                  },
-              ] as LemonTableColumns<PullRequestRow>)
-            : []),
+        {
+            title: 'Pushes',
+            key: 'pushes',
+            width: 0,
+            align: 'right',
+            render: (_, row) => (
+                <Tooltip title="Distinct head commits that triggered CI for this PR, with re-run cycles as the amber tag. Fork PRs are unattributed.">
+                    <span className="text-xs tabular-nums whitespace-nowrap">
+                        {humanFriendlyNumber(row.pushes)}
+                        {row.rerunCycles > 0 && (
+                            <LemonTag type="warning" className="ml-1.5">
+                                +{row.rerunCycles}
+                            </LemonTag>
+                        )}
+                    </span>
+                </Tooltip>
+            ),
+        },
+        {
+            title: 'CI cost',
+            key: 'estimatedCostUsd',
+            width: 130,
+            align: 'right',
+            tooltip:
+                'Billable minutes + estimated cost across this PR’s jobs (self-hosted runners) over its full history — not the selected window. Excludes still-running jobs, so it can rise as they settle. "—" when the job-level source isn’t synced.',
+            sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
+            render: (_, row) => <BillableBadge minutes={row.billableMinutes} costUsd={row.estimatedCostUsd} />,
+        },
         ...(showCreated
             ? ([
                   {
@@ -177,7 +168,7 @@ export function PullRequestTable({
                       key: 'created',
                       width: 0,
                       align: 'right',
-                      sorter: (a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+                      sorter: (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
                       render: (_, row) => (
                           <Tooltip title={dayjs(row.createdAt).format('MMM D, YYYY HH:mm')}>
                               <span className="text-xs tabular-nums whitespace-nowrap text-secondary">

@@ -558,7 +558,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setThrashOnly: (thrash: boolean) => ({ thrash }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
-            setCostLensEnabled: (enabled: boolean) => ({ enabled }),
             resetFilters: true,
             setQuarantineSearch: (search: string) => ({ search }),
             setQuarantineLifecycleFilter: (lifecycle: QuarantineLifecycleFilter) => ({ lifecycle }),
@@ -866,7 +865,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({
@@ -960,16 +958,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             hasActiveFilters: [
                 (s) => [s.filters],
                 (filters): boolean => !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_FILTERS),
-            ],
-            authorOptions: [
-                (s) => [s.pullRequests],
-                (pullRequests): string[] =>
-                    Array.from(new Set(pullRequests.map((pr) => pr.authorHandle).filter(Boolean))).sort(),
-            ],
-            repoOptions: [
-                (s) => [s.pullRequests],
-                (pullRequests): string[] =>
-                    Array.from(new Set(pullRequests.map((pr) => `${pr.repoOwner}/${pr.repoName}`))).sort(),
             ],
             // Counted over the loaded list (the "most recent 1000" cap applies), not a separate backend
             // aggregate like the ci_cards counts — fine while a repo's open backlog fits in that window.

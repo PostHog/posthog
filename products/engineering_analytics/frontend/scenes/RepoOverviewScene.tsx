@@ -238,15 +238,8 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const {
-        cards,
-        pullRequestsLoading,
-        workflowHealth,
-        workflowHealthLoading,
-        sourceId,
-        costLensEnabled,
-        activeSource,
-    } = useValues(engineeringAnalyticsLogic)
+    const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
+        useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
         useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
@@ -318,7 +311,6 @@ export function RepoOverviewScene(): JSX.Element {
                         rows={shownPrs}
                         loading={pullRequestsLoading}
                         sourceId={sourceId}
-                        costLensEnabled={costLensEnabled}
                         embedded
                         pageSize={HUB_PREVIEW_MAX}
                         emptyState="Nothing failing or stuck in the open backlog."
