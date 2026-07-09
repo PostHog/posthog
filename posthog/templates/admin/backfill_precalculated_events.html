@@ -95,6 +95,17 @@
             {% endif %}
             {{ form.concurrent_workflows.errors }}
         </div>
+
+        <div class="form-row">
+            <label for="{{ form.force_reprocess.id_for_label }}">
+                {{ form.force_reprocess.label }}:
+            </label>
+            {{ form.force_reprocess }}
+            {% if form.force_reprocess.help_text %}
+                <p class="help">{{ form.force_reprocess.help_text }}</p>
+            {% endif %}
+            {{ form.force_reprocess.errors }}
+        </div>
     </fieldset>
 
     <div class="submit-row">
