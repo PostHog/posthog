@@ -293,6 +293,7 @@ the row lists both.
 | redshift                | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | rentcast                | HTTP                        | requests                                                        | ✅                          |
 | resend                  | HTTP                        | requests                                                        | ✅                          |
+| retently                | HTTP                        | requests                                                        | ✅                          |
 | revenuecat              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | rippling                | HTTP                        | requests                                                        | ✅                          |
 | rocketlane              | HTTP                        | requests                                                        | ✅                          |
@@ -636,7 +637,6 @@ doesn't conflict with concurrent PRs.
 - repairshopr
 - reply_io
 - retail_express
-- retently
 - revolut_merchant
 - ringcentral
 - rki_covid
