@@ -28,9 +28,14 @@
  *   reliable identifier. Used to force single-exec mode regardless of the
  *   self-reported MCP client name.
  *
- * - `isClaudeUiHost()` matches Claude web and desktop — MCP Apps hosts that
- *   render interactive UI (iframes). Used to put them in single-exec mode so the
- *   `render-ui` tool is available, gated behind the `mcp-render-ui` flag.
+ * - `isClaudeUiHost()` matches Claude web/desktop and Cowork — MCP Apps hosts
+ *   that render interactive UI (iframes). Used to put them in single-exec mode so
+ *   the `render-ui` tool is available, gated behind the `mcp-render-ui` flag.
+ *
+ * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
+ *   report `supportsInstructions` but never surface the `instructions` payload to
+ *   the model. Used to keep the env-context on the exec command description for
+ *   them. Cowork surfaces instructions normally, so it is deliberately excluded.
  *
  * - `capabilities` is a feature-flag-style object describing protocol
  *   features the client actually implements (e.g. `supportsInstructions` —
@@ -162,17 +167,30 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 // OAuth name without the `notion-mcp-client` self-report.
 export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
 
-// Claude web and desktop are MCP Apps hosts that render interactive UI (iframes),
-// so the `render-ui` tool is meaningful for them. They send `x-anthropic-client:
-// ClaudeAI` (vs `ClaudeCode` for Claude Code, `Cowork` for Cowork) and
+// Claude web/desktop and Cowork are MCP Apps hosts that render interactive UI
+// (iframes), so the `render-ui` tool is meaningful for them. They send
+// `x-anthropic-client: ClaudeAI` / `Cowork` (vs `ClaudeCode` for Claude Code) and
 // `User-Agent: Claude-User`. The vendor client is authoritative when present:
-// only `ClaudeAI` is a UI host, so Cowork and Claude Code are excluded even
-// though they may share the `Claude-User` user-agent. The user-agent is a
-// fallback solely for requests that omit the vendor header. We deliberately do
-// NOT match `clientName` here — Anthropic pools transports, so Claude Code's
-// `clientInfo.name` is also `Anthropic/ClaudeAI`, and matching it would
-// misclassify Claude Code as a UI host.
-export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
+// Claude Code is excluded even though it may share the `Claude-User` user-agent.
+// The user-agent is a fallback solely for requests that omit the vendor header.
+// We deliberately do NOT match `clientName` here — Anthropic pools transports, so
+// Claude Code's `clientInfo.name` is also `Anthropic/ClaudeAI`, and matching it
+// would misclassify Claude Code as a UI host.
+export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai', 'cowork'] as const
+
+// Claude web/desktop report `supportsInstructions` but never surface the
+// `instructions` payload to the model, so their env-context rides on the exec
+// command description instead (`keepEnvContext`). Cowork surfaces instructions
+// normally and gets env-context through them, so it is not a chat host even
+// though it is a UI host.
+export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
+
+// Anthropic coding-agent surfaces that render MCP UI apps inline through the
+// single-exec `exec` tool. `ClaudeCode` and `Cowork` render UI apps on the exec
+// response itself (`ClaudeAI` uses the separate `render-ui` tool instead;
+// `Cowork` supports both), so they get the same treatment as the PostHog Code
+// consumer.
+export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode', 'cowork'] as const
 
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
@@ -273,13 +291,37 @@ export class MCPClientProfile {
     isClaudeUiHost(): boolean {
         // The per-request vendor client (`x-anthropic-client`) is authoritative: it
         // distinguishes the Claude surfaces that pool the same MCP transport —
-        // `ClaudeAI` (web/desktop, a UI-Apps host) from `Cowork` and `ClaudeCode`,
-        // which render no MCP-Apps UI. When it's present, trust it exclusively; only
-        // fall back to the `Claude-User` user-agent when the vendor header is absent.
-        // Otherwise a non-UI surface like Cowork — which can share the `Claude-User`
-        // user-agent with web/desktop — would be misclassified as a UI host.
+        // `ClaudeAI` (web/desktop) and `Cowork`, both `render-ui` hosts, from
+        // `ClaudeCode`, which only renders UI apps inline on the `exec` response
+        // (see `isInlineExecUiHost`). When it's present, trust it exclusively; only
+        // fall back to the `Claude-User` user-agent when the vendor header is
+        // absent. Otherwise a non-render-ui surface like Claude Code — which can
+        // share the `Claude-User` user-agent with web/desktop — would be
+        // misclassified as a UI host.
         if (this.vendorClient) {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
+        }
+        return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
+    }
+
+    isInlineExecUiHost(): boolean {
+        // Anthropic coding-agent surfaces that render MCP UI apps inline through the
+        // single-exec `exec` tool (Claude Code, Cowork) — Claude.ai web/desktop
+        // renders via the separate `render-ui` tool instead (Cowork supports both).
+        // Like PostHog Code, these hosts surface `structuredContent` to the model, so
+        // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
+        // The per-request vendor header (`ClaudeCode` / `Cowork`) is the reliable signal.
+        return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
+    }
+
+    isClaudeChatHost(): boolean {
+        // Same vendor-authoritative shape as `isClaudeUiHost`, narrowed to the chat
+        // surfaces (Claude web/desktop) that ignore the `instructions` payload. The
+        // `Claude-User` user-agent fallback is kept for requests without the vendor
+        // header — those are predominantly chat sessions, and keeping env-context
+        // for a misattributed surface only costs payload size, not correctness.
+        if (this.vendorClient) {
+            return matchesAnyFragment(this.vendorClient, ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS)
         }
         return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
     }

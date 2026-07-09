@@ -11,9 +11,7 @@ The markdown notebook rewrite (markdown storage, custom component tags, conflict
 
 ## Editor gaps
 
-- Accessibility: the formatting toolbar, insert menu, and component insertion flow need keyboard navigation and screen-reader coverage (focus management, roving tabindex, ARIA roles beyond the current labels).
-- Inline comments: selections inside code blocks can't be commented (code carries no inline marks).
-- Drag and drop: dropping a resource directly onto the editor canvas is not handled (the legacy editor's `DropAndPasteHandlerExtension` equivalent). The notebook panel dropzone and "add to notebook" flows work — they append to the end of the document via `notebookLogic` instead of inserting at the drop position.
+- (none currently tracked — accessibility for the toolbar/insert menu, comments on code block selections, and canvas drag-and-drop at the drop position have shipped)
 
 ## Open questions
 

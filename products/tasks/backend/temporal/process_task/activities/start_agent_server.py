@@ -285,6 +285,7 @@ def _invoke_start_agent_server(
             run_id=ctx.run_id,
             mode=ctx.mode,
             create_pr=ctx.create_pr,
+            auto_publish=ctx.auto_publish,
             interaction_origin=ctx.interaction_origin,
             branch=params.protected_base_branch,
             runtime_adapter=ctx.runtime_adapter,
@@ -298,6 +299,7 @@ def _invoke_start_agent_server(
             event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
+            rtk_enabled=ctx.rtk_enabled,
         )
 
         # Mark startup-time token issuance so follow-ups within the next

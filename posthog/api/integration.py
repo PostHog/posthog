@@ -92,6 +92,7 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
@@ -428,7 +429,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
-            return instance
+        report_user_action(
+            self.context["request"].user,
+            "integration created",
+            {"integration_kind": kind, "is_overwrite": is_overwrite},
+            team=self.context["get_team"](),
+        )
+        return instance
 
     def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]
@@ -952,23 +959,23 @@ class IntegrationViewSet(
                 "Update them to use a different integration before disconnecting it."
             )
 
+        if instance.kind == "github":
+            live_run_count = count_in_progress_runs_for_github_integration(
+                team_id=instance.team_id, integration_id=instance.id
+            )
+            if live_run_count:
+                raise ValidationError(
+                    f"This GitHub integration is being used by {live_run_count} in-progress background agent "
+                    f"run{'s' if live_run_count != 1 else ''}. Wait for them to finish or cancel them before "
+                    "disconnecting it."
+                )
+
         if instance.kind == "stripe":
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
-        elif instance.kind == "email" and instance.config.get("provider") == "ses":
-            domain = instance.config.get("domain")
-            if (
-                domain
-                and not Integration.objects.filter(kind="email", config__domain=domain).exclude(pk=instance.pk).exists()
-            ):
-                try:
-                    EmailIntegration(instance).ses_provider.delete_identity(domain)
-                except Exception as e:
-                    capture_exception(e)
-
         if instance.kind == "github" and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:

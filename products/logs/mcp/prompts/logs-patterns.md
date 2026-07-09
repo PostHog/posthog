@@ -77,7 +77,7 @@ Property filters applied before mining. Same format as `query-logs` filters.
 {
   "query": {
     "severityLevels": ["error", "fatal"],
-    "dateRange": { "date_from": "2026-07-07T09:00:00Z", "date_to": "2026-07-07T11:00:00Z" }
+    "dateRange": { "date_from": "2024-01-15T09:00:00Z", "date_to": "2024-01-15T11:00:00Z" }
   }
 }
 ```

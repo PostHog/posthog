@@ -84,6 +84,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         snoozedUntil,
         knowledgeGaps,
         knowledgeGapsLoading,
+        emailReplyBlockedReason,
+        latestAiMessage,
+        feedbackByMessageId,
     } = useValues(logic)
     const {
         setStatus,
@@ -97,11 +100,36 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         dismissKnowledgeGap,
+        submitAiReplyFeedback,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+
+    const conversationsSettingsUrl = urls.settings('environment-conversations', 'conversations-general')
+    const replyDisabledReason: JSX.Element | undefined = emailReplyBlockedReason
+        ? {
+              email_disabled: (
+                  <>
+                      Replies can't be emailed because this project has no connected email channel.{' '}
+                      <Link to={conversationsSettingsUrl}>Connect an email address</Link> to reply to this customer.
+                  </>
+              ),
+              no_recipient: (
+                  <>
+                      This ticket has no customer email address, so a reply can't be delivered. You can still attach a
+                      private note.
+                  </>
+              ),
+              no_channel: (
+                  <>
+                      This ticket isn't linked to any of your email channels, so replies can't be sent.{' '}
+                      <Link to={conversationsSettingsUrl}>Manage email channels</Link>
+                  </>
+              ),
+          }[emailReplyBlockedReason]
+        : undefined
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
 
@@ -181,8 +209,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
+                        latestAiMessageId={latestAiMessage?.id ?? null}
+                        feedbackByMessageId={feedbackByMessageId}
+                        showAiReplyFeedback={aiSuggestionsEnabled}
+                        onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -320,6 +353,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         </Link>
                                     </div>
                                 )}
+                            {ticket?.zendesk_ticket_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Zendesk ID</span>
+                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>

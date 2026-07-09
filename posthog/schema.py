@@ -2129,7 +2129,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -5348,6 +5348,17 @@ class MaxRecordingEventFilter(BaseModel):
     type: Literal["events"] = "events"
 
 
+class MetricPropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: str | None = None
+    operator: PropertyOperator
+    type: Literal["metric_attribute"] = "metric_attribute"
+    value: list[str | float | bool] | str | float | bool | None = None
+
+
 class MultiQuestionFormField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5569,7 +5580,7 @@ class QueryResponseAlternative29(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6242,6 +6253,51 @@ class SessionBatchEventsQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class SessionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -11713,6 +11769,62 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     )
 
 
+class CachedSessionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
 class CachedSessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13052,6 +13164,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13103,6 +13216,7 @@ class ConversionGoalFilter1(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13141,6 +13255,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13191,6 +13306,7 @@ class ConversionGoalFilter2(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13231,6 +13347,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13282,6 +13399,7 @@ class ConversionGoalFilter3(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -13331,6 +13449,7 @@ class DashboardFilter(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14238,7 +14357,7 @@ class Response25(BaseModel):
     )
 
 
-class Response26(BaseModel):
+class Response27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14284,7 +14403,7 @@ class Response26(BaseModel):
     )
 
 
-class Response27(BaseModel):
+class Response28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -14362,6 +14481,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14413,6 +14533,7 @@ class DataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14717,6 +14838,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14766,6 +14888,7 @@ class EntityNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -14873,6 +14996,7 @@ class ErrorTrackingIssueFilteringToolOutput(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15066,6 +15190,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15117,6 +15242,7 @@ class EventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15154,6 +15280,7 @@ class EventsQueryActionStep(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15249,6 +15376,7 @@ class ExperimentApiExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -15325,6 +15453,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15374,6 +15503,7 @@ class ExperimentDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15411,6 +15541,7 @@ class ExperimentEventExposureConfig(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -15425,6 +15556,16 @@ class FeatureFlagGroupType(BaseModel):
     )
     aggregation_group_type_index: int | None = None
     description: str | None = None
+    exposure_frozen: bool | None = Field(
+        default=None,
+        description=(
+            "Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition."
+        ),
+    )
+    exposure_frozen_cohort: float | None = Field(
+        default=None,
+        description=("Snapshot cohort the exposure freeze AND'd into this group's properties."),
+    )
     properties: (
         list[
             EventPropertyFilter
@@ -15445,6 +15586,7 @@ class FeatureFlagGroupType(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15528,6 +15670,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15580,6 +15723,7 @@ class FunnelExclusionActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15616,6 +15760,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15669,6 +15814,7 @@ class FunnelExclusionEventsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15706,6 +15852,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15757,6 +15904,7 @@ class FunnelsDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -15930,6 +16078,7 @@ class HogQLFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -16118,6 +16267,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -16168,6 +16318,7 @@ class LifecycleDataWarehouseNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17010,6 +17161,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17043,6 +17195,7 @@ class PersonsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -17090,6 +17243,7 @@ class PropertyGroupFilterValue(BaseModel):
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | MetricPropertyFilter
         | SpanPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | WorkflowVariablePropertyFilter
@@ -19303,7 +19457,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19349,7 +19503,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19400,7 +19554,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19443,7 +19597,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative68(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19491,7 +19645,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19532,7 +19686,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19573,7 +19727,7 @@ class QueryResponseAlternative70(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19614,7 +19768,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19660,7 +19814,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19706,7 +19860,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19752,7 +19906,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19794,7 +19948,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19835,7 +19989,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19880,7 +20034,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19925,7 +20079,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19970,7 +20124,7 @@ class QueryResponseAlternative81(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20015,7 +20169,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20059,7 +20213,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20103,7 +20257,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative86(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20144,7 +20298,7 @@ class QueryResponseAlternative86(BaseModel):
     )
 
 
-class QueryResponseAlternative87(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20189,7 +20343,7 @@ class QueryResponseAlternative87(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20230,7 +20384,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20271,7 +20425,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20322,7 +20476,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20363,7 +20517,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20409,7 +20563,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20450,7 +20604,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20491,7 +20645,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20532,7 +20686,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20573,7 +20727,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20617,7 +20771,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20658,7 +20812,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20699,7 +20853,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20740,7 +20894,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20781,7 +20935,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20900,6 +21054,7 @@ class RetentionEntity(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21217,6 +21372,25 @@ class SessionAttributionExplorerQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SessionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description=("Include stored sentiment evaluation results for returned traces and generation events."),
+    )
+    kind: Literal["SessionQuery"] = "SessionQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: SessionQueryResponse | None = None
+    sessionId: str
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class SessionsTimelineQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21333,6 +21507,7 @@ class TileFilters(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21370,6 +21545,7 @@ class TraceNeighborsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21414,6 +21590,7 @@ class TraceQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21495,6 +21672,7 @@ class TracesQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -21508,6 +21686,7 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
+    searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -21949,14 +22128,18 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    allRolesUnassigned: bool | None = None
+    allRolesUnassigned: bool | None = Field(
+        default=None,
+        description="Match accounts with no active relationship of any definition.",
+    )
     assignedToUserIds: list[int] | None = Field(
         default=None,
         description=(
-            "Match accounts where any of these user ids is the CSM or the account"
-            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
-            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
-            " explicit so a shared URL resolves identically for every viewer."
+            "Match accounts where any of these user ids actively holds any relationship"
+            ' (CSM, Account executive, or a custom definition). Drives the "My'
+            ' accounts" shortcut (the current user\'s id) and the shareable "Assigned'
+            ' to" filter — the ids are explicit so a shared URL resolves identically'
+            " for every viewer."
         ),
     )
     filterExpression: str | None = Field(
@@ -22013,6 +22196,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -22063,6 +22247,7 @@ class ActionsNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23143,6 +23328,7 @@ class MCPHarnessBreakdownQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23591,6 +23777,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23643,6 +23830,7 @@ class RecordingsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23697,6 +23885,7 @@ class RetentionQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23752,6 +23941,7 @@ class StickinessQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -23808,11 +23998,18 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
     )
     breakdownKey: str = Field(
         ...,
-        description=("Attribute key to group by (e.g. `http.response.status_code`, `server.address`)."),
+        description=(
+            "Attribute key to group by (e.g. `http.response.status_code`,"
+            " `server.address`). For the `span` breakdown type, must be an allowlisted"
+            " top-level column (`service_name`, `status_code`)."
+        ),
     )
     breakdownType: TraceSpanBreakdownType = Field(
         ...,
-        description=("Where the key lives: span-level attributes or resource-level attributes."),
+        description=(
+            "Where the key lives: an allowlisted top-level span column, span-level"
+            " attributes, or resource-level attributes."
+        ),
     )
     compareFilter: CompareFilter | None = Field(
         default=None,
@@ -23821,6 +24018,14 @@ class TraceSpansAttributeBreakdownQuery(BaseModel):
         ),
     )
     dateRange: DateRange
+    excludeBreakdownFilter: bool | None = Field(
+        default=None,
+        description=(
+            "Drop filters targeting the breakdown key itself (including `serviceNames`"
+            " for a `service_name` breakdown) so a facet's value list stays complete"
+            " while one of its values is selected."
+        ),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansAttributeBreakdownQuery"] = "TraceSpansAttributeBreakdownQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -24100,6 +24305,7 @@ class CalendarHeatmapQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24440,6 +24646,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24495,6 +24702,7 @@ class GroupNode(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24538,6 +24746,7 @@ class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24584,6 +24793,7 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24630,6 +24840,7 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24676,6 +24887,7 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24722,6 +24934,7 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24768,6 +24981,7 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24828,6 +25042,7 @@ class LifecycleQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -24901,6 +25116,17 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    customColumns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Custom column expressions evaluated per log row. Each entry is either a"
+            " source-prefixed shorthand (`attributes.<key>`,"
+            " `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL"
+            " expression (`upper(level)`, `coalesce(attributes['a'],"
+            " attributes['b'])`). Values come back on each result row keyed by the"
+            " aliases in `LogsQueryResponse.columns`."
+        ),
+    )
     dateRange: DateRange
     excludeAttributes: bool | None = Field(
         default=None,
@@ -24968,6 +25194,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25000,6 +25227,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25035,6 +25263,7 @@ class SessionsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25116,6 +25345,7 @@ class TrendsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25216,6 +25446,13 @@ class EndpointRequest(BaseModel):
         description="Whether this endpoint's query results are materialized to S3",
     )
     name: str | None = None
+    optional_breakdown_properties: list[str] | None = Field(
+        default=None,
+        description=(
+            "Breakdown property names that may be omitted on /run. Omitted ones return"
+            " data aggregated across all values of that breakdown."
+        ),
+    )
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
     )
@@ -25399,6 +25636,7 @@ class FunnelsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25497,7 +25735,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25781,6 +26019,7 @@ class PathsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -25900,14 +26139,13 @@ class QueryResponseAlternative(
         | QueryResponseAlternative62
         | QueryResponseAlternative63
         | QueryResponseAlternative64
-        | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
-        | QueryResponseAlternative73
+        | QueryResponseAlternative72
         | QueryResponseAlternative74
         | QueryResponseAlternative75
         | QueryResponseAlternative76
@@ -25922,8 +26160,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
-        | QueryResponseAlternative89
-        | QueryResponseAlternative90
+        | QueryResponseAlternative88
         | QueryResponseAlternative91
         | QueryResponseAlternative92
         | QueryResponseAlternative93
@@ -25938,6 +26175,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative102
         | QueryResponseAlternative103
         | QueryResponseAlternative104
+        | QueryResponseAlternative105
+        | QueryResponseAlternative106
     ]
 ):
     root: (
@@ -26003,14 +26242,13 @@ class QueryResponseAlternative(
         | QueryResponseAlternative62
         | QueryResponseAlternative63
         | QueryResponseAlternative64
-        | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
         | QueryResponseAlternative68
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
-        | QueryResponseAlternative73
+        | QueryResponseAlternative72
         | QueryResponseAlternative74
         | QueryResponseAlternative75
         | QueryResponseAlternative76
@@ -26025,8 +26263,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative85
         | QueryResponseAlternative86
         | QueryResponseAlternative87
-        | QueryResponseAlternative89
-        | QueryResponseAlternative90
+        | QueryResponseAlternative88
         | QueryResponseAlternative91
         | QueryResponseAlternative92
         | QueryResponseAlternative93
@@ -26041,6 +26278,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative102
         | QueryResponseAlternative103
         | QueryResponseAlternative104
+        | QueryResponseAlternative105
+        | QueryResponseAlternative106
     )
 
 
@@ -26525,6 +26764,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26629,6 +26869,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26668,6 +26909,7 @@ class SessionBatchEventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26786,6 +27028,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26821,6 +27064,7 @@ class EventsQuery(BaseModel):
             | DataWarehousePersonPropertyFilter
             | ErrorTrackingIssueFilter
             | LogPropertyFilter
+            | MetricPropertyFilter
             | SpanPropertyFilter
             | RevenueAnalyticsPropertyFilter
             | WorkflowVariablePropertyFilter
@@ -26908,8 +27152,8 @@ class DataTableNode(BaseModel):
         | Response23
         | Response24
         | Response25
-        | Response26
         | Response27
+        | Response28
         | None
     ) = None
     showAbsoluteTime: bool | None = Field(
@@ -27002,6 +27246,7 @@ class DataTableNode(BaseModel):
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
     ) = Field(..., description="Source of the events")
@@ -27096,6 +27341,7 @@ class HogQLAutocomplete(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27193,6 +27439,7 @@ class HogQLMetadata(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27325,6 +27572,7 @@ class MaxInsightContext(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27454,6 +27702,7 @@ class QueryRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27575,6 +27824,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27666,6 +27916,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27762,6 +28013,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27858,6 +28110,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28131,6 +28384,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery

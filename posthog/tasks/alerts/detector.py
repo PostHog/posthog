@@ -121,6 +121,10 @@ def _date_range_override_for_detector(query: TrendsQuery, min_samples: int) -> d
             date_from = f"-{min_samples}w"
         case IntervalType.MONTH:
             date_from = f"-{min_samples}m"
+        case IntervalType.QUARTER:
+            date_from = f"-{min_samples}q"
+        case IntervalType.YEAR:
+            date_from = f"-{min_samples}y"
         case _:
             date_from = f"-{min_samples}h"
 

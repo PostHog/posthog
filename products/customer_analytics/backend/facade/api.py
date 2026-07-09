@@ -146,6 +146,7 @@ def get_account_context_data(
         properties=_to_account_properties(account.properties),
         tags=_account_tags(account),
         notes=_account_notes(account),
+        relationships=list_account_relationships(team_id=team_id, account_id=account.id),
     )
 
 
@@ -256,12 +257,24 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     pydantic properties and ``tags`` the sorted tag names — byte-identical to
     what the CDP worker consumed before this moved behind the facade.
     """
+    relationships: dict[str, list[dict]] = {}
+    for relationship in (
+        AccountRelationship.objects.for_team(account.team_id)
+        .filter(account=account, ended_at__isnull=True, user__isnull=False)
+        .select_related("definition", "user")
+        .order_by("definition__name", "user__email")
+    ):
+        assert relationship.user is not None
+        relationships.setdefault(relationship.definition.name, []).append(
+            {"user_id": relationship.user.id, "email": relationship.user.email}
+        )
     return contracts.ExternalAccount(
         id=str(account.id),
         external_id=account.external_id,
         name=account.name,
         properties=account.properties.model_dump(mode="json"),
         tags=sorted(account.tagged_items.values_list("tag__name", flat=True)),
+        relationships=relationships,
     )
 
 
@@ -292,51 +305,51 @@ def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
             account.tagged_items.get_or_create(tag_id=tag.id)
 
 
-def _apply_external_role_assignments(
-    account: Account, role_assignments: dict[str, int | None]
+def _apply_external_relationship_assignments(
+    account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided role assignments to the account's properties.
-
-    ``role_assignments`` holds only the roles present in the request (None
-    clears a role). Each non-None user id is resolved against an
-    ``OrganizationMembership`` in the account's org so the stored ``{id, email}``
-    is always trusted. Returns an error result (membership missing / invalid
-    properties) or None on success.
+    """Apply provided relationship assignments, keyed by definition name (None ends the
+    active assignment). Each non-None user id is resolved against an
+    ``OrganizationMembership`` in the account's org so assignees are always trusted.
+    Everything is validated before the first write — the caller's ``atomic()`` block
+    returns (commits) on an error result rather than rolling back.
     """
-    properties = dict(account._properties or {})
-    changed = False
-
-    for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
-        if field not in role_assignments:
-            continue
-        user_id = role_assignments[field]
-        if user_id is None:
-            properties[field] = None
-        else:
-            membership = (
-                OrganizationMembership.objects.select_related("user")
-                .filter(organization_id=account.team.organization_id, user_id=user_id)
-                .first()
+    definitions = {
+        definition.name: definition
+        for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
+            name__in=assignments.keys()
+        )
+    }
+    resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
+    for name, user_id in assignments.items():
+        definition = definitions.get(name)
+        if definition is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=name,
             )
-            if membership is None:
-                return contracts.ExternalAccountUpdateResult(
-                    error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                    error_field=field,
-                )
-            properties[field] = {"id": membership.user.id, "email": membership.user.email}
-        changed = True
+        if user_id is None:
+            resolved.append((definition, None))
+            continue
+        membership = (
+            OrganizationMembership.objects.select_related("user")
+            .filter(organization_id=account.team.organization_id, user_id=user_id)
+            .first()
+        )
+        if membership is None:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
+                error_field=name,
+            )
+        resolved.append((definition, membership.user))
 
-    if not changed:
-        return None
-
-    try:
-        account.properties = _ModelAccountProperties.model_validate(properties)
-    except Exception as e:
-        capture_exception(e, {"account_id": str(account.id)})
-        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
-
-    account.save(update_fields=["_properties", "updated_at"])
-    _relationships_logic.sync_from_account_properties(account)
+    for definition, assignee in resolved:
+        if assignee is None:
+            _relationships_logic.end_active(team_id=account.team_id, account=account, definition=definition)
+        else:
+            _relationships_logic.assign(
+                team_id=account.team_id, account=account, definition=definition, user=assignee, created_by=None
+            )
     return None
 
 
@@ -344,24 +357,32 @@ def update_external_account(
     team_id: int,
     external_id: str,
     *,
-    role_assignments: dict[str, int | None],
+    relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
 ) -> contracts.ExternalAccountUpdateResult:
-    """Apply role assignments and tags to an account, transactionally, for the external API.
+    """Apply relationship assignments and tags to an account, transactionally, for the
+    external API.
 
-    Role assignments and tags are all-or-nothing — a tag failure must not leave the
-    role-contact changes committed. Returns a result the view maps to the exact HTTP
-    status/body: not found, a per-role org-membership failure, invalid properties, a
-    generic write failure, or success carrying the re-serialized account.
+    Assignments and tags are all-or-nothing — a tag failure must not leave the
+    relationship changes committed. Returns a result the view maps to the exact HTTP
+    status/body: not found, a per-assignment failure (unknown definition, non-member
+    user), a generic write failure, or success carrying the re-serialized account.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.NOT_FOUND)
 
+    # Stored properties are re-serialized onto the success response, so reject accounts
+    # whose stored JSON no longer validates before writing anything.
+    try:
+        _ = account.properties
+    except PydanticValidationError:
+        return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.INVALID_PROPERTIES)
+
     try:
         with transaction.atomic():
-            error_result = _apply_external_role_assignments(account, role_assignments)
+            error_result = _apply_external_relationship_assignments(account, relationship_assignments)
             if error_result is not None:
                 return error_result
             if tags is not None:
@@ -1718,11 +1739,13 @@ def _to_account_relationship(relationship: AccountRelationship) -> contracts.Acc
     )
 
 
-def list_account_relationship_definitions(team_id: int) -> list[contracts.AccountRelationshipDefinition]:
-    return [
-        _to_account_relationship_definition(definition)
-        for definition in AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
-    ]
+def list_account_relationship_definitions(
+    team_id: int, offset: int = 0, limit: int = 100
+) -> tuple[list[contracts.AccountRelationshipDefinition], int]:
+    queryset = AccountRelationshipDefinition.objects.for_team(team_id).order_by("name")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_account_relationship_definition(definition) for definition in page], total_count
 
 
 def create_account_relationship_definition(
@@ -1741,6 +1764,32 @@ def create_account_relationship_definition(
             is_single_holder=is_single_holder,
             created_by=created_by,
         )
+    except IntegrityError:
+        raise AccountRelationshipDefinitionConflictError(
+            "A relationship definition with this name already exists for this team."
+        )
+    return _to_account_relationship_definition(definition)
+
+
+def get_account_relationship_definition(
+    team_id: int, definition_id: str | UUID
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    return _to_account_relationship_definition(definition)
+
+
+def update_account_relationship_definition(
+    *, team_id: int, definition_id: str | UUID, fields: dict[str, Any]
+) -> contracts.AccountRelationshipDefinition | None:
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        return None
+    for attr, value in fields.items():
+        setattr(definition, attr, value)
+    try:
+        definition.save()
     except IntegrityError:
         raise AccountRelationshipDefinitionConflictError(
             "A relationship definition with this name already exists for this team."
@@ -1768,3 +1817,52 @@ def list_account_relationships(
     if not include_history:
         queryset = queryset.filter(ended_at__isnull=True)
     return [_to_account_relationship(relationship) for relationship in queryset]
+
+
+class AccountRelationshipDefinitionNotFound(Exception):
+    pass
+
+
+class AccountRelationshipAssigneeNotInOrganization(Exception):
+    pass
+
+
+def assign_account_relationship(
+    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+) -> contracts.AccountRelationship:
+    """Assign a user to an account relationship. Single-holder definitions hand off — the
+    previous active assignment is ended in the same transaction. Idempotent when the user
+    already actively holds the relationship.
+
+    Raises ``Account_DoesNotExist`` (→ 404), ``AccountRelationshipDefinitionNotFound`` and
+    ``AccountRelationshipAssigneeNotInOrganization`` (→ 400).
+    """
+    account = Account.objects.for_team(team_id).select_related("team").get(id=account_id)
+    definition = AccountRelationshipDefinition.objects.for_team(team_id).filter(id=definition_id).first()
+    if definition is None:
+        raise AccountRelationshipDefinitionNotFound(str(definition_id))
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization_id=account.team.organization_id, user_id=user_id)
+        .first()
+    )
+    if membership is None:
+        raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
+    relationship = _relationships_logic.assign(
+        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
+    )
+    return _to_account_relationship(relationship)
+
+
+def end_account_relationship(
+    *, team_id: int, account_id: str | UUID, relationship_id: str | UUID
+) -> contracts.AccountRelationship | None:
+    """End an active assignment. Returns None when no active assignment matches this account
+    (missing, another account's, or already ended) — mapped to 404."""
+    try:
+        relationship = _relationships_logic.end_relationship(
+            team_id=team_id, account_id=account_id, relationship_id=str(relationship_id)
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return None
+    return _to_account_relationship(relationship)

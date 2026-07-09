@@ -355,6 +355,9 @@ tools:
         response:
             include:
                 - results
+    logs-group-by-create:
+        operation: logs_group_by_create
+        enabled: false
     logs-has-logs-retrieve:
         operation: logs_has_logs_retrieve
         enabled: false

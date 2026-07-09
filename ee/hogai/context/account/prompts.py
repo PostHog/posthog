@@ -13,7 +13,7 @@ ACCOUNT_CONTEXT_TEMPLATE = """
 """.strip()
 
 ACCOUNT_ROLES_TEMPLATE = """
-### Roles
+### Relationships
 {roles_list}
 """.strip()
 

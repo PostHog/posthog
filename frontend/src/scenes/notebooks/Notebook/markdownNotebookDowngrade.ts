@@ -10,6 +10,8 @@
  * - Authorial `<!-- … -->` comments become plain paragraphs: the note text stays visible, but its
  *   comment framing is lost.
  * - Table column alignments are dropped — v1 tables do not store alignment.
+ * - Code block comment anchors (`ref=` tokens in the fence info string) are dropped — v1 code
+ *   blocks carry no inline marks to anchor to.
  */
 import {
     COMMENT_COMPONENT_TAG,

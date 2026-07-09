@@ -1,4 +1,5 @@
 import { logger } from '~/common/utils/logger'
+import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
@@ -23,7 +24,7 @@ export interface CymbalProcessingInput {
  */
 function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; warnings: PipelineWarning[] } {
     const warnings: PipelineWarning[] = []
-    const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+    const invalidTimestampCallback = function (type: IngestionWarningType, details: Record<string, any>) {
         invalidTimestampCounter.labels(type).inc()
         warnings.push({ type, details })
     }

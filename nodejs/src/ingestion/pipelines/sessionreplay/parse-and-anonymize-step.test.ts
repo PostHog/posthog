@@ -5,7 +5,7 @@ import { gzip } from 'zlib'
 import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { createParseAndAnonymizeMessageStep } from './parse-and-anonymize-step'
-import { SessionReplayHeaders } from './validate-headers-step'
+import { SessionReplayHeaders } from './pipeline-types'
 
 const compressWithGzip = promisify(gzip)
 

@@ -176,6 +176,8 @@ export interface EndpointResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -249,6 +251,11 @@ export interface EndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -326,6 +333,8 @@ export interface EndpointVersionResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */
@@ -405,6 +414,11 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -570,6 +584,8 @@ export const IntervalTypeApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
 } as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -789,6 +805,14 @@ export interface LogPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface MetricPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'metric_attribute'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
 
 export const SpanPropertyFilterTypeApi = {
@@ -850,6 +874,7 @@ export interface DashboardFilterApi {
               | DataWarehousePersonPropertyFilterApi
               | ErrorTrackingIssueFilterApi
               | LogPropertyFilterApi
+              | MetricPropertyFilterApi
               | SpanPropertyFilterApi
               | RevenueAnalyticsPropertyFilterApi
               | WorkflowVariablePropertyFilterApi

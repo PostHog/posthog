@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRunningTimeCalculation,
 )
 
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
@@ -214,7 +215,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
             "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'stopped' (ended)."
+            "feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the "
+            "already-exposed cohort while metrics keep flowing — virtual state derived from the flag's "
+            "release groups, not stored), 'stopped' (ended)."
         ),
     )
     is_legacy = serializers.SerializerMethodField(
@@ -225,7 +228,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         ),
     )
 
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "stopped"]})
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
         return instance.status_label
 
@@ -356,10 +359,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         default=False,
         write_only=True,
         help_text=(
-            "When true, sync feature flag configuration from parameters "
-            "to the linked feature flag. Draft experiments always sync "
-            "regardless of update_feature_flag_params, so only required "
-            "for non-drafts."
+            "When true, sync the flag config sent in this request (via the "
+            "`feature_flag` object, or the deprecated `parameters` keys) to "
+            "the linked feature flag. Draft experiments always sync "
+            "regardless. On a running experiment, `feature_flag` config "
+            "without this flag is rejected."
         ),
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -691,6 +695,97 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         )
 
 
+class ExperimentFlagRolloutGroupSerializer(serializers.Serializer):
+    """A single release-condition group carrying only the overall rollout percentage, the one
+    groups entry the experiment input applies."""
+
+    rollout_percentage = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=100,
+        help_text="Percentage of users who enter the experiment (0-100).",
+    )
+    properties = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        max_length=0,
+        help_text=(
+            "Must be empty or omitted: release-condition properties are not supported via the "
+            "experiment input. Edit the feature flag directly for targeting."
+        ),
+    )
+
+
+# Subclassing the flag's canonical filters schema (rather than redeclaring the shape) keeps the
+# experiment write surface from drifting when the flag filters schema changes. Constraints the
+# schema can't express are enforced at runtime by
+# ExperimentService.feature_flag_config_to_parameters.
+class ExperimentFeatureFlagFiltersSerializer(FeatureFlagFiltersSchemaSerializer):
+    """Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,
+    minus the keys experiments don't apply."""
+
+    # DRF's declarative field removal: assigning None drops the inherited field.
+    feature_enrollment = None  # type: ignore[assignment]
+    early_exit = None  # type: ignore[assignment]
+    # The runtime applies only groups[0].rollout_percentage and rejects release conditions, so
+    # advertise exactly that instead of the flag's full condition-group schema. The full schema
+    # would invite payloads (property filters, variant overrides, multiple groups) that always
+    # fail validation, and it adds ~10KB to each generated MCP tool schema.
+    groups = ExperimentFlagRolloutGroupSerializer(  # type: ignore[assignment,call-arg]
+        many=True,
+        required=False,
+        max_length=1,
+        help_text='Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}].',
+    )
+
+
+# Schema-only: runtime consumes the raw feature_flag object from initial_data (see
+# ExperimentSerializer._normalize_feature_flag_input), so echoed read-only flag objects
+# (carrying a non-null id) keep being tolerated instead of failing this validation.
+class ExperimentFeatureFlagInputSerializer(serializers.Serializer):
+    """Flag config for experiment create/update, sent through the linked feature flag's own shape."""
+
+    filters = ExperimentFeatureFlagFiltersSerializer(
+        required=False,
+        help_text=(
+            "Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal "
+            "string 'control'), `groups` (a single group with `rollout_percentage` only; release "
+            "conditions are not supported here, edit the feature flag directly), "
+            "`aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). "
+            "On update, config this object omits is preserved from the linked flag's current state."
+        ),
+    )
+    ensure_experience_continuity = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether the flag persists variant assignment across authentication steps.",
+    )
+
+
+# Schema-only request serializer: advertises the writable feature_flag input in OpenAPI. Runtime
+# writes still validate through ExperimentSerializer (the viewset's serializer_class), which reads
+# feature_flag from initial_data. Referenced only via extend_schema(request=...) on the
+# create/update/partial_update methods.
+class ExperimentWriteSerializer(ExperimentSerializer):
+    """Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input."""
+
+    feature_flag = ExperimentFeatureFlagInputSerializer(  # type: ignore[assignment]
+        required=False,
+        help_text=(
+            "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag "
+            "is the source of truth for variants, rollout, aggregation, payloads, and experience "
+            "continuity: send config here instead of the deprecated `parameters` keys. On a running "
+            "experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key "
+            "of a pre-existing feature flag on create (the experiment links to it as-is)."
+        ),
+    )
+
+    class Meta(ExperimentSerializer.Meta):
+        # feature_flag is writable in this schema-only variant, so it must leave read_only_fields.
+        read_only_fields = [field for field in ExperimentSerializer.Meta.read_only_fields if field != "feature_flag"]
+
+
 class ExperimentBasicSerializer(ExperimentBaseSerializer):
     """Lightweight, read-only serializer for the experiment list endpoint.
 
@@ -771,7 +866,8 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
@@ -999,6 +1095,48 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )
+    # Live ClickHouse progress, present only on the GET poll path while the run is in_progress (in-flight
+    # queries from system.processes plus queries finished during the run from system.query_log, matched by
+    # query_id prefix; see get_live_query_progress). build_job_payload omits these keys entirely for terminal
+    # or just-created runs, so they are genuinely optional in the response — NOT read_only=True, which
+    # drf-spectacular would force into the schema's `required` list (making the generated TypeScript
+    # `number | null` instead of the honest `number | null | undefined`). The serializer is output-only
+    # (never .is_valid()), so omitting read_only costs no input-validation safety.
+    running_metrics = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)",
+    )
+    rows_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Rows read by the run's metric queries so far, both finished and currently running. Cumulative "
+            "and roughly monotonic across the run; the primary live progress signal"
+        ),
+    )
+    estimated_rows_total = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. "
+            "A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the "
+            "reliable signal"
+        ),
+    )
+    bytes_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Bytes read by the run's metric queries so far, both finished and currently running",
+    )
+    active_cpu_time = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and "
+            "currently running"
+        ),
     )
 
 
