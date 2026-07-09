@@ -36,7 +36,7 @@ if [ "$ENTRYPOINT" = "janitor" ]; then
         import { createRequire } from "module"
         const bundlePath = "/code/products/agent_platform/services/agents/dist/janitor.mjs"
         if (readFileSync(bundlePath, "utf8").includes("esbuild JavaScript API cannot be bundled")) {
-            throw new Error("janitor bundle inlined the esbuild JS API — keep esbuild in external in scripts/build.ts")
+            throw new Error("janitor bundle inlined the esbuild JS API - keep esbuild external in scripts/build.ts")
         }
         const { transform } = createRequire("file://" + bundlePath)("esbuild")
         const out = await transform("const x: number = 1", { loader: "ts" })
