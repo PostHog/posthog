@@ -32,7 +32,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         # Never run from forks (no secret access anyway), only the canonical repo.
-        if: github.repository == 'PostHog/posthog'
+        # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
