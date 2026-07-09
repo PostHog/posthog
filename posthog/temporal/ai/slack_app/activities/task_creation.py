@@ -182,6 +182,10 @@ def _build_posthog_code_task_description(
         "The actual request follows the closing tag and fills the placeholder slot.",
         "Each message is rendered as `<@U…|displayname>:` followed by the indented body — "
         "reuse those mention tokens verbatim when you need to ping a participant back.",
+        # This session is delivered over Slack, where the AskUserQuestion tool's interactive
+        # picker is never rendered — the user simply never sees it. Steer the agent to ask in prose.
+        "You are replying over Slack, where the AskUserQuestion tool does not work — to ask the "
+        "requester a clarifying question, write it as plain text in your reply.",
     ]
     header = "\n".join(header_lines)
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""
@@ -807,9 +811,7 @@ def _resume_task_with_new_run(
     if previous_state.get("slack_thread_url"):
         extra_state["slack_thread_url"] = previous_state["slack_thread_url"]
 
-    snapshot_ext_id = previous_state.get("snapshot_external_id")
-    if snapshot_ext_id:
-        extra_state["snapshot_external_id"] = snapshot_ext_id
+    extra_state.update(tasks_facade.get_resume_snapshot_carry_state(previous_state))
     extra_state["resume_from_run_id"] = str(previous_run.id)
 
     previous_pr_url = (previous_run.output or {}).get("pr_url")
@@ -821,8 +823,6 @@ def _resume_task_with_new_run(
             "make your changes, commit, and push to that branch. "
             "Do NOT create a new branch or PR.]\n\n" + user_text
         )
-        extra_state["slack_pr_opened_notified"] = True
-        extra_state["slack_notified_pr_url"] = previous_pr_url
 
     extra_state["initial_prompt_override"] = initial_prompt_override
     extra_state["pending_user_message"] = initial_prompt_override

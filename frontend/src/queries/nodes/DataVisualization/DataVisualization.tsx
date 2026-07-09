@@ -37,6 +37,7 @@ import { LineGraph } from './Components/Charts/LineGraph'
 import { PieChart } from './Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from './Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from './Components/seriesBreakdownLogic'
+import { SideBar } from './Components/SideBar'
 import { Table } from './Components/Table'
 import { TableDisplay } from './Components/TableDisplay'
 import { AddVariableButton } from './Components/Variables/AddVariableButton'
@@ -364,6 +365,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 {!props.embedded && <VariablesForInsight />}
 
                 <div className="flex flex-1 flex-row gap-4">
+                    {/* The gear above toggles this panel (Series/Display tabs) — same layout the
+                        SQL editor's OutputPane builds around its own visualization fork. */}
+                    {!readOnly && showResultControls && isChartSettingsPanelOpen && (
+                        <>
+                            <SideBar />
+                            <LemonDivider vertical className="h-full" />
+                        </>
+                    )}
                     <div className="w-full h-full flex-1 overflow-auto">{component}</div>
                 </div>
             </div>

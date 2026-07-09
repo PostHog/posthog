@@ -253,7 +253,7 @@ class TestSharing(APIBaseTest):
         assert asset.export_format == "image/png"
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_should_update_to_match_existing_dashboard_sharing_token(self, patched_exporter_task: Mock):
+    def test_should_adopt_legacy_share_token_on_read_without_enabling(self, patched_exporter_task: Mock):
         dashboard = Dashboard.objects.create(team=self.team, name="example dashboard", created_by=self.user)
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         initial_token = response.json()["access_token"]
@@ -264,10 +264,12 @@ class TestSharing(APIBaseTest):
         dashboard.is_shared = True
         dashboard.save()
 
+        # A read adopts the legacy token onto the config, but must not turn sharing on: a stale
+        # legacy is_shared=True can never make a private dashboard public without an explicit PATCH.
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"]
+        assert not data["enabled"]
 
         dashboard.share_token = None
         dashboard.is_shared = False
@@ -276,7 +278,34 @@ class TestSharing(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
         data = response.json()
         assert data["access_token"] == "my_test_token"
-        assert data["enabled"]
+        assert not data["enabled"]
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_read_does_not_enable_sharing_from_stale_legacy_is_shared(self, _patched_exporter_task: Mock):
+        # An active (disabled) config exists with one token while the dashboard still carries a stale
+        # legacy share_token + is_shared=True pointing at a different token. Reading the sharing config
+        # must never persist enabled=True: a plain GET can't make a private dashboard publicly reachable.
+        dashboard = Dashboard.objects.create(team=self.team, name="critical dashboard", created_by=self.user)
+        active_config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=False,
+            access_token="active_token",
+        )
+        dashboard.share_token = "stale_legacy_token"
+        dashboard.is_shared = True
+        dashboard.save(update_fields=["share_token", "is_shared"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["enabled"]
+        active_config.refresh_from_db()
+        assert active_config.enabled is False
+        # No active config for this dashboard may end up enabled off the back of a read.
+        assert not SharingConfiguration.objects.filter(
+            dashboard=dashboard, expires_at__isnull=True, enabled=True
+        ).exists()
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_should_not_be_affected_by_collaboration_rules(self, _patched_exporter_task: Mock):

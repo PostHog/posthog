@@ -38,6 +38,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.ai_prompt_config !== undefined) {
+            body['ai_prompt_config'] = params.ai_prompt_config
+        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -131,7 +134,13 @@ const subscriptionsDeliveriesList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
+                omitResponseFields(item, [
+                    'content_snapshot',
+                    'recipient_results',
+                    'error',
+                    'ai_report',
+                    'ai_report_diagnostics',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/subscriptions')
@@ -152,7 +161,12 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'content_snapshot',
+            'recipient_results',
+            'error',
+            'ai_report_diagnostics',
+        ]) as typeof result
         return filtered
     },
 })
@@ -211,6 +225,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.ai_prompt_config !== undefined) {
+            body['ai_prompt_config'] = params.ai_prompt_config
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type

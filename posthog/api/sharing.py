@@ -446,7 +446,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                         dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
-                    instance.enabled = dashboard.is_shared
+                    # The legacy token isn't owned by any config, so adopt it onto this one. Only
+                    # migrate the token, never ``enabled``: this helper runs on the read path
+                    # (``list``), and ``dashboard.is_shared`` is a deprecated field holding stale
+                    # legacy data, so enabling off it would let a plain GET silently make a
+                    # dashboard public. Sharing is only ever turned on through an explicit PATCH.
                     instance.access_token = dashboard.share_token
                     instance.save()
 
@@ -945,8 +949,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
-        available_features = resource.team.organization.available_product_features or []
-        if "whitelabel" in request.GET and "white_labelling" in [feature["key"] for feature in available_features]:
+        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        ):
             exported_data.update({"whitelabel": True})
 
         if isinstance(resource, SharingConfiguration) and resource.password_required:

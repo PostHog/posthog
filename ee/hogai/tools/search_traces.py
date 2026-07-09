@@ -108,7 +108,7 @@ class SearchLLMTracesTool(MaxTool):
         query.offset = current_offset
 
         utc_now = timezone.now().astimezone(UTC)
-        executor = AssistantQueryExecutor(self._team, utc_now)
+        executor = AssistantQueryExecutor(self._team, utc_now, user=self._user)
         query_results = await executor.aexecute_query(query)
 
         raw_results = cast(list[dict], query_results.get("results", []))

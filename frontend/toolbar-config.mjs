@@ -25,6 +25,14 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
+    // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
+    'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
+    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
+    // Toolbar code imports it directly; this entry covers lib/ components shared with the
+    // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
+    // every product manifest into the bundle.
+    'scenes/urls': 'src/toolbar/urls.ts',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -38,6 +46,23 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
+// Heavy third-party libraries the toolbar never renders, but which leak in transitively
+// through the shared scene graph (mostly via scenes/urls.ts -> products.tsx). Because the
+// toolbar is a single IIFE with no code-splitting, even lazily `import()`-ed libraries get
+// inlined, so these must be cut at resolve time. CloudFront won't gzip files over 10 MB, so
+// keeping the bundle small is what keeps it compressible.
+const deniedThirdPartyPackages = [
+    // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
+    // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
+    /^mermaid(\/|$)/,
+    // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
+    // already-denied LineGraph.
+    /^chart\.js(\/|$)/,
+    /^chartjs-plugin-annotation(\/|$)/,
+    // hls.js video streaming, dynamically imported by the shared replay rrweb plugins.
+    /^hls\.js(\/|$)/,
+]
+
 const deniedPatterns = [
     /monaco/,
     /scenes\/insights\/filters\/ActionFilter/,
@@ -49,6 +74,7 @@ const deniedPatterns = [
     /scenes\/billing/,
     /scenes\/data-warehouse/,
     /LineGraph/,
+    ...deniedThirdPartyPackages,
 ]
 
 /**
@@ -65,13 +91,32 @@ const deniedPatterns = [
  * - Denied modules get replaced with an inert proxy
  */
 function createToolbarModulePlugin(dirname) {
+    // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
+    // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
+    // Map each shimmed module's extensionless absolute path to its shim.
+    const shimsByAbsolutePath = new Map(
+        Object.entries(shimmedModules).map(([alias, shimFile]) => [
+            path.resolve(dirname, 'src', alias),
+            path.resolve(dirname, shimFile),
+        ])
+    )
     return {
         name: 'toolbar-module-replacements',
         setup(build) {
             build.onResolve({ filter: /.*/ }, (args) => {
-                const shimFile = shimmedModules[args.path]
+                const shimFile = shimmedModules[args.path] ?? shimmedModules[args.path.replace(/^~\//, '')]
                 if (shimFile) {
                     return { path: path.resolve(dirname, shimFile) }
+                }
+
+                if (args.path.startsWith('.') && args.importer) {
+                    const absolute = path
+                        .resolve(path.dirname(args.importer), args.path)
+                        .replace(/\.(tsx|ts|jsx|js)$/, '')
+                    const shimPath = shimsByAbsolutePath.get(absolute)
+                    if (shimPath) {
+                        return { path: shimPath }
+                    }
                 }
 
                 const shouldDeny =

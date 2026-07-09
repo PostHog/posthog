@@ -236,6 +236,7 @@ export type MinimalAppMetric = {
         | 'email_opened'
         | 'email_link_clicked'
         | 'email_bounced'
+        | 'email_bounce_prevented'
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
@@ -363,6 +364,11 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
+        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
+        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
+        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
+        // ever catches a wake the subscription streams missed, gating its eventual removal.
+        pollReparked?: boolean
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

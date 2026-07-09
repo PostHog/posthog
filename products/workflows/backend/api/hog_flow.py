@@ -1,8 +1,9 @@
 import re
 import json
 import uuid as uuid_mod
+import dataclasses
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -77,7 +78,6 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetsRequestSerializer,
     fetch_message_asset_html,
     fetch_message_assets,
-    workflow_email_assets_ui_enabled,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
@@ -124,6 +124,34 @@ def _validation_error_message(error: exceptions.ValidationError) -> str:
     if isinstance(detail, list) and detail:
         return str(detail[0])
     return str(detail)
+
+
+def _first_error_string(detail: Any) -> Optional[str]:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        for item in detail:
+            if message := _first_error_string(item):
+                return message
+    if isinstance(detail, dict):
+        for value in detail.values():
+            if message := _first_error_string(value):
+                return message
+    return None
+
+
+def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+    # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
+    # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
+    # Name each offending step instead so the error points at what to fix.
+    parts = []
+    for action_data, error in zip(actions, errors):
+        if not error:
+            continue
+        message = _first_error_string(error) or "has an invalid configuration"
+        name = action_data.get("name") if isinstance(action_data, dict) else None
+        parts.append(f"step '{name or 'unnamed'}': {message}")
+    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -921,7 +949,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         status = data.get("status", instance.status if instance else "draft")
         if status == "active" and instance and instance.status != "active" and "actions" not in data:
             action_serializer = HogFlowActionSerializer(data=instance.actions, many=True, context=self.context)
-            action_serializer.is_valid(raise_exception=True)
+            if not action_serializer.is_valid():
+                # many=True yields a list of per-action errors despite the ReturnDict annotation
+                action_errors = cast(list[Any], action_serializer.errors)
+                raise serializers.ValidationError({"actions": _describe_action_errors(action_errors, instance.actions)})
             actions = action_serializer.validated_data
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
@@ -1412,7 +1443,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         with transaction.atomic():
             try:
-                # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
+                # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
                 before_update = None
@@ -1465,7 +1496,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance = self.get_object()
 
         with transaction.atomic():
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
@@ -1481,7 +1512,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
             serializer.save()
@@ -1605,8 +1636,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
     def assets(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise exceptions.NotFound()
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
         param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
@@ -1632,7 +1661,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             after=after_date,
             before=before_date,
         )
-        return Response(MessageAssetSerializer(data, many=True).data)
+        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        return Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
         operation_id="hog_flows_asset_content_retrieve",
@@ -1643,8 +1673,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def asset_content(self, request: Request, *args, **kwargs):
         # Ownership-check the HogFlow first so other teams' assets can't be probed.
         obj = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise exceptions.NotFound()
 
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
@@ -1944,7 +1972,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             # 1. Process due schedules (next_run_at <= now)
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             due_schedule_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
@@ -1961,7 +1989,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been processed
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .select_related("hog_flow")
                             .filter(
@@ -2012,7 +2040,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     failed.append(str(schedule_id))
 
             # 2. Initialize next_run_at for schedules that need it
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             uninitialized_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE,
@@ -2030,7 +2058,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been initialized
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
                             .first()

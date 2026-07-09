@@ -311,6 +311,11 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
     202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # The rows/bytes-to-read cap is deterministic for a given window: the data
+    # won't shrink between attempts, so an immediate retry re-scans the same
+    # terabytes only to fail the same way. Fail fast so the caller can fall
+    # back or narrow the window.
+    307,  # TOO_MANY_ROWS_OR_BYTES
     # An OOM won't succeed on an immediate retry with the same window — retrying just
     # adds memory pressure to a cluster that already signaled it's out of memory. Fail
     # fast so the caller can react (e.g. cap the team's window) and fall back.
@@ -371,7 +376,6 @@ class LazyComputationTable(StrEnum):
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
-    CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
     MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
@@ -393,7 +397,6 @@ class LazyComputationTable(StrEnum):
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
     LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
-    LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
     LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,

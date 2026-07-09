@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ciRanges } from 'lib/statistics'
@@ -166,6 +166,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [clickDeps]
     )
 
+    const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             const onRowClick = canHandleClick
@@ -296,7 +298,13 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="line"
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
@@ -310,6 +318,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

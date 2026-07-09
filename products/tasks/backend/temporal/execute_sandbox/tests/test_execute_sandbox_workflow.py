@@ -569,6 +569,24 @@ class TestRun:
             sandbox_id="sandbox-123",
         )
 
+    async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(
+        self, monkeypatch, silent_workflow_logger
+    ):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is False
+        silent_workflow_logger.warning.assert_called_once_with(
+            "execute_sandbox_credential_refresh_stopped_credentials_unavailable",
+            run_id="run-id",
+            sandbox_id="sandbox-123",
+        )
+
     @pytest.mark.parametrize(
         "use_modal_resume_snapshots, expect_resume_snapshot_call",
         [
