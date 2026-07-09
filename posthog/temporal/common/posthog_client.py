@@ -1,6 +1,8 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+from django.db import InterfaceError, OperationalError
+
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -60,6 +62,28 @@ async def _add_inputs_to_capture_kwargs(
         capture_exception(e, **capture_kwargs)
 
 
+def _is_transient_retryable_db_blip(e: BaseException, activity_info: activity.Info) -> bool:
+    """Whether ``e`` is a transient DB connection blip that Temporal will retry, so reporting it
+    now would just be noise. These surface as ``OperationalError``/``InterfaceError`` (e.g. a
+    Postgres DNS hiccup, a dropped connection) and self-heal on the next attempt, so we stay quiet
+    while retries remain and only report on the final attempt — a genuinely stuck activity still
+    surfaces once it exhausts its retries."""
+    if not isinstance(e, (OperationalError, InterfaceError)):
+        return False
+    policy = activity_info.retry_policy
+    if policy is None:
+        return False
+    # maximum_attempts of 0 means unlimited retries: there is no final attempt to fall back on, so
+    # suppressing would hide the error forever. Report instead.
+    if not policy.maximum_attempts or policy.maximum_attempts <= 0:
+        return False
+    if activity_info.attempt >= policy.maximum_attempts:
+        return False  # final attempt: let it surface
+    if type(e).__name__ in (policy.non_retryable_error_types or []):
+        return False  # Temporal won't retry this type, so it won't self-heal
+    return True
+
+
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         _tag_team_id_on_current_span(input)
@@ -73,6 +97,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
                 raise
             activity_info = activity.info()
+            # A transient DB blip (e.g. a Postgres DNS hiccup) that Temporal will retry self-heals on
+            # the next attempt, so reporting every intermediate failure just spawns error-tracking
+            # noise. Stay quiet while retries remain; still report on the final attempt.
+            if _is_transient_retryable_db_blip(e, activity_info):
+                raise
             capture_kwargs = {
                 "properties": {
                     "temporal.execution_type": "activity",
