@@ -31,7 +31,7 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
             if (length !== obj2.length) {
                 return false
             }
-            for (let i = length; i-- !== 0;) {
+            for (let i = length; i-- !== 0; ) {
                 if (!objectsEqual(obj1[i], obj2[i])) {
                     return false
                 }
@@ -57,13 +57,13 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
             return false
         }
 
-        for (let i = length; i-- !== 0;) {
+        for (let i = length; i-- !== 0; ) {
             if (!Object.prototype.hasOwnProperty.call(obj2, keys[i])) {
                 return false
             }
         }
 
-        for (let i = length; i-- !== 0;) {
+        for (let i = length; i-- !== 0; ) {
             const key = keys[i]
             if (!objectsEqual(obj1[key], obj2[key])) {
                 return false
