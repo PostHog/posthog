@@ -46,7 +46,6 @@ class PropertyScope(StrEnum):
 class PropertySourceKind(StrEnum):
     JSON = "json"
     MATERIALIZED_COLUMN = "materialized_column"
-    DYNAMIC_MATERIALIZED_COLUMN = "dynamic_materialized_column"
     PROPERTY_GROUP = "property_group"
 
 
@@ -318,16 +317,6 @@ def _plan_property_source(
             has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
         )
 
-    if dmat_column := get_dmat_column(context, table_name, field_name, property_name):
-        return PropertySourcePlan(
-            kind=PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN,
-            table_name=table_name,
-            field_name=field_name,
-            column_name=dmat_column,
-            physical_type=ast.StringType(nullable=True),
-            is_nullable=True,
-        )
-
     if context.modifiers.propertyGroupsMode in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
         for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
             return PropertySourcePlan(
@@ -391,18 +380,6 @@ def _materialized_column_physical_type(materialized_column: MaterializedColumn) 
         )
 
     return ast.StringType(nullable=materialized_column.is_nullable)
-
-
-def get_dmat_column(context: HogQLContext, table_name: str, field_name: str, property_name: str) -> str | None:
-    """Dynamically materialized (dmat) column name for a property, if a slot is assigned."""
-    if context.property_swapper is None:
-        return None
-    if table_name != "events" or field_name != "properties":
-        return None
-    prop_info = context.property_swapper.event_properties.get(property_name)
-    if prop_info is None:
-        return None
-    return prop_info.get("dmat")
 
 
 def metadata_constant_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.ConstantType | None:

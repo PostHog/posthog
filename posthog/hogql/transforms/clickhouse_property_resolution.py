@@ -1,8 +1,8 @@
 """ClickHouse pass: read each property from a faster precomputed column when one exists.
 
 Lowering has already turned every `properties.x` read into a `PropertyAccess` node — "pull these keys out of this JSON
-blob". This pass looks each one up. If the property is backed by a precomputed column (a materialized column, a dmat
-column, or a property-group map), it rewrites the node to read that column instead: the same value, far cheaper than
+blob". This pass looks each one up. If the property is backed by a precomputed column (a materialized column or a
+property-group map), it rewrites the node to read that column instead: the same value, far cheaper than
 parsing JSON. Reads with no backing column are left alone, and the printer prints them as the raw JSON extract.
 
 It also rewrites comparisons over a backed property (`=`, `IN`, ranges, `LIKE`, is-null) to compare against the bare
@@ -67,11 +67,11 @@ _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
 class MaterializedPropertySource:
     """The one physical column that backs an events/persons `properties.$x` read — which column, and how to read it.
 
-    Either a materialized column, a dmat column, or a property-group map. Carries the index metadata the comparison
+    Either a materialized column or a property-group map. Carries the index metadata the comparison
     rewrites need to keep that column usable by a skip index.
     """
 
-    kind: Literal["materialized_column", "dmat", "property_group"]
+    kind: Literal["materialized_column", "property_group"]
     column: str
     is_nullable: bool
     # The column's physical ClickHouse type (e.g. "Nullable(Float64)"); None means the string default. Typed columns
@@ -97,7 +97,7 @@ def resolve_materialized_property_source(
 ) -> MaterializedPropertySource | None:
     """The physical column that backs `<events/persons>.<field>.<property_name>`, or None if nothing does.
 
-    Tries the backing columns in priority order — a static materialized column first, then a dmat column, then the first
+    Tries the backing columns in priority order — a static materialized column first, then the first
     property-group map column — using the same registries the old printer used. Returns None when the property has no
     backing column (so it stays a JSON read), when materialization is turned off, or when the property is access-
     restricted.
@@ -146,13 +146,7 @@ def resolve_materialized_property_source(
             has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
         )
 
-    # 2) dmat (dynamic materialized) slot — events.properties only, resolved from the property swapper
-    if context.property_swapper is not None and table_name == "events" and field_name == "properties":
-        property_info = context.property_swapper.event_properties.get(property_name)
-        if property_info and (dmat_column := property_info.get("dmat")):
-            return MaterializedPropertySource(kind="dmat", column=dmat_column, is_nullable=True)
-
-    # 3) first property-group Map column for the key
+    # 2) first property-group Map column for the key
     return resolve_property_group_source(field_type, property_name, context)
 
 
@@ -244,7 +238,7 @@ def _augment_table_type(
 def _synthetic_column_field(field_type: ast.FieldType, column_name: str, *, is_nullable: bool) -> ast.Field | None:
     """A typed `Field` for a physical ClickHouse column that the HogQL schema doesn't know about.
 
-    Materialized / dmat / property-group columns exist on the table but aren't in the HogQL schema, so a plain `Field`
+    Materialized / property-group columns exist on the table but aren't in the HogQL schema, so a plain `Field`
     can't resolve to them. Build a fake `DatabaseField` on a copy of the table and point a fresh `FieldType` at it,
     keeping any table alias so the printed prefix (`events.` / `e.`) is unchanged.
     """
@@ -285,7 +279,7 @@ def _materialized_head_expr(
     if column_field is None:
         return None
 
-    # Nullable columns (dmat, nullable mat) and the index-friendly $ai single-key columns are read bare.
+    # Nullable columns (nullable mat) and the index-friendly $ai single-key columns are read bare.
     if source.is_nullable or (is_single and first_key in AI_BLOOM_FILTER_PROPERTIES):
         return column_field
 
@@ -318,7 +312,7 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
 
     Picks the column and builds the read (the numeric/boolean cast is not handled here — it already wraps this node).
     Returns a constant NULL for an access-restricted property, or None when the property has no precomputed column
-    (materialized, dmat, or property group) to read from — in which case it stays a raw JSON extract.
+    (materialized or property group) to read from — in which case it stays a raw JSON extract.
     """
     field_type = _blob_field_type_of(node)
     # Lowering builds every PropertyAccess with the blob FieldType on `expr` and a non-empty key path. Assert the
@@ -432,7 +426,6 @@ def _record_range_rewrite(context: HogQLContext, result: str) -> None:
 
 _USAGE_BY_SOURCE_KIND = {
     "materialized_column": "materialized_column",
-    "dmat": "dynamic_materialized_column",
     "property_group": "property_group",
     "map_subscript": "map_subscript",
 }
@@ -655,7 +648,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 return None
 
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
+        if source is None or source.kind != "materialized_column" or not _is_string_column(source):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -670,7 +663,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             return None
         field_type, property_name = single
         source = resolve_materialized_property_source(field_type, property_name, self.context)
-        if source is None or source.kind not in ("materialized_column", "dmat") or not _is_string_column(source):
+        if source is None or source.kind != "materialized_column" or not _is_string_column(source):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -890,7 +883,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         if source is None:
             return None  # no backing column — not a rewrite candidate, nothing to record
         if source.kind != "materialized_column" or _is_string_column(source):
-            # The backing column stores the value as a string (string mat column, dmat, or property-group map), where a
+            # The backing column stores the value as a string (string mat column or property-group map), where a
             # bare range comparison would order lexicographically — unsafe, so the rewrite is skipped. This is the
             # common shape: numeric/datetime properties materialize to string columns unless a typed column was created.
             _record_range_rewrite(self.context, "skipped")

@@ -22,7 +22,6 @@ from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
-    DMAT_STRING_COLUMN_NAME_PREFIX,
     MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -34,7 +33,6 @@ from posthog.models.property import PropertyName, TableColumn
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
-    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 
     if not context or not context.team_id:
         return
@@ -49,23 +47,14 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # Load event property definitions with their materialized slots in a single query
+    # Load event property definitions in a single query
     event_property_definitions = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
+        ).filter(
             effective_project_id=context.team.project_id,
             name__in=property_finder.event_properties,
             type__in=[None, PropertyDefinition.Type.EVENT],
-        )
-        .prefetch_related(
-            models.Prefetch(
-                "materialized_column_slots",
-                queryset=MaterializedColumnSlot.objects.filter(
-                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
-                ),
-            )
         )
         if property_finder.event_properties
         else []
@@ -76,12 +65,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if not prop_def.property_type:
             continue
 
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
-        slot = prop_def.materialized_column_slots.first()
-        if slot:
-            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
-
-        event_properties[prop_def.name] = prop_info
+        event_properties[prop_def.name] = {"type": prop_def.property_type}
 
     person_property_values = (
         PropertyDefinition.objects.alias(
@@ -620,7 +604,7 @@ class PropertySwapper(CloningVisitor):
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
         # Add notice about the property type and materialization status
-        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+        self._add_property_notice(node, property_type, field_type)
 
         # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
         # toFloatOrDefault). Those ClickHouse functions require a String argument, so
@@ -628,9 +612,6 @@ class PropertySwapper(CloningVisitor):
         if self._suppress_numeric_conversion:
             return node
 
-        # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
-        # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
-        # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
@@ -686,7 +667,6 @@ class PropertySwapper(CloningVisitor):
         node: ast.Field,
         property_type: Literal["event", "person", "group"],
         field_type: str,
-        dmat_column: str | None = None,
     ):
         property_name = str(node.chain[-1])
         if property_type == "group" and "_" in property_name:
@@ -697,12 +677,8 @@ class PropertySwapper(CloningVisitor):
             access_plan = plan_property_access(node, self.context)
             if access_plan is not None and access_plan.source.kind == PropertySourceKind.MATERIALIZED_COLUMN:
                 message += " This property is materialized (mat_*) ⚡️."
-            elif access_plan is not None and access_plan.source.kind == PropertySourceKind.DYNAMIC_MATERIALIZED_COLUMN:
-                message += f" This property is materialized ({access_plan.source.column_name}) ⚡️."
             elif access_plan is not None and access_plan.source.kind == PropertySourceKind.PROPERTY_GROUP:
                 message += f" This property is served from property group column '{access_plan.source.column_name}' ⚡️."
-            elif dmat_column is not None:
-                message += f" This property is materialized ({dmat_column}) ⚡️."
             else:
                 message += " This property is not materialized 🐢."
 

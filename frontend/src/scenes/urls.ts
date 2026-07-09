@@ -236,7 +236,6 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
     queryPerformance: (): string => '/instance/query_performance',
-    materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
     codeChannelLink: (channelId: string, taskId?: string): string =>

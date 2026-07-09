@@ -42,7 +42,6 @@ from .identity_provider_config import IdentityProviderConfig
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .integration_repository_cache import IntegrationRepositoryCacheEntry
-from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
@@ -126,8 +125,6 @@ __all__ = [
     "Integration",
     "IntegrationRepositoryCacheEntry",
     "InviteExpiredException",
-    "MaterializedColumnSlot",
-    "MaterializedColumnSlotState",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",

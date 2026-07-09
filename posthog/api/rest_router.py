@@ -45,7 +45,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    materialized_column_slot,
     object_media_preview,
     organization,
     organization_domain,
@@ -235,13 +234,6 @@ projects_router.register(
     DataManagementViewSet,
     "project_data_management",
     ["project_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"materialized_column_slots",
-    materialized_column_slot.MaterializedColumnSlotViewSet,
-    "project_materialized_column_slots",
-    ["team_id"],
 )
 
 

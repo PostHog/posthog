@@ -49,11 +49,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         allowUnauthenticated: true,
     },
     [Scene.AsyncMigrations]: { instanceLevel: true },
-    [Scene.MaterializedColumns]: {
-        projectBased: true,
-        name: 'Materialized columns',
-        description: 'Manage materialized column slot assignments for your team.',
-    },
     [Scene.Annotations]: {
         projectBased: true,
         name: 'Annotations',
@@ -876,7 +871,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.queryPerformance()]: [Scene.QueryPerformance, 'queryPerformance'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
-    [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
     [urls.eventFiltering()]: [Scene.EventFiltering, 'eventFiltering'],

@@ -38,7 +38,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import PropertyDefinition
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -717,30 +717,6 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             expected_used=expected_used,
             expected_not_used=expected_not_used,
         )
-
-    # ----- dmat (dynamic materialized column) -------------------------------
-    # dmat columns have no skip indexes today; we only check that the printer routes the property to the dmat column instead of JSON extraction.
-
-    def test_dmat_string_no_skip_indexes(self) -> None:
-        self._seed()
-        prop_def = PropertyDefinition.objects.create(
-            team=self.team,
-            project_id=self.team.project_id,
-            name=EVENT_PROP_KEY,
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=prop_def,
-            slot_index=0,
-            state=MaterializedColumnSlotState.READY,
-        )
-
-        query, _ = self._filter_to_sql(self._filter(PropertyOperator.EXACT, "5"))
-        assert "dmat_string_0" in query, f"Expected dmat_string_0 in SQL, got: {query}"
-        # No skip indexes are configured on dmat columns today.
-        self._assert_indexes(self._filter(PropertyOperator.EXACT, "5"), expected_used=set())
 
     # ----- observability ------------------------------------------------------
 

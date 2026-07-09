@@ -98,7 +98,6 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     EmailMFAVerify = 'EmailMFAVerify',
-    MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
     NodeDetail = 'NodeDetail',
