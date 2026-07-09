@@ -81,7 +81,7 @@ class TestGetRows:
     def test_full_refresh_follows_next_urls_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         page_2 = f"{SHIPPO_BASE_URL}/addresses/?page=2&results={PAGE_SIZE}"
-        pages = {
+        pages: dict[str, dict] = {
             page_2: {"next": None, "results": [{"object_id": "b"}]},
             f"{SHIPPO_BASE_URL}/addresses/?results={PAGE_SIZE}": {"next": page_2, "results": [{"object_id": "a"}]},
         }
@@ -149,7 +149,7 @@ class TestGetRows:
     def test_incremental_resumes_mid_window_then_advances(self, monkeypatch: Any) -> None:
         page_2 = f"{SHIPPO_BASE_URL}/shipments/?page=2&object_created_gt=2026-06-01T00:00:00Z"
         manager = _FakeResumableManager(ShippoResumeConfig(next_url=page_2, window_start="2026-06-01T00:00:00Z"))
-        pages = {
+        pages: dict[str, dict] = {
             page_2: {"next": None, "results": [{"object_id": "resumed"}]},
             f"{SHIPPO_BASE_URL}/shipments/?results=": {"next": None, "results": []},
         }

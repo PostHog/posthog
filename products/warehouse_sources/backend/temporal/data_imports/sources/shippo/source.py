@@ -95,15 +95,17 @@ You can find your live (`shippo_live_...`) and test (`shippo_test_...`) API toke
     ) -> list[SourceSchema]:
         # Only shipments supports incremental sync — it is the one endpoint with a server-side
         # creation-date filter (object_created_gt/lte). Everything else is full refresh.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        schemas: list[SourceSchema] = []
+        for endpoint in ENDPOINTS:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=incremental_fields is not None,
+                    supports_append=incremental_fields is not None,
+                    incremental_fields=incremental_fields or [],
+                )
             )
-            for endpoint in ENDPOINTS
-        ]
 
         if names is not None:
             names_set = set(names)
