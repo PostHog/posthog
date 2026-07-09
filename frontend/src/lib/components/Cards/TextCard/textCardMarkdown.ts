@@ -92,23 +92,20 @@ const markdownManager = new MarkdownManager({
     extensions: TEXT_CARD_MARKDOWN_EXTENSIONS,
 })
 
-// @tiptap/markdown closes a text node's marks in array order, so when `code` is not the
+// @tiptap/markdown 3.20.x closes a text node's marks in array order, so when `code` is not the
 // innermost mark it emits malformed markdown (e.g. **`snippet**` instead of **`snippet`**).
 // That broke the round trip and made the controlled editor reset itself while typing. Force
 // `code` innermost (first in the marks array) so its backticks always sit inside bold/italic/strike.
+// Fixed upstream in @tiptap/markdown >= 3.27.3; remove this once the tiptap suite is bumped.
 function withCodeMarkInnermost(doc: JSONContent): JSONContent {
     const visit = (node: JSONContent): JSONContent => {
-        let next = node
         const marks = node.marks
-        if (marks && marks.length > 1 && marks.some((mark) => mark.type === 'code')) {
-            const code = marks.filter((mark) => mark.type === 'code')
-            const others = marks.filter((mark) => mark.type !== 'code')
-            next = { ...node, marks: [...code, ...others] }
-        }
-        if (next.content) {
-            next = { ...next, content: next.content.map(visit) }
-        }
-        return next
+        const codeIndex = marks ? marks.findIndex((mark) => mark.type === 'code') : -1
+        const next =
+            marks && codeIndex > 0
+                ? { ...node, marks: [marks[codeIndex], ...marks.slice(0, codeIndex), ...marks.slice(codeIndex + 1)] }
+                : node
+        return next.content ? { ...next, content: next.content.map(visit) } : next
     }
     return visit(doc)
 }
