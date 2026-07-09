@@ -104,7 +104,7 @@ def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.Monk
         _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
         _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
     ]
-    monkeypatch.setattr(db_schema, "_github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
     monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
 
     split_runner = CliRunner(mix_stderr=False)

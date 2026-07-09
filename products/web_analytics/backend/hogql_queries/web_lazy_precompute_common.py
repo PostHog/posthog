@@ -81,15 +81,22 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     live query — the cap only takes effect next time.
     """
     pinned = is_team_oom_pinned(team.id)
-    if pinned and "ttl_seconds" in kwargs:
+    if "ttl_seconds" in kwargs:
         existing = kwargs["ttl_seconds"]
-        # Stamp the width cap onto whatever schedule the caller passed: an int/dict gets
-        # parsed with the cap; an already-built TtlSchedule (also accepted by
-        # ensure_precomputed) just gets the cap re-stamped — parse_ttl_schedule can't take one.
+        # Normalize whatever the caller passed into a TtlSchedule so web-wide policy can be
+        # stamped on: an int/dict gets parsed; an already-built TtlSchedule (also accepted
+        # by ensure_precomputed) gets its fields re-stamped via replace().
+        # Every web schedule settles on the 24h session pad: a job computed before
+        # `window_end + pad` captured still-evolving session metrics and must not sit on
+        # a long band TTL — non-UTC teams' UTC-aligned edge windows can land in a
+        # multi-day band while their sessions are still settling.
         if isinstance(existing, TtlSchedule):
-            kwargs["ttl_seconds"] = replace(existing, max_window_days=OOM_PIN_WINDOW_DAYS)
+            schedule = replace(existing, settling_period_seconds=SESSION_SETTLING_SECONDS)
         else:
-            kwargs["ttl_seconds"] = parse_ttl_schedule(existing, team.timezone, max_window_days=OOM_PIN_WINDOW_DAYS)
+            schedule = parse_ttl_schedule(existing, team.timezone, settling_period_seconds=SESSION_SETTLING_SECONDS)
+        if pinned:
+            schedule = replace(schedule, max_window_days=OOM_PIN_WINDOW_DAYS)
+        kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
     if result.memory_exceeded:
         pin_team_oom(team.id)  # set or refresh the cap so a still-OOMing team stays pinned
@@ -124,9 +131,15 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 #    warmer period (yesterday was 1h) races it and hands users multi-second
 #    waits. Recomputing more often buys nothing anyway — the ~6h HogQL result
 #    cache already fronts these queries, so a cache hit never reads the
-#    precompute. Older windows get progressively longer TTLs. Today and
-#    yesterday must keep *distinct* TTLs or `split_ranges_by_ttl` fuses them
-#    into one 2-day job and every today-refresh recomputes yesterday too.
+#    precompute. Today and yesterday must keep *distinct* TTLs or
+#    `split_ranges_by_ttl` fuses them into one 2-day job and every
+#    today-refresh recomputes yesterday too.
+#    Windows aged 2+ days are *session-final*: sessions cap at 24h (the insert
+#    scans window_end+24h), so bounce/duration can no longer change, and
+#    measured late-event ingestion beyond 49h is ≤0.03% of pageviews on the
+#    worst enrolled team (~0% elsewhere). Their TTLs are therefore generous —
+#    recomputing an immutable window buys nothing — and bounded in practice by
+#    hash rotations (any AST-affecting deploy rebuilds everything anyway).
 # 2. Job sizing — `split_ranges_by_ttl` merges *consecutive days with the same
 #    TTL* into one job. Distinct per-week TTLs therefore force weekly job
 #    boundaries, so a 31-day warm splits into ≤7-day jobs instead of one ~24-day
@@ -136,12 +149,12 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 LAZY_TTL_SECONDS: dict[str, int] = {
     "0d": 4 * 60 * 60,  # today
     "1d": 6 * 60 * 60,  # yesterday
-    "7d": 24 * 60 * 60,  # days 2–7   → one ~6d job
-    "14d": 2 * 24 * 60 * 60,  # days 8–14  → one 7d job
-    "21d": 4 * 24 * 60 * 60,  # days 15–21 → one 7d job
-    "28d": 7 * 24 * 60 * 60,  # days 22–28 → one 7d job
-    "35d": 10 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
-    "default": 14 * 24 * 60 * 60,  # days 36+
+    "7d": 5 * 24 * 60 * 60,  # days 2–7   → one ~6d job
+    "14d": 7 * 24 * 60 * 60,  # days 8–14  → one 7d job
+    "21d": 10 * 24 * 60 * 60,  # days 15–21 → one 7d job
+    "28d": 12 * 24 * 60 * 60,  # days 22–28 → one 7d job
+    "35d": 14 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
+    "default": 21 * 24 * 60 * 60,  # days 36+
 }
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
@@ -157,6 +170,12 @@ MAX_PRECOMPUTE_DAYS = 90
 # 24 h hard SESSION_LENGTH_LIMIT and covers ~100% of population sessions.
 # See web_overview_lazy_precompute.py for the full reasoning.
 SESSION_FORWARD_PAD_MINUTES = 24 * 60
+
+# How long after a window ends its session metrics can still change: sessions opened in
+# the window keep evolving (bounce flips, duration grows) until they hit the SDK's 24h
+# session cap — the same bound the insert's forward pad scans. Stamped onto every web
+# TTL schedule as its settling period (see `web_ensure_precomputed`).
+SESSION_SETTLING_SECONDS = SESSION_FORWARD_PAD_MINUTES * 60
 
 # Org-level rollout flag — same one the frontend uses to show the "Allow
 # precompute" toggle.
