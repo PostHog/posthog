@@ -37,14 +37,14 @@ minimum viable scale or not at all. Measured sizes (release mode):
 | 2 pods / 2 routers / 2 partitions, 2 failures | ~8.9M | 110s |
 | 3 pods / 2 routers / 2 partitions, 2 failures | ~24M | 300s |
 
-The default test tier (nine scenarios, ~8s total in release) runs the
-1-partition matrix — including the rejoin and read-path scenarios —
-plus the 2-partition single-failure case. The `--ignored` extended tier
-runs the 2-partition double-zombie scenarios and the state-space
-report. Two partitions matter for the coordinator's cross-partition
-scheduling (rebalancing defers while any handoff is in flight); the
-safety invariants themselves are per-partition, which is why every
-violation class reproduces at one.
+The test suite (twelve scenarios, ~2min total in release) runs the full
+verdict matrix — the 1-partition scenarios, the 2-partition cases
+including both double-zombie verdicts, the 3-pod rejoin, and the
+reachability probes. Two partitions matter for the coordinator's
+cross-partition scheduling (rebalancing defers while any handoff is in
+flight); the safety invariants themselves are per-partition, which is
+why every violation class reproduces at one. The `--ignored`
+state-space report is the sizing tool for new configurations.
 
 ## Coupling to production (drift prevention)
 
@@ -57,7 +57,7 @@ checker verifies, automatically:
 |---|---|
 | `pod::desired_state` + `DesiredState` | the pod's entire state machine — `Action::Converge` derives through the real function |
 | `protocol::freeze_quorum_met` / `drain_satisfied` / `warm_satisfied` | the phase-advancement rules (identity quorum, id-correlated acks, vacuous drain) — `Action::AdvancePhase` calls them |
-| `StickyBalancedStrategy::compute_assignments` | partition placement — `Action::CoordinatorReconcile` calls it |
+| `protocol::plan_rebalance` | the rebalance decision (placement via `StickyBalancedStrategy` + the move/fresh diff, old_owner from the current assignment) — `Action::Rebalance` calls it, as does the coordinator |
 | `types::HandoffPhase` | used directly as the model's phase enum, so adding a phase breaks the model's exhaustive matches at compile time |
 
 What remains model-side is the *environment and effect application* —
@@ -66,7 +66,7 @@ queue — mapped to named production behavior for review:
 
 | Model | Production behavior modeled |
 |---|---|
-| `Action::CoordinatorReconcile` cleanup arm | `cleanup_stale_handoffs` (mod_revision-guarded delete, modeled as atomic check-and-delete) |
+| `Action::CleanupStale` | `cleanup_stale_handoffs` (mod_revision-guarded delete, modeled as atomic check-and-delete) |
 | `Action::AdvancePhase` Warming→Complete | `complete_handoff` (phase write + assignment flip as one txn) |
 | `Action::Converge` effect application | `PodHandle::apply` (warm installs at HWM and unfences, drain fences, acks echo the handoff id and are phase-gated) |
 | `Action::Observe` | Router watch handlers: `begin_stash` + FreezeAck (Freezing only), cutover + stash drain at Complete, drain-back on cancellation |
@@ -96,7 +96,7 @@ implementation so the model executes `converge` and
 |---|---|---|---|
 | Current protocol, no failures | holds | holds | holds |
 | Current, crash-restart within TTL / clean lease expiry | holds | holds | holds |
-| Current, pod death past TTL + rejoin | holds | holds | holds |
+| Current, pod death past TTL + rejoin (3 pods) | holds | holds | holds |
 | Current, single zombie pod | **holds** | **holds** | holds |
 | Current, double zombie (router + pod) | **violated** — counterexample found | **violated** | — |
 | Epoch-fenced, double zombie | holds | holds | holds |
@@ -130,13 +130,32 @@ budget. The variant was removed once the change merged, so the model
 tracks only the shipped protocol; `strong_reads_complete` remains
 checked in every scenario as the standing guarantee.
 
+**Scenario reachability is measured, not assumed.** Two `sometimes`
+probes (enabled via the model's `probes` flag) answer "does more scale
+open scenarios the small configs can't reach?" with checker facts:
+**concurrent handoffs are reachable** (one rebalance transaction creates
+a handoff per moved/fresh partition, and safety is verified at every
+such state), and **a dual-role pod — drain-side of one handoff while
+warm-side of another — is machine-proven unreachable** under the
+shipped protocol, even with crash-and-rejoin churn at 3 pods / 3
+partitions: within one plan the sticky strategy never takes from and
+gives to the same pod, and the rebalance deferral gate keeps handoffs
+from different plans from coexisting. If a strategy or gate change ever
+makes it reachable, the probe test fails and the dual-role case needs
+explicit analysis. The rejoin scenario runs at 3 pods because that is
+the smallest scale where the strategy genuinely chooses a placement
+target rather than having it forced — the one axis a 2-pod world
+under-exercises; the per-partition safety relations themselves are
+two-party (old owner ↔ new owner, zombie ↔ successor).
+
 ## Usage
 
 ```sh
-# Default tier — exhaustive checks with expected verdicts per scenario:
+# Exhaustive checks with expected verdicts per scenario (~2min):
 cargo test -p personhog-stateright --release
 
-# Extended tier (2-partition double-zombie, ~20s) + state-space report:
+# State-space sizing report — run when adding a new configuration to
+# judge its tractability before wiring it into a test:
 cargo test -p personhog-stateright --release -- --ignored --nocapture
 
 # Interactive state-space explorer (http://localhost:3000), for
@@ -150,14 +169,17 @@ Explorer variants: `current` (failures without zombie windows),
 
 ## Coverage notes
 
-Now in the explored space: pod rejoin after TTL expiry; coordinator
-concurrency (cleanup, rebalance, phase advance, and completion cleanup
-are independently scheduled actions, which also covers an overlapping
-outgoing coordinator — every coordinator write is a guarded
+Now in the explored space: pod rejoin after TTL expiry (at 3 pods, so
+placement is genuinely chosen); coordinator concurrency (cleanup,
+rebalance, phase advance, and completion cleanup are independently
+scheduled actions, which also covers an overlapping outgoing
+coordinator — every coordinator write is a guarded
 check-on-current-state, so two coordinators are just more interleavings
-of the same actions); strong reads (stashing with writes, per the shipped design); two
-routers draining stashed FIFOs concurrently at cutover (thaw ordering);
-multi-partition rebalance gating.
+of the same actions); strong reads (stashing with writes, per the
+shipped design); two routers draining stashed FIFOs concurrently at
+cutover (thaw ordering); multi-partition rebalance gating; concurrent
+handoffs (probed reachable, safety checked throughout); the dual-role
+pod shape (probed unreachable — see Results).
 
 Known remaining abstractions: warming is instant and atomic (production
 streams from Kafka with retries — availability, not safety); stash

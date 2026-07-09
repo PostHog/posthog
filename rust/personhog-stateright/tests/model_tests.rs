@@ -39,6 +39,7 @@ fn base() -> HandoffModel {
         crashes: 0,
         rejoins: 0,
         zombie_window: 0,
+        probes: false,
     }
 }
 
@@ -154,9 +155,16 @@ fn current_two_partitions_single_zombie_is_safe() {
 /// name must come back cleanly: fresh registration triggers a rebalance,
 /// partitions return via Warming handoffs, and every safety and liveness
 /// property holds across the departure, the interim, and the return.
+/// Three pods, deliberately: with two, a departed pod's partition has
+/// only one place to go — a third pod is the smallest scale at which the
+/// sticky strategy genuinely chooses a target, so the rebalance paths
+/// exercised here aren't placement-forced. That is the one axis a 2-pod
+/// world under-exercises; the per-partition safety relations themselves
+/// are two-party (see the probe tests below).
 #[test]
 fn current_with_rejoin_is_safe_and_live() {
     HandoffModel {
+        pods: 3,
         crashes: 1,
         rejoins: 1,
         ..base()
@@ -187,11 +195,12 @@ fn strong_reads_are_complete_across_cutover() {
     .assert_properties();
 }
 
-/// Extended tier (~1.5M states each; run in release):
-/// `cargo test -p personhog-stateright --release -- --ignored`
+/// The double-zombie residual must also reproduce at two partitions —
+/// guards against the cross-partition coordinator logic (rebalance
+/// deferral, per-partition cleanup) accidentally masking or altering the
+/// single-partition verdict.
 #[test]
-#[ignore = "extended tier; ~2min each in release"]
-fn extended_two_partitions_double_zombie_loses_acked_writes() {
+fn two_partitions_double_zombie_loses_acked_writes() {
     let checker = HandoffModel {
         partitions: 2,
         crashes: 2,
@@ -204,9 +213,11 @@ fn extended_two_partitions_double_zombie_loses_acked_writes() {
     assert!(checker.discovery("no_lost_acked_write").is_some());
 }
 
+/// Epoch fencing must close the residual at two partitions too — each
+/// partition's producer epoch is independent, and this pins that the
+/// fix doesn't rely on single-partition structure.
 #[test]
-#[ignore = "extended tier; ~2min each in release"]
-fn extended_epoch_fenced_two_partitions_double_zombie_is_safe() {
+fn epoch_fenced_two_partitions_double_zombie_is_safe() {
     let checker = HandoffModel {
         partitions: 2,
         variant: Variant::EpochFenced,
@@ -219,6 +230,60 @@ fn extended_epoch_fenced_two_partitions_double_zombie_is_safe() {
     .join();
     assert!(checker.discovery("no_lost_acked_write").is_none());
     assert!(checker.discovery("no_split_write_acceptance").is_none());
+}
+
+/// Reachability probe: concurrent handoffs are a real scenario — one
+/// rebalance transaction creates a handoff per moved/fresh partition, so
+/// the phase machinery is genuinely exercised with multiple handoffs in
+/// flight (safety is checked at every such state in the same run).
+/// Workload budgets are zero: reachability of coordination shapes
+/// doesn't need writes, and the space stays tiny.
+#[test]
+fn probe_concurrent_handoffs_are_reachable() {
+    let checker = HandoffModel {
+        partitions: 2,
+        writes: 0,
+        reads: 0,
+        probes: true,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("concurrent_handoffs").is_some(),
+        "two in-flight handoffs must be reachable (one rebalance txn creates both)"
+    );
+}
+
+/// Reachability probe: a pod simultaneously drain-side of one handoff
+/// and warm-side of another is UNREACHABLE under the shipped protocol,
+/// even with churn (crash + rejoin) at the smallest scale where the
+/// strategy has real choices. The checker proves what the code only
+/// implies: within one plan the sticky strategy never takes from and
+/// gives to the same pod, and the rebalance deferral gate keeps handoffs
+/// from different plans from coexisting. If a strategy or gate change
+/// ever makes this reachable, this test fails and the dual-role case
+/// needs explicit safety analysis.
+#[test]
+fn probe_dual_role_pod_is_unreachable() {
+    let checker = HandoffModel {
+        pods: 3,
+        partitions: 3,
+        writes: 0,
+        reads: 0,
+        crashes: 1,
+        rejoins: 1,
+        probes: true,
+        ..base()
+    }
+    .checker()
+    .spawn_bfs()
+    .join();
+    assert!(
+        checker.discovery("pod_holds_both_roles").is_none(),
+        "the sticky strategy + rebalance deferral gate should make dual-role pods unreachable"
+    );
 }
 
 /// Prints the explored state-space size per configuration. Not a

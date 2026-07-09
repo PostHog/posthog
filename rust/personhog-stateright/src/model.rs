@@ -8,7 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use personhog_coordination::pod::{desired_state, DesiredState};
-use personhog_coordination::protocol::{drain_satisfied, freeze_quorum_met, warm_satisfied};
+use personhog_coordination::protocol::{
+    drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied,
+};
 use personhog_coordination::strategy::{AssignmentStrategy, StickyBalancedStrategy};
 use personhog_coordination::types::{
     AssignmentStatus, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
@@ -25,6 +27,9 @@ use crate::types::{
 /// string-keyed production types.
 fn pod_name(x: PodId) -> String {
     format!("p{x}")
+}
+fn pod_id(name: &str) -> PodId {
+    name.trim_start_matches('p').parse().expect("pod name")
 }
 fn router_name(r: RouterId) -> String {
     format!("r{r}")
@@ -74,6 +79,11 @@ pub struct HandoffModel {
     /// Writes a lease-expired pod may still accept before its keepalive
     /// self-fences it. Zero disables the zombie window entirely.
     pub zombie_window: u8,
+    /// Adds reachability probes (`sometimes` properties) for scenario
+    /// shapes that only exist at larger scale — used to measure, rather
+    /// than assume, which configurations actually reach them. Off in the
+    /// verdict tests: an unreached probe would fail `assert_properties`.
+    pub probes: bool,
 }
 
 /// Derive one pod's desired state by calling the production
@@ -128,7 +138,7 @@ impl HandoffModel {
     fn target_owner(&self, state: &SystemState, partition: Partition) -> Option<PodId> {
         self.target_assignments(state)
             .get(&(partition as u32))
-            .map(|name| name.trim_start_matches('p').parse().expect("pod name"))
+            .map(|name| pod_id(name))
     }
 
     /// Whether pod `x` would accept a write for `partition` — the leader
@@ -366,33 +376,45 @@ impl Model for HandoffModel {
 
             // The rebalance half: create Freezing handoffs for every
             // assignment diff in one transaction, only while no handoffs
-            // are in flight.
+            // are in flight. Placement and diff semantics are the
+            // production `protocol::plan_rebalance` (strategy + move/fresh
+            // diff, old_owner from the current assignment); only the etcd
+            // writes are applied model-side, and assignments for
+            // moved/fresh partitions are deferred until Complete
+            // (`create_assignments_and_handoffs`).
             Action::Rebalance => {
                 if state.handoffs.is_empty() {
-                    let targets = self.target_assignments(&state);
-                    for p in self.partition_ids() {
-                        let target: Option<PodId> = targets
-                            .get(&(p as u32))
-                            .map(|name| name.trim_start_matches('p').parse().expect("pod name"));
-                        let Some(target) = target else {
-                            continue;
-                        };
-                        let current = state.assignments.get(&p).copied();
-                        if current == Some(target) {
-                            continue;
-                        }
-                        // `create_assignments_and_handoffs`: assignments
-                        // for moved/fresh partitions are deferred until
-                        // Complete; the handoff's old_owner is the
-                        // current assignment owner (or None when fresh).
+                    let current: HashMap<u32, String> = state
+                        .assignments
+                        .iter()
+                        .map(|(p, owner)| (*p as u32, pod_name(*owner)))
+                        .collect();
+                    let mut active: Vec<String> = state
+                        .pods
+                        .iter()
+                        .filter(|(_, p)| p.registered)
+                        .map(|(id, _)| pod_name(*id))
+                        .collect();
+                    active.sort();
+                    let mut plan = plan_rebalance(
+                        &StickyBalancedStrategy,
+                        &current,
+                        &active,
+                        self.partitions as u32,
+                    );
+                    // The plan's order follows HashMap iteration; sort so
+                    // sequential handoff-id assignment is deterministic
+                    // (next_state must be a pure function of its inputs).
+                    plan.handoffs.sort_by_key(|h| h.partition);
+                    for planned in plan.handoffs {
                         let id = state.next_handoff_id;
                         state.next_handoff_id += 1;
                         state.handoffs.insert(
-                            p,
+                            planned.partition as Partition,
                             Handoff {
                                 id,
-                                old_owner: current,
-                                new_owner: target,
+                                old_owner: planned.old_owner.as_deref().map(pod_id),
+                                new_owner: pod_id(&planned.new_owner),
                                 phase: Phase::Freezing,
                             },
                         );
@@ -831,7 +853,7 @@ impl Model for HandoffModel {
     }
 
     fn properties(&self) -> Vec<Property<Self>> {
-        vec![
+        let mut props = vec![
             // The acked-write-loss invariant the drain/fence/HWM
             // machinery exists to uphold. Expected to FAIL under
             // Variant::Current with a zombie window (the documented
@@ -925,6 +947,33 @@ impl Model for HandoffModel {
                                 .all(|(p, owner)| router.table.get(p) == Some(owner))
                     })
             }),
-        ]
+        ];
+        if self.probes {
+            // Two or more handoffs in flight at once (one rebalance txn
+            // creates them all; the deferral gate prevents a second
+            // rebalance from adding more).
+            props.push(Property::<Self>::sometimes(
+                "concurrent_handoffs",
+                |_, s| s.handoffs.len() >= 2,
+            ));
+            // A pod that is old owner of one in-flight handoff and new
+            // owner of another — simultaneously drain-side and warm-side.
+            // Believed unreachable under the shipped protocol: within one
+            // plan the sticky strategy only takes partitions from pods
+            // above their target and gives to pods below it (never both),
+            // and the deferral gate keeps handoffs from different plans
+            // from coexisting. The probe lets the checker confirm that
+            // instead of us assuming it.
+            props.push(Property::<Self>::sometimes(
+                "pod_holds_both_roles",
+                |_, s| {
+                    s.handoffs.values().any(|h1| {
+                        h1.old_owner
+                            .is_some_and(|x| s.handoffs.values().any(|h2| h2.new_owner == x))
+                    })
+                },
+            ));
+        }
+        props
     }
 }

@@ -6,12 +6,11 @@ use etcd_client::{EventType, WatchStream};
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
-use assignment_coordination::util::compute_required_handoffs;
 use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
-use crate::protocol::{drain_satisfied, freeze_quorum_met, warm_satisfied};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, plan_rebalance, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
@@ -566,63 +565,38 @@ impl Coordinator {
             .map(|a| (a.partition, a.owner.clone()))
             .collect();
 
-        let new_assignments =
-            strategy.compute_assignments(&current_map, &active_pods, total_partitions);
-        let reassignments = compute_required_handoffs(&current_map, &new_assignments);
+        // Placement and diff semantics (moves carry the prior owner, fresh
+        // partitions carry none, everything goes through Freezing) live in
+        // `protocol::plan_rebalance`, shared with the stateright model.
+        let plan = plan_rebalance(strategy, &current_map, &active_pods, total_partitions);
 
-        // Every partition that has a new owner goes through the handoff
-        // protocol, including partitions that had no prior owner (initial
-        // assignment). This guarantees routers never route to a pod whose
-        // cache hasn't been warmed.
-        //
-        // Partitions that already have the correct owner are skipped.
-        let assigned_partitions: HashSet<u32> = new_assignments.keys().copied().collect();
-        let reassignment_partitions: HashSet<u32> =
-            reassignments.iter().map(|(p, _, _)| *p).collect();
-
-        // Fresh partitions = assigned but neither in current nor being reassigned.
-        let fresh_partitions: Vec<u32> = assigned_partitions
-            .iter()
-            .copied()
-            .filter(|p| !current_map.contains_key(p) && !reassignment_partitions.contains(p))
-            .collect();
-
-        if reassignments.is_empty() && fresh_partitions.is_empty() {
+        if plan.handoffs.is_empty() {
             tracing::debug!("no handoffs needed");
             return Ok(());
         }
 
         let now = util::now_seconds();
-        let mut handoff_objects: Vec<HandoffState> = Vec::new();
-
-        // Reassignments: old_owner = Some(prior owner)
-        for (partition, old_owner, new_owner) in &reassignments {
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: Some(old_owner.clone()),
-                new_owner: new_owner.clone(),
+        let handoff_objects: Vec<HandoffState> = plan
+            .handoffs
+            .iter()
+            .map(|h| HandoffState {
+                partition: h.partition,
+                old_owner: h.old_owner.clone(),
+                new_owner: h.new_owner.clone(),
                 phase: HandoffPhase::Freezing,
                 started_at: now,
                 handoff_id: util::new_handoff_id(),
-            });
-        }
+            })
+            .collect();
 
-        // Fresh assignments: old_owner = None (skip drain, skip release)
-        for partition in &fresh_partitions {
-            let new_owner = &new_assignments[partition];
-            handoff_objects.push(HandoffState {
-                partition: *partition,
-                old_owner: None,
-                new_owner: new_owner.clone(),
-                phase: HandoffPhase::Freezing,
-                started_at: now,
-                handoff_id: util::new_handoff_id(),
-            });
-        }
-
+        let moves = plan
+            .handoffs
+            .iter()
+            .filter(|h| h.old_owner.is_some())
+            .count();
         tracing::info!(
-            reassignments = reassignments.len(),
-            fresh = fresh_partitions.len(),
+            reassignments = moves,
+            fresh = plan.handoffs.len() - moves,
             "creating handoffs"
         );
 
@@ -632,16 +606,14 @@ impl Coordinator {
         // handoff reaches Complete.
         let handoff_partitions: HashSet<u32> =
             handoff_objects.iter().map(|h| h.partition).collect();
-        let assignment_objects: Vec<PartitionAssignment> = new_assignments
+        let stable_assignments: Vec<PartitionAssignment> = plan
+            .desired
             .iter()
             .map(|(&partition, owner)| PartitionAssignment {
                 partition,
                 owner: owner.clone(),
                 status: AssignmentStatus::Active,
             })
-            .collect();
-        let stable_assignments: Vec<PartitionAssignment> = assignment_objects
-            .into_iter()
             .filter(|a| !handoff_partitions.contains(&a.partition))
             .collect();
 

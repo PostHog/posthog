@@ -48,6 +48,7 @@ fn main() {
         crashes,
         rejoins: 0,
         zombie_window,
+        probes: false,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);
     model.checker().serve("localhost:3000");

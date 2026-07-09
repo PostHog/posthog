@@ -10,11 +10,75 @@
 //! caller supplies the acks already filtered to one partition (as
 //! `list_*_acks(partition)` returns them).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use assignment_coordination::util::compute_required_handoffs;
+
+use crate::strategy::AssignmentStrategy;
 use crate::types::{
     HandoffState, PodDrainedAck, PodWarmedAck, RegisteredPod, RegisteredRouter, RouterFreezeAck,
 };
+
+/// One handoff a rebalance has decided to create. `old_owner` is `None`
+/// for a fresh assignment (no prior owner), which skips the drain.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlannedHandoff {
+    pub partition: u32,
+    pub old_owner: Option<String>,
+    pub new_owner: String,
+}
+
+/// A rebalance decision: the full desired placement, and the handoffs
+/// required to reach it from the current placement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RebalancePlan {
+    /// partition → owner for every assigned partition (the strategy's
+    /// output, verbatim).
+    pub desired: HashMap<u32, String>,
+    /// Handoffs to create: moves (owner changed) carry the prior owner;
+    /// fresh partitions (assigned for the first time) carry none.
+    /// Partitions already owned by their target appear in `desired` only.
+    pub handoffs: Vec<PlannedHandoff>,
+}
+
+/// Plan a rebalance: compute the desired placement via `strategy`, then
+/// diff it against the current assignments. Every planned handoff starts
+/// at Freezing — including fresh assignments — so routers never route to
+/// a pod whose cache hasn't been warmed.
+///
+/// Callers must not rebalance while any handoff is in flight
+/// (overlapping rebalances would overwrite each other); the coordinator
+/// defers until the in-flight set is empty, and the model gates its
+/// rebalance action the same way.
+pub fn plan_rebalance<S: AssignmentStrategy + ?Sized>(
+    strategy: &S,
+    current: &HashMap<u32, String>,
+    active_pods: &[String],
+    total_partitions: u32,
+) -> RebalancePlan {
+    let desired = strategy.compute_assignments(current, active_pods, total_partitions);
+    let moves = compute_required_handoffs(current, &desired);
+    let moved: HashSet<u32> = moves.iter().map(|(p, _, _)| *p).collect();
+
+    let mut handoffs: Vec<PlannedHandoff> = moves
+        .into_iter()
+        .map(|(partition, old_owner, new_owner)| PlannedHandoff {
+            partition,
+            old_owner: Some(old_owner),
+            new_owner,
+        })
+        .collect();
+    for (partition, new_owner) in &desired {
+        if !current.contains_key(partition) && !moved.contains(partition) {
+            handoffs.push(PlannedHandoff {
+                partition: *partition,
+                old_owner: None,
+                new_owner: new_owner.clone(),
+            });
+        }
+    }
+    RebalancePlan { desired, handoffs }
+}
 
 /// Whether the freeze quorum for `handoff` is met.
 ///
