@@ -1,4 +1,5 @@
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import * as posthogUtils from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
@@ -106,6 +107,27 @@ describe('CapturedEventsService', () => {
 
             await expect(service.flush()).resolves.toBeUndefined()
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
+        })
+
+        it('reports genuine capture failures to error tracking but not transient DNS blips', async () => {
+            const captureExceptionSpy = jest.spyOn(posthogUtils, 'captureException').mockReturnValue(undefined as any)
+
+            const transient = Object.assign(new Error('getaddrinfo EAI_AGAIN capture.posthog.svc.cluster.local'), {
+                code: 'EAI_AGAIN',
+            })
+            internalCaptureService.capture.mockRejectedValueOnce(transient)
+            internalCaptureService.capture.mockRejectedValueOnce(new Error('real failure'))
+            service.queue([
+                { team_token: 'token-a', event: 'a', distinct_id: 'u1' },
+                { team_token: 'token-b', event: 'b', distinct_id: 'u2' },
+            ])
+
+            await service.flush()
+
+            expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
+            expect(captureExceptionSpy.mock.calls[0][0]).toHaveProperty('message', 'real failure')
+
+            captureExceptionSpy.mockRestore()
         })
     })
 
