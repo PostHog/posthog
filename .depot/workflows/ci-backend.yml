@@ -716,7 +716,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
             - name: Install uv
               id: setup-uv
@@ -812,7 +812,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
@@ -865,7 +865,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
                   token: ${{ steps.app-token.outputs.token || github.token }}
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -926,7 +926,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.13.13
+                  python-version: '3.13'
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -1173,7 +1173,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -1187,7 +1187,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -1201,7 +1201,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
@@ -1229,7 +1229,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -1242,7 +1242,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -1255,7 +1255,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -1272,7 +1272,7 @@ jobs:
                           | .value + {
                               segment: "Core",
                               "person-on-events": false,
-                              "python-version": "3.13.13",
+                              "python-version": "3.13",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
                             }

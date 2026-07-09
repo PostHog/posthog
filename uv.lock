@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = "==3.13.13"
+requires-python = ">=3.13.13, <3.14"
 resolution-markers = [
     "platform_machine != 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
     "platform_machine == 's390x' and platform_python_implementation != 'PyPy' and sys_platform != 'emscripten'",
