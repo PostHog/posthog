@@ -3255,6 +3255,7 @@ class TaxonomicFilterGroupType(StrEnum):
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
+    MCP_PROPERTIES = "mcp_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
     SUGGESTED_FILTERS = "suggested_filters"
