@@ -1,9 +1,12 @@
 import uuid
+import asyncio
 import datetime
 import tempfile
 
 import pytest
 from unittest.mock import AsyncMock, patch
+
+from django.db import OperationalError
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -214,6 +217,13 @@ class TestRepartitionOOMHistoryTrigger:
             assert schema.repartition_pending is None
 
 
+# An Exception-derived cancellation, named exactly `CancelledError`: models how `async_to_sync` can
+# surface a worker-shutdown cancel so it slips past a plain BaseException catch. `_is_cancellation`
+# keys on the type name, so this must be named `CancelledError`.
+class CancelledError(Exception):
+    pass
+
+
 class TestRepartitionActivity:
     def _inputs(self, team, schema: ExternalDataSchema) -> RepartitionActivityInputs:
         job = _make_job(team, schema)
@@ -348,3 +358,53 @@ class TestRepartitionActivity:
         self._run(self._inputs(team, schema), AsyncMock(side_effect=ValueError("boom")))
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    @pytest.mark.parametrize("cancel_exc", [asyncio.CancelledError(), CancelledError()])
+    def test_cancellation_propagates_and_is_not_recorded(self, team, cancel_exc):
+        # A worker-shutdown cancellation — whether it arrives as a real asyncio.CancelledError or wrapped
+        # Exception-derived through async_to_sync — must propagate so Temporal reschedules, and must never
+        # be recorded as a failure or consume an attempt. Otherwise every deploy floods error tracking
+        # with warehouse_repartition_failed and burns the table's finite attempt budget on non-failures.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=cancel_exc)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event") as capture,
+        ):
+            with pytest.raises((asyncio.CancelledError, CancelledError)):
+                ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+        schema.refresh_from_db()
+        assert schema.repartition_pending["attempts"] == 0
+
+    def test_transient_db_error_not_recorded_as_failure(self, team):
+        # A pooler drop mid-repartition (OperationalError) is infra noise, not a repartition bug: the swap
+        # is marker-idempotent and the next sync retries. It must not emit warehouse_repartition_failed or
+        # consume an attempt, else transient DB blips spam error tracking and exhaust the attempt budget.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "t",
+                "attempts": 0,
+            }
+        )
+        mocked = AsyncMock(side_effect=OperationalError("server closed the connection unexpectedly"))
+        capture = self._run(self._inputs(team, schema), mocked)
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_started" in emitted
+        assert "warehouse_repartition_failed" not in emitted
+        schema.refresh_from_db()
+        assert schema.repartition_pending["attempts"] == 0
