@@ -33,6 +33,18 @@ import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
 const HedgehogWizardHog = pngHoggie(wizardHogPng)
 
+// GitHub's merged-PR treatment: a purple filled badge with white text.
+function MergedBadge(): JSX.Element {
+    return (
+        <span
+            className="rounded-full px-1.5 py-0.5 text-[0.6875rem] font-semibold leading-none text-white shrink-0"
+            style={{ backgroundColor: 'var(--purple)' }}
+        >
+            Merged
+        </span>
+    )
+}
+
 // Timeline dot for a single step.
 function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
     if (status === 'completed') {
@@ -199,13 +211,14 @@ export function InstallationProgressContent({
                             <div className="flex-1 min-w-0 pb-3">
                                 <div
                                     className={cn(
-                                        'text-sm truncate',
+                                        'text-sm truncate flex items-center gap-1.5',
                                         step.status === 'pending' && 'text-muted',
                                         step.status === 'failed' && 'text-danger font-medium',
                                         step.status === 'in_progress' && 'font-medium'
                                     )}
                                 >
-                                    {step.label}
+                                    <span className="truncate">{step.label}</span>
+                                    {step.id.endsWith(':pr') && prMerged && <MergedBadge />}
                                 </div>
                                 {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
                             </div>
@@ -292,7 +305,8 @@ export function InstallationProgressContent({
                     center
                     className="ph-no-capture"
                 >
-                    <span className="truncate">{prNameLabel(prUrl) + (prMerged ? ' (merged)' : '')}</span>
+                    <span className="truncate">{prNameLabel(prUrl)}</span>
+                    {prMerged && <MergedBadge />}
                 </LemonButton>
             )}
 
