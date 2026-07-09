@@ -307,16 +307,15 @@ class AccessControlFilterWarning(BaseModel):
         extra="forbid",
     )
     message: str = Field(..., description="Human-readable warning shown to the user")
-    resource: str = Field(
+    resources: list[str] = Field(
         ...,
-        description=('Resource type whose rows were excluded, e.g. "dashboard", "insight", "notebook"'),
+        description=(
+            'Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"]'
+        ),
     )
     type: Literal["access_control"] = Field(
         default="access_control",
-        description=(
-            "Tells warning kinds apart in the shared `warnings` list: this entry means"
-            " rows were excluded because the user lacks access"
-        ),
+        description="Tells warning kinds apart in the shared `warnings` list",
     )
 
 
@@ -965,10 +964,7 @@ class DataWarehouseSyncWarning(BaseModel):
     table_name: str = Field(..., description="Name of the warehouse table the warning refers to")
     type: Literal["warehouse_sync"] = Field(
         default="warehouse_sync",
-        description=(
-            "Tells warning kinds apart in the shared `warnings` list: this entry is"
-            " about a warehouse source whose sync is failing or stale"
-        ),
+        description="Tells warning kinds apart in the shared `warnings` list",
     )
 
 

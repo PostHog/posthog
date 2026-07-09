@@ -142,7 +142,9 @@ class TestQueryRunner(BaseTest):
             status="Failed",
             message="sync failed",
         )
-        ac_warning = AccessControlFilterWarning(resource="insight", message="2 insights excluded")
+        ac_warning = AccessControlFilterWarning(
+            resources=["insight"], message="Results may exclude insights you don't have access to"
+        )
 
         def calculate_with_warnings(_self):
             record_warnings([sync_warning])
@@ -156,7 +158,7 @@ class TestQueryRunner(BaseTest):
 
         warnings = [w if isinstance(w, dict) else w.model_dump() for w in response.warnings or []]
         assert any(w.get("table_name") == "paid_bills" for w in warnings)
-        assert any(w.get("resource") == "insight" for w in warnings)
+        assert any(w.get("resources") == ["insight"] for w in warnings)
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()

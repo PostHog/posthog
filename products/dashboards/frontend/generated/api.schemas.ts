@@ -1482,13 +1482,17 @@ export interface DataWarehouseSyncWarningApi {
     status: string
     /** Name of the warehouse table the warning refers to */
     table_name: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'warehouse_sync'
 }
 
 export interface AccessControlFilterWarningApi {
     /** Human-readable warning shown to the user */
     message: string
-    /** Resource type whose rows were excluded, e.g. "dashboard", "insight", "notebook" */
-    resource: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'access_control'
 }
 
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }

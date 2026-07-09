@@ -1,10 +1,36 @@
-from typing import Optional
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Optional
+
+import humanize
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 
 from posthog.rbac.user_access_control import resource_to_display_name
+
+if TYPE_CHECKING:
+    from posthog.schema import AccessControlFilterWarning
+
+
+def build_access_control_warning(resources: Iterable[str]) -> Optional["AccessControlFilterWarning"]:
+    """Turn the restricted resources a query referenced into the single user-facing warning.
+
+    We can't tell whether rows were actually excluded — the guard is pushed into SQL, so the DB never
+    returns them — only that the user has restrictions on these resources. Hence "may exclude".
+    """
+    from posthog.schema import (
+        AccessControlFilterWarning,  # noqa: PLC0415 — keeps posthog.schema off django.setup() via this module
+    )
+
+    sorted_resources = sorted(resources)
+    if not sorted_resources:
+        return None
+    display_names = humanize.natural_list([resource_to_display_name(r) for r in sorted_resources])
+    return AccessControlFilterWarning(
+        resources=sorted_resources,
+        message=f"Results may exclude {display_names} you don't have access to",
+    )
 
 
 def build_access_control_guard(
@@ -34,15 +60,10 @@ def build_access_control_guard(
     if not blocked_ids:
         return None
 
-    # Surface that filtering happened so callers don't mistake a partial result for the full set. The
-    # header carries the "excluded because no access" framing; the message just enumerates per resource.
-    # The number reflects inaccessible objects excluded by the predicate, not rows dropped from this
-    # result — filtering is pushed into SQL, so the DB never returns the filtered rows.
-    count = len(blocked_ids)
-    # resource_to_display_name is always plural; drop the trailing "s" for a single object.
-    display_name = resource_to_display_name(resource)
-    label = display_name[:-1] if count == 1 and display_name.endswith("s") else display_name
-    context.add_access_control_warning(resource=resource, message=f"{count} {label}")
+    # Surface that this query is subject to filtering so callers don't mistake a possibly-partial
+    # result for the full set. Note the guard applying doesn't mean rows were actually excluded —
+    # the user's blocked objects may not have matched the query anyway.
+    context.access_control_restricted_resources.add(resource)
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,

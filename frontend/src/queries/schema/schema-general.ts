@@ -511,7 +511,7 @@ export interface DataWarehouseEventsModifier {
 }
 
 export interface DataWarehouseSyncWarning {
-    /** Tells warning kinds apart in the shared `warnings` list: this entry is about a warehouse source whose sync is failing or stale */
+    /** Tells warning kinds apart in the shared `warnings` list */
     type: 'warehouse_sync'
     /** Name of the warehouse table the warning refers to */
     table_name: string
@@ -528,10 +528,10 @@ export interface DataWarehouseSyncWarning {
 }
 
 export interface AccessControlFilterWarning {
-    /** Tells warning kinds apart in the shared `warnings` list: this entry means rows were excluded because the user lacks access */
+    /** Tells warning kinds apart in the shared `warnings` list */
     type: 'access_control'
-    /** Resource type whose rows were excluded, e.g. "dashboard", "insight", "notebook" */
-    resource: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
     /** Human-readable warning shown to the user */
     message: string
 }

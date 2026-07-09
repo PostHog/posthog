@@ -350,7 +350,13 @@ describe('createQueryWrapper warnings', () => {
     }
 
     it('forwards warnings so an access-filtered result is not mistaken for the full set', async () => {
-        const warnings = [{ type: 'access_control', resource: 'dashboard', message: '2 dashboards' }]
+        const warnings = [
+            {
+                type: 'access_control',
+                resources: ['dashboard'],
+                message: "Results may exclude dashboards you don't have access to",
+            },
+        ]
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
 
         const result = (await tool.handler(contextWithRunQuery({ results: [], warnings }), {

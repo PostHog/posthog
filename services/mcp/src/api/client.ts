@@ -95,7 +95,7 @@ export interface DataWarehouseSyncWarning {
 
 export interface AccessControlFilterWarning {
     type: 'access_control'
-    resource: string
+    resources: string[]
     message: string
 }
 

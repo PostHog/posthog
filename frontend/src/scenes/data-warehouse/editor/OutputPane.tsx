@@ -991,8 +991,7 @@ function InternalDataTableVisualization(
     )
 }
 
-// The shared `warnings` field is a tagged union; render one banner per warning kind present,
-// each with its own headline and bullet rendering.
+// The shared `warnings` field is a tagged union; render one banner per warning kind present.
 const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
         return null
@@ -1036,14 +1035,12 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
                     className="m-2 flex-shrink-0"
                     data-attr="sql-editor-output-pane-access-control-warnings"
                 >
-                    <div className="font-semibold mb-1">
-                        This is a partial result set — rows you don't have access to were excluded
-                    </div>
-                    <ul className="list-disc pl-5 space-y-1">
-                        {acWarnings.map((warning, index) => (
-                            <li key={`${warning.resource}-${index}`}>{warning.message}</li>
-                        ))}
-                    </ul>
+                    {/* The backend emits at most one access control warning; its message is the full sentence. */}
+                    {acWarnings.map((warning, index) => (
+                        <div key={index} className="font-semibold">
+                            {warning.message}
+                        </div>
+                    ))}
                 </LemonBanner>
             )}
         </>

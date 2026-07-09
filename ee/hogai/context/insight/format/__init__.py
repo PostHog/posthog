@@ -78,12 +78,9 @@ def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
 
 def format_access_control_warnings(response: dict[str, Any]) -> str:
     # Filtering is pushed into SQL, so excluded rows never come back — without this block an agent
-    # can mistake an access-filtered partial result for the full set.
-    return _format_warnings(
-        response,
-        "access_control",
-        "[Access control — this is a partial result set; rows you don't have access to were excluded]",
-    )
+    # can mistake a possibly-partial result for the full set. The message is a full sentence
+    # ("Results may exclude ..."), so the header is just the block label.
+    return _format_warnings(response, "access_control", "[Access control]")
 
 
 def format_query_results_for_llm(

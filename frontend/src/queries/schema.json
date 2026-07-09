@@ -25,17 +25,20 @@
                     "description": "Human-readable warning shown to the user",
                     "type": "string"
                 },
-                "resource": {
-                    "description": "Resource type whose rows were excluded, e.g. \"dashboard\", \"insight\", \"notebook\"",
-                    "type": "string"
+                "resources": {
+                    "description": "Resource types the user has access restrictions on, referenced by the query, e.g. [\"insight\", \"dashboard\"]",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "type": {
                     "const": "access_control",
-                    "description": "Tells warning kinds apart in the shared `warnings` list: this entry means rows were excluded because the user lacks access",
+                    "description": "Tells warning kinds apart in the shared `warnings` list",
                     "type": "string"
                 }
             },
-            "required": ["type", "resource", "message"],
+            "required": ["type", "resources", "message"],
             "type": "object"
         },
         "AccessControlLevel": {
@@ -16864,7 +16867,7 @@
                 },
                 "type": {
                     "const": "warehouse_sync",
-                    "description": "Tells warning kinds apart in the shared `warnings` list: this entry is about a warehouse source whose sync is failing or stale",
+                    "description": "Tells warning kinds apart in the shared `warnings` list",
                     "type": "string"
                 }
             },
