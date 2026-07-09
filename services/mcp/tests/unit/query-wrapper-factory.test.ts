@@ -306,6 +306,68 @@ describe('createQueryWrapper output_format handling', () => {
     })
 })
 
+describe('createQueryWrapper filterTestAccounts project default', () => {
+    // Mirrors the generated wrapper schemas, whose hard `.default(false)` the
+    // factory must strip so omission can follow the project setting.
+    const schemaWithFilter = z.object({
+        series: z.array(z.object({ kind: z.string(), event: z.string() })),
+        filterTestAccounts: z.coerce
+            .boolean()
+            .describe('Exclude internal and test users by applying the respective filters')
+            .default(false)
+            .optional(),
+    })
+    const series = [{ kind: 'EventsNode', event: '$pageview' }]
+
+    function createMockContext(
+        runQuery: ReturnType<typeof vi.fn>,
+        testAccountFiltersDefaultChecked: boolean | undefined
+    ): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: {
+                getProjectId: vi.fn().mockResolvedValue('1'),
+                getCachedOrFetchProject: vi
+                    .fn()
+                    .mockResolvedValue({ test_account_filters_default_checked: testAccountFiltersDefaultChecked }),
+            },
+        } as unknown as Context
+    }
+
+    it.each([
+        ['omitted follows a checked project default', {}, true, true],
+        ['omitted stays unset when the project default is unchecked', {}, false, undefined],
+        ['explicit false wins over a checked project default', { filterTestAccounts: false }, true, false],
+        ['explicit true wins over an unchecked project default', { filterTestAccounts: true }, false, true],
+    ] as const)('%s', async (_name, inputExtra, projectDefault, expected) => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = createMockContext(runQuery, projectDefault)
+        const tool = createQueryWrapper({ name: 'test', schema: schemaWithFilter, kind: 'TrendsQuery' })()
+
+        // Validate through the tool's advertised schema first, exactly like the
+        // executor does — this is where a hard default would clobber omission.
+        await tool.handler(context, tool.schema.parse({ series, ...inputExtra }))
+
+        expect(runQuery.mock.calls[0]![0].query.filterTestAccounts).toBe(expected)
+    })
+
+    it('does not inject the field into schemas that lack it', async () => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = createMockContext(runQuery, true)
+        const schemaWithoutFilter = z.object({
+            series: z.array(z.object({ kind: z.string(), event: z.string() })),
+        })
+        const tool = createQueryWrapper({ name: 'test', schema: schemaWithoutFilter, kind: 'WebOverviewQuery' })()
+
+        await tool.handler(context, tool.schema.parse({ series }))
+
+        expect(runQuery.mock.calls[0]![0].query).not.toHaveProperty('filterTestAccounts')
+    })
+})
+
 describe('createQueryWrapper actors dispatch', () => {
     function createMockContext(): Context {
         return {

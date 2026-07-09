@@ -23,6 +23,34 @@ interface QueryWrapperConfig<T extends ZodObjectAny> {
     urlPrefix?: string
 }
 
+const TEST_ACCOUNT_FILTER_FIELD = 'filterTestAccounts'
+
+function hasTestAccountFilterField(schema: ZodObjectAny): schema is z.ZodObject<z.ZodRawShape> {
+    return schema instanceof z.ZodObject && TEST_ACCOUNT_FILTER_FIELD in schema.shape
+}
+
+/**
+ * The generated query schemas hard-default `filterTestAccounts` to `false`, which
+ * silently ignores the project's "Filter out internal and test users" default
+ * (`test_account_filters_default_checked`) that the UI applies to every new
+ * insight. Stripping the schema default lets an omitted value survive validation
+ * as `undefined`, so the handler can fill in the project default instead. An
+ * explicit `filterTestAccounts` from the caller always wins.
+ */
+function withoutTestAccountFilterDefault<T extends ZodObjectAny>(schema: T): T {
+    if (!hasTestAccountFilterField(schema)) {
+        return schema
+    }
+    return schema.extend({
+        [TEST_ACCOUNT_FILTER_FIELD]: z.coerce
+            .boolean()
+            .optional()
+            .describe(
+                'Exclude internal and test users by applying the respective filters. When omitted, follows the project\'s "Filter out internal and test users" default setting.'
+            ),
+    }) as unknown as T
+}
+
 function buildInsightUrl(
     kind: 'InsightVizNode' | 'DataTableNode',
     query: Record<string, unknown>,
@@ -37,12 +65,16 @@ function buildInsightUrl(
 }
 
 export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperConfig<T>): () => ToolBase<T> {
+    // Both the advertised tool schema and the handler's re-parse must use the
+    // stripped schema — parsing with the original would re-apply the `false`
+    // default and make omission indistinguishable from an explicit `false`.
+    const schema = withoutTestAccountFilterDefault(config.schema)
     return () => ({
         name: config.name,
-        schema: config.schema,
+        schema,
         handler: async (context: Context, rawParams: z.infer<T>) => {
             const projectId = await context.stateManager.getProjectId()
-            const params = config.schema.parse(rawParams)
+            const params = schema.parse(rawParams)
             // `output_format` is a tool-level control, not part of the query body. Strip it before
             // POSTing so it doesn't leak into the backend `kind: ...Query` payload.
             const { output_format: callerOutputFormat, ...queryParams } = params as typeof params & {
@@ -51,6 +83,14 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
             const query: Record<string, unknown> = {
                 ...queryParams,
                 kind: config.kind,
+            }
+            if (hasTestAccountFilterField(schema) && query[TEST_ACCOUNT_FILTER_FIELD] === undefined) {
+                const project = await context.stateManager.getCachedOrFetchProject().catch(() => undefined)
+                // Only inject `true`: when the project default is unchecked the field
+                // stays omitted and the backend's own `false` default applies.
+                if (project?.test_account_filters_default_checked) {
+                    query[TEST_ACCOUNT_FILTER_FIELD] = true
+                }
             }
             const baseUrl = context.api.getProjectBaseUrl(projectId)
             const effectiveOutputFormat = callerOutputFormat ?? config.outputFormat
