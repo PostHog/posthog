@@ -9449,6 +9449,65 @@ class AssistantWebStatsTableQuery(BaseModel):
     )
 
 
+class AssistantWebVitalsPathBreakdownQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+        default=None,
+        description=(
+            "Date range for the query. Defaults to the last 7 days when omitted — a"
+            " good window for a stable percentile."
+        ),
+    )
+    doPathCleaning: bool | None = Field(
+        default=False,
+        description="Apply the team's path-cleaning rules to the returned paths.",
+    )
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the team's test-account filter."),
+    )
+    kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
+    metric: WebVitalsMetric = Field(
+        ...,
+        description=(
+            "Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP`"
+            " (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP`"
+            " (first paint, ms)."
+        ),
+    )
+    percentile: WebVitalsPercentile = Field(
+        ...,
+        description=(
+            "Required. Percentile to aggregate each page's samples at. Use `p75` unless"
+            " the user asks otherwise — the Google bands are defined at p75."
+        ),
+    )
+    properties: (
+        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
+    ) = Field(
+        default=[],
+        description=(
+            "Property filters applied to the query. Accepts event, person, session, or"
+            " cohort filters — e.g. an event filter on `$host` to scope to one domain,"
+            " or on `$device_type` to isolate mobile."
+        ),
+    )
+    thresholds: list[float] = Field(
+        ...,
+        description=(
+            "Required. `[good, poor]` band boundaries for the chosen metric. Values"
+            " below `good` are good, above `poor` are poor, in between need"
+            " improvement. Use the standard Google thresholds unless the user supplies"
+            " their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP"
+            " `[1800, 3000]`."
+        ),
+        max_length=2,
+        min_length=2,
+    )
+
+
 class BreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

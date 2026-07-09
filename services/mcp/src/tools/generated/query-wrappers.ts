@@ -1417,6 +1417,45 @@ const AssistantWebStatsTableQuery = z.object({
         .optional(),
 })
 
+const WebVitalsMetric = z.enum(['INP', 'LCP', 'CLS', 'FCP'])
+
+const WebVitalsPercentile = z.enum(['p75', 'p90', 'p99'])
+
+const AssistantWebVitalsPathBreakdownQuery = z.object({
+    dateRange: AssistantDateRangeFilter.describe(
+        'Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile.'
+    ).optional(),
+    doPathCleaning: z.coerce
+        .boolean()
+        .describe("Apply the team's path-cleaning rules to the returned paths.")
+        .default(false)
+        .optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude internal and test users by applying the team's test-account filter.")
+        .default(false)
+        .optional(),
+    kind: z.literal('WebVitalsPathBreakdownQuery').default('WebVitalsPathBreakdownQuery'),
+    metric: WebVitalsMetric.describe(
+        'Required. Which Core Web Vital to break down by: `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless score), or `FCP` (first paint, ms).'
+    ),
+    percentile: WebVitalsPercentile.describe(
+        "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
+    ),
+    properties: WebAnalyticsPropertyFilters.describe(
+        'Property filters applied to the query. Accepts event, person, session, or cohort filters — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.'
+    )
+        .default([])
+        .optional(),
+    thresholds: z
+        .array(z.coerce.number())
+        .min(2)
+        .max(2)
+        .describe(
+            'Required. `[good, poor]` band boundaries for the chosen metric. Values below `good` are good, above `poor` are poor, in between need improvement. Use the standard Google thresholds unless the user supplies their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`.'
+        ),
+})
+
 const AssistantTracesQuery = z.object({
     dateRange: AssistantDateRangeFilter.describe('Date range for the query.').optional(),
     filterSupportTraces: z.coerce.boolean().describe('Exclude support impersonation traces.').default(false).optional(),
@@ -1743,6 +1782,13 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         name: 'query-web-stats',
         schema: AssistantWebStatsTableQuery,
         kind: 'WebStatsTableQuery',
+        uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'json',
+    }),
+    'query-web-vitals': createQueryWrapper({
+        name: 'query-web-vitals',
+        schema: AssistantWebVitalsPathBreakdownQuery,
+        kind: 'WebVitalsPathBreakdownQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'json',
     }),
