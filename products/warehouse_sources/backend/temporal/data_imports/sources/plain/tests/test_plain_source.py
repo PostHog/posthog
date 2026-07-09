@@ -45,9 +45,11 @@ class TestPlainSource:
         required_scopes = ["customer:read", "thread:read", "timeline:read", "user:read", "label:read"]
         caption = self.source.get_source_config.caption
         forbidden_message = self.source.get_non_retryable_errors()["403 Client Error"]
+        assert caption is not None
+        assert forbidden_message is not None
         for scope in required_scopes:
             assert scope in caption
-            assert forbidden_message is not None and scope in forbidden_message
+            assert scope in forbidden_message
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
