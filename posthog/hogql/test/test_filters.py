@@ -2,6 +2,8 @@ from typing import Any, Optional
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, EventPropertyFilter, GroupPropertyFilter, HogQLFilters, PersonPropertyFilter
 
 from posthog.hogql import ast
@@ -333,3 +335,15 @@ class TestFilters(BaseTest):
             "Unsupported filters placeholder `{filters.interval}`",
         ):
             replace_filters(select, HogQLFilters(), self.team)
+
+    @parameterized.expand(["from", "to"])
+    def test_raises_when_date_range_placeholder_used_outside_comparison(self, bound: str):
+        # The placeholder sits inside a function call with no comparison ancestor, so the
+        # compare_operations stack is empty. This used to throw an uncaught IndexError.
+        select = self._parse_select(f"SELECT toStartOfDay({{filters.dateRange.{bound}}}) FROM events")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            f"The `{{filters.dateRange.{bound}}}` placeholder can only be used inside a comparison",
+        ):
+            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
