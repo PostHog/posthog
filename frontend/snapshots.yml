@@ -6218,22 +6218,34 @@ snapshots:
         hash: v1.k794b7964.feeb8a0d0209ac3940b477fc7fa0d00f5dfb60032287d137fd5fc2a8413de4f9.zn_gEPsfVQEMHrZK3t43eLJ2O71Tz2YpA73L9mUuITk
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
         hash: v1.k794b7964.df55bfe02bf0e0a2cc72e893a4205d201bcc2759795e7af8906b1282bbf15513.gy4PiyWfoVb3JcB-FHAIRUd3wiTZ7Xlekf3zovu2W58
-    scenes-app-oauth-authorize--broad-free-pick--dark:
-        hash: v1.k794b7964.eca28be57ac0144162a6d895c399d30a886320f308b9d3157129286690514f0e.iADKdes5GFM-oNiiyTrcb2M3kbZJBt-uqC7JM3Puz80
-    scenes-app-oauth-authorize--broad-free-pick--light:
-        hash: v1.k794b7964.e6b0b77067b13e5f5e0deeb570aa04c0295038501e1567d5843f715ca980a240.W5nBSasZq3VNgQzAJxwlphUK1bSBicXCs7F1-faksq8
+    scenes-app-oauth-authorize--all-scopes-optional--dark:
+        hash: v1.k794b7964.03746d2e3646b97e4af61e54557db2ccb6268512cda02721b819fa30980af155.ZPcclnqMQQh8Qi_v2Z3cnVA1_LaYFx8XXncRQ8NQAdc
+    scenes-app-oauth-authorize--all-scopes-optional--light:
+        hash: v1.k794b7964.b9e6458501f1e1453c09b5c4f517be93b0d584eaffe04b67a0f964df741bc1bc.uM9wMTVCC0eVQN2V0xG9F-O9jhHs58sSGillxFX4IbA
+    scenes-app-oauth-authorize--all-scopes-required--dark:
+        hash: v1.k794b7964.f79133052ebe57082e7d54c7e25b8483b12a6c804b7e3e01f33116c6d49c32ea.zDXZhgy1ifPP_MJmIxKnvEbEV_dO_BBV4WV3E6dArro
+    scenes-app-oauth-authorize--all-scopes-required--light:
+        hash: v1.k794b7964.9ec7b8dda3493225474350a6ce917aa090e54d38bc3e162a0db40382d8a37ef4.O61AjpIuCkHM2W08v3Go4ZZZFfW6rsbsDW2Zo7jNafg
     scenes-app-oauth-authorize--default-scopes--dark:
         hash: v1.k794b7964.eb963d4474577c3e6ab1539a88c2c12c086dabfe500b59122791c4c9d016b0aa.1IUh0u3HpX9cOsexOye74qk-G9kognT_OrIOkGZK6wQ
     scenes-app-oauth-authorize--default-scopes--light:
         hash: v1.k794b7964.6e509ebff23ec9461cfe4f01a0dc0a38ab2728b909a3e7737847fec72b2900ce.ybpJDCeX4nPXMgkwRMGsGHBjfWCYJ8gJEGkif00EHnI
+    scenes-app-oauth-authorize--many-optional-scopes--dark:
+        hash: v1.k794b7964.fb3a7260213b0061fa034a5d0f32eaf18928c796cabef8ed7e81c1ccec6531c2.MdOEdBxuJgB1TIrJRXBXKWXvfP54wloX1xFr7YIX_gA
+    scenes-app-oauth-authorize--many-optional-scopes--light:
+        hash: v1.k794b7964.f2137366803db15fce878639b1ca68da0b8283ac02214e7077dc0b33db12c8b6.5ad7tFeP5sSvQoKu4YmunlNS0OJWRolciq2yNtPQmwo
+    scenes-app-oauth-authorize--required-read-floor-with-optional-write--dark:
+        hash: v1.k794b7964.7980c9cdc9dc5f54ebec0e86d9cd3824ddcb8454ce6f58c1d271cc71d135d4de.4puSj0lu-YAVKTbc9dQ38ghQcIldI7ZFdXqERvnxQzo
+    scenes-app-oauth-authorize--required-read-floor-with-optional-write--light:
+        hash: v1.k794b7964.f55c551b65a36c2fb9bd57640c916ff3e8b8f283650d69370f66895009e0b4b9.P4OFYvLBsLOismPO59w4-pZ_70C7QJlnK9432LedNBo
+    scenes-app-oauth-authorize--wildcard-scope--dark:
+        hash: v1.k794b7964.8b035078fadc6b11f4aa3a30367a1356eb72d80da3776adb7a29e2c3afa6bd06._Y__du-0jj-AhXl8TD6lHZusbX_fyJDtsiaWzDcul-A
+    scenes-app-oauth-authorize--wildcard-scope--light:
+        hash: v1.k794b7964.b64563db9a86ca6a0828ba3281d15f9db7450093d914757cd3fcb11038f846a6.QZK81phgoV3YAGWHpreJ0MkzCtnYErx2OaxCUSSEXUQ
     scenes-app-oauth-authorize--with-required-scopes--dark:
-        hash: v1.k794b7964.3fe9af7334d0b50e09880656b7ebc5439bb5597a9d1477230f716b50bb66e541.SzypkXYYuz_EkgAtgVgeRIbCeinqykTpu8X6tWXqcIY
+        hash: v1.k794b7964.7b42b6105523270e46edc34ac02da49532296ab5fcab8efbe16b28d3e96c2b87.uouQIu0vA1VQP26gZzv29xqcS8gLtMqbmRKVr1Z1a-4
     scenes-app-oauth-authorize--with-required-scopes--light:
-        hash: v1.k794b7964.fe6f39af4becb6dbd4f0eec038651d49de163b5f796cc09df915ac48dabf33be.BiXdR-5e62GYT4OKjaks-6qIajkwo4BolRjG9vYzGJY
-    scenes-app-oauth-authorize--with-scopes--dark:
-        hash: v1.k794b7964.cf1886509e6e3e174a30fbabf95e4beb354737da9fefa4cee76c1acce975b099.sM8oSihW9NrsWqD8fe2fbHjpHYGZIKy3tjurvsLviR4
-    scenes-app-oauth-authorize--with-scopes--light:
-        hash: v1.k794b7964.dec576f04202b266a066120556f3b26df1e84df3aef8013c7757e43d0e9a7805.ToaF37_eh0p0FohsJMEO68B5ytYOw1fxqYjEgvQ7ZOo
+        hash: v1.k794b7964.e951fac95b4bfb2628774621d6ac6f479abf8e8d10efb58cbcfad998c62a96be.-ZMfxl773NvFryFdUT6AJlVnUiwplGzEUPhvBD6kSWw
     scenes-app-people-cohorts--cohort-edit-dynamic--dark:
         hash: v1.k794b7964.e2f3fed91cc1e603808a766fc8b3e457342e0a22e6ec1d157822ef8654bcdb6a.eLEFZ9RPmh6MbIH__SjcSgHgttnqBoYIkcfqXpwXZ9Y
     scenes-app-people-cohorts--cohort-edit-dynamic--light:
