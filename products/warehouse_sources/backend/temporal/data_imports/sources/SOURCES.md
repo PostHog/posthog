@@ -345,6 +345,7 @@ the row lists both.
 | tmdb                    | HTTP                        | requests                                                        | ✅                          |
 | todoist                 | HTTP                        | requests                                                        | ✅                          |
 | trello                  | HTTP                        | requests                                                        | ✅                          |
+| tremendous              | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                 | HTTP                        | requests                                                        | ✅                          |
@@ -727,7 +728,6 @@ doesn't conflict with concurrent PRs.
 - together_ai
 - toggl
 - track_pms
-- tremendous
 - trustpilot
 - tvmaze
 - twelve_data
