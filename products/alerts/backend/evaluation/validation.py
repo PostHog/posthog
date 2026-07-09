@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import posthoganalytics
 from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import (
@@ -26,6 +27,35 @@ from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
+
+
+def _insight_alert_flag_enabled(flag: str, *, distinct_id: str, organization_id: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            distinct_id,
+            groups={"organization": organization_id},
+        )
+    )
+
+
+def alertable_insight_kind_error(kind: NodeKind | None, *, distinct_id: str, organization_id: str) -> str | None:
+    """Returns an error message if this insight kind can't be alerted on for this org, else None.
+
+    Shared by the alerts API serializer and the Max AI tool so the two surfaces can't drift on
+    which insight kinds are alertable, or on the account-level flags gating funnels and SQL.
+    """
+    if kind is None:
+        return "Alerts are not supported for this insight."
+    if kind == NodeKind.HOG_QL_QUERY and not _insight_alert_flag_enabled(
+        "hogql-insight-alerts", distinct_id=distinct_id, organization_id=organization_id
+    ):
+        return "SQL insight alerts are not enabled for your account."
+    if kind == NodeKind.FUNNELS_QUERY and not _insight_alert_flag_enabled(
+        "funnel-insight-alerts", distinct_id=distinct_id, organization_id=organization_id
+    ):
+        return "Funnel insight alerts are not enabled for your account."
+    return None
 
 
 @dataclass(frozen=True)

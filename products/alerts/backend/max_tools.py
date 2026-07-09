@@ -4,7 +4,6 @@ from typing import Any, Literal, Union, cast
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-import posthoganalytics
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 
@@ -27,7 +26,11 @@ from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.scopes import APIScopeObject
 
-from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
+from products.alerts.backend.evaluation.validation import (
+    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
+    alertable_insight_kind_error,
+    validate_alert_config,
+)
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
@@ -568,29 +571,13 @@ class UpsertAlertTool(MaxTool):
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
         kind = await sync_to_async(lambda: insight.alertable_query_kind)()
-        if kind is None:
-            raise ValueError(
-                "Alerts are only supported for trends, funnel, or SQL insights. This insight type is not supported."
-            )
-        if kind == NodeKind.HOG_QL_QUERY and not await self._insight_alert_flag_enabled("hogql-insight-alerts"):
-            raise ValueError("SQL insight alerts are not enabled for your account.")
-        if kind == NodeKind.FUNNELS_QUERY and not await self._insight_alert_flag_enabled("funnel-insight-alerts"):
-            raise ValueError("Funnel insight alerts are not enabled for your account.")
-        return insight, was_auto_saved, kind
-
-    async def _insight_alert_flag_enabled(self, flag: str) -> bool:
         team = self._team
         user = self._user
         org = await sync_to_async(lambda: team.organization)()
-        return await sync_to_async(
-            lambda: bool(
-                posthoganalytics.feature_enabled(
-                    flag,
-                    str(user.distinct_id),
-                    groups={"organization": str(org.id)},
-                )
-            )
-        )()
+        if error := alertable_insight_kind_error(kind, distinct_id=str(user.distinct_id), organization_id=str(org.id)):
+            raise ValueError(error)
+        assert kind is not None
+        return insight, was_auto_saved, kind
 
     @staticmethod
     def _get_upgraded_query(insight: Insight) -> dict | None:

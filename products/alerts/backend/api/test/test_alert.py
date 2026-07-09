@@ -183,13 +183,17 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
 
         # Flag off: the insight gate rejects funnel alerts.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=False
+        ):
             response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "Funnel insight alerts are not enabled" in str(response.content)
 
         # Flag on: the same request is accepted.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
         assert response.status_code == status.HTTP_201_CREATED, response.content
 
@@ -529,7 +533,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             alert = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 {
@@ -573,7 +579,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             alert = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 {
@@ -621,7 +629,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # flag must be enforced in the object-level validate() — otherwise an existing SQL alert could
         # be reconfigured in an account where the flag is no longer enabled.
         hogql_insight = self._create_hogql_insight()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             alert = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 {
@@ -637,12 +647,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             alert_id = alert.json()["id"]
 
         config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "first_row"}}
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=False
+        ):
             blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
         assert "SQL insight alerts are not enabled" in str(blocked.content)
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
@@ -667,7 +681,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         ).json()["id"]
 
         # Switch the insight from trends to SQL — a different alertable kind.
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             self.client.patch(
                 f"/api/projects/{self.team.id}/insights/{trends_insight['id']}",
                 data={
@@ -694,7 +710,9 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 }
             },
         ).json()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             alert = self.client.post(
                 f"/api/projects/{self.team.id}/alerts",
                 {
@@ -712,12 +730,16 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         config_patch = {
             "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_previous", "funnel_step": 1}
         }
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=False
+        ):
             blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
         assert "Funnel insight alerts are not enabled" in str(blocked.content)
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
         assert allowed.status_code == status.HTTP_200_OK, allowed.content
 

@@ -310,7 +310,9 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight(query_kind="FunnelsQuery")
         tool = self._setup_tool()
 
-        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=False):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=False
+        ):
             content, artifact = await tool._arun_impl(
                 action=CreateAlertAction(
                     name="Funnel alert",
@@ -329,7 +331,9 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight(query_kind="FunnelsQuery")
         tool = self._setup_tool()
 
-        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             content, artifact = await tool._arun_impl(
                 action=CreateAlertAction(
                     name="Funnel alert",
@@ -349,7 +353,9 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight(query_kind="HogQLQuery")
         tool = self._setup_tool()
 
-        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             content, artifact = await tool._arun_impl(
                 action=CreateAlertAction(
                     name="SQL alert",
@@ -375,7 +381,9 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight(query_kind="HogQLQuery")
         tool = self._setup_tool()
 
-        with mock.patch("products.alerts.backend.max_tools.posthoganalytics.feature_enabled", return_value=True):
+        with mock.patch(
+            "products.alerts.backend.evaluation.validation.posthoganalytics.feature_enabled", return_value=True
+        ):
             content, artifact = await tool._arun_impl(
                 action=CreateAlertAction(
                     name="SQL alert",
