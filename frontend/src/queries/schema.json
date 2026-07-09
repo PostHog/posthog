@@ -42595,6 +42595,9 @@
                     "$ref": "#/definitions/SourceFieldOauthConfig"
                 },
                 {
+                    "$ref": "#/definitions/SourceFieldOauthAccountSelectConfig"
+                },
+                {
                     "$ref": "#/definitions/SourceFieldFileUploadConfig"
                 },
                 {
@@ -42682,6 +42685,40 @@
         "SourceFieldInputConfigType": {
             "enum": ["text", "email", "search", "url", "password", "time", "number", "textarea"],
             "type": "string"
+        },
+        "SourceFieldOauthAccountSelectConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "caption": {
+                    "type": "string"
+                },
+                "integrationField": {
+                    "description": "Name of the OAuth integration id field this account selector reads from.",
+                    "type": "string"
+                },
+                "integrationKind": {
+                    "description": "Integration kind to validate and route the account fetch through.",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "const": "oauth-account-select",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "name", "label", "integrationField", "integrationKind"],
+            "type": "object"
         },
         "SourceFieldOauthConfig": {
             "additionalProperties": false,
