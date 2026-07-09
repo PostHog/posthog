@@ -147,15 +147,19 @@ const QUICK_REOPEN_MS = 3000
 // that produce it — kept as named parts so a change to `MenuFilterHeader`'s
 // spacing or the input row's padding is visibly the thing to keep in sync here.
 const MENU_HEADER_PADDING_Y_PX = 16 // MenuFilterHeader `py-2` (top + bottom)
-const MENU_HEADER_BUTTON_HEIGHT_PX = 24 // "Go back" Button `size="sm"` (h-6)
+const MENU_HEADER_BUTTON_HEIGHT_PX = 26 // "Go back" Button `size="sm"` under the lemon skin
 const MENU_HEADER_BORDER_PX = 1 // MenuFilterHeader `border-b`
 const SEARCH_ROW_PADDING_PX = 8 // search-field row `p-2` (one side)
 const PANEL_BORDER_PX = 1 // PopoverContent border
 
-/** Panel-top to search-field-top: the header (padding + button + border) plus the
- *  search row's top padding. */
+/** Panel-top to search-field-top: the panel's own top border, the header
+ *  (padding + button + border), and the search row's top padding. */
 const INPUT_TRIGGER_PANEL_HEADER_OFFSET =
-    MENU_HEADER_PADDING_Y_PX + MENU_HEADER_BUTTON_HEIGHT_PX + MENU_HEADER_BORDER_PX + SEARCH_ROW_PADDING_PX
+    PANEL_BORDER_PX +
+    MENU_HEADER_PADDING_Y_PX +
+    MENU_HEADER_BUTTON_HEIGHT_PX +
+    MENU_HEADER_BORDER_PX +
+    SEARCH_ROW_PADDING_PX
 
 /** Panel-left to search-field-left: the panel border plus the search row's left
  *  padding. */
@@ -627,7 +631,11 @@ export function TaxonomicFilterMenu({
                     eventDetails.cancel()
                 }}
             >
-                <span ref={triggerWrapRef} className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}>
+                <span
+                    ref={triggerWrapRef}
+                    data-lemon-skin
+                    className={taxonomicTriggerWrapperClassName(fullWidthTrigger)}
+                >
                     {useInputTrigger ? (
                         <MenuInputTrigger
                             iconButton={inputTriggerIcon}
@@ -657,6 +665,7 @@ export function TaxonomicFilterMenu({
                     {triggerAccessory}
                 </span>
                 <PopoverContent
+                    data-lemon-skin
                     align="start"
                     side="bottom"
                     // Input trigger: shift the panel up by (trigger height +
@@ -689,7 +698,10 @@ export function TaxonomicFilterMenu({
                     // popover's default focusable flow until rendered).
                     initialFocus={comboboxOverlaysTrigger ? comboboxInputRef : undefined}
                     className={cn(
-                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)] @[720px]/main-content-container:w-[720px] h-[400px]'
+                        'p-0 gap-0 overflow-hidden flex flex-col w-[calc(100%_-_2rem)]',
+                        state.kind === 'hogql-edit'
+                            ? '@[720px]/main-content-container:w-[560px] h-auto max-h-[min(600px,80vh)]'
+                            : '@[720px]/main-content-container:w-[720px] h-[400px]'
                     )}
                 >
                     {state.kind === 'combobox' && (
@@ -770,7 +782,7 @@ export function TaxonomicFilterMenu({
                     onBack={state.origin === 'menu' ? openMenu : openDwhPick}
                 />
             )}
-            <DropdownMenuContent align="start" className="min-w-[240px]">
+            <DropdownMenuContent data-lemon-skin align="start" className="min-w-[240px]">
                 {/* The input-trigger box already does "type to make a new filter",
                     so the explicit "New filter…" row would be redundant there. */}
                 {!useInputTrigger && (

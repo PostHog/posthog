@@ -87,6 +87,10 @@ export const FilterRow = React.memo(function FilterRow({
                                 className="ml-2"
                                 noPadding
                             />
+                        ) : editable ? (
+                            <span className="ml-2 invisible" aria-hidden="true">
+                                <LemonButton icon={orFiltering ? <IconTrash /> : <IconX />} size={size} noPadding />
+                            </span>
                         ) : null}
                     </>
                 ) : (

@@ -164,7 +164,7 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
     }
 
     return (
-        <span className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
+        <span data-lemon-skin className={taxonomicTriggerWrapperClassName(triggerButtonProps?.fullWidth)}>
             {useInputTrigger ? (
                 <MenuInputTrigger
                     iconButton={

@@ -49,7 +49,6 @@ import {
     FieldContent,
     FieldDescription,
     FieldLabel,
-    ItemContent,
     ItemDescription,
     ItemTitle,
     Tabs,
@@ -277,6 +276,7 @@ export function MenuFilterDwhConfig({
             }}
         >
             <DialogContent
+                data-lemon-skin
                 // `nested` because a popover with focus management is
                 // already open underneath; tells base-ui to stack focus
                 // traps + handle overlay clicks correctly.
@@ -520,6 +520,15 @@ interface ColumnSelectEntry {
     description?: string
 }
 
+function ColumnLabel({ item }: { item: ColumnSelectEntry }): JSX.Element {
+    return (
+        <span className="flex min-w-0 items-baseline gap-2">
+            <ItemTitle className="truncate">{item.title}</ItemTitle>
+            {item.description && <ItemDescription className="shrink-0">{item.description}</ItemDescription>}
+        </span>
+    )
+}
+
 function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -556,30 +565,26 @@ function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProp
                 onChange(item ? (item.value === HOGQL_SENTINEL ? '' : item.value) : '')
             }
         >
-            <Button ref={triggerRef} variant="outline" className="h-min" onClick={() => setOpen((prev) => !prev)}>
+            <Button ref={triggerRef} variant="outline" left onClick={() => setOpen((prev) => !prev)}>
                 {selectedItem ? (
-                    <ItemContent variant="menuItem">
-                        <ItemTitle>{selectedItem.title}</ItemTitle>
-                        {selectedItem.description && (
-                            <ItemDescription className="leading-none">{selectedItem.description}</ItemDescription>
-                        )}
-                    </ItemContent>
+                    <ColumnLabel item={selectedItem} />
                 ) : (
                     <span className="text-muted-foreground">Select a value</span>
                 )}
             </Button>
-            <ComboboxContent anchor={triggerRef} className="min-w-(--anchor-width)" align="start" sideOffset={8}>
+            <ComboboxContent
+                data-lemon-skin
+                anchor={triggerRef}
+                className="min-w-(--anchor-width)"
+                align="start"
+                sideOffset={8}
+            >
                 <ComboboxInput placeholder="Search columns" showTrigger={false} />
                 <ComboboxEmpty>No columns found</ComboboxEmpty>
                 <ComboboxList>
                     {(item: ColumnSelectEntry) => (
                         <ComboboxItem key={item.value} value={item} className="py-0">
-                            <ItemContent variant="menuItem">
-                                <ItemTitle>{item.title}</ItemTitle>
-                                {item.description && (
-                                    <ItemDescription className="leading-none">{item.description}</ItemDescription>
-                                )}
-                            </ItemContent>
+                            <ColumnLabel item={item} />
                         </ComboboxItem>
                     )}
                 </ComboboxList>
