@@ -108,7 +108,7 @@ class TestAccountTagAddedEvent(BaseTest):
     def test_capture_failure_is_reported_not_raised(self, mock_capture):
         mock_capture.return_value = CaptureInternalResult(status_code=503, error={"error": "transport_error"})
 
-        with patch("products.customer_analytics.backend.events.capture_exception") as mock_capture_exception:
+        with patch("products.customer_analytics.backend.facade.api.capture_exception") as mock_capture_exception:
             self._add_tags(["enterprise"])
 
         mock_capture_exception.assert_called_once()
