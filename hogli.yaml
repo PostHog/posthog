@@ -843,6 +843,9 @@ tools:
     metabase:query:
         click: hogli_commands.metabase:metabase_query
         description: Run a SQL query against Metabase /api/dataset; results to stdout
+    flags:compare-regions:
+        click: hogli_commands.flags:flags_compare_regions
+        description: "Compare feature flag definitions between PostHog's US and EU dogfood projects (staff-only, via Metabase - no PAK needed)"
     doctor:
         click: hogli_commands.doctor:doctor
         description: Quick health check for your dev environment

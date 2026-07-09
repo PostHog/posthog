@@ -11,6 +11,7 @@ import click
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli_commands import metabase
+from parameterized import parameterized
 
 
 class _FakeCookie:
@@ -277,6 +278,67 @@ def test_metabase_databases_json_format(cache_dir: Path, monkeypatch: pytest.Mon
 
     parsed = _json.loads(result.output)
     assert parsed == [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]
+
+
+def test_list_databases_unwraps_data_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = {"data": [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]}
+    monkeypatch.setattr(metabase, "_metabase_get", lambda region, path: fake)
+    assert metabase.list_databases("us") == [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]
+
+
+def test_list_databases_accepts_bare_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]
+    monkeypatch.setattr(metabase, "_metabase_get", lambda region, path: fake)
+    assert metabase.list_databases("us") == fake
+
+
+# "Billing Postgres PROD US" is a real near-miss for "PostHog Postgres PROD US (Aurora)"
+# observed in prod Metabase - the resolver must not conflate them.
+_SAMPLE_DATABASES = [
+    {"id": 2, "name": "Billing Postgres PROD US", "engine": "postgres"},
+    {"id": 34, "name": "PostHog Postgres PROD US (Aurora)", "engine": "postgres"},
+    {"id": 140, "name": "ClickHouse Ingestion Layer", "engine": "clickhouse"},
+]
+
+
+def test_resolve_database_id_matches_unique_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(metabase, "list_databases", lambda region: _SAMPLE_DATABASES)
+    assert metabase.resolve_database_id("us", name_contains="posthog postgres prod us", engine="postgres") == 34
+
+
+@parameterized.expand(
+    [
+        ("no_match", _SAMPLE_DATABASES, "posthog postgres prod eu", "postgres", "found 0 match"),
+        (
+            "ambiguous_match",
+            [*_SAMPLE_DATABASES, {"id": 99, "name": "PostHog Postgres PROD US (Replica)", "engine": "postgres"}],
+            "posthog postgres prod us",
+            "postgres",
+            "found 2 match",
+        ),
+    ]
+)
+def test_resolve_database_id_raises_when_not_unique(
+    name: str, databases: list[dict], name_contains: str, engine: str, expected_message: str
+) -> None:
+    with patch.object(metabase, "list_databases", lambda region: databases):
+        with pytest.raises(click.ClickException, match=expected_message):
+            metabase.resolve_database_id("us", name_contains=name_contains, engine=engine)
+
+
+def test_get_dataset_rows_returns_cols_and_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = {"status": "completed", "data": {"cols": [{"name": "x"}], "rows": [[1], [2]]}}
+    monkeypatch.setattr(metabase, "_metabase_post_dataset", lambda region, db, sql, timeout=120.0: fake)
+    cols, rows = metabase.get_dataset_rows("us", 42, "SELECT 1")
+    assert cols == ["x"]
+    assert rows == [[1], [2]]
+
+
+def test_get_dataset_rows_raises_on_query_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = {"status": "failed", "error": "syntax error near 'SELEKT'"}
+    monkeypatch.setattr(metabase, "_metabase_post_dataset", lambda region, db, sql, timeout=120.0: fake)
+    with pytest.raises(click.ClickException, match="syntax error"):
+        metabase.get_dataset_rows("us", 42, "SELEKT 1")
 
 
 def test_metabase_query_requires_database_id() -> None:

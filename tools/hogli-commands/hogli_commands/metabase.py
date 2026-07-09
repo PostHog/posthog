@@ -376,11 +376,70 @@ def _metabase_post_dataset(region: str, database_id: int, sql: str, timeout: flo
     return body
 
 
-def _render_rows_tsv(body: dict[str, Any]) -> str:
-    """Render /api/dataset JSON to a header-prefixed TSV string."""
+def list_databases(region: str) -> list[dict[str, Any]]:
+    """Return every Metabase database entry (id, name, engine, ...) visible to `region`.
+
+    Public: other hogli commands that need to talk to Metabase should call this instead
+    of hitting `_metabase_get` directly.
+    """
+    body = _metabase_get(region, "/api/database")
+    # Metabase wraps the list in {data: [...], total: N}; older versions return a bare list.
+    return body["data"] if isinstance(body, dict) and "data" in body else body
+
+
+def resolve_database_id(region: str, *, name_contains: str, engine: str | None = None) -> int:
+    """Find the id of the single database whose name contains `name_contains` (case-insensitive).
+
+    Database ids drift when Metabase's metadata is rebuilt, so callers shouldn't cache or
+    hardcode them - resolve by name each run instead. Raises `click.ClickException` if zero
+    or more than one database matches.
+    """
+    entries = list_databases(region)
+    fragment = name_contains.lower()
+    matches = [
+        e for e in entries if (engine is None or e.get("engine") == engine) and fragment in e.get("name", "").lower()
+    ]
+    if len(matches) == 1:
+        return matches[0]["id"]
+    candidates = [e.get("name") for e in entries if engine is None or e.get("engine") == engine]
+    raise click.ClickException(
+        f"Could not uniquely resolve a database for region {region} matching {name_contains!r} "
+        f"(found {len(matches)} match(es) among: {candidates}). "
+        f"Run `hogli metabase:databases --region {region}` to find the id and pass it explicitly.",
+    )
+
+
+def _raise_if_dataset_failed(body: dict[str, Any]) -> None:
+    """Raise if Metabase's /api/dataset body reports a query failure (2xx with {status: failed, ...})."""
+    if body.get("status") == "failed" or body.get("error"):
+        error_msg = body.get("error") or body.get("status")
+        raise click.ClickException(f"Query failed: {error_msg}")
+
+
+def _parse_dataset_body(body: dict[str, Any]) -> tuple[list[str], list[list[Any]]]:
+    """Extract (column names, rows) from a /api/dataset response body."""
     data = body.get("data") or {}
     cols = [c["name"] for c in data.get("cols") or []]
     rows = data.get("rows") or []
+    return cols, rows
+
+
+def get_dataset_rows(
+    region: str, database_id: int, sql: str, timeout: float = 120.0
+) -> tuple[list[str], list[list[Any]]]:
+    """Run `sql` against `database_id` and return (column names, rows).
+
+    Public: other hogli commands that need query results as plain data (rather than
+    rendered TSV/JSON) should call this instead of `_metabase_post_dataset` directly.
+    """
+    body = _metabase_post_dataset(region, database_id, sql, timeout=timeout)
+    _raise_if_dataset_failed(body)
+    return _parse_dataset_body(body)
+
+
+def _render_rows_tsv(body: dict[str, Any]) -> str:
+    """Render /api/dataset JSON to a header-prefixed TSV string."""
+    cols, rows = _parse_dataset_body(body)
     out = ["\t".join(cols)]
     for row in rows:
         out.append("\t".join("" if v is None else str(v) for v in row))
@@ -406,9 +465,7 @@ def _render_rows_tsv(body: dict[str, Any]) -> str:
 )
 def metabase_databases(region: str, output_format: str) -> None:
     """Print current databases from /api/database. IDs change when Metabase's metadata DB is rebuilt or connections are re-added, so always run this before passing --database-id to metabase:query."""
-    body = _metabase_get(region, "/api/database")
-    # Metabase wraps the list in {data: [...], total: N}; older versions return a bare list.
-    entries = body["data"] if isinstance(body, dict) and "data" in body else body
+    entries = list_databases(region)
 
     if output_format == "json":
         click.echo(json.dumps([{"id": e["id"], "name": e["name"], "engine": e["engine"]} for e in entries], indent=2))
@@ -481,9 +538,7 @@ def metabase_query(
         raise click.ClickException("No SQL provided. Pipe via stdin or use --file.")
 
     body = _metabase_post_dataset(region, database_id, sql, timeout=timeout)
-    if body.get("status") == "failed" or body.get("error"):
-        error_msg = body.get("error") or body.get("status")
-        raise click.ClickException(f"Query failed: {error_msg}")
+    _raise_if_dataset_failed(body)
 
     if output_format == "json":
         rendered = json.dumps(body, indent=2) + "\n"
