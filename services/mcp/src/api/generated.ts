@@ -14956,6 +14956,8 @@ export namespace Schemas {
          * @nullable
          */
       use_dashboard?: number | null;
+      /** Only used when creating a dashboard: IDs of existing saved insights to add to the new dashboard as tiles. Each insight must belong to the same project and be visible to you. Ignored on updates. */
+      insight_ids?: number[];
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
       _create_in_folder?: string;

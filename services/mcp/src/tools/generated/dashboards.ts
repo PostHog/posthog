@@ -73,6 +73,9 @@ const dashboardCreate = (): ToolBase<typeof DashboardCreateSchema, WithPostHogUr
         if (params.use_dashboard !== undefined) {
             body['use_dashboard'] = params.use_dashboard
         }
+        if (params.insight_ids !== undefined) {
+            body['insight_ids'] = params.insight_ids
+        }
         if (params.delete_insights !== undefined) {
             body['delete_insights'] = params.delete_insights
         }

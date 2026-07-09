@@ -73,6 +73,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe('Template key to create the dashboard from a predefined template.'),
         use_dashboard: zod.number().nullish().describe('ID of an existing dashboard to duplicate.'),
+        insight_ids: zod
+            .array(zod.number())
+            .optional()
+            .describe(
+                'Only used when creating a dashboard: IDs of existing saved insights to add to the new dashboard as tiles. Each insight must belong to the same project and be visible to you. Ignored on updates.'
+            ),
         delete_insights: zod
             .boolean()
             .default(dashboardsCreateBodyDeleteInsightsDefault)
