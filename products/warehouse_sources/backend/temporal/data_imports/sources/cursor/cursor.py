@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import dataclasses
 from collections.abc import Iterator
@@ -8,6 +9,7 @@ import orjson
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -58,9 +60,25 @@ def _now_ms() -> int:
     return int(datetime.now(UTC).timestamp() * 1000)
 
 
-def _get_auth(api_key: str) -> tuple[str, str]:
+def _basic_token(api_key: str) -> str:
     # Cursor's Admin API uses HTTP Basic auth with the API key as the username and an empty password.
-    return (api_key, "")
+    return base64.b64encode(f"{api_key}:".encode("ascii")).decode("ascii")
+
+
+def _redact_values(api_key: str) -> tuple[str, ...]:
+    # Mask both the raw key and the derived Basic token so neither leaks into logged URLs/samples.
+    return (api_key, _basic_token(api_key))
+
+
+def _make_session(api_key: str) -> requests.Session:
+    # Redirects are pinned off so the credential can't be replayed to a cross-host redirect target;
+    # urllib3 retries are disabled so tenacity (on `_fetch`) is the single retry layer.
+    return make_tracked_session(
+        headers={"Authorization": f"Basic {_basic_token(api_key)}", "Accept": "application/json"},
+        redact_values=_redact_values(api_key),
+        allow_redirects=False,
+        retry=Retry(total=0),
+    )
 
 
 @retry(
@@ -80,7 +98,6 @@ def _get_auth(api_key: str) -> tuple[str, str]:
 )
 def _fetch(
     session: requests.Session,
-    api_key: str,
     method: str,
     url: str,
     logger: FilteringBoundLogger,
@@ -90,8 +107,6 @@ def _fetch(
         method,
         url,
         json=json_body,
-        auth=_get_auth(api_key),
-        headers={"Accept": "application/json"},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
@@ -107,12 +122,7 @@ def _fetch(
 
 def validate_credentials(api_key: str) -> bool:
     try:
-        response = make_tracked_session().get(
-            f"{CURSOR_BASE_URL}/teams/members",
-            auth=_get_auth(api_key),
-            headers={"Accept": "application/json"},
-            timeout=10,
-        )
+        response = _make_session(api_key).get(f"{CURSOR_BASE_URL}/teams/members", timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -178,11 +188,10 @@ def _has_next_page(data: dict[str, Any], page: int, items_count: int, page_size:
 
 def _get_members_rows(
     session: requests.Session,
-    api_key: str,
     config: CursorEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    data = _fetch(session, api_key, config.method, f"{CURSOR_BASE_URL}{config.path}", logger)
+    data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger)
     rows = data.get(config.data_key) or []
     if rows:
         yield rows
@@ -190,7 +199,6 @@ def _get_members_rows(
 
 def _get_spend_rows(
     session: requests.Session,
-    api_key: str,
     config: CursorEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CursorResumeConfig],
@@ -206,7 +214,7 @@ def _get_spend_rows(
             "sortBy": "user",
             "sortDirection": "asc",
         }
-        data = _fetch(session, api_key, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
+        data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
 
         rows = data.get(config.data_key) or []
         cycle_start = data.get("subscriptionCycleStart")
@@ -229,7 +237,6 @@ def _get_spend_rows(
 
 def _get_windowed_rows(
     session: requests.Session,
-    api_key: str,
     config: CursorEndpointConfig,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CursorResumeConfig],
@@ -253,7 +260,12 @@ def _get_windowed_rows(
             start_ms = end_ms - int(timedelta(days=DEFAULT_LOOKBACK_DAYS).total_seconds() * 1000)
         first_window_page = 1
 
-    normalize = _normalize_usage_event if config.name == "usage_events" else _normalize_daily_usage
+    if config.name == "usage_events":
+        normalize = _normalize_usage_event
+    elif config.name == "daily_usage":
+        normalize = _normalize_daily_usage
+    else:
+        raise ValueError(f"No normalizer defined for windowed endpoint: {config.name}")
 
     for window_start, window_end in _build_windows(start_ms, end_ms):
         page = first_window_page
@@ -266,7 +278,7 @@ def _get_windowed_rows(
                 "page": page,
                 "pageSize": config.page_size,
             }
-            data = _fetch(session, api_key, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
+            data = _fetch(session, config.method, f"{CURSOR_BASE_URL}{config.path}", logger, json_body=body)
 
             items = data.get(config.data_key) or []
             rows = [normalize(item) for item in items]
@@ -300,16 +312,15 @@ def cursor_source(
         raise ValueError(f"Unknown Cursor endpoint: {endpoint}")
 
     def get_rows() -> Iterator[list[dict[str, Any]]]:
-        session = make_tracked_session()
+        session = _make_session(api_key)
 
         if endpoint == "members":
-            yield from _get_members_rows(session, api_key, config, logger)
+            yield from _get_members_rows(session, config, logger)
         elif endpoint == "spend":
-            yield from _get_spend_rows(session, api_key, config, logger, resumable_source_manager)
+            yield from _get_spend_rows(session, config, logger, resumable_source_manager)
         else:
             yield from _get_windowed_rows(
                 session,
-                api_key,
                 config,
                 logger,
                 resumable_source_manager,

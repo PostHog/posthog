@@ -1,7 +1,13 @@
-import pytest
+from typing import Any
+
 from unittest import mock
 
-from posthog.schema import ExternalDataSourceType as SchemaExternalDataSourceType
+from parameterized import parameterized
+
+from posthog.schema import (
+    ExternalDataSourceType as SchemaExternalDataSourceType,
+    SourceFieldInputConfig,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import CursorResumeConfig
@@ -11,7 +17,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides) -> SourceInputs:
-    defaults: dict = {
+    defaults: dict[str, Any] = {
         "schema_name": "usage_events",
         "schema_id": "schema-id",
         "source_id": "source-id",
@@ -44,9 +50,12 @@ class TestCursorSource:
         assert config.name == SchemaExternalDataSourceType.CURSOR
         assert config.label == "Cursor"
         assert config.unreleasedSource is True
-        assert [f.name for f in config.fields] == ["api_key"]
-        assert config.fields[0].required is True
-        assert config.fields[0].secret is True
+        field = config.fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
+        assert len(config.fields) == 1
+        assert field.name == "api_key"
+        assert field.required is True
+        assert field.secret is True
         # The docs slug is derived from docsUrl; a mismatch 404s the public doc.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cursor"
 
@@ -56,14 +65,13 @@ class TestCursorSource:
         assert [s.name for s in schemas] == ["members", "daily_usage", "usage_events", "spend"]
         assert all(s.should_sync_default for s in schemas)
 
-    @pytest.mark.parametrize(
-        "endpoint,supports_incremental,incremental_field",
+    @parameterized.expand(
         [
             ("members", False, None),
             ("daily_usage", True, "date"),
             ("usage_events", True, "timestamp"),
             ("spend", False, None),
-        ],
+        ]
     )
     def test_get_schemas_incremental_support(self, endpoint, supports_incremental, incremental_field):
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
@@ -88,7 +96,7 @@ class TestCursorSource:
         assert [t["name"] for t in tables] == ["members", "daily_usage", "usage_events", "spend"]
         assert all(t["description"] for t in tables)
 
-    @pytest.mark.parametrize("valid,expected", [(True, (True, None)), (False, (False, "Invalid Cursor Admin API key"))])
+    @parameterized.expand([(True, (True, None)), (False, (False, "Invalid Cursor Admin API key"))])
     def test_validate_credentials(self, valid, expected):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source.validate_cursor_credentials",
@@ -96,7 +104,7 @@ class TestCursorSource:
         ):
             assert self.source.validate_credentials(self.config, self.team_id) == expected
 
-    @pytest.mark.parametrize("status", ["401 Client Error", "403 Client Error"])
+    @parameterized.expand([("401 Client Error",), ("403 Client Error",)])
     def test_non_retryable_errors_cover_credential_failures(self, status):
         keys = self.source.get_non_retryable_errors()
         assert any(key.startswith(status) for key in keys)
@@ -106,13 +114,12 @@ class TestCursorSource:
 
         assert manager._data_class is CursorResumeConfig
 
-    @pytest.mark.parametrize(
-        "should_use_incremental_field,last_value,expected_last_value",
+    @parameterized.expand(
         [
             (True, 1700000000000, 1700000000000),
             # A stale watermark must not leak into a full-refresh run.
             (False, 1700000000000, None),
-        ],
+        ]
     )
     def test_source_for_pipeline_plumbs_arguments(self, should_use_incremental_field, last_value, expected_last_value):
         inputs = _make_inputs(
