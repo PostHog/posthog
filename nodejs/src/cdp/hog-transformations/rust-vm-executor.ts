@@ -1,0 +1,98 @@
+import { DateTime } from 'luxon'
+import { Counter, Histogram } from 'prom-client'
+
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createInvocationResult } from '../utils/invocation-utils'
+import { HogvmNodeModule, RUST_MAX_STEPS, loadHogvmNodeModule } from './rust-vm'
+
+/**
+ * Executes transformation invocations on the Rust HogVM (via the `@posthog/hogvm-node` napi
+ * addon) as the primary executor, producing the same `CyclotronJobInvocationResult` shape the
+ * Node executor does. Invocations the Rust VM can't run — the addon isn't built, or the program
+ * calls a host function the binding doesn't implement — return null so the caller falls back to
+ * the Node VM.
+ */
+
+export const rustVmExecution = new Counter({
+    name: 'hogvm_rust_execution_total',
+    help: 'Outcomes of transformation executions where the Rust HogVM is the primary executor',
+    labelNames: ['outcome'],
+})
+
+export const rustVmExecutionDuration = new Histogram({
+    name: 'hogvm_rust_execution_duration_ms',
+    help: 'Per-invocation hog execution duration on the Rust HogVM as the primary executor',
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
+})
+
+// Host functions the binding doesn't implement; the Node VM does, so it must run these programs.
+function isUnsupportedByRustVm(error: string): boolean {
+    return error.includes('unsupported_ext_fn:') || error.startsWith('Unknown Global ')
+}
+
+export class RustVmExecutor {
+    constructor(private options: { mmdbPath: string }) {}
+
+    private getModule(): HogvmNodeModule | null {
+        return loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+    }
+
+    /**
+     * Execute one transformation invocation on the Rust VM. Returns null when the Node VM must
+     * run it instead.
+     */
+    public execute(
+        invocation: CyclotronJobInvocationHogFunction,
+        sensitiveValues: string[]
+    ): CyclotronJobInvocationResult | null {
+        const module_ = this.getModule()
+        if (!module_) {
+            rustVmExecution.inc({ outcome: 'fallback_unavailable' })
+            return null
+        }
+
+        const rust = module_.executeSync(invocation.hogFunction.bytecode, invocation.state.globals, {
+            maxSteps: RUST_MAX_STEPS,
+        })
+
+        if (rust.error && isUnsupportedByRustVm(rust.error)) {
+            rustVmExecution.inc({ outcome: 'fallback_unsupported' })
+            return null
+        }
+
+        const durationMs = rust.durationUs / 1000
+        rustVmExecutionDuration.observe(durationMs)
+
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+        const addLog = createAddLogFunction(result.logs)
+        result.invocation.state.timings.push({ kind: 'hog', duration_ms: durationMs })
+
+        const eventId = invocation.state.globals.event?.uuid || 'Unknown event'
+
+        for (const message of rust.logs ?? []) {
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: sanitizeLogMessage([message], sensitiveValues),
+            })
+        }
+        if (rust.logsTruncated) {
+            addLog('warn', `Function exceeded maximum log entries. No more logs will be collected. Event: ${eventId}`)
+        }
+
+        if (rust.error) {
+            rustVmExecution.inc({ outcome: 'error' })
+            addLog('error', `Error executing function on event ${eventId}: ${rust.error}`)
+            result.error = rust.error
+            return result
+        }
+
+        rustVmExecution.inc({ outcome: 'executed' })
+        if (rust.result) {
+            result.execResult = rust.result
+        }
+        addLog('debug', `Function completed in ${Number(durationMs.toFixed(2))}ms.`)
+        return result
+    }
+}

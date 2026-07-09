@@ -9,6 +9,7 @@ use hogvm::{construct_free_standing, native_func, HogLiteral, NativeFunction, Vm
 use serde_json::Value;
 
 use crate::geoip;
+use crate::logs;
 
 static BOT_UA_LIST: OnceLock<Vec<String>> = OnceLock::new();
 static BOT_IP_LIST: OnceLock<Vec<String>> = OnceLock::new();
@@ -44,9 +45,23 @@ pub fn transformation_ext_fns() -> HashMap<String, NativeFunction> {
         .get_or_init(|| {
             let mut fns: HashMap<String, NativeFunction> = HashMap::new();
 
+            // Mirrors the Node executor's print handler: string args pass through, everything
+            // else is JSON-serialized, joined with ", ".
             fns.insert(
                 "print".to_string(),
-                native_func(|_vm, _args| Ok(HogLiteral::Null.into())),
+                native_func(|vm, args| {
+                    let mut parts: Vec<String> = Vec::with_capacity(args.len());
+                    for arg in &args {
+                        let part = match arg.deref(&vm.heap)? {
+                            HogLiteral::String(value) => value.clone(),
+                            _ => serde_json::to_string(&vm.hog_to_json(arg)?)
+                                .map_err(|e| VmError::NativeCallFailed(e.to_string()))?,
+                        };
+                        parts.push(part);
+                    }
+                    logs::push(parts.join(", "));
+                    Ok(HogLiteral::Null.into())
+                }),
             );
 
             fns.insert(

@@ -5,7 +5,7 @@ import { HogBytecode } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
-import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
+import { HogvmNodeModule, RUST_MAX_STEPS, RustExecResult, loadHogvmNodeModule } from './rust-vm'
 
 /**
  * Shadow-executes sampled transformation invocations on the Rust HogVM (via the
@@ -18,9 +18,6 @@ import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
  * itself.
  */
 
-// The Rust VM budgets steps, not wall-clock time; generous so it never trips before the Node VM's
-// timeout would.
-const RUST_MAX_STEPS = 1_000_000
 // STL functions whose output legitimately differs between two executions — programs calling them
 // can never be compared, so they're skipped at capture time.
 const NONDETERMINISTIC_FNS = new Set(['randomFloat', 'generateUUIDv4', 'now', 'today'])
@@ -79,21 +76,6 @@ export interface ShadowCapturedInvocation {
     /** state.globals snapshot taken before the Node VM ran (later transformations mutate them). */
     globalsJson: string
     node: ShadowNodeResult
-}
-
-interface RustExecResult {
-    result?: unknown
-    error?: string
-    durationUs: number
-}
-
-interface HogvmNodeModule {
-    init(options: { mmdbPath?: string; knownBotUaList?: string[]; knownBotIpList?: string[] }): void
-    executeBatch(
-        program: unknown[],
-        events: unknown[],
-        options?: { parallel?: boolean; maxSteps?: number }
-    ): Promise<RustExecResult[]>
 }
 
 export function classifyShadowOutcome(node: ShadowNodeResult, rust: RustExecResult | undefined): ShadowOutcome {
@@ -268,20 +250,9 @@ export class RustVmShadow {
             this.module_ = null
             return null
         }
-        try {
-            const module_: HogvmNodeModule = require('@posthog/hogvm-node')
-            module_.init({
-                mmdbPath: this.options.mmdbPath,
-                knownBotUaList: KNOWN_BOT_UA_LIST,
-                knownBotIpList: KNOWN_BOT_IP_LIST,
-            })
-            this.module_ = module_
+        this.module_ = loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+        if (this.module_) {
             logger.info('🦀', 'Rust HogVM shadow mode enabled', { sampleRate: this.options.sampleRate })
-        } catch (error) {
-            this.module_ = null
-            logger.warn('🦀', 'Rust HogVM native module unavailable, shadow mode disabled', {
-                error: String(error),
-            })
         }
         return this.module_
     }
