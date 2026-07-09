@@ -31,7 +31,7 @@ def test_duckgres_sink_flag_evaluated_locally_with_group_properties(
         groups={"organization": str(org.id), "project": str(team.id)},
         group_properties={
             "organization": {"id": str(org.id)},
-            "project": {"id": str(team.id)},
+            "project": {"id": str(team.id), "organization_id": str(org.id)},
         },
         only_evaluate_locally=True,
         send_feature_flag_events=False,

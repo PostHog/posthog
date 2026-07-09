@@ -41,8 +41,12 @@ function buildStreamableClient(
     token: string = harness.token
 ): { client: Client; transport: StreamableHTTPClientTransport } {
     const transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+        // Pin tools mode: this suite exercises the per-tool roster, and the
+        // server's auto-detection would otherwise resolve this client to the
+        // single-exec cli default. Exec-mode coverage pins `cli` explicitly
+        // via `buildExecModeClient`.
         fetch: harness.fetch,
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        requestInit: { headers: { Authorization: `Bearer ${token}`, 'x-posthog-mcp-mode': 'tools' } },
     })
     const client = new Client({ name: 'mcp-integration-test', version: '0.0.0' }, { capabilities: {} })
     return { client, transport }
@@ -1307,8 +1311,10 @@ export function defineCatalogFilterTests(
             const url = new URL('/mcp', harness.baseUrl)
             url.search = search
             const transport = new StreamableHTTPClientTransport(url, {
+                // Pin tools mode — catalog filtering is observed on the full
+                // per-tool roster, not the single-exec cli default.
                 fetch: harness.fetch,
-                requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
+                requestInit: { headers: { Authorization: `Bearer ${harness.token}`, 'x-posthog-mcp-mode': 'tools' } },
             })
             const client = new Client({ name: 'filter-test', version: '0.0.0' }, { capabilities: {} })
             try {

@@ -11,6 +11,7 @@ use crate::{
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
     langs::native::DebugImage,
+    modes::processing::normalization::normalize_wire_order,
     recursively_sanitize_properties,
     types::{event::AnyEvent, ExceptionList, OutputErrProps},
 };
@@ -82,6 +83,20 @@ pub struct ExceptionProperties {
 
     #[serde(skip)]
     pub issue: Option<Issue>,
+
+    // The raw exception list in its original (pre-normalization) wire order,
+    // set only when wire-order normalization reversed frames and/or the list at
+    // ingest. Resolution resolves it alongside the canonical list (cache-warm,
+    // so cheap) so grouping can compute the legacy-order fingerprint for issue
+    // continuity. Cleared once resolution has produced the resolved copy below.
+    #[serde(skip)]
+    pub legacy_order_exception_list: Option<ExceptionList>,
+
+    // The resolved exception list in legacy wire order, populated by the
+    // resolution stage when `legacy_order_exception_list` was set. The grouping
+    // stage fingerprints it and clears it.
+    #[serde(skip)]
+    pub legacy_order_resolved: Option<ExceptionList>,
 }
 
 impl ExceptionProperties {
@@ -174,6 +189,16 @@ impl TryFrom<AnyEvent> for ExceptionProperties {
             }
             exception.exception_id = Some(Uuid::now_v7().to_string());
         }
+
+        // Normalize incoming wire order (frames / exception list) per $lib so
+        // fingerprinting and resolution downstream see canonical order. Runs
+        // after exception ids are assigned so the legacy snapshot shares ids
+        // with the canonical list. Reading $lib/$lib_version from `props` — the
+        // flatten catch-all where non-exception event properties land.
+        let lib = evt.props.get("$lib").and_then(Value::as_str);
+        let lib_version = evt.props.get("$lib_version").and_then(Value::as_str);
+        evt.legacy_order_exception_list =
+            normalize_wire_order(&mut evt.exception_list, lib, lib_version);
 
         // Set metadata fields that are skipped during deserialization
         evt.uuid = event.uuid;

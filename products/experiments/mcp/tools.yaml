@@ -192,24 +192,29 @@ tools:
             - name
             - description
             - feature_flag_key
+            - feature_flag
             - parameters
             - stats_config
             - holdout_id
             - allow_unknown_events
             - exposure_criteria
         param_overrides:
-            parameters:
+            feature_flag:
                 description: >
-                    Variant split and rollout scope. If the user mentions a specific percentage, load the
-                    configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage
-                    (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants
-                    with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100%
-                    rollout.
+                    Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag,
+                    in the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). If the user mentions a
+                    specific percentage, load the configuring-experiment-rollout skill and clarify before setting these
+                    values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must
+                    sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [],
+                    "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment.
+                    Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers
+                    to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected.
 
 
-                    HARD REQUIREMENT — when you provide feature_flag_variants, exactly one variant's `key` must be the
-                    literal string `control` (lowercase, no variations). It is the baseline used for analysis and the
-                    experiment runtime treats it specially. If the user describes variants as "A/B", "old/new",
+                    HARD REQUIREMENT — when you provide variants, exactly one variant's `key` must be the literal string
+                    `control` (lowercase, no variations). It is the baseline used for analysis and the experiment
+                    runtime treats it specially. If the user describes variants as "A/B", "old/new",
                     "original/redesign", or any other natural-language pair, map the baseline to `key: "control"` — not
                     "A", "Control", "old", "original", or "baseline". Other variants can use any key (`test`,
                     `variant_a`, etc.).
@@ -334,11 +339,13 @@ tools:
             user's reference first.
 
 
-            Returns the full experiment object including: status (draft/running/paused/stopped — "paused" is a virtual
-            value returned when the experiment is launched but its feature flag has been deactivated), start_date and
-            end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays,
-            conclusion and conclusion_comment if ended, parameters (including feature_flag_variants and
-            recommended_running_time), stats_config, and type (web/product).
+            Returns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped —
+            "paused" is a virtual value returned when the experiment is launched but its feature flag has been
+            deactivated, "exposure_frozen" when its flag's release groups are narrowed to the already-exposed cohort so
+            enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with
+            variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if
+            ended, parameters (including feature_flag_variants and recommended_running_time), stats_config, and type
+            (web/product).
         param_overrides:
             id:
                 cast: string-int
@@ -534,17 +541,18 @@ tools:
             the finding-experiments skill for guidance on searching by name, status, recency, or description.
 
 
-            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped, or
-            "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on
-            name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
-            "status"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics
-            summary. Use the returned ID for get/update/lifecycle tools.
+            Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
+            maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and
+            free-text search on name. Supports ordering by an allowlisted set of fields (model fields plus computed
+            "duration" and "status"). Returns paginated results with each experiment's status, dates, feature flag key,
+            and metrics summary. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
                     Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active),
-                    "paused" (launched, flag deactivated — mutually exclusive with running), "stopped" or "complete"
-                    (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
+                    "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen"
+                    (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or
+                    "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.
             limit:
                 cast: string-int
             offset:
@@ -558,6 +566,7 @@ tools:
                 - name
                 - description
                 - feature_flag_key
+                - feature_flag
                 - start_date
                 - end_date
                 - archived
@@ -932,8 +941,9 @@ tools:
 
             4. For running experiments, set
                update_feature_flag_params=true when changing
-               parameters — without it, changes save but do NOT
-               sync to the feature flag.
+               feature_flag config — without it, the request is
+               rejected because the change would not sync to the
+               feature flag.
 
             5. Setting allow_unknown_events=true REQUIRES EXPLICIT
                USER CONFIRMATION. When the API returns
@@ -959,6 +969,7 @@ tools:
         include_params:
             - name
             - description
+            - feature_flag
             - parameters
             - running_time_calculation
             - excluded_variants
@@ -976,6 +987,16 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            feature_flag:
+                description: >
+                    Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
+                    the flag's own filters shape. This is the canonical input, do not send flag config via the
+                    deprecated parameters keys (feature_flag_variants, rollout_percentage). Set
+                    filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100,
+                    exactly one key must be the literal string 'control') to change the variant split. Set
+                    filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the
+                    overall rollout. Config this object omits is preserved from the flag's current state. On a running
+                    experiment this requires update_feature_flag_params=true (see rule 1: warn the user first).
             running_time_calculation:
                 description: >
                     Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
@@ -1013,6 +1034,9 @@ tools:
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
         enabled: false
+    experiments-freeze-exposure-create:
+        operation: experiments_freeze_exposure_create
+        enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: false
@@ -1028,8 +1052,8 @@ tools:
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
-    experiments-requires-flag-implementation:
-        operation: experiments_requires_flag_implementation_retrieve
+    experiments-unfreeze-exposure-create:
+        operation: experiments_unfreeze_exposure_create
         enabled: false
     experiments-update:
         operation: experiments_update

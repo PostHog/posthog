@@ -583,59 +583,24 @@ describe('logsViewerLogic', () => {
         })
     })
 
-    describe('attribute columns', () => {
+    describe('attribute columns facade', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())
         })
 
-        describe('moveAttributeColumn', () => {
-            beforeEach(async () => {
-                // Set up initial columns: [A, B, C]
-                logic.actions.toggleAttributeColumn('A')
-                logic.actions.toggleAttributeColumn('B')
-                logic.actions.toggleAttributeColumn('C')
-                await expectLogic(logic).toFinishAllListeners()
-            })
+        it('toggling an attribute adds a custom column and toggling again removes it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
 
-            it('moves column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['B', 'A', 'C'],
-                })
-            })
+            const added = logic.values.columns.find((c) => c.type === 'custom' && c.name === 'k8s.pod')
+            expect(added?.expression).toContain("attributes['k8s.pod']")
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(true)
 
-            it('moves column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('B', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'C', 'B'],
-                })
-            })
-
-            it('does nothing when moving first column left', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('A', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
-
-            it('does nothing when moving last column right', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('C', 'right')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
-
-            it('does nothing for non-existent column', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.moveAttributeColumn('Z', 'left')
-                }).toMatchValues({
-                    attributeColumns: ['A', 'B', 'C'],
-                })
-            })
+            await expectLogic(logic, () => {
+                logic.actions.toggleAttributeColumn('k8s.pod')
+            }).toFinishAllListeners()
+            expect(logic.values.isAttributeColumn('k8s.pod')).toBe(false)
         })
     })
 
