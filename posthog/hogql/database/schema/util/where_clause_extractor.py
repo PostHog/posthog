@@ -729,8 +729,9 @@ class HasTombstoneVisitor(TraversingVisitor):
 
 
 class _BooleanConstantFinder(TraversingVisitor):
-    """Finds a boolean True/False constant anywhere in an expression - the sentinel this extractor
-    substitutes for a predicate it can't lift, marking an over-approximation that must not be negated."""
+    """Finds a boolean True/False constant anywhere in an expression - usually the sentinel this extractor
+    substitutes for a predicate it can't lift, marking an over-approximation that must not be negated. A
+    literal `true`/`false` in the query matches too; that's fine, since it only skips the NOT pushdown."""
 
     def __init__(self) -> None:
         super().__init__()
