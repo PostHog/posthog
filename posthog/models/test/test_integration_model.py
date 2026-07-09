@@ -1509,6 +1509,119 @@ class TestGitHubIntegrationModel(BaseTest):
         with patch.object(github, "_installation_authenticated_get", return_value=None):
             assert github.get_open_pr_base_for_head("PostHog/posthog", "posthog-code/fix") is None
 
+    def test_get_pull_request_comments_merges_conversation_and_review_sorted(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/issues/" in url:
+                response.json.return_value = [
+                    {
+                        "id": 2,
+                        "user": {"login": "bob", "avatar_url": "https://a/bob.png"},
+                        "body": "second",
+                        "created_at": "2026-07-06T10:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#issuecomment-2",
+                    }
+                ]
+            else:  # /pulls/{n}/comments — review comments
+                response.json.return_value = [
+                    {
+                        "id": 1,
+                        "user": {"login": "alice", "avatar_url": "https://a/alice.png"},
+                        "body": "first",
+                        "created_at": "2026-07-06T09:00:00Z",
+                        "html_url": "https://github.com/PostHog/posthog/pull/1#discussion_r1",
+                        "path": "posthog/models.py",
+                    }
+                ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        # Merged and sorted oldest-first across both sources; review comment carries its file path,
+        # conversation comment does not.
+        assert [(c["author"], c["comment_type"], c["path"]) for c in result["comments"]] == [
+            ("alice", "review", "posthog/models.py"),
+            ("bob", "conversation", None),
+        ]
+
+    def test_get_pull_request_comments_best_effort_when_one_source_fails(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            if "/issues/" in url:
+                return None  # conversation fetch fails
+            response = MagicMock(status_code=200)
+            response.json.return_value = [
+                {"id": 1, "user": {"login": "alice"}, "body": "x", "created_at": "2026-07-06T09:00:00Z"}
+            ]
+            return response
+
+        with patch.object(github, "_installation_authenticated_get", side_effect=fake_get):
+            result = github.get_pull_request_comments("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert [c["author"] for c in result["comments"]] == ["alice"]
+
+    @parameterized.expand(
+        [
+            ("success", "success", ("completed", "success")),
+            ("failure", "failure", ("completed", "failure")),
+            ("error", "error", ("completed", "failure")),
+            ("pending", "pending", ("in_progress", None)),
+            ("unknown", None, ("in_progress", None)),
+        ]
+    )
+    def test_map_commit_status_state(self, _name, state, expected):
+        assert GitHubIntegration._map_commit_status_state(state) == expected
+
+    def test_get_pull_request_checks_merges_check_runs_and_statuses(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+
+        def fake_get(url, **kwargs):
+            response = MagicMock(status_code=200)
+            if "/check-runs" in url:
+                response.json.return_value = {
+                    "check_runs": [
+                        {
+                            "name": "unit",
+                            "status": "completed",
+                            "conclusion": "failure",
+                            "html_url": "https://github.com/checks/1",
+                        }
+                    ]
+                }
+            else:  # /status — legacy commit statuses
+                response.json.return_value = {
+                    "statuses": [{"context": "buildkite", "state": "success", "target_url": "https://bk/1"}]
+                }
+            return response
+
+        with (
+            patch.object(github, "get_pull_request", return_value={"success": True, "head_sha": "abc123f"}),
+            patch.object(github, "_installation_authenticated_get", side_effect=fake_get),
+        ):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+
+        assert result["success"] is True
+        assert result["checks"] == [
+            {"name": "unit", "status": "completed", "conclusion": "failure", "url": "https://github.com/checks/1"},
+            {"name": "buildkite", "status": "completed", "conclusion": "success", "url": "https://bk/1"},
+        ]
+
+    def test_get_pull_request_checks_fails_when_pr_unavailable(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "get_pull_request", return_value={"success": False, "error": "nope"}):
+            result = github.get_pull_request_checks("PostHog/posthog", 1)
+        assert result["success"] is False
+
     def test_get_diff_truncates_oversized_diff(self):
         from posthog.models.integration import _MAX_DIFF_CHARS
 

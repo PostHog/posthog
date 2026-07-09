@@ -105,6 +105,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PullRequestChecksResponseSerializer,
+    PullRequestCommentsResponseSerializer,
     ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
@@ -2076,6 +2078,138 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+    def _resolve_report_pr_reference(self, report: SignalReport) -> tuple[str, int] | None:
+        """Resolve a report's implementation PR to ``(owner/repo, pr_number)``, or None if it has none
+        (or the stored URL isn't a parseable GitHub PR URL)."""
+        pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+        if not pr_url:
+            return None
+        parsed = GitHubIntegration.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return None
+        owner, repo, pr_number = parsed
+        return f"{owner}/{repo}", pr_number
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestChecksResponseSerializer,
+                description="The CI checks on the report's implementation pull request.",
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub could not return the checks."),
+        },
+        summary="Fetch CI checks for a report's implementation PR",
+        description=(
+            "Fetch the CI status (GitHub Actions check runs and legacy commit statuses) of the pull "
+            "request the report's implementation task opened, via the team's GitHub integration."
+        ),
+        operation_id="signals_report_pr_checks",
+    )
+    @action(detail=True, methods=["get"], url_path="pr_checks", required_scopes=["task:read"])
+    def pr_checks(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        github, repository, pr_number, error = self._github_for_report_pr(report)
+        if error is not None:
+            return error
+        assert github is not None  # `error is None` guarantees a resolved integration
+        try:
+            result = github.get_pull_request_checks(repository, pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning("signals pr checks fetch errored", repository=repository, pr_number=pr_number)
+            return Response(
+                {"error": "GitHub could not return the checks for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if not result.get("success"):
+            return Response(
+                {"error": result.get("error") or "GitHub could not return the checks for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"checks": result["checks"]})
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=PullRequestCommentsResponseSerializer,
+                description="Conversation and review comments on the report's implementation pull request.",
+            ),
+            404: OpenApiResponse(
+                description="Report has no implementation PR, or no GitHub integration can access it."
+            ),
+            502: OpenApiResponse(description="GitHub could not return the comments."),
+        },
+        summary="Fetch comments for a report's implementation PR",
+        description=(
+            "Fetch the pull request's conversation comments and inline review comments, merged "
+            "chronologically, via the team's GitHub integration."
+        ),
+        operation_id="signals_report_pr_comments",
+    )
+    @action(detail=True, methods=["get"], url_path="pr_comments", required_scopes=["task:read"])
+    def pr_comments(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        github, repository, pr_number, error = self._github_for_report_pr(report)
+        if error is not None:
+            return error
+        assert github is not None  # `error is None` guarantees a resolved integration
+        try:
+            result = github.get_pull_request_comments(repository, pr_number)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning("signals pr comments fetch errored", repository=repository, pr_number=pr_number)
+            return Response(
+                {"error": "GitHub could not return the comments for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if not result.get("success"):
+            return Response(
+                {"error": result.get("error") or "GitHub could not return the comments for this pull request."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"comments": result["comments"]})
+
+    def _github_for_report_pr(self, report: SignalReport) -> tuple[GitHubIntegration | None, str, int, Response | None]:
+        """Resolve the report's implementation PR and the GitHub integration that can read it.
+
+        Returns ``(github, repository, pr_number, error_response)`` — on any failure ``error_response``
+        is set (and should be returned as-is) and ``github`` is None. Mirrors the connection-boundary
+        scoping of the artefact `diff` action: access is bounded to repos the team's installation can
+        reach, not to a single per-report repository.
+        """
+        reference = self._resolve_report_pr_reference(report)
+        if reference is None:
+            return (
+                None,
+                "",
+                0,
+                Response(
+                    {"error": "This report has no implementation pull request."},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        repository, pr_number = reference
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        except GitHubRateLimitError as e:
+            return None, repository, pr_number, github_rate_limited_response(e)
+        if github is None:
+            return (
+                None,
+                repository,
+                pr_number,
+                Response(
+                    {"error": f"No GitHub integration can access '{repository}'."},
+                    status=status.HTTP_404_NOT_FOUND,
+                ),
+            )
+        return github, repository, pr_number, None
 
 
 # `report_id` addresses a report's UUID primary key. Agents whose prompt only carries a

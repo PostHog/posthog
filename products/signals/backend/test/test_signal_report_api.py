@@ -2324,3 +2324,94 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "read-only" in response.json()["error"]
+
+
+class TestSignalReportPrEndpoints(APIBaseTest):
+    def _create_report(self) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+            signal_count=1,
+        )
+
+    def _checks_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_checks/"
+
+    def _comments_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/pr_comments/"
+
+    def test_pr_checks_404_when_report_has_no_implementation_pr(self):
+        report = self._create_report()
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_404_when_no_integration_can_access_repo(self):
+        report = self._create_report()
+        with (
+            patch(
+                "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+                return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+            ),
+            patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None),
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_pr_checks_success_returns_checks(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        checks = [{"name": "unit", "status": "completed", "conclusion": "success", "url": "https://gh/1"}]
+        github.return_value.get_pull_request_checks.return_value = {"success": True, "checks": checks}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"checks": checks}
+        # The PR number is parsed off the stored URL and passed through to the integration.
+        assert github.return_value.get_pull_request_checks.call_args.args == ("PostHog/posthog", 7)
+
+    def test_pr_checks_maps_upstream_failure_to_502(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        github.return_value.get_pull_request_checks.return_value = {"success": False, "error": "boom"}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._checks_url(str(report.id)))
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+
+    def test_pr_comments_success_returns_comments(self):
+        report = self._create_report()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        comments = [
+            {
+                "id": "1",
+                "author": "alice",
+                "author_avatar_url": None,
+                "body": "lgtm",
+                "created_at": "2026-07-06T09:00:00Z",
+                "url": "https://gh/c/1",
+                "comment_type": "conversation",
+                "path": None,
+            }
+        ]
+        github.return_value.get_pull_request_comments.return_value = {"success": True, "comments": comments}
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.get(self._comments_url(str(report.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"comments": comments}

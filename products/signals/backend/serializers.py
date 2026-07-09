@@ -855,3 +855,55 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class PullRequestCheckSerializer(serializers.Serializer):
+    """One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+    status, normalized to a common shape."""
+
+    name = serializers.CharField(read_only=True, help_text="Check run name or status context.")
+    status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lifecycle state: 'queued', 'in_progress', or 'completed'.",
+    )
+    conclusion = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', "
+        "'timed_out', or 'action_required'. Null while still running.",
+    )
+    url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Link to the check run / status detail on GitHub."
+    )
+
+
+class PullRequestChecksResponseSerializer(serializers.Serializer):
+    """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
+
+    checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCommentSerializer(serializers.Serializer):
+    """One comment on a pull request — a conversation comment or an inline review comment."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub comment id.")
+    author = serializers.CharField(read_only=True, allow_null=True, help_text="Comment author's GitHub login.")
+    author_avatar_url = serializers.CharField(read_only=True, allow_null=True, help_text="Author's GitHub avatar URL.")
+    body = serializers.CharField(read_only=True, allow_blank=True, help_text="Comment body (GitHub-flavored markdown).")
+    created_at = serializers.CharField(read_only=True, allow_null=True, help_text="ISO 8601 creation timestamp.")
+    url = serializers.CharField(read_only=True, allow_null=True, help_text="Link to the comment on GitHub.")
+    comment_type = serializers.ChoiceField(
+        read_only=True,
+        choices=["conversation", "review"],
+        help_text="'conversation' for a PR discussion comment, 'review' for an inline code-review comment.",
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="File path the review comment is anchored to (review comments only)."
+    )
+
+
+class PullRequestCommentsResponseSerializer(serializers.Serializer):
+    """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
+
+    comments = PullRequestCommentSerializer(many=True, read_only=True)

@@ -36,6 +36,8 @@ import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { PrChecksSection } from './PrChecksSection'
+import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { useReportDetailActions } from './ReportDetailActions'
@@ -507,6 +509,15 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             diffBranchTag={
                 canDiff && commit && latestCommitArtefact ? <PullRequestBranchTag commit={commit} /> : undefined
             }
-        />
+        >
+            {/* CI checks + PR comments render in the right column, above reviewers, when the report
+                has a shipped implementation PR. The sections drop themselves when there's nothing to show. */}
+            {hasPr && (
+                <>
+                    <PrChecksSection report={report} />
+                    <PrCommentsSection report={report} />
+                </>
+            )}
+        </InboxDetailFrame>
     )
 }

@@ -39,6 +39,8 @@ import {
 } from '../components/detail/reviewerDisplay'
 import {
     EnrichedReviewer,
+    PullRequestCheck,
+    PullRequestComment,
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -76,6 +78,10 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 ]
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
+
+// PR CI checks refresh cadence while the detail is open — a running build's status stays current
+// without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
+const PR_CHECKS_POLL_INTERVAL_MS = 15000
 
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
@@ -422,6 +428,28 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // CI checks on the report's implementation PR. Only fetched when the report has one; polled
+        // every 15s while the detail is mounted (see the `setReport` listener) so a running build's
+        // status stays current, mirroring the desktop PR-review view.
+        prChecks: [
+            null as PullRequestCheck[] | null,
+            {
+                loadPrChecks: async () => {
+                    const response = await api.signalReports.prChecks(props.reportId)
+                    return response.checks
+                },
+            },
+        ],
+        // Conversation + review comments on the report's implementation PR, merged chronologically.
+        prComments: [
+            null as PullRequestComment[] | null,
+            {
+                loadPrComments: async () => {
+                    const response = await api.signalReports.prComments(props.reportId)
+                    return response.comments
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -478,6 +506,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadReportDiff: (_, { artefactId }) => artefactId,
             },
         ],
+        // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
+        // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        prChecksError: [
+            null as string | null,
+            {
+                loadPrChecks: () => null,
+                loadPrChecksSuccess: () => null,
+                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+            },
+        ],
+        prCommentsError: [
+            null as string | null,
+            {
+                loadPrComments: () => null,
+                loadPrCommentsSuccess: () => null,
+                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+            },
+        ],
     }),
 
     selectors({
@@ -503,6 +549,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         isReportActive: [
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
+        ],
+        // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
+        hasImplementationPr: [
+            (s) => [s.report],
+            (report: SignalReport | null): boolean =>
+                !!(report?.implementation_pr_url && report.implementation_pr_url.length > 0),
         ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
@@ -668,6 +720,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }, 'reportTasksPoll')
             } else {
                 cache.disposables.dispose('reportTasksPoll')
+            }
+            // Load the PR checks/comments once the report has a shipped PR, and keep the checks fresh
+            // while the detail is open (a build the report opened can still be running). The keyed
+            // disposable auto-tears down on unmount / hidden tab and replaces any prior interval.
+            if (values.hasImplementationPr) {
+                if (values.prChecks === null && !values.prChecksLoading) {
+                    actions.loadPrChecks()
+                }
+                if (values.prComments === null && !values.prCommentsLoading) {
+                    actions.loadPrComments()
+                }
+                cache.disposables.add(() => {
+                    const interval = setInterval(() => actions.loadPrChecks(), PR_CHECKS_POLL_INTERVAL_MS)
+                    return () => clearInterval(interval)
+                }, 'prChecksPoll')
+            } else {
+                cache.disposables.dispose('prChecksPoll')
             }
         },
     })),

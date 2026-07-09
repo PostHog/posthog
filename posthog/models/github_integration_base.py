@@ -930,6 +930,134 @@ class GitHubIntegrationBase:
         owner, repo, pr_number = parsed
         return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
+    def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch the CI status for a PR — GitHub Actions check runs plus legacy commit statuses,
+        merged into one normalized list (mirrors the checks GitHub shows on the PR page).
+
+        Returns ``{"success": True, "checks": [...]}`` on success, or ``{"success": False, "error": ...}``
+        on a handled failure. Rate limits raise :class:`GitHubRateLimitError`.
+        """
+        pr = self.get_pull_request(repository, pr_number)
+        if not pr.get("success"):
+            return {"success": False, "error": pr.get("error", "Failed to fetch pull request")}
+        head_sha = pr.get("head_sha")
+        if not head_sha:
+            return {"success": False, "error": "Pull request has no head commit"}
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        checks: list[dict[str, Any]] = []
+
+        # GitHub Actions (and any Checks-API app) — the primary source for a modern repo.
+        runs_response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/check-runs",
+            endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
+            params={"per_page": 100},
+        )
+        if runs_response is not None and runs_response.status_code == 200:
+            try:
+                runs_body = runs_response.json()
+            except Exception:
+                runs_body = {}
+            for run in (runs_body.get("check_runs") if isinstance(runs_body, dict) else None) or []:
+                if not isinstance(run, dict):
+                    continue
+                checks.append(
+                    {
+                        "name": run.get("name") or "check",
+                        "status": run.get("status"),
+                        "conclusion": run.get("conclusion"),
+                        "url": run.get("html_url") or run.get("details_url"),
+                    }
+                )
+
+        # Legacy commit statuses (external CI posting via the Statuses API) — combined per context.
+        status_response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/commits/{head_sha}/status",
+            endpoint="/repos/{owner}/{repo}/commits/{ref}/status",
+            params={"per_page": 100},
+        )
+        if status_response is not None and status_response.status_code == 200:
+            try:
+                status_body = status_response.json()
+            except Exception:
+                status_body = {}
+            for st in (status_body.get("statuses") if isinstance(status_body, dict) else None) or []:
+                if not isinstance(st, dict):
+                    continue
+                mapped_status, mapped_conclusion = self._map_commit_status_state(st.get("state"))
+                checks.append(
+                    {
+                        "name": st.get("context") or "status",
+                        "status": mapped_status,
+                        "conclusion": mapped_conclusion,
+                        "url": st.get("target_url"),
+                    }
+                )
+
+        return {"success": True, "checks": checks}
+
+    @staticmethod
+    def _map_commit_status_state(state: str | None) -> tuple[str, str | None]:
+        """Map a legacy commit-status ``state`` onto the check-run ``(status, conclusion)`` shape."""
+        if state == "success":
+            return "completed", "success"
+        if state in ("failure", "error"):
+            return "completed", "failure"
+        return "in_progress", None
+
+    def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch a PR's conversation comments and inline review comments, merged chronologically.
+
+        Returns ``{"success": True, "comments": [...]}`` on success, or ``{"success": False, "error": ...}``
+        on a handled failure. Rate limits raise :class:`GitHubRateLimitError`. Best-effort per source:
+        a failure fetching one comment kind still returns whatever the other kind yielded.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        def normalize(raw: object, comment_type: str) -> dict[str, Any] | None:
+            if not isinstance(raw, dict):
+                return None
+            user = raw.get("user") or {}
+            return {
+                "id": str(raw.get("id")),
+                "author": user.get("login"),
+                "author_avatar_url": user.get("avatar_url"),
+                "body": raw.get("body") or "",
+                "created_at": raw.get("created_at"),
+                "url": raw.get("html_url"),
+                "comment_type": comment_type,
+                # Only review comments are anchored to a file.
+                "path": raw.get("path") if comment_type == "review" else None,
+            }
+
+        comments: list[dict[str, Any]] = []
+        for path, comment_type, endpoint in (
+            (f"issues/{pr_number}/comments", "conversation", "/repos/{owner}/{repo}/issues/{issue_number}/comments"),
+            (f"pulls/{pr_number}/comments", "review", "/repos/{owner}/{repo}/pulls/{pull_number}/comments"),
+        ):
+            response = self._installation_authenticated_get(
+                f"https://api.github.com/repos/{repo_path}/{path}",
+                endpoint=endpoint,
+                params={"per_page": 100},
+            )
+            if response is None or response.status_code != 200:
+                continue
+            try:
+                body = response.json()
+            except Exception:
+                logger.warning("GitHubIntegration: get_pull_request_comments non-JSON response", repository=repo_path)
+                continue
+            if not isinstance(body, list):
+                continue
+            for raw in body:
+                normalized = normalize(raw, comment_type)
+                if normalized is not None:
+                    comments.append(normalized)
+
+        # Merge both streams into a single chronological thread; entries without a timestamp sort last.
+        comments.sort(key=lambda c: c.get("created_at") or "")
+        return {"success": True, "comments": comments}
+
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.
 
