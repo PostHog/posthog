@@ -1749,7 +1749,7 @@ class IntruderSourceConfig(config.Config):
 
 @config.config
 class InvoicedSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
