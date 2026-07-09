@@ -35,6 +35,16 @@ module_logger = structlog.get_logger(__name__)
 INITIAL_ANALYTICS_LOOKBACK_DAYS = 365 * 5
 
 
+class LinkedinAdsTokenRefreshError(Exception):
+    """The stored OAuth token expired and could not be refreshed — only re-authorization recovers it.
+    Its message is already user-facing (see `get_non_retryable_errors`)."""
+
+
+class LinkedinAdsMissingTokenError(ValueError):
+    """The integration row carries no access token. Subclasses ValueError so existing callers that
+    only expect a ValueError here keep working."""
+
+
 @dataclass
 class LinkedInAdsResumeConfig:
     """Resume state for LinkedIn Ads sync — `nextPageToken` from the entity
@@ -143,9 +153,9 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
-    """Initialize a LinkedIn Ads client with provided config."""
-    integration = _get_integration(config.linkedin_ads_integration_id, team_id)
+def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client from an OAuth integration id."""
+    integration = _get_integration(integration_id, team_id)
 
     # LinkedIn access tokens expire (~60 days). Refresh a stale-but-refreshable token here so it gets
     # renewed instead of 401ing into a forced re-authorization. `access_token_expired` is a no-op when
@@ -154,13 +164,18 @@ def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> Linked
     if oauth_integration.access_token_expired():
         oauth_integration.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise Exception(
+            raise LinkedinAdsTokenRefreshError(
                 "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration."
             )
 
     if not integration.access_token:
-        raise ValueError("LinkedIn Ads integration does not have an access token")
+        raise LinkedinAdsMissingTokenError("LinkedIn Ads integration does not have an access token")
     return LinkedinAdsClient(integration.access_token)
+
+
+def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
+    """Initialize a LinkedIn Ads client with provided config."""
+    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id)
 
 
 def linkedin_ads_source(

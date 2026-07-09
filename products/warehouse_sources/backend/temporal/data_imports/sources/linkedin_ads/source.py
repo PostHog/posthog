@@ -5,8 +5,7 @@ from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
@@ -26,22 +25,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+from .client import LinkedinAdsApiError, LinkedinAdsDailyRateLimitError
 from .linkedin_ads import (
+    LinkedinAdsMissingTokenError,
     LinkedInAdsResumeConfig,
+    LinkedinAdsTokenRefreshError,
     get_incremental_fields as get_linkedin_ads_incremental_fields,
     get_schemas as get_linkedin_ads_schemas,
+    linkedin_ads_client_for_integration,
     linkedin_ads_source,
 )
 
 
 @SourceRegistry.register
-class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig]):
+class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -104,19 +112,19 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="account_id",
-                        label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
+                    # OAuth first: the account dropdown below is populated from this integration.
                     SourceFieldOauthConfig(
                         name="linkedin_ads_integration_id",
                         label="LinkedIn Ads account",
                         required=True,
                         kind="linkedin-ads",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="account_id",
+                        label="Account ID",
+                        integrationField="linkedin_ads_integration_id",
+                        integrationKind="linkedin-ads",
+                        required=True,
                     ),
                 ],
             ),
@@ -131,6 +139,46 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
                 ),
             ],
         )
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            client = linkedin_ads_client_for_integration(integration_id, team_id)
+        except Integration.DoesNotExist as e:
+            raise IntegrationAccountListingError(
+                "Your LinkedIn Ads connection is no longer available — it may have been disconnected. "
+                "Please re-authorize the LinkedIn Ads integration."
+            ) from e
+        except LinkedinAdsTokenRefreshError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+        except LinkedinAdsMissingTokenError as e:
+            raise IntegrationAccountListingError(
+                "The LinkedIn Ads integration has no access token. Please re-authorize the integration."
+            ) from e
+
+        try:
+            accounts = client.get_accounts()
+        except LinkedinAdsApiError as e:
+            if e.api_status_code not in (401, 403):
+                # Any other 4xx is a bug in the request we build, not something the user can fix.
+                raise
+            raise IntegrationAccountListingError(
+                "LinkedIn rejected the credentials for this integration. Please re-authorize the "
+                "LinkedIn Ads integration and make sure the signed-in member can access your ad accounts."
+            ) from e
+        except LinkedinAdsDailyRateLimitError as e:
+            raise IntegrationAccountListingError(
+                "LinkedIn's daily API limit for this connection has been reached. "
+                "Please try again after it resets at midnight UTC."
+            ) from e
+
+        return [
+            IntegrationAccount(
+                value=str(account["id"]),
+                display_name=account.get("name") or "Unnamed account",
+                badges=(account["status"],) if account.get("status") else (),
+            )
+            for account in accounts
+        ]
 
     def validate_credentials(
         self, config: LinkedinAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
