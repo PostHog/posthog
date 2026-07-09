@@ -124,7 +124,13 @@ def _maybe_flag_pre_extraction(
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
-        # Detection is best-effort; a failure here must not block the sync.
+        # Detection is best-effort; a failure here must not block the sync. Reading the delta table
+        # lazily loads FKs off a pool thread, so a transient app-DB pooler drop (or a worker-shutdown
+        # cancellation) can surface here — that's infra noise, not a detection bug. Match the transient
+        # handling on the main repartition path: log a warning and move on without reporting a new issue.
+        if _is_cancellation(e) or isinstance(e, OperationalError | InterfaceError):
+            logger.warning("repartition: transient error during pre-extraction detection, skipping", exc_info=True)
+            return None
         logger.warning("repartition: pre-extraction detection failed", exc_info=True)
         capture_exception(e)
         return None
