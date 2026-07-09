@@ -98,4 +98,22 @@ describe('HogFlowActionSchema', () => {
     ])('max_wait_duration %p → valid=%p', (duration, valid) => {
         expect(HogFlowActionSchema.safeParse(waitAction(duration)).success).toBe(valid)
     })
+
+    // The message the user sees depends on which rule failed, and the order matters: an empty field must
+    // read "Please enter a duration", not the technical format/min messages. delay_duration and
+    // max_wait_duration share DURATION_STRING, so testing one covers both.
+    it.each([
+        ['', 'Please enter a duration'],
+        ['m', 'Please enter a duration'],
+        ['3', 'Duration must be a whole number followed by d, h, or m'],
+        ['1.5h', 'Duration must be a whole number followed by d, h, or m'],
+        ['0m', 'Duration must be at least 1'],
+    ])('delay_duration %p → message %p', (duration, message) => {
+        const result = HogFlowActionSchema.safeParse(delayAction(duration))
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            const issue = result.error.issues.find((i) => i.path.at(-1) === 'delay_duration')
+            expect(issue?.message).toBe(message)
+        }
+    })
 })
