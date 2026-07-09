@@ -4,14 +4,15 @@ import time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.http import QueryDict
-from django.test import SimpleTestCase
 from django.conf import settings
 from django.core.cache import caches
-from django.test import override_settings
+from django.http import QueryDict
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 
 from products.feature_flags.backend.api.staff_cache import (
     MAX_TEAMS_PER_MUTATION,
@@ -20,8 +21,6 @@ from products.feature_flags.backend.api.staff_cache import (
     WARM_RUN_STATUS_CACHE_KEY,
     StaffCacheStatusQuerySerializer,
 )
-
-from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from products.feature_flags.backend.flags_cache import flags_hypercache
 from products.feature_flags.backend.local_evaluation import (
     flag_definitions_hypercache,

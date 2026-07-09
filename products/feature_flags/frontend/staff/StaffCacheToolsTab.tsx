@@ -33,7 +33,7 @@ const WARM_RUN_STATE_TAGS: Record<StaffWarmRun['state'], { type: 'completion' | 
         cancelled: { type: 'muted', label: 'Cancelled' },
     }
 
-const WARM_RUN_SCOPE_LABELS: Record<string, string> = {
+const WARM_RUN_SCOPE_LABELS: Record<StaffWarmRun['scope'], string> = {
     all_teams: 'all teams',
     teams_with_flags: 'teams with flags',
 }
@@ -99,7 +99,7 @@ function WarmRunPanel(): JSX.Element {
             <LemonProgress percent={percent} />
             <div className="flex items-center gap-2 text-secondary">
                 <span>
-                    {warmRun.processed.toLocaleString()}/{warmRun.total.toLocaleString()} teams ({percent}%) —{' '}
+                    {warmRun.processed.toLocaleString()}/{warmRun.total.toLocaleString()} teams ({percent}%) ·{' '}
                     {warmRun.successful.toLocaleString()} ok, {warmRun.failed.toLocaleString()} failed
                 </span>
                 <span className="ml-auto">
@@ -108,7 +108,7 @@ function WarmRunPanel(): JSX.Element {
             </div>
             {warmRun.is_stale && (
                 <LemonBanner type="warning">
-                    This run stopped reporting progress — the warmer process likely died (deploy, OOM, or manual kill)
+                    This run stopped reporting progress. The warmer process likely died (deploy, OOM, or manual kill)
                     without writing a final state. Re-run the warmer to continue; its status shows the last dispatched
                     team id ({warmRun.last_team_id ?? 'unknown'}) as a resume cursor.
                 </LemonBanner>

@@ -254,6 +254,18 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
             actions.loadCacheStatus()
         }
 
+        // Re-register the poller only when the desired cadence changes, so each
+        // tick doesn't churn the interval.
+        const scheduleWarmRunPoll = (desiredMs: number): void => {
+            if (cache.warmRunPollMs !== desiredMs) {
+                cache.warmRunPollMs = desiredMs
+                cache.disposables.add(() => {
+                    const pollTimer = window.setInterval(() => actions.loadWarmRun(), desiredMs)
+                    return () => clearInterval(pollTimer)
+                }, 'warmRunPoll')
+            }
+        }
+
         return {
             setSelectedTeamIds: () => {
                 actions.loadCacheStatus()
@@ -309,17 +321,14 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                 }
             },
             loadWarmRunSuccess: ({ warmRun }) => {
-                // Re-register the poller only when the desired cadence changes, so each
-                // 5s tick doesn't churn the interval.
                 const desiredMs =
                     warmRun?.state === 'running' && !warmRun.is_stale ? WARM_RUN_ACTIVE_POLL_MS : WARM_RUN_IDLE_POLL_MS
-                if (cache.warmRunPollMs !== desiredMs) {
-                    cache.warmRunPollMs = desiredMs
-                    cache.disposables.add(() => {
-                        const pollTimer = window.setInterval(() => actions.loadWarmRun(), desiredMs)
-                        return () => clearInterval(pollTimer)
-                    }, 'warmRunPoll')
-                }
+                scheduleWarmRunPoll(desiredMs)
+            },
+            loadWarmRunFailure: () => {
+                // A transient fetch error shouldn't permanently stop polling: fall back to the
+                // idle cadence so the panel keeps retrying instead of going stale forever.
+                scheduleWarmRunPoll(WARM_RUN_IDLE_POLL_MS)
             },
             cancelWarmRunSuccess: () => {
                 lemonToast.success(

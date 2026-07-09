@@ -221,25 +221,25 @@ async fn build_reporter(
         return None;
     }
 
-    if let Some(current) = read_current_status(&redis).await {
-        if is_active(&current, chrono::Utc::now()) {
-            if cli.force {
-                tracing::warn!(
-                    run_id = current.run_id,
-                    "Another warm-all run appears active; continuing due to --force"
-                );
-            } else {
-                tracing::error!(
-                    run_id = current.run_id,
-                    started_at = %current.started_at,
-                    processed = current.processed,
-                    total = current.total,
-                    "Another warm-all run appears active (heartbeat is fresh). \
-                     Wait for it, cancel it from the staff cache tools page, or pass --force."
-                );
-                std::process::exit(1);
-            }
+    if let Some(current) = read_current_status(&redis)
+        .await
+        .filter(|status| is_active(status, chrono::Utc::now()))
+    {
+        if !cli.force {
+            tracing::error!(
+                run_id = current.run_id,
+                started_at = %current.started_at,
+                processed = current.processed,
+                total = current.total,
+                "Another warm-all run appears active (heartbeat is fresh). \
+                 Wait for it, cancel it from the staff cache tools page, or pass --force."
+            );
+            std::process::exit(1);
         }
+        tracing::warn!(
+            run_id = current.run_id,
+            "Another warm-all run appears active; continuing due to --force"
+        );
     }
 
     let scope = if *all_teams {

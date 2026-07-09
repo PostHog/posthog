@@ -243,17 +243,12 @@ def _flags_dedicated_cache() -> Optional[BaseCache]:
     return caches[FLAGS_DEDICATED_CACHE_ALIAS]
 
 
-def _read_warm_run_status() -> Optional[dict[str, Any]]:
-    """Read and massage the warmer's raw status blob, or None when absent/unreadable.
+def _parse_warm_run_status(raw: Optional[str]) -> Optional[dict[str, Any]]:
+    """Parse the warmer's raw status blob, or None when absent/unreadable.
 
     Tolerant of malformed blobs (e.g. written by a newer binary): any parse failure reads as
     "no run" rather than a 500 on the staff page.
     """
-    cache = _flags_dedicated_cache()
-    if cache is None:
-        return None
-
-    raw = cache.get(WARM_RUN_STATUS_CACHE_KEY)
     if raw is None:
         return None
     try:
@@ -261,10 +256,23 @@ def _read_warm_run_status() -> Optional[dict[str, Any]]:
     except (TypeError, ValueError):
         logger.warning("flags_staff_warm_run_status_unparseable")
         return None
-    if not isinstance(run, dict) or not isinstance(run.get("run_id"), str) or run.get("state") not in WARM_RUN_STATES:
+    if (
+        not isinstance(run, dict)
+        or not isinstance(run.get("run_id"), str)
+        or run.get("state") not in WARM_RUN_STATES
+        or run.get("scope") not in WARM_RUN_SCOPES
+    ):
         logger.warning("flags_staff_warm_run_status_malformed")
         return None
     return run
+
+
+def _read_warm_run_status() -> Optional[dict[str, Any]]:
+    """Read and parse the warmer's raw status blob from the dedicated flags cache."""
+    cache = _flags_dedicated_cache()
+    if cache is None:
+        return None
+    return _parse_warm_run_status(cache.get(WARM_RUN_STATUS_CACHE_KEY))
 
 
 def _as_epoch(value: Any) -> int:
@@ -447,13 +455,17 @@ class FeatureFlagsStaffCacheViewSet(viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warm_run(self, request: request.Request, **kwargs) -> response.Response:
         """Status of the most recent warm-all run, published by the Rust warmer."""
-        run = _read_warm_run_status()
+        cache = _flags_dedicated_cache()
+        if cache is None:
+            return response.Response({"run": None})
+
+        # One MGET for both keys, since this endpoint is polled every 5-30s per open staff page.
+        values = cache.get_many([WARM_RUN_STATUS_CACHE_KEY, WARM_RUN_CANCEL_CACHE_KEY])
+        run = _parse_warm_run_status(values.get(WARM_RUN_STATUS_CACHE_KEY))
         if run is None:
             return response.Response({"run": None})
 
-        cache = _flags_dedicated_cache()
-        cancel_run_id = cache.get(WARM_RUN_CANCEL_CACHE_KEY) if cache is not None else None
-        return response.Response({"run": _present_warm_run(run, cancel_run_id)})
+        return response.Response({"run": _present_warm_run(run, values.get(WARM_RUN_CANCEL_CACHE_KEY))})
 
     @extend_schema(
         request=None,

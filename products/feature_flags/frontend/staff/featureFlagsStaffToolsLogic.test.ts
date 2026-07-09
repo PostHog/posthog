@@ -251,6 +251,40 @@ describe('featureFlagsStaffToolsLogic', () => {
             await expectLogic(logic).toDispatchActions(['cancelWarmRunFailure'])
             expect(lemonToast.error).toHaveBeenCalled()
         })
+
+        it('polls at the active cadence while a run is live, and falls back to idle otherwise', async () => {
+            // Let the mount-time load (mocked as { run: null }, idle cadence) settle first.
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: WARM_RUN } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(5000)
+
+            // A stale "running" run is treated as idle, same as a completed/cancelled one.
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: { ...WARM_RUN, is_stale: true } } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(30000)
+        })
+
+        it('falls back to the idle poll cadence when a status fetch fails', async () => {
+            // Let the mount-time load (mocked as { run: null }) settle first so it can't race
+            // with the loads below.
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+
+            // Put the poller into the active cadence first, so a no-op failure handler would be
+            // observable (staying at 5000) instead of masked by the idle default from mount.
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': { run: WARM_RUN } } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunSuccess'])
+            expect(logic.cache.warmRunPollMs).toEqual(5000)
+
+            useMocks({ get: { '/api/feature_flags_staff_cache/warm_run': () => [500, {}] } })
+            logic.actions.loadWarmRun()
+            await expectLogic(logic).toDispatchActions(['loadWarmRunFailure'])
+            expect(logic.cache.warmRunPollMs).toEqual(30000)
+        })
     })
 
     describe('team search loader', () => {
