@@ -55,6 +55,21 @@ FAILURE_TYPE_USER = "user"
 FAILURE_TYPE_SYSTEM = "system"
 FAILURE_TYPE_TIMEOUT_GENERATION = "timeout_generation"
 FAILURE_TYPE_UNKNOWN = "unknown"
+# Render noise we deliberately suppress rather than investigate (see is_benign_playwright_binding_race).
+FAILURE_TYPE_BENIGN = "benign"
+
+# Playwright's internal storage-state tracking binding ("__pw_storage_change") can be dispatched to a
+# context/page where it isn't registered when we connect_over_cdp to a shared browserless browser that
+# holds multiple contexts. This is a known-benign driver race (the numbered suffix, e.g.
+# "__pw_storage_change2", is per-context) that fires while rendering messy third-party pages, such as
+# heatmap exports of a customer's real page. It's render noise, not an export bug, so we classify and
+# suppress it.
+_PLAYWRIGHT_BINDING_RACE_MARKERS = ("__pw_storage_change", "is not exposed")
+
+
+def is_benign_playwright_binding_race(exception: Exception | str) -> bool:
+    message = exception if isinstance(exception, str) else str(exception)
+    return all(marker in message for marker in _PLAYWRIGHT_BINDING_RACE_MARKERS)
 
 
 class ExportCancelled(Exception):
@@ -143,6 +158,8 @@ def classify_failure_type(exception: Exception | str) -> str:
     # these same tuples, so isinstance has identical coverage while avoiding false positives from
     # unrelated classes that merely share a name (django/pydantic ValidationError, builtin SyntaxError).
     if isinstance(exception, Exception):
+        if is_benign_playwright_binding_race(exception):
+            return FAILURE_TYPE_BENIGN
         if isinstance(exception, TIMEOUT_ERRORS):
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if isinstance(exception, USER_QUERY_ERRORS):
@@ -155,6 +172,8 @@ def classify_failure_type(exception: Exception | str) -> str:
     # name matching. This is best-effort and can't distinguish same-named classes from other packages.
     exception_type = exception
     if exception_type:
+        if is_benign_playwright_binding_race(exception_type):
+            return FAILURE_TYPE_BENIGN
         if exception_type in TIMEOUT_ERROR_NAMES:
             return FAILURE_TYPE_TIMEOUT_GENERATION
         if exception_type in USER_QUERY_ERROR_NAMES:

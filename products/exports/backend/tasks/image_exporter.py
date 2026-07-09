@@ -36,6 +36,7 @@ from products.exports.backend.tasks.failure_handler import (
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
+    is_benign_playwright_binding_race,
 )
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -451,6 +452,14 @@ def _screenshot_asset_browserless(
             if disconnected[0] or _is_browserless_connection_error(e):
                 raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
+            # A known-benign Playwright driver race routes an internal storage-state binding to a
+            # page where it isn't registered while rendering messy third-party pages (heatmap
+            # exports over a shared browserless browser). Re-raise so existing flow is unchanged,
+            # but keep it out of error tracking, since it's render noise, not an export bug.
+            if is_benign_playwright_binding_race(e):
+                logger.warning("image_exporter.benign_playwright_binding_race", error=str(e))
+                raise
+
             with posthoganalytics.new_context():
                 posthoganalytics.tag("url_to_render", url_to_render)
                 if page:
@@ -592,6 +601,11 @@ def export_image(
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
+            # Suppress the known-benign Playwright binding race (see _screenshot_asset_browserless)
+            # so it doesn't clutter error tracking; still re-raise to leave export behavior unchanged.
+            if is_benign_playwright_binding_race(e):
+                logger.warning("image_exporter.benign_playwright_binding_race", team_id=team_id, error=str(e))
+                raise
             capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             raise

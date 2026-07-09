@@ -3,14 +3,17 @@ from unittest import TestCase
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from parameterized import parameterized
+from playwright.sync_api import Error as PlaywrightError
 from rest_framework.exceptions import ValidationError
 
 from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_BENIGN,
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
     classify_failure_type,
+    is_benign_playwright_binding_race,
     is_user_query_error_type,
 )
 
@@ -102,3 +105,28 @@ class TestClassifyFailureType(TestCase):
     def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
         # Stored rows only carry the class name, so the string path stays purely name-based.
         assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
+
+
+class TestBenignPlaywrightBindingRace(TestCase):
+    @parameterized.expand(
+        [
+            ('Function "__pw_storage_change2" is not exposed', True),
+            ('Function "__pw_storage_change" is not exposed', True),
+            ('Function "__pw_storage_change17" is not exposed', True),
+            # Needs both markers, so an unrelated "is not exposed" must not be swallowed.
+            ('Function "someOtherBinding" is not exposed', False),
+            ("__pw_storage_change2 emitted but page crashed", False),
+            ("Timeout while waiting for the page to load", False),
+            ("", False),
+        ]
+    )
+    def test_is_benign_playwright_binding_race(self, message: str, expected: bool) -> None:
+        assert is_benign_playwright_binding_race(message) is expected
+        assert is_benign_playwright_binding_race(PlaywrightError(message)) is expected
+
+    def test_binding_race_instance_classifies_as_benign(self) -> None:
+        exception = PlaywrightError('Function "__pw_storage_change2" is not exposed')
+        assert classify_failure_type(exception) == FAILURE_TYPE_BENIGN
+
+    def test_binding_race_message_string_classifies_as_benign(self) -> None:
+        assert classify_failure_type('Function "__pw_storage_change2" is not exposed') == FAILURE_TYPE_BENIGN
