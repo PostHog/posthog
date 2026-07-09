@@ -47,6 +47,7 @@ export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     'OpenAI Responses API': { logo: { src: openaiLogo, alt: 'OpenAI Responses API logo' }, colorIndex: 10 },
     OpenAI: { logo: { src: openaiLogo, alt: 'OpenAI logo' }, colorIndex: 1 },
     'OpenAI Codex': { logo: { src: openaiLogo, alt: 'OpenAI Codex logo' }, colorIndex: 13 },
+    Grok: { colorIndex: 14 },
     Cursor: { logo: { src: cursorLogo, alt: 'Cursor logo' }, colorIndex: 12 },
     'VS Code': { logo: { src: vscodeLogo, alt: 'VS Code logo' }, colorIndex: 11 },
     Windsurf: { logo: { src: windsurfLogo, alt: 'Windsurf logo' } },

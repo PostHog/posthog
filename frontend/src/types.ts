@@ -506,6 +506,7 @@ export interface PluginAccess {
 export interface PersonalAPIKeyType {
     id: string
     label: string
+    description?: string | null
     value?: string
     is_legacy_hashing: boolean
     mask_value?: string | null
