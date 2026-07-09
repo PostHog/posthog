@@ -471,6 +471,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "connect until the database is available again. Upgrade your provider's plan or wait "
                 "for the quota to reset, then re-enable the sync."
             ),
+            # The provider has put the cluster into read-only mode, so it rejects our read (the
+            # server-side cursor runs its SELECT inside a read/write transaction). PlanetScale's
+            # pg_readonly reports "invalid statement because cluster is read-only"; the cluster only
+            # leaves this state once the customer restores write access (free up storage, upgrade the
+            # plan), so a whole-activity retry re-reads into the same wall. Match the stable phrase and
+            # exclude the volatile leading "pg_readonly:" prefix and trailing docs URL.
+            "cluster is read-only": (
+                "Your database provider has put the database cluster into read-only mode, so it's "
+                'rejecting PostHog\'s queries ("cluster is read-only"). Providers such as PlanetScale '
+                "do this when a storage or usage limit is exceeded. Restore write access to the cluster "
+                "(for example free up storage or upgrade your plan), then re-enable the sync."
+            ),
             # A physical standby / read replica started with `hot_standby = off` refuses every
             # connection while in recovery, raising SQLSTATE 57P03 "FATAL: the database system is not
             # accepting connections / DETAIL: Hot standby mode is disabled". It will never serve read

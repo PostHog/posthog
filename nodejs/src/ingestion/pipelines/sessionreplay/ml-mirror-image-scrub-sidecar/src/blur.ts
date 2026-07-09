@@ -1,4 +1,4 @@
-// These params must stay in sync with nodejs/.../anonymize/blur.ts, or the mirror diverges from the inline anonymizer.
+// These params must stay in sync with rust/replay-anonymizer-node/src/blur.rs, or the mirror diverges from the inline anonymizer.
 import sharp from 'sharp'
 
 // One libvips thread per op and no cross-request cache, so N concurrent scrubs cost ~N threads (not N x CPU)
