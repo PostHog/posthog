@@ -11,7 +11,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade.api import query_new_error_issues as query_new_error_issues
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -149,20 +149,6 @@ def query_user_product_suggestions(
         created_at__gt=period_start,
         created_at__lte=period_end,
     ).values("product_path", "reason", "reason_text")
-
-
-def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
-    # "New this week" = issue first created within the digest window. Only active issues
-    # (not archived/resolved/suppressed) are worth surfacing as a new production error.
-    return (
-        ErrorTrackingIssue.objects.filter(
-            created_at__gt=period_start,
-            created_at__lte=period_end,
-            status=ErrorTrackingIssue.Status.ACTIVE,
-        )
-        .order_by("-created_at")
-        .values("team_id", "name", "id")
-    )
 
 
 @database_sync_to_async
