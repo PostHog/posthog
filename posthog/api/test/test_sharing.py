@@ -1754,3 +1754,134 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         results = response.json().get("inline_query_results", {})
         assert "wh" in results
         assert not results["wh"].get("error")
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=_warehouse_ac_flag))
+class TestSharingPublishGate(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        from posthog.models import OrganizationMembership
+
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+            columns={"id": "String"},
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+            },
+            created_by=self.user,
+        )
+
+    def _deny_warehouse(self) -> None:
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _enable_sharing(self, kind: str):
+        if kind == "insight":
+            url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing"
+        elif kind == "dashboard":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing"
+        else:
+            from products.notebooks.backend.models import Notebook
+
+            notebook = Notebook.objects.create(
+                team=self.team,
+                created_by=self.user,
+                content={
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-query",
+                            "attrs": {
+                                "nodeId": "wh",
+                                "query": {
+                                    "kind": "DataTableNode",
+                                    "source": {"kind": "HogQLQuery", "query": "SELECT id FROM governed_view"},
+                                },
+                            },
+                        }
+                    ],
+                },
+            )
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        return self.client.patch(url, {"enabled": True})
+
+    @parameterized.expand([("insight",), ("dashboard",), ("notebook",)])
+    def test_denied_publisher_cannot_enable_sharing(self, kind: str):
+        self._deny_warehouse()
+
+        response = self._enable_sharing(kind)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Can't enable sharing" in str(response.json())
+        assert "governed_view" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
+    def test_publisher_with_access_can_enable_sharing(self):
+        response = self._enable_sharing("dashboard")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is True
+
+    def test_system_table_denial_blocks_publishing(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT id FROM system.dashboards"},
+        }
+        self.insight.save()
+
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.dashboards" in str(response.json())
+
+    def test_already_enabled_share_is_not_regated(self):
+        config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        self._deny_warehouse()
+
+        # Not an enable transition: settings edits on an already-published share stay possible
+        # even if the editor has since lost access to the underlying tables.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": True, "settings": {"whitelabel": True}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.enabled is True
+
+    def test_unparseable_query_does_not_block_publishing(self):
+        self._deny_warehouse()
+        self.insight.query = {
+            "kind": "DataTableNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT FROM WHERE ((("},
+        }
+        self.insight.save()
+
+        # A broken query errors for everyone at view time - that's not an access problem,
+        # so it must not block publishing.
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
