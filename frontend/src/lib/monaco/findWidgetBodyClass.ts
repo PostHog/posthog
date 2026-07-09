@@ -20,11 +20,11 @@ interface FindControllerLike extends importedEditor.IEditorContribution {
 
 export function trackFindWidgetVisibility(codeEditor: importedEditor.IStandaloneCodeEditor): IDisposable {
     const findController = codeEditor.getContribution<FindControllerLike>('editor.contrib.findController')
-    if (!findController || typeof findController.getState !== 'function') {
+    const state = typeof findController?.getState === 'function' ? findController.getState() : null
+    if (!state || typeof state.onFindReplaceStateChange !== 'function') {
         // Internal contribution shape changed: degrade to the tooltip flicker workaround not applying
         return { dispose: () => {} }
     }
-    const state = findController.getState()
     let revealed = false
     const setRevealed = (nextRevealed: boolean): void => {
         if (nextRevealed === revealed) {
