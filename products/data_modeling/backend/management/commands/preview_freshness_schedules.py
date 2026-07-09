@@ -76,11 +76,11 @@ class Command(BaseCommand):
 
     def _print_warnings(self, preview: DagSchedulePreview, names: dict[str, str]) -> None:
         wrote = False
-        for tier in sorted(preview.unsatisfiable, key=lambda t: names.get(t.node_id, t.node_id)):
+        for clamp in sorted(preview.clamped, key=lambda c: names.get(c.node_id, c.node_id)):
             wrote = True
             self.stdout.write(
-                f"  ⚠ unsatisfiable: {names.get(tier.node_id, tier.node_id)} would run every {tier.effective} "
-                f"but its sources only deliver every {tier.source_floor}"
+                f"  ⚠ clamp: {names.get(clamp.node_id, clamp.node_id)} demanded every {clamp.demanded} "
+                f"but its sources only deliver every {clamp.source_floor} → will run {clamp.clamped_to}"
             )
         for interval in preview.unsupported_tiers:
             wrote = True
