@@ -3350,7 +3350,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # On a running experiment, a flag-config change without the opt-in is rejected and must not
         # touch the cached flag.
-        unchanged_filters = {
+        unchanged_filters: dict[str, Any] = {
             "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}],
             "multivariate": {
                 "variants": [
