@@ -59,6 +59,7 @@
     'posthog.tasks.email.send_two_factor_auth_disabled_email',
     'posthog.tasks.email.send_two_factor_auth_enabled_email',
     'posthog.tasks.email.send_two_factor_reset_email',
+    'posthog.tasks.email.send_wizard_pr_ready_email',
     'posthog.tasks.exporter.export_asset',
     'posthog.tasks.gateway_credential.drain_gateway_credential_last_used_task',
     'posthog.tasks.gateway_credential.refresh_gateway_credentials',
