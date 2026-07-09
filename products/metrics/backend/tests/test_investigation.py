@@ -171,8 +171,14 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result.symptom.direction, "flat")
 
-    def test_incident_context_rejects_naive_fired_at(self):
-        # fired_at must be an explicit UTC instant; a naive datetime is rejected
-        # at construction rather than silently mis-bucketed as UTC.
+    def test_incident_context_normalizes_fired_at_to_utc(self):
+        # fired_at must be an explicit instant: naive datetimes are rejected at
+        # construction rather than silently mis-bucketed as UTC, and aware
+        # non-UTC instants are normalized so window math always runs in UTC.
         with self.assertRaises(ValueError):
             IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 12, 0))
+
+        ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+        context = IncidentContext(metric_name="ingestion_lag", fired_at=dt.datetime(2026, 1, 1, 17, 30, tzinfo=ist))
+        self.assertEqual(context.fired_at, dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC))
+        self.assertEqual(context.fired_at.tzinfo, dt.UTC)

@@ -172,7 +172,12 @@ class MetricEventSample:
     metric_name: str
     metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
     value: float
+    # Observations behind this point: 1 for gauges/counters, the distribution
+    # count for histograms/summaries (value is then the sum; avg = value/count).
+    count: int
     unit: str
+    aggregation_temporality: str  # "delta" | "cumulative" | "" (gauges)
+    is_monotonic: bool
     service_name: str
     trace_id: str
     span_id: str
@@ -276,9 +281,9 @@ class InvestigationResult:
 class IncidentContext:
     """Structured context from a fired alert (or a manual "this looks wrong"),
     so an investigation never has to parse a timestamp out of prose. `fired_at`
-    is an explicit UTC instant; the anomaly window is derived as
-    [fired_at - lookback, fired_at + leadout], and `service_name` scopes the
-    investigation to the implicated service.
+    must be timezone-aware and is normalized to UTC at construction; the
+    anomaly window is derived as [fired_at - lookback, fired_at + leadout],
+    and `service_name` scopes the investigation to the implicated service.
     """
 
     metric_name: str
@@ -289,8 +294,10 @@ class IncidentContext:
     companions: tuple[CompanionMetric, ...] = ()
 
     def __post_init__(self) -> None:
-        # The docstring promises a UTC instant; a naive datetime would be taken
-        # as UTC by the window math and silently mis-bucket a local-time fire.
-        # Fail fast at construction so callers stay explicit.
+        # A naive datetime would be taken as UTC by the window math and
+        # silently mis-bucket a local-time fire; fail fast at construction.
+        # Aware non-UTC instants are fine — normalize them so downstream
+        # window math always operates on UTC.
         if self.fired_at.tzinfo is None:
-            raise ValueError("fired_at must be timezone-aware (UTC)")
+            raise ValueError("fired_at must be timezone-aware")
+        object.__setattr__(self, "fired_at", self.fired_at.astimezone(dt.UTC))
