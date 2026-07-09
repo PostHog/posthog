@@ -8,151 +8,80 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `engineering` - Engineering
- * * `data` - Data
- * * `product` - Product Management
- * * `founder` - Founder
- * * `leadership` - Leadership
- * * `marketing` - Marketing
- * * `sales` - Sales / Success
- * * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+export type StreamlitAppUserInfoApiHedgehogConfig = { [key: string]: unknown } | null
 
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
+export interface StreamlitAppUserInfoApi {
+    id: number
+    uuid: string
+    /** @nullable */
+    distinct_id: string | null
+    first_name: string
+    last_name: string
     email: string
     /** @nullable */
-    is_email_verified?: boolean | null
+    is_email_verified: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+    hedgehog_config: StreamlitAppUserInfoApiHedgehogConfig
+    /** @nullable */
+    role_at_organization: string | null
 }
 
-export interface StreamlitAppMinimalApi {
-    readonly id: string
-    readonly short_id: string
-    readonly name: string
-    readonly description: string
-    readonly cpu_cores: number
-    readonly memory_gb: number
-    readonly status: string
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
+export interface AppContractApi {
+    /** User who created this app. */
+    created_by?: StreamlitAppUserInfoApi | null
+    id: string
+    short_id: string
+    name: string
+    description: string
+    cpu_cores: number
+    memory_gb: number
+    status: string
+    created_at: string
+    updated_at: string
 }
 
-export interface PaginatedStreamlitAppMinimalListApi {
+export interface PaginatedAppContractListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: StreamlitAppMinimalApi[]
+    results: AppContractApi[]
 }
 
-export interface StreamlitAppVersionApi {
-    readonly id: string
-    readonly version_number: number
-    readonly zip_hash: string
-    /** @nullable */
-    readonly snapshot_id: string | null
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-}
-
-/**
- * * `starting` - Starting
- * * `running` - Running
- * * `stopping` - Stopping
- * * `stopped` - Stopped
- * * `error` - Error
- */
-export type StreamlitAppSandboxStatusEnumApi =
-    (typeof StreamlitAppSandboxStatusEnumApi)[keyof typeof StreamlitAppSandboxStatusEnumApi]
-
-export const StreamlitAppSandboxStatusEnumApi = {
-    Starting: 'starting',
-    Running: 'running',
-    Stopping: 'stopping',
-    Stopped: 'stopped',
-    Error: 'error',
-} as const
-
-export interface StreamlitAppSandboxApi {
-    readonly status: StreamlitAppSandboxStatusEnumApi
-    readonly restart_count: number
-    readonly last_error: string
-    /** @nullable */
-    readonly started_at: string | null
-    /** @nullable */
-    readonly last_activity_at: string | null
-    readonly version_number: number
-}
-
-export interface StreamlitAppApi {
-    readonly id: string
-    readonly short_id: string
-    /** @maxLength 255 */
+export interface CreateAppInputApi {
+    /** Name of the app. */
     name: string
+    /** Optional description of the app. */
     description?: string
+    /** CPU cores allocated to the sandbox. */
     cpu_cores?: number
+    /** Memory in GB allocated to the sandbox. */
     memory_gb?: number
-    readonly active_version: StreamlitAppVersionApi
-    readonly sandbox: StreamlitAppSandboxApi
-    readonly status: string
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
 }
 
-export interface PatchedStreamlitAppApi {
-    readonly id?: string
-    readonly short_id?: string
-    /** @maxLength 255 */
+export interface UpdateAppInputApi {
+    /** New name for the app. */
     name?: string
+    /** New description for the app. */
     description?: string
+    /** New CPU core allocation for the sandbox. */
     cpu_cores?: number
+    /** New memory (GB) allocation for the sandbox. */
     memory_gb?: number
-    readonly active_version?: StreamlitAppVersionApi
-    readonly sandbox?: StreamlitAppSandboxApi
-    readonly status?: string
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
+}
+
+export interface PatchedUpdateAppInputApi {
+    /** New name for the app. */
+    name?: string
+    /** New description for the app. */
+    description?: string
+    /** New CPU core allocation for the sandbox. */
+    cpu_cores?: number
+    /** New memory (GB) allocation for the sandbox. */
+    memory_gb?: number
 }
 
 export interface ActivateVersionRequestApi {
@@ -160,9 +89,20 @@ export interface ActivateVersionRequestApi {
     version_number: number
 }
 
+export interface AppVersionContractApi {
+    /** User who uploaded this version. */
+    created_by?: StreamlitAppUserInfoApi | null
+    id: string
+    version_number: number
+    zip_hash: string
+    /** @nullable */
+    snapshot_id: string | null
+    created_at: string
+}
+
 export interface ActivateVersionResponseApi {
     /** The version that is now active for the app. */
-    active_version: StreamlitAppVersionApi
+    active_version: AppVersionContractApi
 }
 
 export interface StreamlitConnectInfoApi {
@@ -203,7 +143,7 @@ export interface UploadVersionRequestApi {
 
 export interface StreamlitAppVersionListApi {
     /** Most recent versions of the app, newest first (capped at 50). */
-    results: StreamlitAppVersionApi[]
+    results: AppVersionContractApi[]
 }
 
 export type StreamlitAppsListParams = {

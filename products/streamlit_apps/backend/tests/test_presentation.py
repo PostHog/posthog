@@ -338,7 +338,7 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         )
 
         zip_file = SimpleUploadedFile("app.zip", VALID_ZIP, content_type="application/zip")
-        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+        with patch("products.streamlit_apps.backend.facade.api.AppRuntimeService") as runtime_cls:
             response = self.client.post(
                 self._url(app.short_id, "upload_version/"),
                 data={"file": zip_file},
@@ -385,7 +385,7 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         app.save()
         StreamlitAppSandbox.objects.create(app=app, version=v2, sandbox_id="sb_old", status=sandbox_status)
 
-        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+        with patch("products.streamlit_apps.backend.facade.api.AppRuntimeService") as runtime_cls:
             response = self.client.post(
                 self._url(app.short_id, "activate_version/"),
                 data={"version_number": 1},
@@ -408,7 +408,7 @@ class TestStreamlitAppVersionAPI(_StreamlitAppsFlagMixin, APIBaseTest):
             app=app, version=v2, sandbox_id="sb_old", status=StreamlitAppSandbox.Status.RUNNING
         )
 
-        with patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService") as runtime_cls:
+        with patch("products.streamlit_apps.backend.facade.api.AppRuntimeService") as runtime_cls:
             runtime_cls.return_value.stop_app.side_effect = RuntimeError("Modal down")
             response = self.client.post(
                 self._url(app.short_id, "activate_version/"),
@@ -510,7 +510,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No active version" in response.json()["detail"]
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_stop_app(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime_cls.return_value = mock_runtime
@@ -528,7 +528,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_delay.assert_called_once_with(str(app.id), "restart", team_id=app.team_id)
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_returns_iframe_url_with_tokens(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok_123"}
@@ -551,7 +551,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         # datetime is recomputed a few ms later in the view.
         assert 3590 <= data["expires_in"] <= 3600
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_omits_modal_token_when_none(self, mock_runtime_cls):
         # Docker sandboxes have no Modal connect token (token=None). The iframe
         # URL must not embed the literal string "None" as a token.
@@ -574,7 +574,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.get(self._url(app.short_id, "connect_info/"))
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_updates_last_activity(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = {"url": "https://x.modal.run", "token": "tok"}
@@ -590,7 +590,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         sandbox_record.refresh_from_db()
         assert sandbox_record.last_activity_at is not None
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_debounces_last_activity_writes(self, mock_runtime_cls):
         """connect_info is polled every ~2 seconds by the frontend token
         refresher; writing last_activity_at on every call used to translate
@@ -625,7 +625,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         sandbox_record.refresh_from_db()
         assert sandbox_record.last_activity_at > stale
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_runtime_failure_returns_502(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = None
@@ -637,7 +637,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         response = self.client.get(self._url(app.short_id, "connect_info/"))
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_creates_oauth_token(self, mock_runtime_cls):
         mock_runtime = MagicMock()
         mock_runtime.get_connect_url.return_value = {"url": "https://abc.modal.run", "token": "tok"}
@@ -659,7 +659,7 @@ class TestStreamlitAppSandboxControlAPI(_StreamlitAppsFlagMixin, APIBaseTest):
         # can't be replayed against the streamlit bridge endpoint.
         assert token.scope == "streamlit:iframe"
 
-    @patch("products.streamlit_apps.backend.presentation.views.AppRuntimeService")
+    @patch("products.streamlit_apps.backend.facade.api.AppRuntimeService")
     def test_connect_info_reuses_existing_token(self, mock_runtime_cls):
         """A second connect_info call within the reuse window should reuse
         the existing token rather than minting a fresh one — this is what

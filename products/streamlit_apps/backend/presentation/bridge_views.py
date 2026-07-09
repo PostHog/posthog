@@ -15,7 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.rate_limit import PersonalApiKeyRateThrottle
 
-from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
+from products.streamlit_apps.backend.facade.api import execute_bridge_query, get_streamlit_oauth_app
 from products.streamlit_apps.backend.presentation.serializers import streamlit_apps_flag_enabled
 
 logger = logging.getLogger(__name__)
@@ -70,8 +70,6 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str 
     sandbox→bridge shape, extract a shared authenticator then.
     """
     from posthog.models.oauth import find_oauth_access_token
-
-    from products.streamlit_apps.backend.logic.oauth import get_streamlit_oauth_app
 
     token = auth_header[len("Bearer ") :]
 

@@ -9,31 +9,34 @@
  */
 import * as zod from 'zod'
 
-export const streamlitAppsCreateBodyNameMax = 255
-
+/**
+ * @summary Create a streamlit app
+ */
 export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsCreateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
+    name: zod.string().describe('Name of the app.'),
+    description: zod.string().optional().describe('Optional description of the app.'),
+    cpu_cores: zod.number().optional().describe('CPU cores allocated to the sandbox.'),
+    memory_gb: zod.number().optional().describe('Memory in GB allocated to the sandbox.'),
 })
 
-export const streamlitAppsUpdateBodyNameMax = 255
-
+/**
+ * @summary Update a streamlit app
+ */
 export const StreamlitAppsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsUpdateBodyNameMax),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
+    name: zod.string().optional().describe('New name for the app.'),
+    description: zod.string().optional().describe('New description for the app.'),
+    cpu_cores: zod.number().optional().describe('New CPU core allocation for the sandbox.'),
+    memory_gb: zod.number().optional().describe('New memory (GB) allocation for the sandbox.'),
 })
 
-export const streamlitAppsPartialUpdateBodyNameMax = 255
-
+/**
+ * @summary Partially update a streamlit app
+ */
 export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(streamlitAppsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    cpu_cores: zod.number().optional(),
-    memory_gb: zod.number().optional(),
+    name: zod.string().optional().describe('New name for the app.'),
+    description: zod.string().optional().describe('New description for the app.'),
+    cpu_cores: zod.number().optional().describe('New CPU core allocation for the sandbox.'),
+    memory_gb: zod.number().optional().describe('New memory (GB) allocation for the sandbox.'),
 })
 
 /**

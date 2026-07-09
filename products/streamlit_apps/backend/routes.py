@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.streamlit_apps.backend.presentation import StreamlitAppViewSet
+from products.streamlit_apps.backend.presentation.views import StreamlitAppViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

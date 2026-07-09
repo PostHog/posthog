@@ -1864,19 +1864,41 @@ export namespace Schemas {
       version_number: number;
     }
 
-    export interface StreamlitAppVersion {
-      readonly id: string;
-      readonly version_number: number;
-      readonly zip_hash: string;
+    /**
+     * @nullable
+     */
+    export type StreamlitAppUserInfoHedgehogConfig = { [key: string]: unknown } | null;
+
+    export interface StreamlitAppUserInfo {
+      id: number;
+      uuid: string;
       /** @nullable */
-      readonly snapshot_id: string | null;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
+      distinct_id: string | null;
+      first_name: string;
+      last_name: string;
+      email: string;
+      /** @nullable */
+      is_email_verified: boolean | null;
+      /** @nullable */
+      hedgehog_config: StreamlitAppUserInfoHedgehogConfig;
+      /** @nullable */
+      role_at_organization: string | null;
+    }
+
+    export interface AppVersionContract {
+      /** User who uploaded this version. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      version_number: number;
+      zip_hash: string;
+      /** @nullable */
+      snapshot_id: string | null;
+      created_at: string;
     }
 
     export interface ActivateVersionResponse {
       /** The version that is now active for the app. */
-      active_version: StreamlitAppVersion;
+      active_version: AppVersionContract;
     }
 
     /**
@@ -9443,6 +9465,20 @@ export namespace Schemas {
       hidden_in_user_interface?: boolean | null;
     }
 
+    export interface AppContract {
+      /** User who created this app. */
+      created_by?: StreamlitAppUserInfo | null;
+      id: string;
+      short_id: string;
+      name: string;
+      description: string;
+      cpu_cores: number;
+      memory_gb: number;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    }
+
     export interface AppMetricSeries {
       name: string;
       values: number[];
@@ -14222,6 +14258,17 @@ export namespace Schemas {
       SameOrigin: 'same_origin',
       GithubRepo: 'github_repo',
     } as const;
+
+    export interface CreateAppInput {
+      /** Name of the app. */
+      name: string;
+      /** Optional description of the app. */
+      description?: string;
+      /** CPU cores allocated to the sandbox. */
+      cpu_cores?: number;
+      /** Memory in GB allocated to the sandbox. */
+      memory_gb?: number;
+    }
 
     /**
      * Typed configuration for a FileDownload batch-export destination.
@@ -32413,6 +32460,15 @@ export namespace Schemas {
       results: Annotation[];
     }
 
+    export interface PaginatedAppContractList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AppContract[];
+    }
+
     export interface PaginatedApprovalPolicyList {
       count: number;
       /** @nullable */
@@ -34974,28 +35030,6 @@ export namespace Schemas {
       results: Snapshot[];
       /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
-    }
-
-    export interface StreamlitAppMinimal {
-      readonly id: string;
-      readonly short_id: string;
-      readonly name: string;
-      readonly description: string;
-      readonly cpu_cores: number;
-      readonly memory_gb: number;
-      readonly status: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedStreamlitAppMinimalList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StreamlitAppMinimal[];
     }
 
     /**
@@ -42290,51 +42324,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `starting` - Starting
-     * * `running` - Running
-     * * `stopping` - Stopping
-     * * `stopped` - Stopped
-     * * `error` - Error
-     */
-    export type StreamlitAppSandboxStatusEnum = typeof StreamlitAppSandboxStatusEnum[keyof typeof StreamlitAppSandboxStatusEnum];
-
-
-    export const StreamlitAppSandboxStatusEnum = {
-      Starting: 'starting',
-      Running: 'running',
-      Stopping: 'stopping',
-      Stopped: 'stopped',
-      Error: 'error',
-    } as const;
-
-    export interface StreamlitAppSandbox {
-      readonly status: StreamlitAppSandboxStatusEnum;
-      readonly restart_count: number;
-      readonly last_error: string;
-      /** @nullable */
-      readonly started_at: string | null;
-      /** @nullable */
-      readonly last_activity_at: string | null;
-      readonly version_number: number;
-    }
-
-    export interface PatchedStreamlitApp {
-      readonly id?: string;
-      readonly short_id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      description?: string;
-      cpu_cores?: number;
-      memory_gb?: number;
-      readonly active_version?: StreamlitAppVersion;
-      readonly sandbox?: StreamlitAppSandbox;
-      readonly status?: string;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
-    /**
      * * `monday` - Monday
      * * `tuesday` - Tuesday
      * * `wednesday` - Wednesday
@@ -43778,6 +43767,17 @@ export namespace Schemas {
       readonly created_by?: UserBasic | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedUpdateAppInput {
+      /** New name for the app. */
+      name?: string;
+      /** New description for the app. */
+      description?: string;
+      /** New CPU core allocation for the sandbox. */
+      cpu_cores?: number;
+      /** New memory (GB) allocation for the sandbox. */
+      memory_gb?: number;
     }
 
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
@@ -53252,22 +53252,6 @@ export namespace Schemas {
       stream_base_url: string | null;
     }
 
-    export interface StreamlitApp {
-      readonly id: string;
-      readonly short_id: string;
-      /** @maxLength 255 */
-      name: string;
-      description?: string;
-      cpu_cores?: number;
-      memory_gb?: number;
-      readonly active_version: StreamlitAppVersion;
-      readonly sandbox: StreamlitAppSandbox;
-      readonly status: string;
-      readonly created_by: UserBasic;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
     export interface StreamlitAppStatus {
       /** Sandbox lifecycle status, or 'stopped' when no sandbox exists. */
       status: string;
@@ -53294,7 +53278,7 @@ export namespace Schemas {
 
     export interface StreamlitAppVersionList {
       /** Most recent versions of the app, newest first (capped at 50). */
-      results: StreamlitAppVersion[];
+      results: AppVersionContract[];
     }
 
     export interface StreamlitConnectInfo {
@@ -55316,6 +55300,17 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
+    }
+
+    export interface UpdateAppInput {
+      /** New name for the app. */
+      name?: string;
+      /** New description for the app. */
+      description?: string;
+      /** New CPU core allocation for the sandbox. */
+      cpu_cores?: number;
+      /** New memory (GB) allocation for the sandbox. */
+      memory_gb?: number;
     }
 
     /**

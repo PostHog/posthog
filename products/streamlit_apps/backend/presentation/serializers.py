@@ -1,187 +1,89 @@
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import posthoganalytics
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from posthog.api.shared import UserBasicSerializer
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.user import User
+from products.streamlit_apps.backend.facade.contracts import (
+    AppContract,
+    AppSandboxContract,
+    AppVersionContract,
+    CreateAppInput,
+    StreamlitAppUserInfo,
+    UpdateAppInput,
+)
 
 if TYPE_CHECKING:
     from posthog.api.routing import TeamAndOrgViewSetMixin
+    from posthog.models.user import User
 
-from products.streamlit_apps.backend.models import (
-    MAX_CPU_CORES,
-    MAX_MEMORY_GB,
-    MIN_CPU_CORES,
-    MIN_MEMORY_GB,
-    StreamlitApp,
-    StreamlitAppSandbox,
-    StreamlitAppVersion,
-)
+# --- Output Serializers ---
 
 
-class StreamlitAppVersionSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+class StreamlitAppUserSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = StreamlitAppUserInfo
+
+
+class StreamlitAppVersionSerializer(DataclassSerializer):
+    created_by = StreamlitAppUserSerializer(
+        allow_null=True, required=False, help_text="User who uploaded this version."
+    )
 
     class Meta:
-        model = StreamlitAppVersion
-        # `zip_file` (the object-storage key) is deliberately omitted — the client
-        # never needs the raw storage path, and exposing it leaks the internal
-        # tenant→path layout. Add a signed-URL endpoint instead if downloads are needed.
-        fields = [
-            "id",
-            "version_number",
-            "zip_hash",
-            "snapshot_id",
-            "created_by",
-            "created_at",
-        ]
-        read_only_fields = fields
+        dataclass = AppVersionContract
 
 
-class StreamlitAppSandboxSerializer(serializers.ModelSerializer):
-    restart_count = serializers.SerializerMethodField()
-    version_number = serializers.SerializerMethodField()
+class StreamlitAppSandboxSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AppSandboxContract
+
+
+class StreamlitAppMinimalSerializer(DataclassSerializer):
+    created_by = StreamlitAppUserSerializer(allow_null=True, required=False, help_text="User who created this app.")
 
     class Meta:
-        model = StreamlitAppSandbox
-        fields = [
-            "status",
-            "restart_count",
-            "last_error",
-            "started_at",
-            "last_activity_at",
-            "version_number",
-        ]
-        read_only_fields = fields
-
-    @extend_schema_field(OpenApiTypes.INT)
-    def get_restart_count(self, obj: StreamlitAppSandbox) -> int:
-        return obj.app.restart_count
-
-    @extend_schema_field(OpenApiTypes.INT)
-    def get_version_number(self, obj: StreamlitAppSandbox) -> int | None:
-        return obj.version.version_number if obj.version else None
+        dataclass = AppContract
+        exclude = ["active_version", "sandbox"]
 
 
-class StreamlitAppMinimalSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
-    status = serializers.SerializerMethodField()
+class StreamlitAppSerializer(DataclassSerializer):
+    created_by = StreamlitAppUserSerializer(allow_null=True, required=False, help_text="User who created this app.")
+    active_version = StreamlitAppVersionSerializer(
+        allow_null=True, required=False, help_text="Currently active version, or null if none uploaded yet."
+    )
+    sandbox = StreamlitAppSandboxSerializer(
+        allow_null=True, required=False, help_text="Current sandbox state, or null if the app has never started."
+    )
 
     class Meta:
-        model = StreamlitApp
-        fields = [
-            "id",
-            "short_id",
-            "name",
-            "description",
-            "cpu_cores",
-            "memory_gb",
-            "status",
-            "created_by",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-    @extend_schema_field(OpenApiTypes.STR)
-    def get_status(self, obj: StreamlitApp) -> str:
-        try:
-            return obj.sandbox.status
-        except StreamlitAppSandbox.DoesNotExist:
-            return "stopped"
+        dataclass = AppContract
 
 
-class StreamlitAppSerializer(StreamlitAppMinimalSerializer):
-    active_version = StreamlitAppVersionSerializer(read_only=True)
-    sandbox = StreamlitAppSandboxSerializer(read_only=True)
+# --- Input Serializers ---
+
+
+class CreateAppInputSerializer(DataclassSerializer):
+    name = serializers.CharField(help_text="Name of the app.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Optional description of the app.")
+    cpu_cores = serializers.FloatField(required=False, help_text="CPU cores allocated to the sandbox.")
+    memory_gb = serializers.FloatField(required=False, help_text="Memory in GB allocated to the sandbox.")
 
     class Meta:
-        model = StreamlitApp
-        fields = [
-            "id",
-            "short_id",
-            "name",
-            "description",
-            "cpu_cores",
-            "memory_gb",
-            "active_version",
-            "sandbox",
-            "status",
-            "created_by",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = [
-            "id",
-            "short_id",
-            "active_version",
-            "sandbox",
-            "status",
-            "created_by",
-            "created_at",
-            "updated_at",
-        ]
+        dataclass = CreateAppInput
 
-    def validate_cpu_cores(self, value: float) -> float:
-        if value < MIN_CPU_CORES or value > MAX_CPU_CORES:
-            raise serializers.ValidationError(f"CPU cores must be between {MIN_CPU_CORES} and {MAX_CPU_CORES}.")
-        return value
 
-    def validate_memory_gb(self, value: float) -> float:
-        if value < MIN_MEMORY_GB or value > MAX_MEMORY_GB:
-            raise serializers.ValidationError(f"Memory must be between {MIN_MEMORY_GB} and {MAX_MEMORY_GB} GB.")
-        return value
+class UpdateAppInputSerializer(DataclassSerializer):
+    name = serializers.CharField(required=False, help_text="New name for the app.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="New description for the app.")
+    cpu_cores = serializers.FloatField(required=False, help_text="New CPU core allocation for the sandbox.")
+    memory_gb = serializers.FloatField(required=False, help_text="New memory (GB) allocation for the sandbox.")
 
-    def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> StreamlitApp:
-        request = self.context["request"]
-        team = self.context["get_team"]()
-
-        app = StreamlitApp.objects.create(
-            team=team,
-            created_by=request.user,
-            **validated_data,
-        )
-
-        log_activity(
-            organization_id=request.user.current_organization_id,
-            team_id=team.id,
-            user=request.user,
-            was_impersonated=is_impersonated_session(request),
-            item_id=str(app.id),
-            scope="StreamlitApp",
-            activity="created",
-            detail=Detail(name=app.name),
-        )
-
-        return app
-
-    def update(self, instance: StreamlitApp, validated_data: dict, **kwargs: Any) -> StreamlitApp:
-        before_update = StreamlitApp.objects.get(pk=instance.pk)
-        updated_app = super().update(instance, validated_data)
-
-        changes = changes_between("StreamlitApp", previous=before_update, current=updated_app)
-        if changes:
-            request = self.context["request"]
-            log_activity(
-                organization_id=request.user.current_organization_id,
-                team_id=self.context["team_id"],
-                user=request.user,
-                was_impersonated=is_impersonated_session(request),
-                item_id=str(instance.id),
-                scope="StreamlitApp",
-                activity="updated",
-                detail=Detail(changes=changes, name=updated_app.name),
-            )
-
-        return updated_app
+    class Meta:
+        dataclass = UpdateAppInput
 
 
 class StreamlitAppStatusSerializer(serializers.Serializer):
@@ -247,5 +149,5 @@ class StreamlitAppsAccessPermission(BasePermission):
         if not user or not user.is_authenticated:
             return False
         organization = cast("TeamAndOrgViewSetMixin", view).organization
-        distinct_id = cast(User, user).distinct_id or str(organization.id)
+        distinct_id = cast("User", user).distinct_id or str(organization.id)
         return streamlit_apps_flag_enabled(distinct_id, str(organization.id))
