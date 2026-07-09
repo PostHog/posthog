@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
@@ -110,14 +111,11 @@ def _agent_proxy_base_url() -> str | None:
 
 
 def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
-    """Whether the read-via-proxy flag is on for this run.
+    """Whether the read-via-proxy flag (``tasks-stream-via-proxy``) is on for this run.
 
     Mirrors the UI's ``resolve_stream_base_url`` and event_ingest's push gate so the relay reads
-    the proxy leg only when the browser would too — keeping ``tasks-stream-via-proxy`` a runtime
-    kill-switch for both. Local dev disables the analytics SDK, so DEBUG is the opt-in. Fails closed.
+    the proxy leg only when the browser would too — a runtime kill-switch for both. Fails closed.
     """
-    if settings.DEBUG:
-        return True
     user = task_run.task.created_by
     if user is None:
         return False
@@ -160,15 +158,26 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
 
     # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
-    # the run — the same decision the task UI makes — so the flag stays a runtime kill-switch. Load
-    # the run only on that path; the Redis fallback doesn't need it. Otherwise tail the Redis stream.
+    # the run — the same decision the task UI makes. Otherwise tail the Django-side Redis stream.
     base_url = _agent_proxy_base_url()
+    task_run: TaskRunModel | None = None
+    stream_via_proxy = False
     if base_url:
         task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
         # feature_enabled can block on a cold flag cache — off the event loop, this is an async activity.
-        if await asyncio.to_thread(_stream_via_proxy_enabled, task_run):
-            await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
-            return
+        stream_via_proxy = await asyncio.to_thread(_stream_via_proxy_enabled, task_run)
+
+    logger.info(
+        "relay_agent_design_signals_started",
+        run_id=input.run_id,
+        leg="proxy" if stream_via_proxy else "redis",
+        base_url=base_url,
+        stream_via_proxy=stream_via_proxy,
+    )
+
+    if base_url and stream_via_proxy and task_run is not None:
+        await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
+        return
     await _relay_from_redis(input, emitter, workflow_handle)
 
 
@@ -202,13 +211,15 @@ async def _relay_from_agent_proxy(
             made_progress = False
             error: Exception | None = None
             try:
-                async with httpx.AsyncClient(
+                # internal_httpx_async_client bypasses the egress proxy, which denies the
+                # in-cluster agent-proxy (a private-range host) with 407.
+                async with internal_httpx_async_client(
                     timeout=httpx.Timeout(
                         connect=SSE_CONNECT_TIMEOUT_SECONDS,
                         read=SSE_READ_TIMEOUT_SECONDS,
                         write=30.0,
                         pool=30.0,
-                    )
+                    ),
                 ) as client:
                     async with httpx_sse.aconnect_sse(client, "GET", events_url, headers=headers) as event_source:
                         event_source.response.raise_for_status()

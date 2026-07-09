@@ -110,9 +110,11 @@ export class InstructionsBuilder {
         // Claude web/desktop report `supportsInstructions` but never surface the
         // `instructions` payload to the model, so its env-context (tool domains,
         // project metadata, group types) would be lost. Keep it on the exec command
-        // description for those hosts. (Codex, which reports `supportsInstructions:
-        // false`, already gets the full env-context via the un-stripped path.)
-        const keepEnvContext = state.clientProfile.isClaudeUiHost()
+        // description for those chat hosts only — Cowork surfaces instructions
+        // normally and gets env-context through them. (Codex, which reports
+        // `supportsInstructions: false`, already gets the full env-context via the
+        // un-stripped path.)
+        const keepEnvContext = state.clientProfile.isClaudeChatHost()
         const ctx = this.buildContext(state)
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
