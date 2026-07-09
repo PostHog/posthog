@@ -42,7 +42,16 @@ import {
     pinnedSourceKey,
     recentSourceKey,
 } from 'lib/components/TaxonomicFilter/utils/floatRecentPinned'
-import { floatToFront } from 'lib/components/TaxonomicFilter/utils/floatToFront'
+// Move the element at `index` to `offset` (0, or 1 to preserve a leading catch-all row),
+// preserving the order of everything else. Legacy-only: unlike the rebuild's `floatToFront`
+// (which always floats to the very first row), the legacy own-group/suggested float must not
+// displace a leading null-valued aggregate row — see the invariant in `floatRecentPinned.ts`.
+function floatToOffset<T>(list: T[], index: number, offset: number): T[] {
+    if (index <= offset) {
+        return list
+    }
+    return [...list.slice(0, offset), list[index], ...list.slice(offset, index), ...list.slice(index + 1)]
+}
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -1112,11 +1121,32 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     orderedBase = combinedResults
                 }
                 // Mirrors the rebuild menu's Combobox idle promotion: with no search query,
-                // the committed selection floats to the very first row so the user can see
-                // at a glance what is currently picked. While searching, relevance wins.
+                // the committed selection floats above the rest of the list so the user can
+                // see at a glance what is currently picked. A leading null-valued catch-all
+                // row (e.g. "All events") keeps its place, per the invariant in
+                // floatRecentPinned.ts — so the float targets index 1 when one is present.
+                // While searching, relevance wins.
                 let syntheticSelectedCount = 0
-                if (!searchQuery && value != null && groupType && !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)) {
+                if (
+                    !searchQuery &&
+                    value != null &&
+                    groupType &&
+                    !META_GROUP_TYPES.has(groupType) &&
+                    !DATA_WAREHOUSE_GROUP_TYPES.includes(groupType)
+                ) {
                     const selectionKey = groupItemKey(groupType, value)
+                    // A leading catch-all row (e.g. "All events") is a real, non-recent/pinned
+                    // group option whose `getValue` resolves to `null` — not merely a recent/
+                    // pinned row whose stripped shape happens to leave `getValue` undefined.
+                    const leadingItem = orderedBase[0]
+                    const leadingCatchAllOffset =
+                        leadingItem != null &&
+                        !isSkeletonItem(leadingItem) &&
+                        !hasRecentContext(leadingItem) &&
+                        !hasPinnedContext(leadingItem) &&
+                        getItemGroup(leadingItem, taxonomicGroups, group)?.getValue?.(leadingItem) === null
+                            ? 1
+                            : 0
                     if (isSuggested && selectionKey) {
                         // The aggregated list is fully client-side (recents/pinned prefixes),
                         // so both floating and prepending are safe here.
@@ -1124,10 +1154,15 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             (item) =>
                                 item != null &&
                                 !isSkeletonItem(item) &&
-                                (recentSourceKey(item) === selectionKey || pinnedSourceKey(item) === selectionKey)
+                                (recentSourceKey(item) === selectionKey ||
+                                    pinnedSourceKey(item) === selectionKey ||
+                                    groupItemKey(
+                                        getItemGroup(item, taxonomicGroups, group)?.type ?? listGroupType,
+                                        getItemGroup(item, taxonomicGroups, group)?.getValue?.(item)
+                                    ) === selectionKey)
                         )
                         if (selectedIndex >= 0) {
-                            orderedBase = floatToFront(orderedBase, selectedIndex)
+                            orderedBase = floatToOffset(orderedBase, selectedIndex, leadingCatchAllOffset)
                         } else {
                             // The selection isn't among the visible recents/pinned — prepend a
                             // synthetic row (shaped like a top match, so `getItemGroup` resolves
@@ -1136,13 +1171,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             // same value: id-keyed groups (actions, cohorts) would render the
                             // raw id, which would confuse more than it clarifies.
                             const sourceGroup = taxonomicGroups.find((g: TaxonomicFilterGroup) => g.type === groupType)
+                            const friendlyLabel = getCoreFilterDefinition(String(value), groupType)?.label
                             const synthetic = {
-                                name: String(value),
+                                name: friendlyLabel ?? String(value),
                                 value,
                                 group: groupType,
                             } as unknown as TaxonomicDefinitionTypes
                             if (sourceGroup?.getValue?.(synthetic) === value) {
-                                orderedBase = [synthetic, ...orderedBase]
+                                orderedBase =
+                                    leadingCatchAllOffset > 0
+                                        ? [orderedBase[0], synthetic, ...orderedBase.slice(1)]
+                                        : [synthetic, ...orderedBase]
                                 syntheticSelectedCount = 1
                             }
                         }
@@ -1157,10 +1196,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         // remote-offset mapping. When the selection is paginated past (not
                         // loaded yet), we leave the list alone for the same reason.
                         if (
-                            selectedIndex > 0 &&
+                            selectedIndex > leadingCatchAllOffset &&
                             orderedBase.slice(0, selectedIndex).every((item) => item != null && !isSkeletonItem(item))
                         ) {
-                            orderedBase = floatToFront(orderedBase, selectedIndex)
+                            orderedBase = floatToOffset(orderedBase, selectedIndex, leadingCatchAllOffset)
                         }
                     }
                 }

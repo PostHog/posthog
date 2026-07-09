@@ -1192,11 +1192,11 @@ describe('infiniteListLogic', () => {
                 ...props,
             })
 
-        it('floats the selected value to the top of its own group list when idle', async () => {
+        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
             logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
-            expect((logic.values.results[0] as { name?: string })?.name).toBe('search term')
-            expect((logic.values.results[1] as { name?: string })?.name).toBe('All events')
+            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
+            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
         })
 
         it('leaves relevance ordering alone while searching', async () => {
@@ -1234,11 +1234,11 @@ describe('infiniteListLogic', () => {
             expect(results.filter((item) => (item as { name?: string })?.name === 'event1')).toHaveLength(1)
         })
 
-        it('prepends a synthetic selected row on the suggested list when the selection is not visible', async () => {
+        it('prepends a synthetic selected row with a friendly label on the suggested list when the selection is not visible', async () => {
             const listLogic = mountSuggestedList({ value: '$pageview', groupType: TaxonomicFilterGroupType.Events })
             await expectLogic(listLogic).toFinishAllListeners()
             expect(listLogic.values.results[0]).toMatchObject({
-                name: '$pageview',
+                name: 'Pageview',
                 group: TaxonomicFilterGroupType.Events,
             })
         })
@@ -1251,6 +1251,21 @@ describe('infiniteListLogic', () => {
             })
             await expectLogic(listLogic).toFinishAllListeners()
             expect(listLogic.values.results).toEqual([])
+        })
+
+        it('does not synthesize a row when groupType is the meta Suggested filters group itself', async () => {
+            // Callers like ActionFilterRow open the popover with `groupType={SuggestedFilters}`
+            // while `value` is the real committed event/action — that meta type must never be
+            // treated as the selection's source group, or the synthetic row round-trips through
+            // the wrong group and `onChange` can't map it back to a real entity type.
+            const listLogic = mountSuggestedList({
+                value: 'some_event',
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+            await expectLogic(listLogic).toFinishAllListeners()
+            expect(listLogic.values.results.some((item) => (item as { name?: string })?.name === 'some_event')).toBe(
+                false
+            )
         })
     })
 
