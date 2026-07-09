@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     CorrelationType as CorrelationType,
     CountPerActorMathType as CountPerActorMathType,
     CurrencyCode as CurrencyCode,
+    Curve as Curve,
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
@@ -817,6 +818,16 @@ class ChartSettingsFormatting(BaseModel):
     prefix: str | None = None
     style: Style | None = None
     suffix: str | None = None
+
+
+class ChartStyle(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    curve: Curve | None = Field(
+        default=None,
+        description=("Line interpolation: straight segments or a smoothed curve through the points."),
+    )
 
 
 class ClientToolResultPayload(BaseModel):
@@ -7346,6 +7357,7 @@ class TrendsFilter(BaseModel):
         ),
     )
     breakdown_histogram_bin_count: float | None = None
+    chartStyle: ChartStyle | None = Field(default=None, description="Chart rendering style overrides (line shape).")
     confidenceLevel: float | None = None
     decimalPlaces: float | None = Field(
         default=None,

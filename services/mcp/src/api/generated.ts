@@ -2510,6 +2510,19 @@ export namespace Schemas {
       Short: 'short',
     } as const;
 
+    export type Curve = typeof Curve[keyof typeof Curve];
+
+
+    export const Curve = {
+      Linear: 'linear',
+      Smooth: 'smooth',
+    } as const;
+
+    export interface ChartStyle {
+      /** Line interpolation: straight segments or a smoothed curve through the points. */
+      curve?: Curve | null;
+    }
+
     export type DetailedResultsAggregationType = typeof DetailedResultsAggregationType[keyof typeof DetailedResultsAggregationType];
 
 
@@ -2654,6 +2667,8 @@ export namespace Schemas {
       /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
       breakdown_histogram_bin_count?: number | null;
+      /** Chart rendering style overrides (line shape). */
+      chartStyle?: ChartStyle | null;
       confidenceLevel?: number | null;
       /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
       decimalPlaces?: number | null;

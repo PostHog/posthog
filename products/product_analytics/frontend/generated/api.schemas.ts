@@ -1499,6 +1499,18 @@ export const AggregationAxisFormatApi = {
     Short: 'short',
 } as const
 
+export type CurveApi = (typeof CurveApi)[keyof typeof CurveApi]
+
+export const CurveApi = {
+    Linear: 'linear',
+    Smooth: 'smooth',
+} as const
+
+export interface ChartStyleApi {
+    /** Line interpolation: straight segments or a smoothed curve through the points. */
+    curve?: CurveApi | null
+}
+
 export type DetailedResultsAggregationTypeApi =
     (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
 
@@ -1639,6 +1651,8 @@ export interface TrendsFilterApi {
     /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: string | null
     breakdown_histogram_bin_count?: number | null
+    /** Chart rendering style overrides (line shape). */
+    chartStyle?: ChartStyleApi | null
     confidenceLevel?: number | null
     /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: number | null
