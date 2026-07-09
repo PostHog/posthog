@@ -35,8 +35,10 @@ const usesInclusiveAnthropicInputTokens = (event: PluginEvent): boolean => {
     const provider = event.properties['$ai_provider']?.toLowerCase()
     const framework = event.properties['$ai_framework']?.toLowerCase()
 
-    // Vercel AI Gateway reports input tokens inclusive of cache read/write tokens.
-    return provider === 'gateway' && framework === 'vercel'
+    // The Vercel AI SDK reports input tokens inclusive of cache read/write tokens.
+    // This holds both for the Vercel AI Gateway (provider 'gateway') and for
+    // direct-Anthropic requests routed through the SDK (provider 'anthropic').
+    return framework === 'vercel' && (provider === 'gateway' || provider === 'anthropic')
 }
 
 export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {

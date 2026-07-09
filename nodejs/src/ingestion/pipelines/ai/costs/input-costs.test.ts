@@ -155,6 +155,28 @@ describe('resolveCacheReportingExclusive()', () => {
             expected: true,
         },
         {
+            name: 'auto-detects inclusive for direct-Anthropic via Vercel AI SDK',
+            properties: {
+                $ai_provider: 'anthropic',
+                $ai_framework: 'vercel',
+                $ai_model: 'claude-sonnet-4.5',
+                $ai_input_tokens: 63352,
+                $ai_cache_creation_input_tokens: 63346,
+            },
+            expected: false,
+        },
+        {
+            name: 'falls back to exclusive when direct-Anthropic-via-Vercel tokens are provably not inclusive',
+            properties: {
+                $ai_provider: 'anthropic',
+                $ai_framework: 'vercel',
+                $ai_model: 'claude-sonnet-4.5',
+                $ai_input_tokens: 247,
+                $ai_cache_read_input_tokens: 6287,
+            },
+            expected: true,
+        },
+        {
             name: 'auto-detects inclusive for OpenAI provider',
             properties: { $ai_provider: 'openai' },
             expected: false,
@@ -321,6 +343,37 @@ describe('calculateInputCost()', () => {
             // Uncached: (14013 - 13306 - 701) * 0.000003 = 0.000018
             // Total: 0.0039918 + 0.00262875 + 0.000018 = 0.00663855
             expectCostToBeCloseTo(result, 0.00663855, 8)
+        })
+
+        it('uses inclusive token accounting for direct-Anthropic via Vercel AI SDK', () => {
+            // Reproduces a reported direct-Anthropic (posthog-ai, $ai_tokens_source: sdk) trace
+            // where a cached prompt dominates the request. Vercel reports $ai_input_tokens
+            // inclusive of the cache-creation tokens, so those must be subtracted from the text
+            // pool rather than billed again on top of it.
+            const model: ResolvedModelCost = {
+                model: 'claude-sonnet-4.5',
+                provider: 'anthropic',
+                cost: {
+                    prompt_token: 0.000005,
+                    completion_token: 0.000025,
+                    cache_write_token: 0.00000625,
+                },
+            }
+            const event = createAIEvent({
+                $ai_provider: 'anthropic',
+                $ai_framework: 'vercel',
+                $ai_model: 'claude-sonnet-4.5',
+                $ai_input_tokens: 63352,
+                $ai_cache_creation_input_tokens: 63346,
+            })
+
+            const result = calculateInputCost(event, model)
+
+            // Write: 63346 * 0.00000625 = 0.3959125
+            // Uncached text: (63352 - 63346) * 0.000005 = 6 * 0.000005 = 0.00003
+            // Total: 0.3959425 (not the ~0.7126725 that exclusive counting would double-bill)
+            expectCostToBeCloseTo(result, 0.3959425, 6)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(false)
         })
 
         it('handles string token values correctly for inclusive accounting', () => {
