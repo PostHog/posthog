@@ -176,14 +176,18 @@ export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
 // The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
-// relationship vocabulary below is retained only for the task-creation kickoff path, where the
-// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
+// relationship vocabulary below is what a client may assert on the task-creation kickoff path via
+// `signal_report_task_relationship`: `implementation` starts a PR run (and opens the auto-start
+// spend gate), `discussion` links a discuss-the-report task. `research` is reserved for the
+// server-side research pipeline and is rejected by the tasks API.
 
-export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
+export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['implementation', 'discussion'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
+
+export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelationship = 'discussion'
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 

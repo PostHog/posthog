@@ -44,7 +44,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                     <LemonTextArea
                         value={question}
                         onChange={setQuestion}
-                        onPressCmdEnter={submit}
+                        onPressEnter={submit}
                         placeholder="What would you like to discuss about this report?"
                         maxLength={4000}
                         rows={4}

@@ -254,8 +254,8 @@ import type {
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type {
-    ClaudeTaskRunCreateSchemaApi,
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+    TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
@@ -5324,7 +5324,7 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
+        async run(id: Task['id'], data?: TaskRunCreateRequestSchemaApi): Promise<Task> {
             return await new ApiRequest()
                 .task(id)
                 .withAction('run')

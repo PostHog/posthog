@@ -7,9 +7,15 @@ import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
+import { RunSourceEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { inboxTaskKickoffLogicType } from './inboxTaskKickoffLogicType'
-import { SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP, SignalReport, SignalReportTaskRelationship } from './types'
+import {
+    SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
+    SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
+    SignalReport,
+    SignalReportTaskRelationship,
+} from './types'
 
 // Cloud-adapted port of desktop `useDiscussReport` / `useCreatePrReport`. These are
 // task-kickoff actions (create a cloud Task linked to the report, then navigate to it) –
@@ -82,6 +88,14 @@ async function createReportTask(
         signal_report_task_relationship: relationship,
     } as Parameters<typeof api.tasks.create>[0])
 
+    // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
+    // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any
+    // PR bot-authored server-side, mirroring the auto-start pipeline's `create_and_run_task`.
+    await api.tasks.run(task.id, {
+        run_source: RunSourceEnumApi.SignalReport,
+        signal_report_id: report.id,
+    })
+
     router.actions.push(urls.taskDetail(task.id))
 }
 
@@ -119,7 +133,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     listeners(({ actions }) => ({
         discussReport: async ({ report, reportUrl, question }) => {
             try {
-                await createReportTask(report, 'research', buildDiscussReportPrompt(reportUrl, question), 'Discuss report')
+                await createReportTask(
+                    report,
+                    SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
+                    buildDiscussReportPrompt(reportUrl, question),
+                    'Discuss report'
+                )
                 actions.discussReportSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
