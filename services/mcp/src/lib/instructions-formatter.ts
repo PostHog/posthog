@@ -38,9 +38,9 @@ export interface InstructionsContext {
     /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
      *  prompt sections whose corresponding tool is flag-gated. */
     featureFlags?: EvaluatedFlags | undefined
-    /** Whether `render-ui` is actually available to this client (the `mcp-render-ui`
-     *  flag is on AND the client is an MCP Apps host). Gates the CLI rendering section
-     *  so it never reaches clients — like Claude Code — that can't mount the iframe. */
+    /** Whether `render-ui` is actually available to this client (i.e. the client is
+     *  an MCP Apps host). Gates the CLI rendering section so it never reaches clients —
+     *  like Claude Code — that can't mount the iframe. */
     renderUiEnabled?: boolean | undefined
 }
 
