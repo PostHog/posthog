@@ -1,23 +1,30 @@
-import { afterMount, kea, path, reducers, selectors } from 'kea'
+import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { retryWithBackoff } from 'lib/utils/async'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { metricsHasMetricsRetrieve } from './generated/api'
 import type { metricsIngestionLogicType } from './metricsIngestionLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
 export const metricsIngestionLogic = kea<metricsIngestionLogicType>([
     path(['products', 'metrics', 'frontend', 'metricsIngestionLogic']),
-    loaders({
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId']],
+    })),
+    loaders(({ values }) => ({
         teamHasMetrics: {
             __default: undefined as boolean | undefined,
             loadTeamHasMetrics: async (): Promise<boolean> => {
-                return await retryWithBackoff(() => api.metrics.hasMetrics(), { maxAttempts: 3 })
+                const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(values.currentTeamId)), {
+                    maxAttempts: 3,
+                })
+                return Boolean(response.hasMetrics)
             },
         },
-    }),
+    })),
 
     reducers({
         teamHasMetricsCheckFailed: [
