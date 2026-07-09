@@ -332,6 +332,7 @@ the row lists both.
 | smaily                  | HTTP                        | requests                                                        | ✅                          |
 | smartreach              | HTTP                        | requests                                                        | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
+| smartwaiver             | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | solarwinds_service_desk | HTTP                        | requests                                                        | ✅                          |
@@ -706,6 +707,7 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - smartengage
 - smartwaiver
+- solarwinds_service_desk
 - sonar_cloud
 - spotify_ads
 - spotlercrm
