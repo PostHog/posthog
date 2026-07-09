@@ -3107,7 +3107,7 @@ class ShipStationSourceConfig(config.Config):
 
 @config.config
 class ShippoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
