@@ -227,11 +227,6 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
                 </div>
             ) : (
                 <div className="space-y-4">
-                    <p className="mb-0">
-                        Copy the selected {pluralize(bulkCopyFlagCount, 'flag', 'flags', false)}{' '}
-                        {bulkCopyFlagCount === 1 ? 'and its' : 'and their'} configuration to other projects in your
-                        organization.
-                    </p>
                     <LemonBanner type="warning">
                         <ul className="list-disc pl-4 space-y-1">
                             <li>If a flag with the same key exists in a destination, it will be overwritten.</li>
