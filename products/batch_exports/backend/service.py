@@ -3,11 +3,13 @@ import types
 import typing
 import datetime as dt
 from dataclasses import Field, asdict, dataclass, fields
+from urllib.parse import quote, urlencode
 from uuid import UUID
 
 from django.conf import settings
 from django.db.models import Q
 
+import humanize
 import structlog
 import temporalio
 import temporalio.common
@@ -904,13 +906,25 @@ def backfill_export(
 
     workflow_id = f"{inputs.batch_export_id}-Backfill-{start_at_utc_str}-{end_at_utc_str}"
 
-    workflow_id = start_backfill_batch_export_workflow(temporal, workflow_id, inputs=inputs)
+    workflow_id = start_backfill_batch_export_workflow(
+        temporal,
+        workflow_id,
+        inputs=inputs,
+        destination_type=batch_export.destination.type,
+        model=batch_export.model or "events",
+        interval=batch_export.interval,
+    )
     return workflow_id
 
 
 @async_to_sync
 async def start_backfill_batch_export_workflow(
-    temporal: Client, workflow_id: str, inputs: BackfillBatchExportInputs
+    temporal: Client,
+    workflow_id: str,
+    inputs: BackfillBatchExportInputs,
+    destination_type: str,
+    model: str,
+    interval: str,
 ) -> str:
     """Async call to start a BackfillBatchExportWorkflow."""
     await temporal.start_workflow(
@@ -918,6 +932,7 @@ async def start_backfill_batch_export_workflow(
         inputs,
         id=workflow_id,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+        static_summary=_build_static_summary(destination_type, model, interval, is_backfill=True),
     )
 
     return workflow_id
@@ -1132,6 +1147,70 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         )
 
 
+def humanize_interval(interval: str) -> str:
+    """Phrase a batch export interval for display, e.g. "hour" -> "every hour"."""
+    return interval if interval.startswith("every") else f"every {interval}"
+
+
+def humanize_bytes(num_bytes: int) -> str:
+    """Format a byte count for display, e.g. 1572864 -> "1.5 MiB"."""
+    return humanize.naturalsize(num_bytes, binary=True)
+
+
+def _build_static_summary(destination_type: str, model: str, interval: str, *, is_backfill: bool = False) -> str:
+    """Build the Temporal static_summary shown next to a workflow in the UI."""
+    prefix = "Backfill batch export" if is_backfill else "Batch export"
+    return f"{prefix} {model} {humanize_interval(interval)} to {destination_type}"
+
+
+def build_team_admin_link(team_id: int) -> str:
+    """Build a markdown link to a team's Django admin page.
+
+    Shown in the Temporal UI as part of a workflow's user metadata details.
+    """
+    return f"[{team_id}]({settings.SITE_URL}/admin/posthog/team/{team_id}/change/)"
+
+
+def build_logs_link(workflow_id: str) -> str | None:
+    """Build a markdown link to worker logs for a batch export workflow.
+
+    Shown in the Temporal UI as part of a workflow's user metadata details.
+    Returns None if TEMPORAL_LOGS_PROJECT_ID is not configured.
+    """
+    project_id = settings.TEMPORAL_LOGS_PROJECT_ID
+    if not project_id:
+        return None
+
+    base_url = f"{settings.SITE_URL}/project/{project_id}/logs"
+    filter_group = json.dumps(
+        {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "workflow_id",
+                            "value": [workflow_id],
+                            "operator": "exact",
+                            "type": "log_attribute",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    query_string = urlencode(
+        {
+            "serviceNames": json.dumps(["temporal-worker-batch-exports"]),
+            "filterGroup": filter_group,
+            "dateRange": json.dumps({"date_from": "-1d", "date_to": None}),
+        },
+        quote_via=quote,
+    )
+    return f"[View logs in PostHog]({base_url}?{query_string})"
+
+
 def sync_batch_export(batch_export: BatchExport, created: bool):
     workflow, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
     state = ScheduleState(
@@ -1188,6 +1267,9 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 maximum_interval=dt.timedelta(seconds=60),
                 maximum_attempts=2,
                 non_retryable_error_types=["ActivityError", "ApplicationError", "CancelledError"],
+            ),
+            static_summary=_build_static_summary(
+                batch_export.destination.type, batch_export.model or "events", batch_export.interval
             ),
         ),
         spec=_get_schedule_spec(batch_export),
