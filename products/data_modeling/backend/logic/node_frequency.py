@@ -172,14 +172,10 @@ def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
 
 
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
-    """Persist a seed target on every schedulable node lacking one; never overwrites.
-
-    Each raw seed is normalized to a schedulable, satisfiable declared target (snapped to a bucket,
-    coarsened to the node's source floor) so the persisted target equals what the scheduler will
-    run — no unschedulable or unsatisfiable targets left for reconcile to clamp. `default` covers
-    nodes with no seedable cadence anywhere (no saved-query interval, no DAG interval) — the
-    operator escape hatch for scheduled DAGs carrying no interval metadata. Returns how many
-    targets were written.
+    """Persist a seed target on every schedulable node lacking one; never overwrites. Each seed is
+    normalized (see `normalize_seed_target`) so the persisted target equals what the scheduler will
+    run. `default` is the operator escape hatch for scheduled DAGs with no interval metadata
+    anywhere. Returns how many targets were written.
     """
     graph = build_frequency_graph(dag)
     floors = all_source_floors(graph.edges, graph.source_intervals)

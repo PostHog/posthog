@@ -134,10 +134,9 @@ class Command(BaseCommand):
         )
         temporal = sync_connect()
         failed_schedule_ids = self._delete_v1_schedules(temporal, scheduled_nodes, team)
-        # Null intervals only for queries whose v1 schedule actually went away. A query whose
-        # delete failed keeps its interval so a re-run retries it — otherwise the orphaned v1
-        # schedule materializes alongside the new tiers and the now-interval-less DAG is skipped
-        # forever, with no way to ever clean it up.
+        # Null intervals only for queries whose v1 schedule actually went away: a failed delete
+        # keeps its interval so a re-run retries it, instead of orphaning a v1 schedule beside the
+        # tiers on a DAG that (interval-less) would then be skipped forever.
         deleted_sq_ids = [sq_id for sq_id in migrated_sq_ids if str(sq_id) not in failed_schedule_ids]
         cleared = null_saved_query_intervals(dag, only_saved_query_ids=deleted_sq_ids)
         logger.info(

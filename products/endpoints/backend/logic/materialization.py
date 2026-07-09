@@ -201,11 +201,9 @@ class EndpointMaterializationService:
         if not can_mat:
             raise ValidationError(f"Cannot materialize endpoint. Reason: {reason}")
 
-        # Atomic so a rejected freshness target unwinds the whole enable: the saved query, the
-        # version→saved-query link, and the DAG node all roll back together, rather than leaving a
-        # dangling materialization with no schedule. schedule_materialization's own side effect is
-        # either deferred to on_commit (tiered) or the terminal step (v1), so nothing rolls back
-        # after it fires.
+        # Atomic so a rejected freshness target unwinds the whole enable (saved query, version link,
+        # node) instead of leaving a dangling materialization. schedule_materialization's side effect
+        # is deferred to on_commit (tiered) or terminal (v1), so nothing rolls back after it fires.
         with transaction.atomic():
             saved_query = self._get_or_build_saved_query(version)
             self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)

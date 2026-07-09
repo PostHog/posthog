@@ -94,9 +94,8 @@ class TestMigrateTeamsToDagSchedulesTiered(BaseTest):
             self.assertIsNone(node.saved_query.sync_frequency_interval)
 
     def test_transient_v1_delete_failure_keeps_interval_for_retry(self):
-        # a non-NOT_FOUND failure deleting one v1 schedule must NOT null that query's interval:
-        # otherwise the orphaned v1 schedule materializes alongside the tiers, and the now
-        # interval-less DAG is skipped on every re-run, so nothing can ever clean it up
+        # a transient (non-NOT_FOUND) delete failure must keep that query's interval so a re-run
+        # retries, instead of orphaning a v1 schedule beside the tiers
         dag, nodes = self._v1_dag_with_mixed_frequencies()
         assert nodes["fast"].saved_query is not None
         failed_id = str(nodes["fast"].saved_query.id)

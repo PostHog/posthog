@@ -201,11 +201,9 @@ def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:
 
 
 def null_saved_query_intervals(dag: DAG, *, only_saved_query_ids: Iterable[str] | None = None) -> int:
-    """Clear `sync_frequency_interval` on the DAG's schedulable saved queries once tiers exist — the
-    node target is the only durable store of frequency intent on tiered teams, and a lingering
-    interval could revive a v1 schedule. Only ever called after `convert_dag_to_tiers`. Pass
-    `only_saved_query_ids` to restrict the clear to queries whose v1 schedule was actually deleted,
-    so a failed v1 delete keeps its interval and a re-run retries it. Returns rows cleared.
+    """Clear `sync_frequency_interval` on the DAG's schedulable saved queries — on tiered teams the
+    node target is authoritative, and a lingering interval could revive a v1 schedule. Pass
+    `only_saved_query_ids` to skip queries whose v1 delete failed, so a re-run retries them.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
