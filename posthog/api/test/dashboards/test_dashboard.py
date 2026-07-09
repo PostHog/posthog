@@ -2691,6 +2691,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
+    @parameterized.expand(
+        [
+            ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
+            (
+                "nested_button_tile",
+                {"type": "BUTTON", "button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},
+            ),
+        ]
+    )
+    def test_create_from_template_json_can_provide_button_tile(self, _name: str, button_tile: dict) -> None:
+        template: dict = {**valid_template, "tiles": [button_tile]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200, response.json()
+
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["button_tile"]["url"] == "/replay/home"
+        assert tiles[0]["button_tile"]["text"] == "Watch replays"
+
     def test_create_from_template_json_can_provide_query_tile(self) -> None:
         template: dict = {
             **valid_template,

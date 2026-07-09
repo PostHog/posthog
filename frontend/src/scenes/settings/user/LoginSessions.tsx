@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconLaptop, IconLeave } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { UserAuthSessionApi } from '~/generated/core/api.schemas'
 
 import { loginSessionsLogic } from './loginSessionsLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export function LoginSessions(): JSX.Element {
     const { loginSessions, loginSessionsLoading } = useValues(loginSessionsLogic)

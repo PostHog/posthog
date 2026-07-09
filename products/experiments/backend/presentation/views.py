@@ -59,6 +59,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
@@ -187,12 +188,18 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
+    # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
+    # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
-        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.",
+        request=ExperimentWriteSerializer,
     ),
+    # PUT /experiments/{id}/, same request shape as PATCH
+    update=extend_schema(request=ExperimentWriteSerializer),
     # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
+        request=ExperimentWriteSerializer,
     ),
     # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
     retrieve=extend_schema(
@@ -206,12 +213,13 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 name="status",
                 location=OpenApiParameter.QUERY,
                 type=str,
-                enum=["draft", "running", "paused", "stopped", "complete", "all"],
+                enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
                 description=(
-                    'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns '
-                    'launched experiments with an active feature flag, "paused" returns launched experiments whose '
-                    'feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status '
-                    "filtering."
+                    'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
+                    '"running" returns launched experiments with an active feature flag, "paused" returns launched '
+                    'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
+                    "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
+                    'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
                 ),
                 required=False,
             ),
@@ -612,6 +620,51 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         resumed_experiment = service.resume_experiment(experiment, request=request)
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def freeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Freeze exposure on a running experiment while metrics keep flowing.
+
+        Snapshots the already-exposed users into a static cohort and narrows the
+        linked feature flag so only those users keep matching — new users can no
+        longer enter the experiment. ``end_date`` is left null so long-term metrics
+        (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+        their assigned variant. The serialized status becomes 'exposure_frozen'.
+
+        Returns 400 if the experiment is not running, exposure is already frozen,
+        the experiment is group-aggregated (group flags cannot be frozen with a
+        person cohort), or the exposed set is too large to snapshot synchronously.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        frozen_experiment = service.freeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unfreeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Reopen enrollment on an exposure-frozen experiment.
+
+        Removes the snapshot-cohort condition and freeze markers from every release
+        group, restoring the flag's original targeting: new users can enroll again
+        and already-enrolled users keep their assigned variant. The snapshot cohort
+        is soft-deleted. The serialized status returns to 'running'.
+
+        Returns 400 if the experiment is not running or its exposure is not frozen.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unfrozen_experiment = service.unfreeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(unfrozen_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,

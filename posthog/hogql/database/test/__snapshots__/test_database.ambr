@@ -2643,36 +2643,6 @@
                   "table": null,
                   "type": "string"
               },
-              "csm": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "csm",
-                  "id": null,
-                  "name": "csm",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_executive": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_executive",
-                  "id": null,
-                  "name": "account_executive",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_owner": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_owner",
-                  "id": null,
-                  "name": "account_owner",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "created_by_id": {
                   "chain": null,
                   "fields": null,
@@ -11424,36 +11394,6 @@
                   "hogql_value": "zendesk_id",
                   "id": null,
                   "name": "zendesk_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "csm": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "csm",
-                  "id": null,
-                  "name": "csm",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_executive": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_executive",
-                  "id": null,
-                  "name": "account_executive",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "account_owner": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "account_owner",
-                  "id": null,
-                  "name": "account_owner",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"

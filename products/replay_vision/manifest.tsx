@@ -45,6 +45,13 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
+        ReplayVisionActionEditor: {
+            name: 'Replay vision action editor',
+            import: () => import('./frontend/replay_scanners/ActionEditorScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
         ReplayVisionActionRun: {
             name: 'Replay vision action run',
             import: () => import('./frontend/replay_scanners/VisionActionRunScene'),
@@ -57,7 +64,9 @@ export const manifest: ProductManifest = {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
         '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
+        '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
         '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
+        '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
         '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
         '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -80,6 +89,8 @@ export const manifest: ProductManifest = {
         replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
         replayVisionActionRun: (actionId: string, runId: string): string =>
             `/replay-vision/actions/${actionId}/runs/${runId}`,
+        replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+        replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

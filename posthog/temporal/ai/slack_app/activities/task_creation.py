@@ -182,6 +182,10 @@ def _build_posthog_code_task_description(
         "The actual request follows the closing tag and fills the placeholder slot.",
         "Each message is rendered as `<@U…|displayname>:` followed by the indented body — "
         "reuse those mention tokens verbatim when you need to ping a participant back.",
+        # This session is delivered over Slack, where the AskUserQuestion tool's interactive
+        # picker is never rendered — the user simply never sees it. Steer the agent to ask in prose.
+        "You are replying over Slack, where the AskUserQuestion tool does not work — to ask the "
+        "requester a clarifying question, write it as plain text in your reply.",
     ]
     header = "\n".join(header_lines)
     roles_block = ("\n" + "\n".join(role_lines)) if role_lines else ""

@@ -14,6 +14,7 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.replay_vision.backend.digest import SCANNER_DIGEST_RRULE
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -25,6 +26,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -651,6 +653,43 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         with self._patch_deny_session_recording():
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
         self.assertEqual(resp.status_code, 403, resp.json())
+
+
+class TestScannerDigestProvisioning(_VisionAPITestCase):
+    _CREATE_BODY = {
+        "name": "checkout-monitor",
+        "scanner_type": ScannerType.MONITOR,
+        "scanner_config": {"prompt": "did checkout complete?"},
+        "model": ScannerModel.GEMINI_3_FLASH,
+    }
+
+    def test_create_provisions_daily_digest(self) -> None:
+        resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        digest = VisionAction.objects.for_team(self.team.id).get(scanner_id=resp.json()["id"], is_scanner_digest=True)
+        self.assertEqual(digest.name, "Daily digest: checkout-monitor")
+        self.assertEqual(digest.trigger_config["rrule"], SCANNER_DIGEST_RRULE)
+        self.assertEqual(digest.trigger_config["timezone"], self.team.timezone)
+        self.assertEqual(digest.delivery_config, [])
+        # Synthesis aborts on a null creator, so the digest must carry the scanner's creator.
+        self.assertEqual(digest.created_by_id, self.user.id)
+        self.assertTrue(digest.enabled)
+
+    def test_no_digest_when_actions_flag_off(self) -> None:
+        # Teams without the actions feature must not accrue billable synthesis runs they can't see.
+        with patch(
+            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: key != "replay-vision-actions",
+        ):
+            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
+
+    def test_scanner_creation_survives_digest_failure(self) -> None:
+        with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
+            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
 
 
 class TestScannerEstimatePersistence(_VisionAPITestCase):

@@ -1274,6 +1274,7 @@ POSTHOG_AI_PRODUCTS = [
     "alert_investigation_agent",
     "product_analytics",
     "surveys",
+    "replay_vision",
 ]
 
 # ai_product values billed as PostHog Code credits.

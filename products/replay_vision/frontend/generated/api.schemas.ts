@@ -40,26 +40,33 @@ export interface TriggerConfigApi {
 }
 
 /**
- * Observation filter applied at synthesis time. All keys optional; this typed shape is the
- * allowlist, so unknown input keys are dropped rather than persisted.
+ * * `yes` - yes
+ * * `no` - no
+ * * `inconclusive` - inconclusive
+ */
+export type VerdictEnumApi = (typeof VerdictEnumApi)[keyof typeof VerdictEnumApi]
+
+export const VerdictEnumApi = {
+    Yes: 'yes',
+    No: 'no',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
+ * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+ * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
  */
 export interface SelectionApi {
-    /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
-    scanner_type?: string
-    /** Restrict to observations produced by these scanner IDs. */
+    /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
     scanner_ids?: string[]
-    /** Filter to observations with this monitor verdict. */
-    verdict?: string
-    /** Filter to observations carrying any of these classifier tags. */
+    /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
+    verdict?: VerdictEnumApi[]
+    /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
     tags?: string[]
-    /** Lower bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or above this value (inclusive). */
     min_score?: number
-    /** Upper bound (inclusive) on scorer score. */
+    /** Only run on scorer observations with a score at or below this value (inclusive). */
     max_score?: number
-    /** Filter to observations with this processing status. */
-    status?: string
-    /** Lookback window in days for the observations gathered at synthesis time. */
-    window_days?: number
 }
 
 /**
@@ -162,6 +169,8 @@ export interface VisionActionApi {
     scanner: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
@@ -174,7 +183,7 @@ export interface VisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -221,6 +230,8 @@ export interface PatchedVisionActionApi {
     scanner?: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
@@ -233,7 +244,7 @@ export interface PatchedVisionActionApi {
     mode?: VisionActionModeEnumApi
     /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
     trigger_config?: TriggerConfigApi
-    /** Observation filter applied at synthesis time. */
+    /** Targeting predicate: which of the scanner's observations this action runs on. */
     selection?: SelectionApi
     /** Synthesis options for the group summary, e.g. {prompt_guide}. */
     synthesis_config?: SynthesisConfigApi
@@ -317,6 +328,8 @@ export interface PaginatedVisionActionRunListListApi {
  * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
  */
 export interface RunObservationApi {
+    /** 1-based reference number of this observation in the summary, stable across deletions. The synthesized report cites observations by this number (rendered like `[3]`), so consumers use it to resolve a citation to its observation. */
+    readonly index: number
     /** Observation id; links to the observation detail view. */
     readonly id: string
     /** Session recording id this observation was made on. */

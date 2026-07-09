@@ -107,7 +107,7 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
 
 def _label(observation: ReplayObservation) -> ReplayObservationLabel:
     """Typed accessor for the reverse one-to-one: guaranteed by the label__isnull=False filters here."""
-    return observation.label
+    return observation.label  # type: ignore[attr-defined, unused-ignore]  # reverse 1:1 resolves only against a warm mypy cache, so the ignore is needed cold and unused warm
 
 
 def _example_line(observation: ReplayObservation) -> str:

@@ -39,6 +39,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
@@ -614,6 +615,7 @@ layer = "modules"
 path = "products.slack_app"
 depends_on = [
     "posthog",
+    "products.conversations",
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
@@ -713,6 +715,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    "products.replay_vision",
 ]
 layer = "modules"
 
