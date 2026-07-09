@@ -1442,9 +1442,11 @@ const AssistantWebVitalsPathBreakdownQuery = z.object({
     percentile: WebVitalsPercentile.describe(
         "Required. Percentile to aggregate each page's samples at. Use `p75` unless the user asks otherwise — the Google bands are defined at p75."
     ),
-    properties: WebAnalyticsPropertyFilters.describe(
-        'Property filters applied to the query. Accepts event, person, session, or cohort filters — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.'
-    )
+    properties: z
+        .array(z.union([EventPropertyFilter, PersonPropertyFilter]))
+        .describe(
+            'Property filters applied to the query. Accepts event and person filters only (the query runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope to one domain, or on `$device_type` to isolate mobile.'
+        )
         .default([])
         .optional(),
     thresholds: z

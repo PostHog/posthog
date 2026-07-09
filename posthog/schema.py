@@ -9484,14 +9484,13 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
             " the user asks otherwise — the Google bands are defined at p75."
         ),
     )
-    properties: (
-        list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter] | None
-    ) = Field(
+    properties: list[EventPropertyFilter | PersonPropertyFilter] | None = Field(
         default=[],
         description=(
-            "Property filters applied to the query. Accepts event, person, session, or"
-            " cohort filters — e.g. an event filter on `$host` to scope to one domain,"
-            " or on `$device_type` to isolate mobile."
+            "Property filters applied to the query. Accepts event and person filters"
+            " only (the query runner ignores session and cohort filters) — e.g. an"
+            " event filter on `$host` to scope to one domain, or on `$device_type` to"
+            " isolate mobile."
         ),
     )
     thresholds: list[float] = Field(

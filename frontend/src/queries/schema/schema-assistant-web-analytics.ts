@@ -1,3 +1,5 @@
+import type { EventPropertyFilter, PersonPropertyFilter } from '~/types'
+
 import { AssistantDateRangeFilter } from './schema-assistant-queries'
 import {
     CompareFilter,
@@ -91,69 +93,6 @@ export interface AssistantWebOverviewQuery extends AssistantWebAnalyticsQueryBas
  * `breakdownBy=Page` and `includeBounceRate=true`) and for entry/exit-page
  * navigation analysis (`breakdownBy=InitialPage|ExitPage|PreviousPage`).
  */
-/**
- * Per-page Core Web Vitals breakdown for one metric at one percentile. Returns
- * the pages bucketed into `good` / `needs_improvements` / `poor` bands, with
- * each page's value — mirrors the in-product **Web vitals** tab.
- *
- * Use this when the user asks "which pages are slow?", "where is our LCP/INP/
- * CLS/FCP bad?", or wants a page-level performance audit. Run it once per
- * metric. For a site-wide trend of a vitals metric over time, use
- * `query-trends` on the `$web_vitals` event instead.
- */
-export interface AssistantWebVitalsPathBreakdownQuery {
-    kind: NodeKind.WebVitalsPathBreakdownQuery
-
-    /**
-     * Date range for the query. Defaults to the last 7 days when omitted —
-     * a good window for a stable percentile.
-     */
-    dateRange?: AssistantDateRangeFilter
-
-    /**
-     * Property filters applied to the query. Accepts event, person, session,
-     * or cohort filters — e.g. an event filter on `$host` to scope to one
-     * domain, or on `$device_type` to isolate mobile.
-     *
-     * @default []
-     */
-    properties?: WebAnalyticsPropertyFilters
-
-    /**
-     * Apply the team's path-cleaning rules to the returned paths.
-     * @default false
-     */
-    doPathCleaning?: boolean
-
-    /**
-     * Exclude internal and test users by applying the team's test-account filter.
-     * @default false
-     */
-    filterTestAccounts?: boolean
-
-    /**
-     * Required. Which Core Web Vital to break down by: `LCP` (load, ms),
-     * `INP` (interactivity, ms), `CLS` (layout stability, unitless score),
-     * or `FCP` (first paint, ms).
-     */
-    metric: WebVitalsMetric
-
-    /**
-     * Required. Percentile to aggregate each page's samples at. Use `p75`
-     * unless the user asks otherwise — the Google bands are defined at p75.
-     */
-    percentile: WebVitalsPercentile
-
-    /**
-     * Required. `[good, poor]` band boundaries for the chosen metric. Values
-     * below `good` are good, above `poor` are poor, in between need
-     * improvement. Use the standard Google thresholds unless the user supplies
-     * their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`,
-     * FCP `[1800, 3000]`.
-     */
-    thresholds: [number, number]
-}
-
 export interface AssistantWebStatsTableQuery extends AssistantWebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
 
@@ -201,4 +140,68 @@ export interface AssistantWebStatsTableQuery extends AssistantWebAnalyticsQueryB
      * Pagination offset.
      */
     offset?: non_negative_integer
+}
+
+/**
+ * Per-page Core Web Vitals breakdown for one metric at one percentile. Returns
+ * the pages bucketed into `good` / `needs_improvements` / `poor` bands, with
+ * each page's value — mirrors the in-product **Web vitals** tab.
+ *
+ * Use this when the user asks "which pages are slow?", "where is our LCP/INP/
+ * CLS/FCP bad?", or wants a page-level performance audit. Run it once per
+ * metric. For a site-wide trend of a vitals metric over time, use
+ * `query-trends` on the `$web_vitals` event instead.
+ */
+export interface AssistantWebVitalsPathBreakdownQuery {
+    kind: NodeKind.WebVitalsPathBreakdownQuery
+
+    /**
+     * Date range for the query. Defaults to the last 7 days when omitted —
+     * a good window for a stable percentile.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Property filters applied to the query. Accepts event and person filters
+     * only (the query runner ignores session and cohort filters) — e.g. an
+     * event filter on `$host` to scope to one domain, or on `$device_type` to
+     * isolate mobile.
+     *
+     * @default []
+     */
+    properties?: (EventPropertyFilter | PersonPropertyFilter)[]
+
+    /**
+     * Apply the team's path-cleaning rules to the returned paths.
+     * @default false
+     */
+    doPathCleaning?: boolean
+
+    /**
+     * Exclude internal and test users by applying the team's test-account filter.
+     * @default false
+     */
+    filterTestAccounts?: boolean
+
+    /**
+     * Required. Which Core Web Vital to break down by: `LCP` (load, ms),
+     * `INP` (interactivity, ms), `CLS` (layout stability, unitless score),
+     * or `FCP` (first paint, ms).
+     */
+    metric: WebVitalsMetric
+
+    /**
+     * Required. Percentile to aggregate each page's samples at. Use `p75`
+     * unless the user asks otherwise — the Google bands are defined at p75.
+     */
+    percentile: WebVitalsPercentile
+
+    /**
+     * Required. `[good, poor]` band boundaries for the chosen metric. Values
+     * below `good` are good, above `poor` are poor, in between need
+     * improvement. Use the standard Google thresholds unless the user supplies
+     * their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`,
+     * FCP `[1800, 3000]`.
+     */
+    thresholds: [number, number]
 }

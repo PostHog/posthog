@@ -24,7 +24,7 @@ Requires the project to capture the `$web_vitals` event (`capture_performance` i
 | FCP    | `[1800, 3000]` |
 
 - `dateRange`: defaults to the last 7 days — a good window for a stable percentile; shorter windows get noisy on low-traffic pages.
-- `properties`: event/person/session/cohort filters — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.
+- `properties`: event and person filters only (the runner ignores session and cohort filters) — e.g. an event filter on `$host` to scope one domain of a multi-domain project, or on `$device_type` (`Mobile`/`Desktop`) to isolate a population.
 - `filterTestAccounts`, `doPathCleaning`: same semantics as the other web analytics tools.
 
 # Reading the result
