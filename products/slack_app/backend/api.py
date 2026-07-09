@@ -1909,6 +1909,16 @@ def route_posthog_code_event_to_relevant_region(
         ):
             return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
+            # Mirror the app_mention gate: don't unfurl project data into an unapproved externally
+            # shared channel. A paste isn't an explicit invocation, so suppress without prompting.
+            channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
+            if (
+                is_ext_shared_channel
+                and channel_id
+                and not _channel_is_approved(local_match.integration_id, channel_id)
+            ):
+                logger.info("slack_link_unfurl_channel_unapproved", slack_team_id=slack_team_id, channel=channel_id)
+                return ROUTE_HANDLED_LOCALLY
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
     return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
