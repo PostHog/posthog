@@ -148,6 +148,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @freeze_time("2022-01-01")
@@ -168,6 +169,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
         response = self.client.patch(
@@ -181,6 +183,7 @@ class TestSharing(APIBaseTest):
             "password_required": False,
             "settings": None,
             "share_passwords": [],
+            "user_access_level": "editor",
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
