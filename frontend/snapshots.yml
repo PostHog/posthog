@@ -316,6 +316,10 @@ snapshots:
         hash: v1.k794b7964.ad69dd2d12211ec94d2ba3a988482c8a5a3db0536c20394300d8df9138ad9186.rHFMsMBsfpwjJ_mlwWmDFzJESrnSEdcBVt4OOQpiDfw
     components-cards-text-card--with-more-button-placed-in-public--light:
         hash: v1.k794b7964.5f6f2d7a547d538eb6f5f33f6a3d2c169d963e73814a88cbb9926b1057bbd0df.h0qr4w97vqcaO5nfHJTv6H6XdpsH95Ln6_s4eHCSsDM
+    components-cards-text-card--word-art--dark:
+        hash: v1.k794b7964.0102b5932e02a20b3e9ebe64e598044973f2ea5e8311fbc60f2bc4d4ac71dd34.WWzoCG5jIHDxccStvfV99L1mEDBwUR-s5gv1Ra53etE
+    components-cards-text-card--word-art--light:
+        hash: v1.k794b7964.bbfbdf1c0cb4a9c5e2ebd29ea6d06eb292a761c70b1936ff7bea8a2e5294c9ef.cClgUmOs2MuzU2HfkFbT4TxQEVcQ3U2ipOGtvtqIHoo
     components-compact-list--compact-list--dark:
         hash: v1.k794b7964.59d9b22dc4c1fabb38cfa1c8072b3f6e3e4140bfddef6160e568f935c0ba7f29.aeZmv2PM9H27yaixZr0lFX-5hBEr1ET0-8F-DJP_QS4
     components-compact-list--compact-list--light:
