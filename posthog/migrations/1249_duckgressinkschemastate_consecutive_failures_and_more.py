@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1247_oauthaccesstoken_token_idx"),
+        ("posthog", "1248_personal_api_key_description"),
     ]
 
     operations = [
