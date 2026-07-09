@@ -1108,6 +1108,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/MetricPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SpanPropertyFilter"
                 },
                 {
@@ -30528,6 +30531,29 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "MetricPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "metric_attribute",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -32131,6 +32157,7 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "metric_attribute",
                 "span",
                 "span_attribute",
                 "span_resource_attribute",
@@ -44003,6 +44030,7 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "metric_attributes",
                 "spans",
                 "span_attributes",
                 "span_resource_attributes",

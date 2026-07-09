@@ -3,9 +3,14 @@ import { loaders } from 'kea-loaders'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { type SparklineTimeSeries } from 'lib/components/Sparkline'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
+import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
+import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 import type {
@@ -64,14 +69,58 @@ const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
-// Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
-const parseFilter = (raw: string): _MetricFilterApi | null => {
-    const eq = raw.indexOf('=')
-    if (eq <= 0) {
+// The metrics backend speaks Prometheus-style label matchers, not the full PropertyOperator set.
+export const METRIC_FILTER_OPERATOR_ALLOWLIST: PropertyOperator[] = [
+    PropertyOperator.Exact,
+    PropertyOperator.IsNot,
+    PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
+]
+
+const OPERATOR_TO_FILTER_OP: Partial<Record<PropertyOperator, _MetricFilterApi['op']>> = {
+    [PropertyOperator.Exact]: 'eq',
+    [PropertyOperator.IsNot]: 'neq',
+    [PropertyOperator.Regex]: 'regex',
+    [PropertyOperator.NotRegex]: 'not_regex',
+}
+
+const toValueStrings = (value: unknown): string[] => {
+    const raw = Array.isArray(value) ? value : value === null || value === undefined ? [] : [value]
+    return raw.map((item) => String(item)).filter((item) => item.length > 0)
+}
+
+// Convert one filter-bar chip into the backend's `{key, op, value}` matcher. Filters run with
+// scope 'auto' (resource attributes first, datapoint attributes as fallback), so scope is omitted.
+// Returns null for chips still being edited (no key/value) or unsupported operators.
+const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilterApi | null => {
+    const key = 'key' in filter && filter.key ? String(filter.key) : ''
+    const operator = 'operator' in filter && filter.operator ? filter.operator : PropertyOperator.Exact
+    // A non-PropertyOperator value (e.g. an ActionFilter's fields) simply isn't in the map -> null.
+    const op = OPERATOR_TO_FILTER_OP[operator as PropertyOperator]
+    if (!key || !op) {
         return null
     }
-    return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
+    const values = toValueStrings('value' in filter ? filter.value : null)
+    if (values.length === 0) {
+        return null
+    }
+    if (values.length === 1) {
+        return { key, op, value: values[0] }
+    }
+    // Multi-value chips become Prometheus-style alternations: eq/neq turn into an anchored
+    // (not-)regex over the escaped literals; regex operators just OR the patterns together.
+    if (op === 'eq' || op === 'neq') {
+        return {
+            key,
+            op: op === 'eq' ? 'regex' : 'not_regex',
+            value: `^(?:${values.map(escapeRegex).join('|')})$`,
+        }
+    }
+    return { key, op, value: values.map((pattern) => `(?:${pattern})`).join('|') }
 }
+
+const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
+    group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
 
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
@@ -95,7 +144,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
-        setFilterStrings: (filterStrings: string[]) => ({ filterStrings }),
+        setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -115,8 +164,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
-        // Raw "key=value" filter chips; parsed into query filters by the `queryFilters` selector.
-        filterStrings: [[] as string[], { setFilterStrings: (_, { filterStrings }) => filterStrings }],
+        // The filter bar's UniversalFilters group; converted into backend matchers by `queryFilters`.
+        filterGroup: [DEFAULT_UNIVERSAL_GROUP_FILTER, { setFilterGroup: (_, { filterGroup }) => filterGroup }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
@@ -246,9 +295,20 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
         queryFilters: [
-            (s) => [s.filterStrings],
-            (filterStrings: string[]): _MetricFilterApi[] =>
-                filterStrings.map(parseFilter).filter((f): f is _MetricFilterApi => f !== null),
+            (s) => [s.filterGroup],
+            (filterGroup: UniversalFiltersGroup): _MetricFilterApi[] =>
+                flattenFilterValues(filterGroup)
+                    .map(propertyFilterToMetricFilter)
+                    .filter((f): f is _MetricFilterApi => f !== null),
+        ],
+        // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
+        // taxonomic endpoints as query params.
+        attributeEndpointFilters: [
+            (s) => [s.dateFrom, s.dateTo],
+            (dateFrom, dateTo): Record<string, string> => ({
+                ...(resolveDate(dateFrom) ? { dateFrom: resolveDate(dateFrom) as string } : {}),
+                ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
+            }),
         ],
         // The viewer renders the first series only for now; group-by lands
         // multi-series rendering in a later PR.
