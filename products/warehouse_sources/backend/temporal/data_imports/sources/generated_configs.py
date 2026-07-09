@@ -2721,7 +2721,9 @@ class PrestaShopSourceConfig(config.Config):
 
 @config.config
 class PretixSourceConfig(config.Config):
-    pass
+    organizer: str
+    api_token: str
+    base_url: str | None = None
 
 
 @config.config
