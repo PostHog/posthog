@@ -292,7 +292,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -327,7 +327,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -367,7 +367,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -413,7 +413,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -487,7 +487,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -522,7 +522,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -560,7 +560,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -614,7 +614,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -650,7 +650,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -682,7 +682,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -730,7 +730,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -770,7 +770,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -813,7 +813,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
                 retentionService,
@@ -843,7 +843,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -870,7 +870,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -905,6 +905,8 @@ describe('session-replay-pipeline', () => {
             expect(parseJSON(messageValue.details)).toEqual({
                 libVersion: '1.74.0',
                 parsedVersion: { major: 1, minor: 74 },
+                category: 'replay',
+                severity: 'info',
             })
         })
 
@@ -912,7 +914,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -937,7 +939,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -962,7 +964,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1003,7 +1005,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1039,7 +1041,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1071,7 +1073,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1102,7 +1104,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: teamServiceThatReturnsNull,
                 retentionService,
@@ -1129,7 +1131,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1160,7 +1162,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1191,7 +1193,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1222,7 +1224,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1274,7 +1276,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,
@@ -1325,7 +1327,7 @@ describe('session-replay-pipeline', () => {
             const pipeline = createSessionReplayPipeline({
                 outputs,
                 eventIngestionRestrictionManager: mockRestrictionManager,
-                overflowEnabled: true,
+                overflowMode: 'redirect',
                 promiseScheduler,
                 teamService: mockTeamService,
                 retentionService,

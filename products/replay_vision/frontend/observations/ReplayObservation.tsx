@@ -17,6 +17,7 @@ import {
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -125,6 +126,10 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
     const { observation, observationLoading, retrying } = useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (observationLoading && !observation) {
         return (

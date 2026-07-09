@@ -1,5 +1,5 @@
 declare module '@memlab/lens/dist/memlens.lib.bundle.js' {
-    interface MemLensScanResult {
+    export interface MemLensScanResult {
         totalElements: number
         totalDetachedElements: number
         detachedComponentToFiberNodeCount: Map<string, number>
@@ -8,14 +8,21 @@ declare module '@memlab/lens/dist/memlens.lib.bundle.js' {
         end: number
     }
 
-    interface MemLensScanner {
+    export interface MemLensDOMElementInfo {
+        element: WeakRef<Element>
+        componentStack: string[] | null | undefined
+    }
+
+    export interface MemLensScanner {
         subscribe: (callback: (result: MemLensScanResult) => void) => () => void
         start: () => void
         stop: () => void
         dispose: () => void
+        scan: () => Omit<MemLensScanResult, 'start' | 'end'>
+        getDetachedDOMInfo: () => MemLensDOMElementInfo[]
     }
 
-    interface MemLensScanOptions {
+    export interface MemLensScanOptions {
         scanIntervalMs?: number
         trackEventListenerLeaks?: boolean
     }

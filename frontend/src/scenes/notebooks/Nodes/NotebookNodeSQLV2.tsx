@@ -1,6 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconCornerDownRight } from '@posthog/icons'
+
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -11,9 +13,10 @@ import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Result = {
@@ -26,6 +29,8 @@ export type NotebookNodeSQLV2Result = {
 
 export type NotebookNodeSQLV2Attributes = {
     code: string
+    // Dataframe name other SQLV2 nodes can reference (inlined as a CTE when they join it).
+    returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
     outputTab?: OutputTab | null
@@ -65,7 +70,8 @@ const Component = ({
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeSQLV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const { nodeId, notebookLogic, expanded, sqlV2ReturnVariableUsage } = useValues(nodeLogic)
+    const { navigateToNode } = useActions(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -77,6 +83,9 @@ const Component = ({
     })
     const { isRunning, runError, page, pageSize, pageResult, pageLoading, operationBlockReason } = useValues(dataLogic)
     const { setPage, setPageSize } = useActions(dataLogic)
+
+    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string =>
+        title.trim() || getCellLabel(nodeIndex, nodeType) || 'SQL'
 
     const result = attributes.result ?? null
     // Page 1 at the default size comes straight from the envelope; other pages re-query CH.
@@ -197,6 +206,38 @@ const Component = ({
                     </div>
                 ) : null}
             </div>
+            <div
+                className="flex shrink-0 items-center gap-2 text-xs text-muted border-t p-2"
+                onClick={(event) => event.stopPropagation()}
+                onMouseDown={(event) => event.stopPropagation()}
+            >
+                <span className="font-mono mt-0.5">
+                    <IconCornerDownRight />
+                </span>
+                <input
+                    type="text"
+                    // A dataframe name other SQL nodes reference by table name (`from sql_df`).
+                    className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={attributes.returnVariable ?? ''}
+                    onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    spellCheck={false}
+                />
+                {sqlV2ReturnVariableUsage.length > 0 ? (
+                    <span className="text-muted">
+                        Used in{' '}
+                        {sqlV2ReturnVariableUsage.map((usage) => (
+                            <button
+                                key={usage.nodeId}
+                                type="button"
+                                className="text-muted hover:text-default underline underline-offset-2 ml-1"
+                                onClick={() => navigateToNode(usage.nodeId)}
+                            >
+                                {usageLabel(usage.nodeType, usage.nodeIndex, usage.title)}
+                            </button>
+                        ))}
+                    </span>
+                ) : null}
+            </div>
         </div>
     )
 }
@@ -224,7 +265,9 @@ const Settings = ({
             attributes={attributes}
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
-            onRunQuery={(code) => runQuery(code)}
+            // Refs come from the notebook content, not the tiptap editor: markdown notebooks
+            // (the only surface with SQLV2 cells) have no tiptap editor at all.
+            onRunQuery={(code) => runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId))}
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL (v2) query"
@@ -243,6 +286,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
     attributes: {
         code: {
             default: '',
+        },
+        returnVariable: {
+            default: 'sql_df',
         },
         runId: {
             default: null,

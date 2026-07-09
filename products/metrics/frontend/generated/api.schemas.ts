@@ -23,6 +23,32 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+export interface _MetricAttributeValueApi {
+    /** The attribute value (same as name; kept for picker compatibility). */
+    id: string
+    /** The attribute value. */
+    name: string
+    /** Number of data points observed with this value in the window. */
+    count: number
+}
+
+export interface _MetricAttributeValuesResponseApi {
+    /** Observed values for the requested key, most frequent first. */
+    results: _MetricAttributeValueApi[]
+}
+
+export interface _MetricAttributeKeyApi {
+    /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
+    name: string
+}
+
+export interface _MetricAttributeKeysResponseApi {
+    /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+    results: _MetricAttributeKeyApi[]
+    /** Number of keys returned. */
+    count: number
+}
+
 /**
  * * `sum` - sum
  * * `avg` - avg
@@ -173,8 +199,11 @@ export interface _MetricAnomalyDimensionApi {
 export interface _MetricQueryPointApi {
     /** Bucket start as ISO 8601 timestamp. */
     time: string
-    /** Aggregated value for the bucket. */
-    value: number
+    /**
+     * Aggregated value for the bucket. Null when the aggregate isn't representable (e.g. float overflow) — render as a gap.
+     * @nullable
+     */
+    value: number | null
 }
 
 /**
@@ -463,13 +492,70 @@ export interface _MetricNamesResponseApi {
     results: _MetricNameApi[]
 }
 
+export type MetricsAttributeValuesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null
+    /**
+     * Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.
+     * @minLength 1
+     * @maxLength 255
+     */
+    key: string
+    /**
+     * Max number of values to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
+     * @maxLength 1024
+     */
+    value?: string
+}
+
+export type MetricsAttributesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null
+    /**
+     * Max number of keys to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Substring filter (case-insensitive) applied to attribute keys.
+     * @maxLength 255
+     */
+    search?: string
+}
+
 export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string
 }

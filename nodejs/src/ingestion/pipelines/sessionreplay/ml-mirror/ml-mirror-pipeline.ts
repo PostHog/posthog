@@ -11,10 +11,7 @@ import {
     SessionReplayPipelineOutput,
 } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
-import { createAnonymizeStep } from '~/ingestion/pipelines/sessionreplay/anonymize-step'
-import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import { createParseAndAnonymizeMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-and-anonymize-step'
-import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { MessageContext } from '~/ingestion/pipelines/sessionreplay/pipeline-types'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { createMarkSeenStep } from '~/ingestion/pipelines/sessionreplay/session-batch-mark-seen-step'
@@ -24,13 +21,8 @@ import { createResolveKeyStep } from '~/ingestion/pipelines/sessionreplay/sessio
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
-export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
-    /** Shared, immutable scrub context (allow lists + tunables). */
-    scrubContext: ScrubContext
-}
-
 export function createMlMirrorReplayPipeline(
-    config: MlMirrorReplayPipelineConfig
+    config: SessionReplayPipelineConfig
 ): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
@@ -41,7 +33,7 @@ export function createMlMirrorReplayPipeline(
     const {
         outputs,
         eventIngestionRestrictionManager,
-        overflowEnabled,
+        overflowMode,
         promiseScheduler,
         teamService,
         retentionService,
@@ -52,7 +44,6 @@ export function createMlMirrorReplayPipeline(
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
-        scrubContext,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = { outputs, promiseScheduler }
@@ -66,7 +57,7 @@ export function createMlMirrorReplayPipeline(
                         .pipe(createParseHeadersStep())
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowEnabled,
+                                overflowMode,
                                 preservePartitionLocality: true,
                             })
                         )
@@ -121,26 +112,15 @@ export function createMlMirrorReplayPipeline(
                             .teamAware((b) =>
                                 b
                                     .sequentially((b) => {
-                                        // The Rust native path fuses parse+anonymize in one step
-                                        const parsed = scrubContext.useRustAnonymizer
-                                            ? b.pipe(
-                                                  topHogWrapper(createParseAndAnonymizeMessageStep(), [
-                                                      timer('parse_time_ms_by_session_id', (input) => ({
-                                                          token: input.headers.token ?? 'unknown',
-                                                          session_id: input.headers.session_id ?? 'unknown',
-                                                      })),
-                                                  ])
-                                              )
-                                            : b
-                                                  .pipe(
-                                                      topHogWrapper(createParseMessageStep(), [
-                                                          timer('parse_time_ms_by_session_id', (input) => ({
-                                                              token: input.headers.token ?? 'unknown',
-                                                              session_id: input.headers.session_id ?? 'unknown',
-                                                          })),
-                                                      ])
-                                                  )
-                                                  .pipe(createAnonymizeStep({ scrubContext }))
+                                        // The native Rust addon fuses parse+anonymize in one step.
+                                        const parsed = b.pipe(
+                                            topHogWrapper(createParseAndAnonymizeMessageStep(), [
+                                                timer('parse_time_ms_by_session_id', (input) => ({
+                                                    token: input.headers.token ?? 'unknown',
+                                                    session_id: input.headers.session_id ?? 'unknown',
+                                                })),
+                                            ])
+                                        )
                                         return parsed.pipe(
                                             topHogWrapper(
                                                 createRecordSessionEventStep({

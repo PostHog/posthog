@@ -48,6 +48,9 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
+            isInlineExecUiHost: vi.fn(() => false),
+            isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -61,6 +64,8 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -178,6 +183,63 @@ describe('ToolExecutor', () => {
             expect(result.tools).toHaveLength(1)
             expect(result.tools[0]!.name).toBe('exec')
         })
+
+        // Env-context (active project metadata + tool-domain index) must reach the model
+        // on the exec `command` for clients that don't otherwise receive the `instructions`
+        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
+        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
+        // it here because it arrives via `instructions` instead.
+        it.each([
+            {
+                label: 'Claude web/desktop (ignores instructions)',
+                supportsInstructions: true,
+                isClaudeChatHost: true,
+                expectEnv: true,
+            },
+            {
+                label: 'Codex (supportsInstructions: false)',
+                supportsInstructions: false,
+                isClaudeChatHost: false,
+                expectEnv: true,
+            },
+            {
+                label: 'Claude Code / Cowork (consume instructions)',
+                supportsInstructions: true,
+                isClaudeChatHost: false,
+                expectEnv: false,
+            },
+        ])(
+            'injects project metadata into the exec command for $label → $expectEnv',
+            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map((e) => ({ name: e.name }))
+                const metadataMarker = 'CURRENT PROJECT: Acme (timezone America/New_York)'
+
+                const state = makeState(tools, {
+                    useSingleExec: true,
+                    metadata: metadataMarker,
+                    clientProfile: {
+                        capabilities: { supportsInstructions },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => false),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                    } as any,
+                })
+
+                const result = await executor.handleToolsList(state)
+                const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
+
+                expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
+                if (expectEnv) {
+                    expect(commandDesc).toContain(metadataMarker)
+                } else {
+                    expect(commandDesc).not.toContain(metadataMarker)
+                }
+            }
+        )
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
             const state = makeState([uiAppTool], { useSingleExec: true, renderUiEnabled: true })

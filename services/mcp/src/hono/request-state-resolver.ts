@@ -1,5 +1,7 @@
+import type { GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { isLocalApi } from '@/lib/constants'
+import { isCloudApi, isLocalApi } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -39,31 +41,26 @@ export interface ResolvedState {
     scopeGatedTools: ScopeGatedTool[]
     distinctId: string
     renderUiEnabled: boolean
+    // Active project/user environment prompt and group types. Rendered into the
+    // `instructions` payload, and (for clients that don't surface instructions to
+    // the model like Codex, or ignore it like Claude web/desktop) the exec command
+    // reference. Resolved once here so every render path reads the same source.
+    metadata: string | undefined
+    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: {
-    mode: McpMode | undefined
-    clientProfile: MCPClientProfile
-    // The raw `mcp-render-ui` flag value — NOT the UI-host-gated `renderUiEnabled`
-    // on ResolvedState; the UI-host check is applied here, on the flag.
-    renderUiFlagEnabled: boolean
-}): {
+export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile, renderUiFlagEnabled } = args
-    const useSingleExec =
-        mode === 'cli' ||
-        (mode !== 'tools' &&
-            (clientProfile.isCliModeEnabled() ||
-                clientProfile.isPostHogCodeConsumer() ||
-                clientProfile.isVibeCodingClient() ||
-                // Claude web/desktop render MCP Apps UI; put them in single-exec so
-                // `render-ui` is available — but only when the feature flag is on.
-                (renderUiFlagEnabled && clientProfile.isClaudeUiHost())))
-    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec }
+    const { mode, clientProfile } = args
+    // CLI (single-exec) is the default; only allow-listed clients (Cursor,
+    // ChatGPT) keep the full per-tool roster, and an explicit ?mode= /
+    // x-posthog-mcp-mode header always wins over auto-detection.
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
 // ─── Resolver ───
@@ -155,14 +152,12 @@ export class RequestStateResolver {
         // mount its iframe. The flag is necessary but not sufficient: Claude Code and other
         // single-exec CLI clients pool the same flag value, so the tool's advertisement and
         // execution must also require the UI-host check — otherwise rolling the flag out to
-        // everyone leaks `render-ui` into Claude Code. `resolveMode` applies the same gate
-        // independently for its single-exec decision, so it receives the raw flag value.
+        // everyone leaks `render-ui` into Claude Code.
         const renderUiEnabled = renderUiFlagEnabled && clientProfile.isClaudeUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode,
             clientProfile,
-            renderUiFlagEnabled,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
@@ -171,6 +166,8 @@ export class RequestStateResolver {
         const apiKeyScopes = _apiKey?.scopes ?? []
         const apiKeyScopedTeams = _apiKey?.scoped_teams ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+        const availableFeatures = await context.stateManager.getAvailableFeatures()
+        const isCloud = isCloudApi()
 
         const excludeTools: string[] = []
         if (projectId) {
@@ -187,11 +184,20 @@ export class RequestStateResolver {
             featureFlags: toolFeatureFlags,
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
+            availableFeatures,
+            isCloud,
         }
         const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
+
+        const [groupTypes, metadata] = await Promise.all([
+            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
+                : undefined,
+            context.stateManager.getEnvironmentPrompt(),
+        ])
 
         return {
             reqCtx,
@@ -206,6 +212,8 @@ export class RequestStateResolver {
             scopeGatedTools,
             distinctId,
             renderUiEnabled,
+            metadata,
+            groupTypes,
         }
     }
 

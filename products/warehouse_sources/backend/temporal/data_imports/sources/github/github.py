@@ -132,8 +132,15 @@ def _build_initial_params(
     return params
 
 
+def _organization_from_repository(repository: str) -> str:
+    """Org-scoped endpoints (teams) derive the org from the repo owner: "owner/repo" -> "owner".
+    The source config only carries the repository, so the owner is the only org signal we have."""
+    return repository.split("/")[0]
+
+
 def _build_initial_url(config: GithubEndpointConfig, repository: str, params: dict[str, Any]) -> str:
-    path = config.path.format(repository=repository)
+    # str.format ignores extra kwargs, so passing organization is safe for repo-only paths too.
+    path = config.path.format(repository=repository, organization=_organization_from_repository(repository))
     if not params:
         return f"{GITHUB_BASE_URL}{path}"
     return f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
@@ -276,6 +283,52 @@ def validate_credentials(personal_access_token: str, repository: str) -> tuple[b
         return False, str(e)
 
 
+# Endpoints that read organization data (not repo data). They need the GitHub App "Members: Read"
+# org permission (or the read:org PAT scope) and an org-owned repo; a user-owned repo has no org,
+# so /orgs/{owner}/teams 404s. Repo-scoped connections may legitimately lack this, so it must be
+# reported per-table in the schema picker, never block source-create.
+ORG_SCOPED_ENDPOINTS = frozenset({"teams", "team_members"})
+
+_ORG_PERMISSION_REASON = (
+    "Requires the 'Members: Read' organization permission on the GitHub App, or the read:org scope "
+    "on a personal access token, and an organization-owned repository"
+)
+
+
+def check_org_endpoint_permission(
+    personal_access_token: str, repository: str, egress_identity: GithubEgressIdentity | None = None
+) -> str | None:
+    """Probe the org teams endpoint once. Returns None when reachable, or a short reason when the
+    org grant is missing. Only a real denial (401/403/404) is a missing scope; rate limits, 5xx,
+    egress-budget denials, and network errors mean we could not tell, so treat those as reachable
+    (the sync will surface a real failure if there is one) rather than mislabeling a transient blip
+    as a permission problem."""
+    organization = _organization_from_repository(repository)
+    url = f"{GITHUB_BASE_URL}/orgs/{organization}/teams?per_page=1"
+    installation_id = egress_identity.installation_id if egress_identity is not None else None
+    try:
+        # Same gated + recorded transport as the data plane. NORMAL, not BATCH: a single interactive
+        # schema-picker probe is not deferrable bulk; if the limiter sheds it anyway, that maps to
+        # "could not tell" below rather than a wrong permission verdict.
+        response = github_request(
+            "GET",
+            url,
+            source="warehouse",
+            headers=_get_headers(personal_access_token),
+            installation_id=installation_id,
+            priority=Priority.NORMAL,
+            timeout=10,
+            session=make_tracked_session(),
+        )
+        # A rate-limited 403 carries limit markers; without this check it would read as a missing grant.
+        raise_if_github_rate_limited(response)
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, requests.exceptions.RequestException):
+        return None
+    if response.status_code in (401, 403, 404):
+        return _ORG_PERMISSION_REASON
+    return None
+
+
 def _flatten_commit(item: dict[str, Any]) -> dict[str, Any]:
     """Flatten commit data by extracting nested author/committer info."""
     if "commit" in item and isinstance(item["commit"], dict):
@@ -321,6 +374,21 @@ def _is_issue_not_pr(item: dict[str, Any]) -> bool:
     by the presence of the 'pull_request' key in the response.
     """
     return "pull_request" not in item or item["pull_request"] is None
+
+
+def _make_parent_field_injector(
+    parent: dict[str, Any], field_map: dict[str, str]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Copy the mapped parent fields onto each child row (e.g. team id/slug/name onto a member),
+    so a fan-out child carries the parent context its own API response omits. Direct access on the
+    parent fields: the injected columns feed the child's composite primary key, so a parent missing
+    one is a broken response that must fail loudly, not corrupt the key with None."""
+    injected = {child_column: parent[parent_field] for parent_field, child_column in field_map.items()}
+
+    def inject(item: dict[str, Any]) -> dict[str, Any]:
+        return {**item, **injected}
+
+    return inject
 
 
 def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
@@ -468,27 +536,34 @@ def _iter_pages(
         url = next_url
 
 
-def _iter_jobs_for_run(
+def _iter_child_for_parent(
     repository: str,
-    run_id: Any,
+    parent_value: Any,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
     egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[dict[str, Any]]:
-    path = config.path.format(repository=repository, run_id=run_id)
+    """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
+    child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members)."""
+    fan_out_param = config.fan_out_path_param
+    path = config.path.format(
+        repository=repository,
+        organization=_organization_from_repository(repository),
+        **{fan_out_param: parent_value},
+    )
     params: dict[str, Any] = {"per_page": config.page_size, **(config.extra_params or {})}
     url = f"{GITHUB_BASE_URL}{path}?{urlencode(params)}"
-    for jobs, _page_url in _iter_pages(
+    for items, _page_url in _iter_pages(
         url,
         headers,
         config.response_data_path,
         logger,
         max_pages=config.max_pages_per_parent,
-        page_cap_context={"repository": repository, "run_id": run_id},
+        page_cap_context={"repository": repository, fan_out_param: parent_value},
         egress_identity=egress_identity,
     ):
-        yield from jobs
+        yield from items
 
 
 def _fan_out_get_rows(
@@ -502,18 +577,19 @@ def _fan_out_get_rows(
     incremental_field: str | None,
     egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[Any]:
-    """Single-hop parent->child fan-out: walk the parent endpoint newest-first and
-    emit every child row for each parent. Incremental bounding happens on the
-    parent's created_at cursor (the same desc early-stop workflow_runs uses).
+    """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
+    parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
+    team_members -> {team_slug}) and optionally injecting parent fields onto each child row.
 
-    The child cursor value (max job created_at) is compared against the parent's
-    created_at — they coincide closely since a job is created when its run starts,
-    so the watermark sits slightly above the newest run's timestamp. Re-reading a
-    boundary parent is harmless (jobs upsert by id), but note the inverse: a run
-    that was in_progress when first synced drops below the watermark once it
-    finishes, so its terminal job conclusions and any later-added jobs are not
-    re-fetched. This is the same created_at-cursor staleness workflow_runs carries;
-    the workflow_run webhook (followup) is the fix, not re-scanning history.
+    Incremental bounding only applies when the parent endpoint has its own cursor. workflow_runs
+    carries a created_at cursor, so its jobs fan-out stops early once a page predates the watermark
+    (the same desc early-stop the run poll uses); a boundary re-read is harmless since jobs upsert by
+    id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync; the data
+    volume is tiny, and there is no timestamp to bound on anyway.
+
+    Same created_at-cursor staleness workflow_runs carries applies to its jobs: a run that was
+    in_progress when first synced drops below the watermark once it finishes, so later job state is
+    not re-fetched by the poll; the workflow_run webhook is the fix, not re-scanning history.
     """
     child_config = GITHUB_ENDPOINTS[endpoint]
     assert child_config.fan_out_parent is not None  # guarded by the get_rows dispatch
@@ -521,15 +597,20 @@ def _fan_out_get_rows(
     headers = _get_headers(personal_access_token, endpoint)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
-    parent_field = incremental_field or parent_config.default_incremental_field or "created_at"
-    parent_cutoff = db_incremental_field_last_value if should_use_incremental_field else None
+    # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
+    parent_is_incremental = bool(parent_config.incremental_fields)
+    parent_cursor_field = incremental_field or parent_config.default_incremental_field or "created_at"
+    parent_cutoff = (
+        db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
+    )
 
     # First incremental sync (watermark set up, but nothing synced yet): floor the
-    # backfill at a recent window instead of fanning out over the repo's entire run
+    # backfill at a recent window instead of fanning out over the parent's entire
     # history. Scoped to the incremental first run on purpose — an explicit full
     # refresh still pulls everything, and later syncs advance from their watermark.
     if (
-        should_use_incremental_field
+        parent_is_incremental
+        and should_use_incremental_field
         and db_incremental_field_last_value is None
         and child_config.initial_lookback_days is not None
     ):
@@ -543,23 +624,30 @@ def _fan_out_get_rows(
     else:
         parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
-    for runs, page_url in _iter_pages(
+    for parents, page_url in _iter_pages(
         parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
     ):
-        stop_after_this_page = _should_stop_desc(runs, "desc", parent_field, parent_cutoff)
+        stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
 
-        for run in runs:
-            # Direct access on the run's id (its primary key): a run without one is a broken
+        for parent in parents:
+            # Direct access on the parent's fan-out field (id/slug): a parent missing it is a broken
             # response that should fail loudly, not get silently dropped.
-            run_id = run["id"]
+            parent_value = parent[child_config.fan_out_parent_field]
             # Only fan out parents at/above the watermark; older ones were synced before.
-            if parent_cutoff is not None and _is_older_than_cutoff(run.get(parent_field), parent_cutoff):
+            if parent_cutoff is not None and _is_older_than_cutoff(parent.get(parent_cursor_field), parent_cutoff):
                 continue
-            for job in _iter_jobs_for_run(repository, run_id, headers, logger, child_config, egress_identity):
-                batcher.batch(job)
+            inject = (
+                _make_parent_field_injector(parent, child_config.fan_out_include_parent_fields)
+                if child_config.fan_out_include_parent_fields
+                else None
+            )
+            for item in _iter_child_for_parent(
+                repository, parent_value, headers, logger, child_config, egress_identity
+            ):
+                batcher.batch(inject(item) if inject else item)
                 if batcher.should_yield():
                     yield batcher.get_table()
-                    # Checkpoint the parent page; resume re-fans it out and dedupes by id.
+                    # Checkpoint the parent page; resume re-fans it out and dedupes by primary key.
                     if not stop_after_this_page:
                         resumable_source_manager.save_state(GithubResumeConfig(next_url=page_url))
 
@@ -673,6 +761,12 @@ def get_rows(
         yield py_table
 
 
+def _normalize_primary_key(primary_key: str | list[str]) -> list[str]:
+    """A config primary_key is a single column str or a composite list; SourceResponse always wants
+    a list, so normalize here rather than storing the shape difference downstream."""
+    return [primary_key] if isinstance(primary_key, str) else list(primary_key)
+
+
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
     ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
@@ -761,8 +855,13 @@ def github_source(
             # Each event for an id arrives as its own row (queued -> in_progress -> completed);
             # collapse them to the latest per id here, since the delta merge doesn't dedupe a
             # source batch. Same pattern as the Stripe webhook source.
+            # Webhook-capable endpoints all key on a single column; the dedupe transformer
+            # collapses one pk column, so pass the first (only) key. Fan-out children with
+            # composite keys have no version_keys, so this branch never runs for them.
             transformer = (
-                _make_webhook_dedupe_transformer(endpoint_config.primary_key, endpoint_config.version_keys)
+                _make_webhook_dedupe_transformer(
+                    _normalize_primary_key(endpoint_config.primary_key)[0], endpoint_config.version_keys
+                )
                 if endpoint_config.version_keys
                 else None
             )
@@ -783,7 +882,7 @@ def github_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=_normalize_primary_key(endpoint_config.primary_key),
         sort_mode=actual_sort_mode,
         partition_count=1,
         partition_size=1,

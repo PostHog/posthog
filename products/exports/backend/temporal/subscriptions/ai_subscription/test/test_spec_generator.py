@@ -16,15 +16,23 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    AI_QUERY_PLAN_VERSION,
+    MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
+    RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
     ReportWindow,
+    StoredPlanInvalidError,
     _event_property_names,
+    _extract_quoted_event_tokens,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
+    _pinned_event_names,
+    _recent_event_names,
     _select_relevant_events,
     build_context_blob,
+    build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
     sanitize_prompt,
@@ -171,6 +179,135 @@ class TestSelectRelevantEvents(APIBaseTest):
         # no EventDefinitions → nothing to select from → never calls the model
         assert _select_relevant_events(self.team, self.user, "exports") == []
         mock_chat.assert_not_called()
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_named_event_the_llm_did_not_pick(self, mock_chat: MagicMock) -> None:
+        # The deterministic guarantee: a backticked event the LLM ignores is still force-included.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == ["export created"]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_unions_pinned_event_ahead_of_llm_picks(self, mock_chat: MagicMock) -> None:
+        # Pinned event leads; the LLM's own (real) pick is kept and de-duped against it.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="alert created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=["alert created", "export created"]
+        )
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == [
+            "export created",
+            "alert created",
+        ]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pinned_event_survives_when_llm_fills_the_cap(self, mock_chat: MagicMock) -> None:
+        # The named event is created last (oldest last_seen_at → outside the LLM's leading picks) and the
+        # LLM returns a full cap's worth of other events. The pin must not be truncated by the cap.
+        for i in range(RELEVANT_EVENTS_LIMIT):
+            EventDefinition.objects.create(team=self.team, name=f"event_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="named_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=[f"event_{i}" for i in range(RELEVANT_EVENTS_LIMIT)]
+        )
+
+        selected = _select_relevant_events(self.team, self.user, "tell me about `named_event`")
+
+        # The pin leads and survives; the cap drops the LLM's last pick instead of the named event.
+        assert selected[0] == "named_event"
+        assert len(selected) == RELEVANT_EVENTS_LIMIT
+
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 5)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_event_outside_the_candidate_cap(self, mock_chat: MagicMock) -> None:
+        # The whole reason the pin scan has its own (larger) bound: an event ranked below the candidate
+        # cap is invisible to the selection LLM, but an explicit mention must still resolve. With the cap
+        # patched to 5, the named event (oldest last_seen_at) falls outside the candidate slice.
+        for i in range(5):
+            EventDefinition.objects.create(team=self.team, name=f"common_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="rare_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "what about `rare_event`?") == ["rare_event"]
+
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 0)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_survive_when_candidate_slice_is_empty(self, mock_chat: MagicMock) -> None:
+        # An empty candidate slice skips the LLM pass but must not drop explicit pins — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        EventDefinition.objects.create(team=self.team, name="export created")
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created`?") == ["export created"]
+        mock_chat.assert_not_called()
+
+
+class TestExtractQuotedEventTokens:
+    @parameterized.expand(
+        [
+            ("backticks", "how is `export created`?", {"export created"}),
+            ("double_quotes", 'how is "export created"?', {"export created"}),
+            ("single_quotes", "how is 'export created'?", {"export created"}),
+            ("mixed_quote_styles", "`a` and \"b\" and 'c'", {"a", "b", "c"}),
+            ("casefolds_and_collapses_whitespace", "`Export   Created`", {"export created"}),
+            ("none_present", "how are exports doing?", set()),
+            ("ignores_unbalanced_quote", "how is `export created doing?", set()),
+        ]
+    )
+    def test_extracts_normalized_quoted_tokens(self, _name: str, prompt: str, expected: set[str]) -> None:
+        assert _extract_quoted_event_tokens(prompt) == expected
+
+
+class TestPinnedEventNames:
+    @parameterized.expand(
+        [
+            ("quoted_name_pinned", "how is `export created`?", ["export created"]),
+            ("case_insensitive_match", "how is `EXPORT CREATED`?", ["export created"]),
+            ("bare_exact_single_word_pinned", "trends for signup over time", ["signup"]),
+            ("bare_exact_multi_word_pinned", "how is export created trending", ["export created"]),
+            ("nonexistent_quoted_name_ignored", "how is `totally made up`?", []),
+            ("substring_does_not_match", "tell me about signups please", []),
+            ("no_reference_pins_nothing", "give me a weekly summary", []),
+        ]
+    )
+    def test_pins_only_validated_named_events(self, _name: str, prompt: str, expected: list[str]) -> None:
+        assert _pinned_event_names(prompt, ["export created", "signup"]) == expected
+
+    @parameterized.expand(
+        [
+            # `$` and `.` are part of an event-name token, so `$pageview` and `app.opened` match as
+            # whole names but never as a bare `pageview`/`opened` slice of a larger token.
+            ("quoted_dollar_name", "how is `$pageview`?", ["$pageview"]),
+            ("bare_dollar_name_excludes_plain", "spike in $pageview today", ["$pageview"]),
+            ("bare_plain_name_excludes_dollar", "how many pageview events", ["pageview"]),
+            ("dotted_name_pinned", "trend of app.opened", ["app.opened"]),
+            ("embedded_in_identifier_not_matched", "check my_pageview_handler logs", []),
+        ]
+    )
+    def test_special_char_token_boundaries(self, _name: str, prompt: str, expected: list[str]) -> None:
+        assert _pinned_event_names(prompt, ["$pageview", "pageview", "app.opened"]) == expected
+
+    def test_caps_pinned_count_at_max(self) -> None:
+        # A degenerate prompt naming more events than the ceiling pins at most MAX_PINNED_EVENTS, so the
+        # planner context and the downstream property lookup stay bounded.
+        names = [f"evt_{i}" for i in range(MAX_PINNED_EVENTS + 5)]
+        prompt = " ".join(f"`{n}`" for n in names)
+
+        assert len(_pinned_event_names(prompt, names)) == MAX_PINNED_EVENTS
+
+
+class TestRecentEventNames(APIBaseTest):
+    def test_scopes_to_team_and_respects_limit(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        EventDefinition.objects.create(team=other, name="other_team_event")
+        for i in range(3):
+            EventDefinition.objects.create(team=self.team, name=f"evt_{i}", last_seen_at=datetime.now(tz=UTC))
+
+        names = _recent_event_names(self.team, limit=2)
+
+        assert len(names) == 2
+        assert "other_team_event" not in names
 
 
 class TestEventPropertyNames(APIBaseTest):
@@ -485,9 +622,12 @@ class TestComputeReportWindow:
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_states_explicit_window_bounds_in_project_timezone(self, _mock_top: object, _mock_groups: object) -> None:
-        # The window-text regression: the blob must hand the planner concrete `[start, end)` literals
-        # (so it never writes `now() - INTERVAL`), not the old "last N day(s)" relative phrasing.
+    def test_states_window_bounds_and_placeholder_in_project_timezone(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        # The blob hands the planner the concrete `[start, end)` bounds for context, but instructs it to
+        # filter via the `{{date_range}}` placeholder (the executor substitutes the real window at run
+        # time) — never literal dates or the old "last N day(s)" relative phrasing.
         self.team.timezone = "Australia/Sydney"
         self.team.save()
         window = compute_report_window(
@@ -501,12 +641,10 @@ class TestContextBlob(APIBaseTest):
 
         assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
         assert f"Analysis window end (exclusive, project timezone): {window.end_literal}" in blob
-        assert (
-            f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
-            in blob
-        )
-        # The prior-period anchor for period-over-period growth is injected as its own literal, so the
-        # planner never reaches for `now() - INTERVAL` to build a "vs last week" baseline.
+        # The filter instruction names the placeholder, not the literal bounds — so a frozen plan stays
+        # window-agnostic and the dates never get baked into the planner's HogQL.
+        assert "{{date_range}}" in blob
+        assert f"toDateTime('{window.start_literal}')" not in blob
         assert (
             f"Previous-period start (for period-over-period comparisons only, project timezone): "
             f"{window.compare_start_literal}" in blob
@@ -528,7 +666,10 @@ class TestContextBlob(APIBaseTest):
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
-        assert "Group/account types (reference as group_<index>.properties.<name>" in blob
+        assert "properties via group_<index>.properties.<name>" in blob
+        # the raw group-key aggregation hint must be present so the planner counts accounts with
+        # $group_<index> rather than a bare group_<index> that fails with "Field not found"
+        assert "$group_<index>" in blob
         assert "group_0 = organization" in blob
 
     @parameterized.expand(
@@ -605,3 +746,58 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         with pytest.raises(PromptRejectedError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+
+
+class TestBuildFrozenPrompt(APIBaseTest):
+    """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
+
+    def _stored_plan(self) -> dict:
+        return {
+            "version": AI_QUERY_PLAN_VERSION,
+            "plan": QueryPlan(
+                overall_intent="count events",
+                steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+            ).model_dump(),
+        }
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    @patch(f"{_SG}._select_relevant_events")
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_reconstructs_plan_without_calling_any_llm(
+        self, _mock_top: object, _mock_groups: object, mock_select: MagicMock, mock_chat: MagicMock
+    ) -> None:
+        stored = self._stored_plan()
+
+        spec = build_frozen_prompt(
+            team=self.team, prompt="how are exports doing?", window=_window(7), ai_query_plan=stored
+        )
+
+        # Neither the event-selection model nor the planner runs on the frozen path...
+        mock_select.assert_not_called()
+        mock_chat.assert_not_called()
+        # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
+        assert spec.plan.model_dump() == stored["plan"]
+        assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @parameterized.expand(
+        [
+            # A corrupted plan and a stale schema version both raise StoredPlanInvalidError, NOT
+            # PromptRejectedError — the caller self-heals by re-planning live, so neither a QueryPlan
+            # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
+            (
+                "malformed_plan",
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                "malformed",
+            ),
+            ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
+            ("pre_versioning_shape", {"overall_intent": "i", "steps": []}, "stale"),
+        ]
+    )
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_invalid_stored_plan_raises_recoverable_error(
+        self, _name: str, stored: dict, match: str, _mock_top: object, _mock_groups: object
+    ) -> None:
+        with pytest.raises(StoredPlanInvalidError, match=match):
+            build_frozen_prompt(team=self.team, prompt="p", window=_window(7), ai_query_plan=stored)
