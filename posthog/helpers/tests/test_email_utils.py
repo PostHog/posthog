@@ -188,7 +188,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
         key_upper = _get_esp_suppression_cache_key("TEST@EXAMPLE.COM")
         key_other = _get_esp_suppression_cache_key("other@example.com")
 
-        self.assertTrue(key_lower.startswith("email_mfa_suppressed:"))
+        self.assertTrue(key_lower.startswith("code_based_verification_suppressed:"))
         self.assertEqual(key_lower, key_upper)
         self.assertNotEqual(key_lower, key_other)
         self.assertNotIn("@", key_lower)

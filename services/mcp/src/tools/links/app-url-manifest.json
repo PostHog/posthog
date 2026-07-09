@@ -469,7 +469,7 @@
         "params": [],
         "scope": "project"
     },
-    "emailMFAVerify": {
+    "codeBasedVerificationVerify": {
         "template": "/login/verify",
         "params": [],
         "scope": "global"

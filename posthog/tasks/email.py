@@ -470,7 +470,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_email_mfa_link(user_id: int, token: str, next_url: str | None = None) -> None:
+def send_code_based_verification(user_id: int, token: str, next_url: str | None = None) -> None:
     """Send email MFA verification link"""
     user: User = User.objects.get(pk=user_id)
 
@@ -479,9 +479,9 @@ def send_email_mfa_link(user_id: int, token: str, next_url: str | None = None) -
 
     message = EmailMessage(
         use_http=True,
-        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
+        campaign_key=f"code_based_verification_{user.uuid}-{timezone.now().timestamp()}",
         subject="Verify your PostHog login",
-        template_name="email_mfa_link",
+        template_name="code_based_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your login.",
             "url": verification_link,

@@ -109,7 +109,7 @@
 </form>
 
 <script nonce="{{ request.csp_nonce }}">
-const API_BASE = '/admin/api/email-mfa-bypass/';
+const API_BASE = '/admin/api/code-based-verification-bypass/';
 
 function getCSRFToken() {
     return document.querySelector('[name=csrfmiddlewaretoken]').value;
@@ -201,7 +201,7 @@ document.getElementById('email-list-body').addEventListener('click', function(e)
 });
 
 // --- Global email MFA disable ---
-const GLOBAL_API = '/admin/api/email-mfa-global-disable/';
+const GLOBAL_API = '/admin/api/code-based-verification-global-disable/';
 const MAX_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const disableForm = document.getElementById('disable-form');

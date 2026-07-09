@@ -105,10 +105,10 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.email_mfa_bypass_admin import (
-        EmailMFABypassViewSet,
-        EmailMFAGlobalDisableViewSet,
-        email_mfa_bypass_view,
+    from posthog.admin.admins.code_based_verification_bypass_admin import (
+        CodeBasedVerificationBypassViewSet,
+        CodeBasedVerificationGlobalDisableViewSet,
+        code_based_verification_bypass_view,
     )
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
@@ -155,24 +155,24 @@ if settings.ADMIN_PORTAL_ENABLED:
             name="radar-bypass-api-detail",
         ),
         path(
-            "admin/email-mfa-bypass/",
-            admin.site.admin_view(email_mfa_bypass_view),
-            name="email-mfa-bypass",
+            "admin/code-based-verification-bypass/",
+            admin.site.admin_view(code_based_verification_bypass_view),
+            name="code-based-verification-bypass",
         ),
         path(
-            "admin/api/email-mfa-bypass/",
-            EmailMFABypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="email-mfa-bypass-api-list",
+            "admin/api/code-based-verification-bypass/",
+            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
+            name="code-based-verification-bypass-api-list",
         ),
         path(
-            "admin/api/email-mfa-bypass/<str:email>/",
-            EmailMFABypassViewSet.as_view({"delete": "destroy"}),
-            name="email-mfa-bypass-api-detail",
+            "admin/api/code-based-verification-bypass/<str:email>/",
+            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
+            name="code-based-verification-bypass-api-detail",
         ),
         path(
-            "admin/api/email-mfa-global-disable/",
-            EmailMFAGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
-            name="email-mfa-global-disable-api",
+            "admin/api/code-based-verification-global-disable/",
+            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
+            name="code-based-verification-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",

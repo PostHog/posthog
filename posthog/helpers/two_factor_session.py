@@ -26,47 +26,47 @@ from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
-EMAIL_MFA_BYPASS_REDIS_KEY = "email_mfa_bypass_emails"
+CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY = "code_based_verification_bypass_emails"
 
 
-def is_email_mfa_bypass(email: str) -> bool:
-    return bool(get_client().sismember(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower()))
+def is_code_based_verification_bypass(email: str) -> bool:
+    return bool(get_client().sismember(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower()))
 
 
-def add_email_mfa_bypass(email: str) -> None:
-    get_client().sadd(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+def add_code_based_verification_bypass(email: str) -> None:
+    get_client().sadd(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
 
 
-def remove_email_mfa_bypass(email: str) -> None:
-    get_client().srem(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+def remove_code_based_verification_bypass(email: str) -> None:
+    get_client().srem(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
 
 
 # Global kill-switch: when this Redis key is present, email MFA verification is skipped for every
 # user (e.g. while transactional email delivery is down and the verification link can't be
 # delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
 # Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
-EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY = "email_mfa_global_disable"
-MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY = "code_based_verification_global_disable"
+MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 
-def is_email_mfa_globally_disabled() -> bool:
+def is_code_based_verification_globally_disabled() -> bool:
     # Fail closed: if Redis is unreachable, keep email MFA enforced (the secure default) rather than
     # silently dropping the second factor — and never let a Redis hiccup break the login flow.
     try:
-        return bool(get_client().exists(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY))
+        return bool(get_client().exists(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY))
     except Exception:
         mfa_logger.exception("Failed to read email MFA global disable flag; keeping email MFA enforced")
         return False
 
 
-def get_email_mfa_global_disable() -> Optional[dict]:
+def get_code_based_verification_global_disable() -> Optional[dict]:
     try:
         client = get_client()
-        raw = client.get(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        raw = client.get(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
         if not raw:
             return None
         data = json.loads(raw)
-        ttl = client.ttl(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        ttl = client.ttl(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
         data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
         return data
     except Exception:
@@ -74,13 +74,13 @@ def get_email_mfa_global_disable() -> Optional[dict]:
         return None
 
 
-def set_email_mfa_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
+def set_code_based_verification_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("A reason is required to disable email MFA.")
-    if not 0 < ttl_seconds <= MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS:
+    if not 0 < ttl_seconds <= MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS:
         raise ValueError(
-            f"TTL must be between 1 second and {MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
+            f"TTL must be between 1 second and {MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
         )
     payload = json.dumps(
         {
@@ -89,11 +89,11 @@ def set_email_mfa_global_disable(reason: str, ttl_seconds: int, disabled_by: str
             "disabled_at": datetime.datetime.now(datetime.UTC).isoformat(),
         }
     )
-    get_client().set(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
+    get_client().set(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
 
 
-def clear_email_mfa_global_disable() -> None:
-    get_client().delete(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+def clear_code_based_verification_global_disable() -> None:
+    get_client().delete(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
 
 
 def has_passkeys(user: User) -> bool:
@@ -139,7 +139,7 @@ WHITELISTED_PATHS = [
     "/api/logout/",
     "/api/login/",
     "/api/login/token/",
-    "/api/login/email-mfa/",
+    "/api/login/code-based-verification/",
     "/api/users/@me/",
     "/_health/",
 ]
@@ -285,7 +285,7 @@ def is_sso_authentication_backend(request: HttpRequest):
     return request.session.get("_auth_user_backend") in SSO_AUTHENTICATION_BACKENDS
 
 
-class EmailMFATokenGenerator(PasswordResetTokenGenerator):
+class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     """
     Token generator for email-based MFA login verification.
     Tokens are valid for 10 minutes and become invalid after use or expiration.
@@ -355,23 +355,23 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
         return f"{usable_user.pk}{usable_user.email}{usable_user.password}{usable_user.is_active}{login_timestamp}{timestamp}"
 
 
-email_mfa_token_generator = EmailMFATokenGenerator()
+code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
 @dataclass
-class EmailMFACheckResult:
+class CodeBasedVerificationCheckResult:
     should_send: bool
     suppression_bypassed: bool = False
     suppression_reason: Optional[str] = None
     suppression_cached: bool = False
 
 
-class EmailMFAVerifier:
+class CodeBasedVerifier:
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
                 distinct_id=str(user.distinct_id),
-                event="email_mfa_bypassed_due_to_suppression",
+                event="code_based_verification_bypassed_due_to_suppression",
                 properties={
                     "reason": reason,
                     "cached": cached,
@@ -384,15 +384,15 @@ class EmailMFAVerifier:
                 error=str(e),
             )
 
-    def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
-        if is_email_mfa_globally_disabled():
-            return EmailMFACheckResult(should_send=False)
+    def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
+        if is_code_based_verification_globally_disabled():
+            return CodeBasedVerificationCheckResult(should_send=False)
 
         if is_dev_mode() and not settings.TEST:
-            return EmailMFACheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False)
 
         if not is_email_available(with_absolute_urls=True):
-            return EmailMFACheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False)
 
         if not is_http_email_service_available():
             mfa_logger.info(
@@ -400,16 +400,16 @@ class EmailMFAVerifier:
                 user_id=user.pk,
             )
             self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
-            return EmailMFACheckResult(
+            return CodeBasedVerificationCheckResult(
                 should_send=False,
                 suppression_bypassed=True,
                 suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
                 suppression_cached=False,
             )
 
-        if is_email_mfa_bypass(user.email):
+        if is_code_based_verification_bypass(user.email):
             mfa_logger.info("Email MFA bypassed via admin bypass list", user_id=user.pk)
-            return EmailMFACheckResult(should_send=False)
+            return CodeBasedVerificationCheckResult(should_send=False)
 
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:
@@ -422,30 +422,30 @@ class EmailMFAVerifier:
                 cached=from_cache,
             )
             self._capture_suppression_bypass_event(user, reason, from_cache)
-            return EmailMFACheckResult(
+            return CodeBasedVerificationCheckResult(
                 should_send=False,
                 suppression_bypassed=True,
                 suppression_reason=reason,
                 suppression_cached=from_cache,
             )
 
-        return EmailMFACheckResult(should_send=True)
+        return CodeBasedVerificationCheckResult(should_send=True)
 
-    def create_token_and_send_email_mfa_verification(
+    def create_token_and_send_code_based_verification(
         self, request: HttpRequest, user: User, next_url: str | None = None
     ) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_email_mfa_verification(user).should_send:
+        if not self.should_send_code_based_verification(user).should_send:
             return False
 
         try:
-            token = email_mfa_token_generator.make_token(user)
-            email.send_email_mfa_link(user.pk, token, next_url)
-            request.session["email_mfa_pending_user_id"] = user.pk
-            request.session["email_mfa_token_created_at"] = int(time.time())
+            token = code_based_verification_token_generator.make_token(user)
+            email.send_code_based_verification(user.pk, token, next_url)
+            request.session["code_based_verification_pending_user_id"] = user.pk
+            request.session["code_based_verification_token_created_at"] = int(time.time())
             # Stash so the resend endpoint can rebuild a link that resumes the same post-login destination.
-            request.session["email_mfa_next"] = next_url
+            request.session["code_based_verification_next"] = next_url
             mfa_logger.info(
                 "Email MFA verification email sent",
                 user_id=user.pk,
@@ -462,18 +462,18 @@ class EmailMFAVerifier:
             capture_exception(Exception(f"Email MFA verification email failed: {e}"))
             return False
 
-    def has_pending_email_mfa_verification(self, request: HttpRequest) -> bool:
-        return request.session.get("email_mfa_pending_user_id") is not None
+    def has_pending_code_based_verification(self, request: HttpRequest) -> bool:
+        return request.session.get("code_based_verification_pending_user_id") is not None
 
-    def get_pending_email_mfa_verification_user_id(self, request: HttpRequest) -> int | None:
-        user_id: int | None = request.session.get("email_mfa_pending_user_id")
+    def get_pending_code_based_verification_user_id(self, request: HttpRequest) -> int | None:
+        user_id: int | None = request.session.get("code_based_verification_pending_user_id")
         return user_id
 
-    def get_pending_email_mfa_verification_token_created_at(self, request: HttpRequest) -> int:
-        return request.session.get("email_mfa_token_created_at", int(time.time()))
+    def get_pending_code_based_verification_token_created_at(self, request: HttpRequest) -> int:
+        return request.session.get("code_based_verification_token_created_at", int(time.time()))
 
     def check_token(self, user: User, token: str) -> bool:
-        return email_mfa_token_generator.check_token(user, token)
+        return code_based_verification_token_generator.check_token(user, token)
 
 
-email_mfa_verifier = EmailMFAVerifier()
+code_based_verifier = CodeBasedVerifier()
