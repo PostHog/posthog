@@ -20,6 +20,14 @@ const PAGE_SIZE = 8
 
 type SubscriptionTabKey = 'resource' | 'insights' | 'ai'
 
+interface SubscriptionTabConfig {
+    key: SubscriptionTabKey
+    label: string
+    subscriptions: SubscriptionType[]
+    loading: boolean
+    emptyMessage: string
+}
+
 interface TabbedManageSubscriptionsProps extends SubscriptionsLogicProps {
     onCancel: () => void
     onSelect: (value: number | 'new') => void
@@ -107,16 +115,7 @@ export function TabbedManageSubscriptions({
     const aiSubscriptionsAvailable = !!featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]
 
     // Tabs always render (including at count 0) so the available scopes stay discoverable.
-    const tabConfigs: (
-        | false
-        | {
-              key: SubscriptionTabKey
-              label: string
-              subscriptions: SubscriptionType[]
-              loading: boolean
-              emptyMessage: string
-          }
-    )[] = [
+    const tabConfigs: (SubscriptionTabConfig | false)[] = [
         {
             key: 'resource',
             label: isInsightContext ? 'This insight' : 'This dashboard',
@@ -140,7 +139,7 @@ export function TabbedManageSubscriptions({
         },
     ]
     const tabs: LemonTab<SubscriptionTabKey>[] = tabConfigs
-        .filter((tab): tab is Exclude<typeof tab, false> => !!tab)
+        .filter((tab): tab is SubscriptionTabConfig => !!tab)
         .map(({ key, label, subscriptions, loading, emptyMessage }) => ({
             key,
             // No count during the initial fetch — "(0)" would read as empty rather than loading.

@@ -166,12 +166,12 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"title": "Renamed", "send_test_now": True},
+            {"target_value": "other@posthog.com", "send_test_now": False},
         )
         assert response.status_code == status.HTTP_200_OK, response.content
-        # send_test_now is create-only: a title-only edit must not start firing deliveries
-        # just because the payload carries the flag
-        self.mock_temporal_client.start_workflow.assert_not_called()
+        # send_test_now is create-only: a target change warrants a redelivery, and an
+        # opt-out flag in the update payload must not suppress it
+        self.mock_temporal_client.start_workflow.assert_called_once()
 
     def test_cannot_create_subscription_without_insight_or_dashboard(self):
         response = self.client.post(
