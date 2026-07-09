@@ -17,6 +17,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rate_limit import SupportSlackOAuthCallbackThrottle
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -123,6 +124,12 @@ class SupportSlackDisconnectView(APIView):
 
 @csrf_exempt
 def support_slack_oauth_callback(request: HttpRequest) -> HttpResponse:
+    # IP throttle in front of any Slack token exchange — otherwise a stranger
+    # can loop a valid `state` param and force us to make outbound POSTs.
+    throttle = SupportSlackOAuthCallbackThrottle()
+    if not throttle.allow_request(Request(request), view=None):  # type: ignore[arg-type]
+        return JsonResponse({"error": "Too Many Requests"}, status=429)
+
     request_user = getattr(request, "user", None)
     request_user_id = getattr(request_user, "id", None)
     if not isinstance(request_user, User) or not isinstance(request_user_id, int):

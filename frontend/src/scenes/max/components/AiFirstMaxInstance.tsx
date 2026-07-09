@@ -159,7 +159,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
 
             {/* Intro - fades out when messages appear */}
             <div
-                className={`flex flex-col items-center transition-all duration-200 ease-out ${
+                className={`flex flex-col items-center transition-[opacity,height,padding] duration-200 ease-out ${
                     hasMessages ? 'opacity-0 h-0 overflow-hidden' : 'opacity-100 pb-3'
                 }`}
             >
@@ -187,7 +187,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
 
             {/* Input - always in flow, mt-auto pushes to bottom when messages exist */}
             <div
-                className={`w-full max-w-3xl mx-auto px-4 transition-all duration-300 ease-out z-50 ${
+                className={`w-full max-w-3xl mx-auto px-4 transition-[max-width,padding,background-color] duration-300 ease-out z-50 ${
                     hasMessages ? 'sticky bottom-0 bg-primary py-2 max-w-none' : 'pb-4'
                 }`}
             >
