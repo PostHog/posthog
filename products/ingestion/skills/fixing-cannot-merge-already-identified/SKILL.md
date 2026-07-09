@@ -2,7 +2,7 @@
 name: fixing-cannot-merge-already-identified
 description: >
   Diagnoses and fixes the `cannot_merge_already_identified` ingestion warning — an `identify`/`alias` call tried to merge two persons that are both already identified, so PostHog refused the merge and the accounts silently stayed separate.
-  Use when a user asks why two accounts aren't merging, why events are split across duplicate persons, why identify "doesn't work", or when `ingestion-warnings-list` shows `cannot_merge_already_identified`.
+  Use when a user asks why two accounts aren't merging, why events are split across duplicate persons, why identify "doesn't work", or when `posthog:ingestion-warnings-list` shows `cannot_merge_already_identified`.
   Covers how identification and merging work, why the refusal is silent, how to tell a code bug from a duplicate-account situation, and per-SDK fixes.
 ---
 
@@ -26,8 +26,8 @@ The only signals are this warning and the symptom: one human, two person profile
 
 ## Diagnose
 
-1. List the warnings with `ingestion-warnings-list` (`type: cannot_merge_already_identified`). Each sample's details carry `sourcePersonDistinctId` and `targetPersonDistinctId` — the two sides of the refused merge — plus the `event_uuid` of the triggering call.
-2. Resolve **both** distinct IDs to their persons (persons tools) and look at their properties and event history.
+1. List the warnings with `posthog:ingestion-warnings-list` (`type: cannot_merge_already_identified`). Each sample's details carry `sourcePersonDistinctId` and `targetPersonDistinctId` — the two sides of the refused merge — plus the `event_uuid` of the triggering call.
+2. Resolve **both** distinct IDs to their persons (`posthog:persons-list`) and look at their properties and event history.
 3. Decide which situation you're in:
    - **Two different humans** → the code is trying to merge people it shouldn't. Find and fix the callsite (below). This is the common case.
    - **One human with two accounts** (e.g. signed up twice with work and personal email) → the identify/alias code path is only a symptom; the duplicate accounts are the real problem (see below).
@@ -54,7 +54,7 @@ If two persons genuinely are the same human and must be joined, that is a **manu
 ## Verify
 
 1. Re-run the login/logout/identify flow.
-2. Re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences for those distinct IDs.
+2. Re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences for those distinct IDs.
 3. Check new sessions: events land under a single person per human.
 
 ## Related

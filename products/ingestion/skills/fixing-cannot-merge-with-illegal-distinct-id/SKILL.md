@@ -2,7 +2,7 @@
 name: fixing-cannot-merge-with-illegal-distinct-id
 description: >
   Diagnoses and fixes the `cannot_merge_with_illegal_distinct_id` ingestion warning — an `identify`/`alias` call used a placeholder value (`undefined`, `null`, `[object Object]`, `anonymous`, …) as a distinct ID, so PostHog refused the merge.
-  Use when a user asks why identify or alias isn't linking users, why a person named "undefined" exists, or when `ingestion-warnings-list` shows `cannot_merge_with_illegal_distinct_id`.
+  Use when a user asks why identify or alias isn't linking users, why a person named "undefined" exists, or when `posthog:ingestion-warnings-list` shows `cannot_merge_with_illegal_distinct_id`.
 ---
 
 # Fixing `cannot_merge_with_illegal_distinct_id`
@@ -22,7 +22,7 @@ A variable was unset at the callsite and got stringified into the ID. The classi
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: cannot_merge_with_illegal_distinct_id`. Each sample's details show `illegalDistinctId` (the junk value — it tells you the bug type: `undefined` = unset variable, `[object Object]` = wrong type) and `otherDistinctId` (the real user it tried to link).
+1. `posthog:ingestion-warnings-list` with `type: cannot_merge_with_illegal_distinct_id`. Each sample's details show `illegalDistinctId` (the junk value — it tells you the bug type: `undefined` = unset variable, `[object Object]` = wrong type) and `otherDistinctId` (the real user it tried to link).
 2. Find the callsite: grep the app for `identify(`/`alias(` and trace where the ID argument can be undefined — typically a race with auth state (identify called before the user object resolves).
 
 ## Fix
@@ -41,7 +41,7 @@ if (user?.id) {
 
 ## Verify
 
-Re-run the login flow, then re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences. Warnings are debounced; judge by absence of new ones, not shrinking history.
+Re-run the login flow, then re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences. Warnings are debounced; judge by absence of new ones, not shrinking history.
 
 ## Related
 

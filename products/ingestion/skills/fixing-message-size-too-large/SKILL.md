@@ -2,7 +2,7 @@
 name: fixing-message-size-too-large
 description: >
   Diagnoses and fixes the `message_size_too_large` ingestion warning — events silently discarded because the final Kafka message exceeded the ~1MB limit after person and group property enrichment.
-  Use when a user asks why events are missing or dropped, why an insight undercounts, when the ingestion warnings page or the `ingestion-warnings-list` tool shows `message_size_too_large`, or when captures return HTTP 413.
+  Use when a user asks why events are missing or dropped, why an insight undercounts, when the ingestion warnings page or the `posthog:ingestion-warnings-list` tool shows `message_size_too_large`, or when captures return HTTP 413.
   Covers the two distinct failure modes (capture-time rejection vs silent pipeline drop), how accumulated person or group properties make small events undeliverable, per-SDK fixes, and how to verify the fix.
 ---
 
@@ -27,13 +27,13 @@ Three consequences:
 
 ## Diagnose
 
-1. List the warnings: use the `ingestion-warnings-list` tool with `type: message_size_too_large` (or the Ingestion warnings page under Data management). Samples carry `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event) or `flush` (batched person/group writes).
-2. Read the repetition pattern in the samples — but resolve distinct IDs to persons before concluding. Distinct IDs are not persons: identified users routinely carry several distinct IDs (anonymous IDs, emails, device IDs) that all map to one merged person, whose properties inflate events sent under **any** of them. Use the persons MCP tools to fetch the person behind each sampled `distinct_id` first, then read the pattern at the person level:
+1. List the warnings: use the `posthog:ingestion-warnings-list` tool with `type: message_size_too_large` (or the Ingestion warnings page under Data management). Samples carry `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event) or `flush` (batched person/group writes).
+2. Read the repetition pattern in the samples — but resolve distinct IDs to persons before concluding. Distinct IDs are not persons: identified users routinely carry several distinct IDs (anonymous IDs, emails, device IDs) that all map to one merged person, whose properties inflate events sent under **any** of them. Use `posthog:persons-list` (filter by the sampled `distinct_id`) to fetch the person behind it first, then read the pattern at the person level:
    - Same person recurring (even under different distinct IDs) → that person's profile is inflated.
    - Many different _persons_, same event name → the event itself carries a huge payload.
    - Many different persons whose events share a group → group properties are inflated.
-3. **Check the event itself first** — it's the cheapest check. Look at how the event is constructed in code, and measure recent surviving occurrences with SQL: `SELECT length(properties) FROM events WHERE event = '<name>' ORDER BY timestamp DESC LIMIT 10`. Anything in the hundreds of KB means the event is (most of) the problem.
-4. **Check the person**: inspect the size and shape of the resolved person's properties — via the person page, or SQL: `SELECT length(properties) FROM persons WHERE id = '<person_id>'`.
+3. **Check the event itself first** — it's the cheapest check. Look at how the event is constructed in code, and measure recent surviving occurrences with `posthog:execute-sql`: `SELECT length(properties) FROM events WHERE event = '<name>' ORDER BY timestamp DESC LIMIT 10`. Anything in the hundreds of KB means the event is (most of) the problem.
+4. **Check the person**: inspect the size and shape of the resolved person's properties — via the person page, or `posthog:execute-sql`: `SELECT length(properties) FROM persons WHERE id = '<person_id>'`.
 5. **Check the groups**: if the affected events carry `$groups`, inspect each group's properties the same way — a single fat group poisons every event that references it.
 6. Grep the app code for the event name / `$set` / `groupIdentify` sites feeding those properties: base64 blobs, file contents, entire API responses, or unbounded accumulation (`interaction_1`, `interaction_2`, …) are the usual suspects.
 
@@ -55,7 +55,7 @@ Per SDK, the bug usually looks like:
 ## Verify
 
 1. Re-run the affected flow.
-2. Re-query `ingestion-warnings-list` with `type: message_size_too_large` and a `since` after your fix — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
+2. Re-query `posthog:ingestion-warnings-list` with `type: message_size_too_large` and a `since` after your fix — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
 3. Confirm the previously-missing events now appear in the events table.
 
 ## Related

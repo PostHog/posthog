@@ -2,7 +2,7 @@
 name: fixing-invalid-ai-token-property
 description: >
   Diagnoses and fixes the `invalid_ai_token_property` ingestion warning — an `$ai_*` event carried a non-numeric token property (e.g. `$ai_input_tokens: "1,204"`), so the property was nulled.
-  Use when a user asks why LLM analytics token counts or costs are missing or wrong, or when `ingestion-warnings-list` shows `invalid_ai_token_property`.
+  Use when a user asks why LLM analytics token counts or costs are missing or wrong, or when `posthog:ingestion-warnings-list` shows `invalid_ai_token_property`.
 ---
 
 # Fixing `invalid_ai_token_property`
@@ -21,7 +21,7 @@ Token counts must arrive as plain numbers. The usual sources of bad values:
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: invalid_ai_token_property`. The sample details name the exact `property`, the received `value`, and its `valueType` — that's usually the whole diagnosis.
+1. `posthog:ingestion-warnings-list` with `type: invalid_ai_token_property`. The sample details name the exact `property`, the received `value`, and its `valueType` — that's usually the whole diagnosis.
 2. Find where the LLM provider's usage data is mapped onto the `$ai_*` properties (manual capture or instrumentation wrapper) and check the types.
 
 ## Fix
@@ -43,7 +43,7 @@ Guard the missing-usage case (streamed/failed responses): omit the property rath
 
 ## Verify
 
-Re-run a generation, re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm token counts and costs appear in LLM analytics for new traces.
+Re-run a generation, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm token counts and costs appear for new traces (`posthog:query-llm-traces-list`).
 
 ## Related
 

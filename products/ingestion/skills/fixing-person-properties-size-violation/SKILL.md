@@ -2,7 +2,7 @@
 name: fixing-person-properties-size-violation
 description: >
   Diagnoses and fixes the `person_properties_size_violation` ingestion warning — a person-properties update ($set/$set_once/identify) was rejected because the person's stored properties would exceed PostHog's size limit.
-  Use when a user asks why person properties aren't updating, why a person profile is stale or huge, or when `ingestion-warnings-list` shows `person_properties_size_violation`.
+  Use when a user asks why person properties aren't updating, why a person profile is stale or huge, or when `posthog:ingestion-warnings-list` shows `person_properties_size_violation`.
   Covers why the limit exists, why the warning undercounts (sampled enforcement), the knock-on effect on event delivery, the three growth patterns (dynamic keying, big payloads, deep nesting) and how to detect each, plus the two-part fix: a code change and a user-approved one-time `$unset` cleanup.
 ---
 
@@ -31,10 +31,10 @@ These combine: a dynamically-keyed map of nested objects is the worst case and t
 
 ## Diagnose
 
-1. List the warnings with `ingestion-warnings-list` (`type: person_properties_size_violation`). Samples carry `person_id` and `distinct_id`. Remember distinct IDs are not persons — resolve them (persons tools); the person's properties are shared across all of their distinct IDs.
+1. List the warnings with `posthog:ingestion-warnings-list` (`type: person_properties_size_violation`). Samples carry `person_id` and `distinct_id`. Remember distinct IDs are not persons — resolve them (`posthog:persons-list` filtered by distinct ID); the person's properties are shared across all of their distinct IDs.
 2. Profile the person's properties against the three patterns:
    - **Count the keys** — hundreds+ means dynamic keying; look for the generated-name pattern.
-   - **Rank values by size** (`JSONExtractKeys(properties)` + `length()` of each value via SQL, or eyeball the person page) — a few dominant keys means big payloads.
+   - **Rank values by size** (`JSONExtractKeys(properties)` + `length()` of each value via `posthog:execute-sql`, or eyeball the person page) — a few dominant keys means big payloads.
    - **Open the large values** — if a "reasonable" key holds a deep object tree, it's the nesting pattern; note which branch grows.
 3. Find the writer: grep the app code for the `$set` / `$set_once` / `identify` / `setPersonProperties` callsites producing that pattern — key-name templates for dynamic keying, sync jobs for big payloads, incremental merge-into-object logic for nesting.
 
@@ -55,7 +55,7 @@ Person properties are for **current state** — bounded facts about the user (pl
 `$unset` **deletes person data irreversibly**, and other things may depend on those properties — cohorts, feature flag conditions, insight filters. Treat it as a remediation the **user decides on**:
 
 - Present the affected persons and the exact keys you propose to remove, with their sizes, and check whether any cohort/flag/filter references them before recommending deletion.
-- Only after the user agrees, run it — as a throwaway one-off (script or manual calls), never as code that ships in the application:
+- Only after the user agrees, run it — as a throwaway one-off, never as code that ships in the application. Per key, `posthog:persons-property-delete` does the same job tool-side; for many keys/persons, a one-off script sending `$unset`:
 
 ```js
 posthog.capture({
@@ -71,7 +71,7 @@ posthog.capture({
 ## Verify
 
 1. After the cleanup, send a small `$set` (e.g. a `profile_cleaned_at` timestamp) and confirm it appears on the person — proof updates apply again.
-2. Re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences. Judge by absence of new warnings over a real usage window; historical counts don't shrink.
+2. Re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences. Judge by absence of new warnings over a real usage window; historical counts don't shrink.
 3. If `message_size_too_large` was firing for the same persons, confirm it stopped too.
 
 ## Related

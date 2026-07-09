@@ -2,7 +2,7 @@
 name: fixing-group-key-too-long
 description: >
   Diagnoses and fixes the `group_key_too_long` ingestion warning — a `$groupidentify` event was dropped because its group key exceeded 400 characters.
-  Use when a user asks why a group isn't appearing or updating, why group analytics are missing an organization, or when `ingestion-warnings-list` shows `group_key_too_long`.
+  Use when a user asks why a group isn't appearing or updating, why group analytics are missing an organization, or when `posthog:ingestion-warnings-list` shows `group_key_too_long`.
 ---
 
 # Fixing `group_key_too_long`
@@ -21,7 +21,7 @@ A group key should be a short, stable identifier — `org_1042`, a UUID, a domai
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: group_key_too_long`. The sample details include the (truncated) `groupKey`, its length, and the 400 limit — the value itself usually reveals what got passed.
+1. `posthog:ingestion-warnings-list` with `type: group_key_too_long`. The sample details include the (truncated) `groupKey`, its length, and the 400 limit — the value itself usually reveals what got passed.
 2. Grep the app for `groupIdentify` / `group(` callsites and check what feeds the key argument.
 
 ## Fix
@@ -39,7 +39,7 @@ The key is the group's permanent identity — changing it later creates a **new*
 
 ## Verify
 
-Re-run the flow, then re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the group appears with its properties.
+Re-run the flow, then re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the group appears with its properties (`posthog:execute-sql` against the groups table).
 
 ## Related
 

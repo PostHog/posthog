@@ -2,7 +2,7 @@
 name: fixing-invalid-event-when-process-person-profile-is-false
 description: >
   Diagnoses and fixes the `invalid_event_when_process_person_profile_is_false` ingestion warning — an `$identify`, `$create_alias`, `$merge_dangerously`, or `$groupidentify` event was dropped because it disabled person processing with `$process_person_profile: false`.
-  Use when a user asks why identify or group calls have no effect, or when `ingestion-warnings-list` shows `invalid_event_when_process_person_profile_is_false`.
+  Use when a user asks why identify or group calls have no effect, or when `posthog:ingestion-warnings-list` shows `invalid_event_when_process_person_profile_is_false`.
 ---
 
 # Fixing `invalid_event_when_process_person_profile_is_false`
@@ -19,7 +19,7 @@ The contradiction usually comes from a global default colliding with specific ca
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: invalid_event_when_process_person_profile_is_false`. The samples show which event type was dropped and for which distinct IDs.
+1. `posthog:ingestion-warnings-list` with `type: invalid_event_when_process_person_profile_is_false`. The samples show which event type was dropped and for which distinct IDs.
 2. Find where `$process_person_profile: false` gets attached — SDK config, a shared capture wrapper, or the callsite itself.
 
 ## Fix
@@ -32,7 +32,7 @@ Decide which intent is real:
 
 ## Verify
 
-Re-run the login/group flow, re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm persons/groups update again.
+Re-run the login/group flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm persons/groups update again.
 
 ## Related
 

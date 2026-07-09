@@ -2,7 +2,7 @@
 name: fixing-invalid-process-person-profile
 description: >
   Diagnoses and fixes the `invalid_process_person_profile` ingestion warning — an event carried a non-boolean `$process_person_profile` value, so PostHog ignored it and used the default (true).
-  Use when a user asks why person profiles are being created despite opting out, why anonymous-event settings aren't taking effect, or when `ingestion-warnings-list` shows `invalid_process_person_profile`.
+  Use when a user asks why person profiles are being created despite opting out, why anonymous-event settings aren't taking effect, or when `posthog:ingestion-warnings-list` shows `invalid_process_person_profile`.
 ---
 
 # Fixing `invalid_process_person_profile`
@@ -17,7 +17,7 @@ Category `event`, severity `warning`.
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: invalid_process_person_profile`. The sample details show the exact `$process_person_profile` value received — its type reveals the bug (`"false"` = string from config/env, `0` = numeric flag).
+1. `posthog:ingestion-warnings-list` with `type: invalid_process_person_profile`. The sample details show the exact `$process_person_profile` value received — its type reveals the bug (`"false"` = string from config/env, `0` = numeric flag).
 2. Grep the app for `$process_person_profile` / `process_person_profile` and check the value's type at the callsite — env vars and JSON configs are the usual source of stringified booleans.
 
 ## Fix
@@ -36,7 +36,7 @@ If the value comes from config, parse it (`value === 'true'`) before it reaches 
 
 ## Verify
 
-Re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm new anonymous events stop creating person profiles.
+Re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm new anonymous events stop creating person profiles.
 
 ## Related
 

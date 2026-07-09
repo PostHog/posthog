@@ -2,7 +2,7 @@
 name: fixing-ignored-invalid-timestamp
 description: >
   Diagnoses and fixes the `ignored_invalid_timestamp` ingestion warning — an event's `timestamp` didn't parse, so PostHog kept the event but used the server arrival time instead.
-  Use when a user asks why events appear at the wrong time, why historical imports show up as "now", or when `ingestion-warnings-list` shows `ignored_invalid_timestamp`.
+  Use when a user asks why events appear at the wrong time, why historical imports show up as "now", or when `posthog:ingestion-warnings-list` shows `ignored_invalid_timestamp`.
 ---
 
 # Fixing `ignored_invalid_timestamp`
@@ -23,7 +23,7 @@ The timestamp string isn't a format PostHog can parse. Common sources:
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: ignored_invalid_timestamp`. The sample details carry the offending `value` and a `reason` from the parser — usually self-explanatory.
+1. `posthog:ingestion-warnings-list` with `type: ignored_invalid_timestamp`. The sample details carry the offending `value` and a `reason` from the parser — usually self-explanatory.
 2. Grep the app for where `timestamp` is set on capture calls (custom timestamps are most common in backend SDKs and migration/import scripts).
 
 ## Fix
@@ -42,7 +42,7 @@ If you don't need a custom time, omit `timestamp` entirely — the SDK stamps it
 
 ## Verify
 
-Re-run the flow or a sample of the import, re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm new events carry the intended times.
+Re-run the flow or a sample of the import, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm new events carry the intended times.
 
 ## Related
 

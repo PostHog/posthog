@@ -2,7 +2,7 @@
 name: fixing-skipping-event-invalid-distinct-id
 description: >
   Diagnoses and fixes the `skipping_event_invalid_distinct_id` ingestion warning — an event was dropped because its distinct ID exceeded 400 characters.
-  Use when a user asks why some events are missing, or when `ingestion-warnings-list` shows `skipping_event_invalid_distinct_id`.
+  Use when a user asks why some events are missing, or when `posthog:ingestion-warnings-list` shows `skipping_event_invalid_distinct_id`.
 ---
 
 # Fixing `skipping_event_invalid_distinct_id`
@@ -22,7 +22,7 @@ Every event sent with that value is silently lost until fixed, so treat this as 
 
 ## Diagnose
 
-1. `ingestion-warnings-list` with `type: skipping_event_invalid_distinct_id`. The sample details include the truncated `distinctId` and its length — the shape of the value identifies the bug (dots and base64 → a JWT; braces → serialized JSON).
+1. `posthog:ingestion-warnings-list` with `type: skipping_event_invalid_distinct_id`. The sample details include the truncated `distinctId` and its length — the shape of the value identifies the bug (dots and base64 → a JWT; braces → serialized JSON).
 2. Grep the app for where that value could reach the SDK's distinct ID: `identify(`, `capture(` with an explicit `distinctId`, or custom wrapper helpers.
 
 ## Fix
@@ -37,7 +37,7 @@ Add a guard/type so tokens and objects can't flow into the ID argument — this 
 
 ## Verify
 
-Re-run the affected flow, re-query `ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the events now arrive under the correct person.
+Re-run the affected flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new occurrences — and confirm the events now arrive under the correct person.
 
 ## Related
 
