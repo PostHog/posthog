@@ -183,11 +183,11 @@ class TestFlagVersionSync(BaseTest):
                 ["pending_version", "is_calculating"],
             ),
             (
-                # The finally-save in calculate_people_ch lists groups and cohort_type
-                # in update_fields without changing their values.
+                # The finally-save in calculate_people_ch persists only recalculation
+                # bookkeeping fields, none of which are cohort-definition fields.
                 "recalculation_completion_save",
                 {"last_calculation": timezone.now(), "errors_calculating": 0},
-                ["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"],
+                ["last_calculation", "errors_calculating", "last_error_at", "cohort_type"],
             ),
             (
                 # A condition field changed in memory but excluded from update_fields

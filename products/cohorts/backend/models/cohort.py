@@ -395,7 +395,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
-        from products.cohorts.backend.models.util import recalculate_cohortpeople
+        from products.cohorts.backend.models.util import recalculate_cohortpeople, save_recovery_bookkeeping
 
         logger.info(
             "cohort_calculation_started",
@@ -441,9 +441,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             raise
         finally:
-            # Save fields modified during calculation, but exclude is_calculating to prevent race condition
-            self.save(
-                update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"]
+            # Save fields modified during calculation, but exclude is_calculating to prevent race
+            # condition. Persist resiliently: a Postgres connection dropped mid-recalculation would
+            # otherwise make this save fail with "connection is closed", masking the real error and
+            # leaving the cohort stuck calculating (the reconnect also lets the is_calculating reset
+            # below succeed). `groups` is deliberately omitted: calculation never changes it, and
+            # being a cohort-definition field it would otherwise fire the definition-change signal
+            # (an extra query, plus a flag-version bump risk) on every recalculation bookkeeping save.
+            save_recovery_bookkeeping(
+                lambda: self.save(
+                    update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type"]
+                ),
+                cohort_id=self.pk,
+                team_id=self.team_id,
             )
             # Only set is_calculating = False if this is the highest pending version
             # This prevents the flag from being reset while other higher-version calculations are still running

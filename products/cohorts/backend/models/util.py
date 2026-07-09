@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import copy
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
 from django.utils import timezone
 
 import structlog
@@ -146,6 +147,28 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int) -> None:
+    """Persist post-calculation bookkeeping, surviving a Postgres connection dropped mid-recalculation.
+
+    A long recalculation can outlive its connection (the server closes it unexpectedly); the first
+    write afterwards then raises a connection error. Left unguarded on the error/finally recovery
+    path, that cascades into "the connection is closed" - burying the real root-cause error and
+    leaving the cohort stuck with is_calculating=True. Reconnect and retry once so the bookkeeping
+    still lands and the original error is what propagates; if the retry fails too, swallow it (a
+    recovery write must never mask the failure it is recording).
+    """
+    try:
+        save_fn()
+    except (InterfaceError, OperationalError):
+        connections[DEFAULT_DB_ALIAS].close()  # next query opens a fresh connection
+        try:
+            save_fn()
+        except Exception:
+            logger.warning(
+                "cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True
+            )
 
 
 def run_cohort_query(
@@ -737,7 +760,14 @@ def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, tea
         history.finished_at = timezone.now()
         history.error = str(e)
         history.error_code = parse_error_code(e)
-        history.save(update_fields=["finished_at", "error", "error_code"])
+        # The recalculation may have died because Postgres dropped the connection; record the
+        # failure resiliently so it reconnects instead of re-raising "connection is closed" and
+        # masking the real error e.
+        save_recovery_bookkeeping(
+            lambda: history.save(update_fields=["finished_at", "error", "error_code"]),
+            cohort_id=cohort.pk,
+            team_id=team.id,
+        )
         raise
 
 

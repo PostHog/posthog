@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.db import DEFAULT_DB_ALIAS, OperationalError
+
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
 from pydantic import (
@@ -24,6 +26,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    _recalculate_cohortpeople_for_team,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1108,3 +1111,38 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message("some_unknown_code")
         assert message is not None
         self.assertIn("an error occurred", message.lower())
+
+
+class TestRecalculationErrorRecovery(BaseTest):
+    def test_original_error_surfaces_when_recovery_history_save_fails(self):
+        # When Postgres drops the connection mid-recalculation, the error-recovery history.save
+        # fails too. The recovery path must reconnect, retry the bookkeeping, and still let the real
+        # calculation error propagate instead of a cascading "connection is closed" masking it.
+        cohort = _create_cohort(
+            team=self.team,
+            name="c",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        real_error = RuntimeError("real root cause")
+        mock_history = MagicMock()
+        # Both the initial save and the post-reconnect retry fail, exercising the swallow path.
+        mock_history.save.side_effect = OperationalError("the connection is closed")
+
+        with (
+            patch(
+                "products.cohorts.backend.models.util.CohortCalculationHistory.objects.create",
+                return_value=mock_history,
+            ),
+            patch(
+                "products.cohorts.backend.models.util._recalculate_cohortpeople_for_team_hogql",
+                side_effect=real_error,
+            ),
+            # Patch connections so the reconnect doesn't close the real test transaction's connection.
+            patch("products.cohorts.backend.models.util.connections") as mock_connections,
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                _recalculate_cohortpeople_for_team(cohort, 0, self.team)
+
+        self.assertIs(ctx.exception, real_error)
+        assert mock_history.save.call_count == 2
+        mock_connections[DEFAULT_DB_ALIAS].close.assert_called_once()
