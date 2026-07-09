@@ -463,7 +463,8 @@ class TestRepoPickerOptions(TestCase):
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
         assert mock_requests_post.call_args.kwargs["json"]["blocks"][0]["type"] == "card"
-        assert "Approved" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Approval recorded"
+        assert "body" not in mock_requests_post.call_args.kwargs["json"]["blocks"][0]
         assert cache.get(_picker_context_cache_key(token)) is None
 
     @patch("products.slack_app.backend.api.requests.post")
@@ -496,8 +497,7 @@ class TestRepoPickerOptions(TestCase):
         assert "denied your approval request" in signal_args.kwargs["denial_message"]
         assert "Try a different safe approach" in signal_args.kwargs["denial_message"]
         assert signal_args.kwargs["broker_reason"] == "slack_human_response"
-        assert "Denied" in mock_requests_post.call_args.kwargs["json"]["text"]
-        assert "find another path" in mock_requests_post.call_args.kwargs["json"]["text"]
+        assert mock_requests_post.call_args.kwargs["json"]["text"] == "Denial recorded"
 
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.tasks.backend.facade.api.signal_task_run_permission_response")
