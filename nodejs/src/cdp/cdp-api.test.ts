@@ -784,6 +784,59 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow wait_until_condition test invocations', () => {
+        // Matches events whose name equals `eventName` - same shape the serializer compiles
+        // for an "events to wait for" entry.
+        const eventBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+
+        const waitFlowConfiguration = {
+            name: 'Wait flow',
+            actions: [
+                { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+                {
+                    id: 'wait_node',
+                    name: 'Wait',
+                    type: 'wait_until_condition',
+                    config: {
+                        events: [
+                            {
+                                filters: {
+                                    bytecode: eventBytecode('follow_up'),
+                                    events: [{ id: 'follow_up', name: 'follow_up', type: 'events', order: 0 }],
+                                },
+                            },
+                        ],
+                        condition: { filters: null },
+                        max_wait_duration: '5m',
+                    },
+                },
+                { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+            ],
+            edges: [
+                { from: 'wait_node', to: 'exit_node', type: 'branch', index: 0 },
+                { from: 'wait_node', to: 'exit_node', type: 'continue' },
+            ],
+        }
+
+        it.each([
+            ['matching', 'follow_up', 'exit_node'],
+            ['non-matching', 'some_other_event', 'wait_node'],
+        ])('a %s test event resolves the wait step correctly', async (_, eventName, expectedNextActionId) => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event!, event: eventName } },
+                    mock_async_functions: true,
+                    configuration: waitFlowConfiguration,
+                    current_action_id: 'wait_node',
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.nextActionId).toEqual(expectedNextActionId)
+        })
+    })
+
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
 
