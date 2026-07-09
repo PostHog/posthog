@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import inspect
+import logging
 import datetime as dt
 import resource
 from collections.abc import Callable, Generator, Iterator
@@ -20,7 +21,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection, connections
+from django.db import connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -29,6 +30,7 @@ from django.test.utils import CaptureQueriesContext
 # freezegun.FakeDateTime and pendulum don't play nicely otherwise
 import pendulum  # noqa F401
 import sqlparse
+from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
 from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
@@ -193,6 +195,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
+from posthog.test import flush_lock_guard
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
@@ -868,6 +871,96 @@ class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):
     pass
 
 
+logger = logging.getLogger(__name__)
+
+# Infrastructure tables whose rows must survive a selective flush: emptying
+# django_content_type / auth_permission would require re-emitting post_migrate
+# (the expensive half of the stock flush command) to repopulate them, and
+# django_migrations / sqlx bookkeeping must never be emptied. Because they are
+# never re-seeded, TransactionTestCase tests must not mutate these tables - a
+# mutation would silently poison every later test in the process.
+_SELECTIVE_FLUSH_PRESERVED_TABLES = frozenset({"django_migrations", "django_content_type", "auth_permission"})
+
+
+def _selective_flush(db_name: str, *, reset_sequences: bool) -> None:
+    """Empty only the tables that contain rows, instead of Django's stock ``flush``.
+
+    The stock command TRUNCATEs every table Django knows about (hundreds, almost
+    all already empty after a typical test) and then emits ``post_migrate`` to
+    recreate content types and permissions. Probing for non-empty tables and
+    DELETE-ing just those is an order of magnitude faster, and preserving content
+    types and permissions makes the ``post_migrate`` signal unnecessary. FK
+    triggers are disabled via ``session_replication_role`` so deletion order
+    doesn't matter; that is safe because every non-empty table is emptied, so no
+    dangling references can remain. Like the stock flush, this assumes no
+    concurrent writer commits into a table between its probe and the end of the
+    transaction; run it only from single-threaded teardown.
+    """
+    conn = connections[db_name]
+    quote_name = conn.ops.quote_name
+    with transaction.atomic(using=db_name), conn.cursor() as cursor:
+        # A lock timeout turns a leaked-lock hang into an exception that rolls back
+        # and lands in the callers' lock-guarded stock-flush fallback (see
+        # posthog/test/flush_lock_guard.py for the incident this prevents).
+        cursor.execute(
+            "SELECT set_config('lock_timeout', %s, true)", [f"{flush_lock_guard.FLUSH_LOCK_TIMEOUT_SECONDS}s"]
+        )
+        # Re-list tables on every flush: tests can create or drop tables (schema
+        # migration tests, warehouse DDL), so a cached list goes stale in both
+        # dangerous directions. The catalog query costs ~1ms.
+        cursor.execute(
+            """
+            SELECT tablename
+            FROM pg_tables
+            WHERE schemaname = 'public'
+              AND tablename NOT LIKE 'pg\\_%'
+              AND tablename NOT LIKE '\\_sqlx\\_%'
+              AND tablename NOT LIKE '\\_persons\\_migrations%'
+            """
+        )
+        tables = [name for (name,) in cursor.fetchall() if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES]
+
+        dirty: list[str] = []
+        chunk_size = 150
+        for start in range(0, len(tables), chunk_size):
+            chunk = tables[start : start + chunk_size]
+            cursor.execute(
+                " UNION ALL ".join(f"SELECT %s, EXISTS (SELECT FROM {quote_name(name)})" for name in chunk),
+                chunk,
+            )
+            dirty.extend(name for name, has_rows in cursor.fetchall() if has_rows)
+
+        if dirty:
+            cursor.execute("SET LOCAL session_replication_role = replica")
+            for name in dirty:
+                cursor.execute(f"DELETE FROM {quote_name(name)}")
+
+        if reset_sequences:
+            # pg_sequences.last_value is NULL until a sequence is first read and NULL
+            # again after RESTART, so this finds every sequence advanced since the last
+            # flush - including ones owned by tables that are empty at probe time
+            # because the test deleted its own rows. Sequences owned by preserved
+            # tables keep counting so future inserts can't collide with surviving rows.
+            cursor.execute(
+                """
+                SELECT s.sequencename
+                FROM pg_sequences s
+                WHERE s.schemaname = 'public'
+                  AND s.last_value IS NOT NULL
+                  AND s.sequencename NOT IN (
+                    SELECT seq.relname
+                    FROM pg_class seq
+                    JOIN pg_depend dep ON dep.objid = seq.oid AND dep.deptype IN ('a', 'i')
+                    JOIN pg_class tbl ON tbl.oid = dep.refobjid
+                    WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
+                  )
+                """,
+                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
+            )
+            for (seq_name,) in cursor.fetchall():
+                cursor.execute(f"ALTER SEQUENCE {quote_name(seq_name)} RESTART")
+
+
 class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
     Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
@@ -880,17 +973,23 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        # Override to use CASCADE when truncating tables.
-        # Required when models are moved between Django apps, as PostgreSQL
-        # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                # Fall back to the stock flush, with CASCADE: required when models
+                # are moved between Django apps, as PostgreSQL needs CASCADE to
+                # handle FK constraints across app boundaries. Logged so a
+                # systematically failing fast path can't silently regress the
+                # suite to stock-flush speed.
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
-    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
-    sequences keep incrementing across tests. Useful when ClickHouse data from
+    Like NonAtomicBaseTest but keeps PG sequences incrementing across tests
+    instead of restarting them. Useful when ClickHouse data from
     earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
     need later tests to get fresh, non-overlapping values.
     """
@@ -901,18 +1000,25 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
 
     def _fixture_teardown(self):
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            conn = connections[db_name]
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                               SELECT tablename
-                               FROM pg_tables
-                               WHERE schemaname = 'public'
-                                 AND tablename NOT LIKE 'pg_%'
-                                 AND tablename NOT LIKE 'django_%'
-                               """)
-                tables = [row[0] for row in cursor.fetchall()]
-                if tables:
-                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+            try:
+                _selective_flush(db_name, reset_sequences=False)
+            except Exception:
+                # This fallback must stay TRUNCATE-based rather than the stock flush
+                # command: stock flush RESTARTs identities, which is the one thing
+                # this class exists to avoid.
+                logger.exception("Selective flush of %r failed; falling back to TRUNCATE", db_name)
+                conn = connections[db_name]
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                    if tables:
+                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -993,6 +1099,8 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
             get_bloom_filter_lower_index_name,
             get_materialized_columns,
@@ -1003,6 +1111,11 @@ def cleanup_materialized_columns():
     except:
         # EE not available? Skip
         return
+
+    # A prior test may have mutated schema with raw sync_execute, bypassing materialize()/
+    # drop_column() (which self-invalidate) — refresh before deciding what to drop below.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
     def optionally_drop(table, filter=None):
         columns_to_drop = [
@@ -1042,6 +1155,10 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+    # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
+    # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
 
 def get_index_from_explain(
@@ -1671,7 +1788,53 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             raise exceptions[0]
 
 
+# A client checkout is the "ClickHouse may have changed" signal. Counted at two
+# choke points: get_client_from_pool (covers sync_execute and the HTTP client)
+# and ChPool.get_client itself (covers every pool instance, including
+# ClickhouseCluster's own pools and module-level ch_pool users). Known paths
+# that do NOT advance the counter: default_client() (system-state queries only,
+# per its docstring) and rows arriving via Kafka-engine tables - if a test
+# mutates data exclusively through those, its ClickhouseDestroyTablesMixin
+# reset must not rely on the skip. The canary in
+# posthog/test/test_conftest_cache_canaries.py fails loudly if either hook
+# gets unwired.
+_clickhouse_pool_checkouts = 0
+_clickhouse_checkouts_at_last_reset: int | None = None
+
+
+def _count_clickhouse_checkout(orig_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    global _clickhouse_pool_checkouts
+    _clickhouse_pool_checkouts += 1
+    return orig_fn(*args, **kwargs)
+
+
+if settings.TEST:
+    get_client_from_pool._patch(_count_clickhouse_checkout)
+
+    _original_chpool_get_client = ChPool.get_client
+
+    @wraps(_original_chpool_get_client)
+    def _counting_chpool_get_client(self: ChPool, *args: Any, **kwargs: Any) -> Any:
+        global _clickhouse_pool_checkouts
+        _clickhouse_pool_checkouts += 1
+        return _original_chpool_get_client(self, *args, **kwargs)
+
+    ChPool.get_client = _counting_chpool_get_client
+
+
 def reset_clickhouse_database() -> None:
+    # Dropping tables below removes their materialized columns behind the metadata cache's back,
+    # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
+    try:
+        from ee.clickhouse.materialized_columns.columns import (  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
+        )
+
+        for _mat_table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(_mat_table)
+    except ModuleNotFoundError:
+        pass
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
@@ -1802,6 +1965,17 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    global _clickhouse_checkouts_at_last_reset
+    _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
+
+
+def reset_clickhouse_database_if_dirty() -> None:
+    """Reset ClickHouse only if something has checked out a ClickHouse client since
+    the last reset finished; with zero checkouts the state cannot have changed and
+    the reset would be a no-op costing dozens of DDL statements."""
+    if _clickhouse_pool_checkouts != _clickhouse_checkouts_at_last_reset:
+        reset_clickhouse_database()
+
 
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
@@ -1811,11 +1985,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
 
 def snapshot_clickhouse_queries(fn_or_class):

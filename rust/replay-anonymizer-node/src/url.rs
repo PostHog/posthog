@@ -1,4 +1,4 @@
-//! URL scrub. Mirrors `anonymize/url.ts`. `None` means "unchanged".
+//! URL scrub. `None` means "unchanged".
 //!
 //! - Numbers (a bare run of digits) are masked to `$` per digit (length-preserving; `$` rather than
 //!   `#` so it doesn't clash with the fragment separator).
@@ -14,7 +14,6 @@
 use crate::allow_lists::AllowLists;
 use crate::context::Ctx;
 
-// Mirrors `URL_ALLOWLIST` in `anonymize/url.ts`.
 pub const URL_ALLOWLIST: &[&str] = &["about:blank", "about:srcdoc"];
 
 fn strip_port(host: &mut String) {
@@ -194,7 +193,7 @@ fn collapsed_host(allow: &AllowLists, host_port: &str) -> String {
     }
 }
 
-// Mirrors `URL_SCHEME_ALLOWLIST` in `anonymize/url.ts`.
+// Pinned by `tests/fixtures/url-scheme-allowlist.json` (see `tests/parity.rs`).
 pub const URL_SCHEME_ALLOWLIST: &[&str] = &[
     // Web platform
     "about",
@@ -320,7 +319,7 @@ fn split_url(s: &str) -> (&str, &str, &str) {
     }
 }
 
-// Host or `[ipv6]`, with an optional `:digits` port. Mirrors `HOST_PORT` in `anonymize/url.ts`.
+// Host or `[ipv6]`, with an optional `:digits` port.
 fn is_valid_host_port(host_port: &str) -> bool {
     let host = match host_port.split_once(':') {
         None => host_port,

@@ -475,6 +475,34 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_create_zeabur_provider_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "sk-zeabur-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        key = LLMProviderKey.objects.first()
+        assert key is not None
+        self.assertEqual(key.provider, "zeabur")
+        self.assertEqual(key.state, LLMProviderKey.State.OK)
+        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key-12345")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_zeabur_key_rejects_invalid_format(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "no-prefix-key"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("sk-", str(response.data))
+        mock_validate.assert_not_called()
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_can_create_azure_openai_provider_key(self, mock_validate):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
@@ -876,6 +904,18 @@ class TestLLMProviderKeyValidationViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["state"], "ok")
         mock_validate.assert_called_once_with("minimax", "minimax-test-key")
+
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_can_pre_validate_zeabur_key(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_key_validations/",
+            {"api_key": "sk-zeabur-test-key", "provider": "zeabur"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["state"], "ok")
+        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key")
 
     def test_pre_validate_requires_api_key(self):
         response = self.client.post(
