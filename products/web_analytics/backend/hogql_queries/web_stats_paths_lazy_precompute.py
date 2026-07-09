@@ -252,13 +252,16 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
 # Cap on stored breakdown rows: only the top-K paths PER DAY by the query's sort
 # metric. The PATHS tile shows a paginated top-N and the read's `LIMIT` can't prune
 # the scan (it must aggregate every path to find the top), so the long tail — paths
-# that never reach the display — is pure dead weight. K is sized so that the vast
-# majority of teams (fleet-wide, >99% of active teams have fewer distinct cleaned
-# paths per week than this) store their full path set and only extreme-cardinality
-# outliers (typically one-path-per-pageview instrumentation) get truncated. Capping
-# per day rather than per job window keeps sub-range reads correct — see
-# `INSERT_QUERY_TEMPLATE_CAPPED`.
-PATHS_TOP_K = 100_000
+# that never reach the display — is pure dead weight. Reads pay for every stored
+# row of the covering jobs, so K directly prices read latency: at 100k the two
+# highest-cardinality teams' stored sets grew ~8× and their reads regressed from
+# ~300ms to multi-second during recompute windows, while ~95% of active teams
+# (fewer than 10k distinct cleaned paths per week fleet-wide) never notice K at
+# all. 10k per day keeps those teams' full path set, and because the cap is per
+# day (see `INSERT_QUERY_TEMPLATE_CAPPED`) a multi-day job stores the union of
+# daily top-Ks — strictly more coverage than the original per-job 10k cap, and
+# sub-range reads stay correct.
+PATHS_TOP_K = 10_000
 
 # The per-(hour, breakdown) state aggregation — shared by the capped and uncapped
 # inserts. The lazy_computation framework substitutes the placeholders (incl.

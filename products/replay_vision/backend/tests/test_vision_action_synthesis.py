@@ -19,22 +19,23 @@ from products.replay_vision.backend.tests.helpers import snapshot_for
 _SYNTH_PATH = "products.replay_vision.backend.temporal.vision_actions.synthesis"
 
 
-def _mock_genai(content: str, captured: list[str] | None = None):
-    # genai.Client(...).models.generate_content(...) → object with .text
-    def _generate(**kwargs) -> SimpleNamespace:
-        if captured is not None:
-            captured.append(kwargs.get("contents", ""))
-        return SimpleNamespace(text=content)
+def _user_message(kwargs: dict) -> str:
+    return next((m["content"] for m in kwargs.get("messages", []) if m["role"] == "user"), "")
 
-    client = SimpleNamespace(models=SimpleNamespace(generate_content=_generate))
-    return SimpleNamespace(Client=lambda **_kwargs: client)
+
+def _mock_openai(content: str, captured: list[str] | None = None):
+    # OpenAI(...).chat.completions.create(...) → object with .choices[0].message.content
+    def _create(**kwargs) -> SimpleNamespace:
+        if captured is not None:
+            captured.append(_user_message(kwargs))
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=_create)))
+    return lambda **_kwargs: client
 
 
 def _no_llm_client(**_kwargs):
     raise AssertionError("LLM should not be called")
-
-
-_NO_LLM = SimpleNamespace(Client=_no_llm_client)
 
 
 class TestVisionActionSynthesis(BaseTest):
@@ -92,7 +93,7 @@ class TestVisionActionSynthesis(BaseTest):
     ):
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content, captured_prompts)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _mock_openai(llm_content, captured_prompts)),
         ):
             return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -112,6 +113,53 @@ class TestVisionActionSynthesis(BaseTest):
         # Slack conversion: heading + bold → *...* — stored under output["slack"]
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
+
+    def test_labels_each_observation_line_for_citation(self) -> None:
+        # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
+        # observations behind a theme; the frontend resolves those labels back to observation links. A
+        # dropped or misaligned label would break that resolution.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertIn("[obs 1] (", prompts[0])
+        self.assertIn("[obs 2] (", prompts[0])
+        self.assertNotIn("[obs 3]", prompts[0])
+
+    def test_slack_drops_citations_that_markdown_keeps(self) -> None:
+        # The canonical report keeps the `[obs N]` citation markers for the in-app renderer to resolve into
+        # links; the Slack payload drops them (Slack has no observation deep-link to resolve them to yet), so
+        # the prose stays clean rather than carrying bare labels.
+        self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Users hit friction at checkout [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        self.assertNotIn("[obs 1]", run.output["slack"])
+        self.assertIn("Users hit friction at checkout.", run.output["slack"])
+
+    def test_caps_runaway_citation_lists(self) -> None:
+        # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
+        # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
+        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        for i in range(10):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+
+        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("[obs "), 6)
+        self.assertIn("[obs 1] [obs 2] [obs 3] [obs 4] [obs 5] [obs 6]", run.synthesized_markdown)
 
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
@@ -249,10 +297,10 @@ class TestVisionActionSynthesis(BaseTest):
         run.observation_count = 5
         run.save()
 
-        # If the LLM were called, this would raise (genai client patched to blow up).
+        # If the LLM were called, this would raise (OpenAI client patched to blow up).
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -286,7 +334,7 @@ class TestVisionActionSynthesis(BaseTest):
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
-            patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
+            patch(f"{_SYNTH_PATH}.OpenAI", _no_llm_client),
         ):
             result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -461,15 +509,15 @@ class TestVisionActionSynthesis(BaseTest):
         captured: dict = {}
 
         def _capturing_client(**_kwargs):
-            def generate_content(**kwargs):
-                captured["human"] = kwargs["contents"]
-                return SimpleNamespace(text="ok")
+            def create(**kwargs):
+                captured["human"] = _user_message(kwargs)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
-            return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
         with (
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
-            patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
+            patch(f"{_SYNTH_PATH}.OpenAI", _capturing_client),
         ):
             _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
@@ -478,6 +526,65 @@ class TestVisionActionSynthesis(BaseTest):
         # The guide is a trusted instruction and must lead, so the fenced untrusted observation
         # block stays the last thing the model reads.
         self.assertLess(human.index("focus on rage clicks"), human.index("<observations>"))
+
+    def _typed_observation(self, model_output: dict, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id=session_id,
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": model_output},
+        )
+
+    def test_targeting_verdict_only_feeds_matching_observations(self) -> None:
+        matching = self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "yes", "reasoning": "user rage clicked"}, session_id="s1"
+        )
+        self._typed_observation(
+            {"scanner_type": "monitor", "verdict": "no", "reasoning": "calm session"}, session_id="s2"
+        )
+        action = self._action(selection={"verdict": ["yes"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(matching.id)])
+
+    def test_targeting_score_bounds_compare_numerically(self) -> None:
+        # score 10 must satisfy min_score 9 — catches the jsonb bound regressing to text
+        # comparison, where "10" < "9" lexicographically.
+        self._typed_observation({"scanner_type": "scorer", "score": 2, "reasoning": "meh"}, session_id="s1")
+        high = self._typed_observation({"scanner_type": "scorer", "score": 10, "reasoning": "great"}, session_id="s2")
+        action = self._action(selection={"min_score": 9})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(high.id)])
+
+    def test_targeting_tags_match_fixed_or_freeform(self) -> None:
+        fixed = self._typed_observation(
+            {"scanner_type": "classifier", "tags": ["bug"], "reasoning": "hit a bug"}, session_id="s1"
+        )
+        freeform = self._typed_observation(
+            {"scanner_type": "classifier", "tags": [], "tags_freeform": ["slow"], "reasoning": "felt slow"},
+            session_id="s2",
+        )
+        self._typed_observation({"scanner_type": "classifier", "tags": ["ux"], "reasoning": "ux note"}, session_id="s3")
+        action = self._action(selection={"tags": ["bug", "slow"]})
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 2)
+        run.refresh_from_db()
+        self.assertEqual(set(run.observation_ids), {str(fixed.id), str(freeform.id)})
 
 
 class TestMarkdownToSlack(BaseTest):

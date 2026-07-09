@@ -9,23 +9,20 @@ use personhog_coordination::routing_table::StashHandler;
 use tonic::Code;
 
 use crate::backend::{LeaderBackend, StashedRequest};
-use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
-
-/// gRPC method name for stashed writes — the stash buffers only the write
-/// path, so every replayed frame targets `UpdatePersonProperties`.
-const UPDATE_METHOD: &str = "UpdatePersonProperties";
+use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
 
 /// Stash handler for the router. Reacts to handoff phase transitions:
 ///
 /// * `Freezing` / `Draining` / `Warming` → `begin_stash`: start (or
-///   re-confirm) buffering writes for the partition in the shared
-///   `StashTable`. The routing-table layer calls `begin_stash` on
+///   re-confirm) buffering leader-path requests — writes and strong
+///   reads — for the partition in the shared `StashTable`. The routing-table layer calls `begin_stash` on
 ///   every non-terminal phase the router observes, so the call must
 ///   be idempotent — `StashTable::begin_stash` no-ops if the entry is
-///   already live. New writes park in a per-partition queue while the
-///   handoff progresses through `Freezing → Draining → Warming`.
-/// * `Complete` → `drain_stash`: forward the buffered writes to the
-///   new owner. The drain runs as a loop over the queue; any request
+///   already live. New leader-path requests park in a per-partition
+///   queue while the handoff progresses through
+///   `Freezing → Draining → Warming`.
+/// * `Complete` → `drain_stash`: forward the buffered requests to the
+///   new owner, each to the method it arrived on. The drain runs as a loop over the queue; any request
 ///   that arrives during drain (the dashmap entry is still live until
 ///   drain observes the queue empty under the lock) is picked up by
 ///   the next iteration, preserving FIFO ordering across the cutover.
@@ -85,10 +82,11 @@ impl RouterStashHandler {
 /// the request has been waiting longer than `max_stash_wait`, send back
 /// `UNAVAILABLE` without forwarding so the client retries with a fresh
 /// request. Otherwise forward via the unified routing path and pipe the
-/// result through the oneshot. Tracks metrics for the four observable
-/// outcomes (expired, success, error, dropped) so operators can see
-/// stash-driven latency, leader failures during drain, and cases where
-/// the original caller disconnected before the reply.
+/// result through the oneshot. Tracks metrics for the five observable
+/// outcomes (expired, success, fenced, error, dropped) so operators can
+/// see stash-driven latency, drains racing a leader's fence or cutover,
+/// leader failures during drain, and cases where the original caller
+/// disconnected before the reply.
 async fn forward_one(
     leader_backend: &LeaderBackend,
     max_stash_wait: Duration,
@@ -126,13 +124,32 @@ async fn forward_one(
     // headers, so no body poll is needed to classify them).
     let (response, outcome) = match leader_backend
         .forward_raw(
-            UPDATE_METHOD,
+            stashed_req.method,
             partition,
             &stashed_req.headers,
             &stashed_req.frame,
         )
         .await
     {
+        // A FailedPrecondition during drain means the target's fence or
+        // ownership is still settling: a cancellation's drain-back races
+        // the old owner's resume, and a completion's drain races the new
+        // owner's cutover. The condition clears in watch-propagation
+        // time, but FailedPrecondition reads as "do not retry" to
+        // clients — remap it to the same definitive retry contract as
+        // the deadline path above. Never silent: the write was never
+        // acked.
+        Ok((response, _call_ms))
+            if grpc_status_code(&response) == Some(Code::FailedPrecondition as i32) =>
+        {
+            (
+                grpc_error_response(
+                    Code::Unavailable,
+                    "leader transitioning during stash drain; retry",
+                ),
+                "fenced",
+            )
+        }
         Ok((response, _call_ms)) => {
             let outcome = if is_grpc_error_response(&response) {
                 "error"
