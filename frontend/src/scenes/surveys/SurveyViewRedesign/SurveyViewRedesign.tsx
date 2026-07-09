@@ -83,9 +83,8 @@ export function SurveyViewRedesign(): JSX.Element {
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, archiveSurvey, setActiveTab } = useActions(surveyLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
-    const { sidePanelOpen, selectedTab: selectedSidePanelTab } = useValues(sidePanelStateLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { push } = useActions(router)
@@ -169,17 +168,19 @@ export function SurveyViewRedesign(): JSX.Element {
     }, [isRemovingSidePanel, openSidePanel, setPanelTab, setScenePanelOpen])
 
     useEffect(() => {
+        // Legacy scene-panel behaviour: auto-expand the local details panel for draft surveys.
+        // In UX_REMOVE_SIDEPANEL mode the details live in the global side panel's Info tab, which
+        // must only open from an explicit trigger (a click or the #panel URL hash), never
+        // automatically on mount. Auto-opening it here wrote #panel=info into the URL, so the panel
+        // re-opened on every page refresh and could fall back to the Max/AI panel. Users open it
+        // deliberately via openDraftDetails instead.
+        if (isRemovingSidePanel) {
+            return
+        }
+
         if (!isDraft) {
-            const autoOpenedSurveyId = autoOpenedDraftPanelForSurveyIdRef.current
-            if (autoOpenedSurveyId) {
-                if (isRemovingSidePanel) {
-                    if (sidePanelOpen && selectedSidePanelTab === SidePanelTab.Info) {
-                        closeSidePanel(SidePanelTab.Info)
-                    }
-                    setScenePanelOpen(false)
-                } else {
-                    setScenePanelOpen(false)
-                }
+            if (autoOpenedDraftPanelForSurveyIdRef.current) {
+                setScenePanelOpen(false)
             }
             autoOpenedDraftPanelForSurveyIdRef.current = null
             return
@@ -191,31 +192,8 @@ export function SurveyViewRedesign(): JSX.Element {
         }
 
         autoOpenedDraftPanelForSurveyIdRef.current = surveyId
-
-        const tabFromUrl = searchParams[panelTabSearchParam]
-        const draftTab =
-            typeof tabFromUrl === 'string' && validPanelTabKeys.includes(tabFromUrl) ? tabFromUrl : 'details'
-        setPanelTab(draftTab, false)
-
-        if (isRemovingSidePanel) {
-            openSidePanel(SidePanelTab.Info)
-            setScenePanelOpen(false)
-        } else {
-            setScenePanelOpen(true)
-        }
-    }, [
-        isDraft,
-        isRemovingSidePanel,
-        closeSidePanel,
-        openSidePanel,
-        selectedSidePanelTab,
-        searchParams,
-        setPanelTab,
-        setScenePanelOpen,
-        sidePanelOpen,
-        survey?.id,
-        validPanelTabKeys,
-    ])
+        setScenePanelOpen(true)
+    }, [isDraft, isRemovingSidePanel, setScenePanelOpen, survey?.id])
 
     if (isInitialSurveyLoad) {
         return <LemonSkeleton />
