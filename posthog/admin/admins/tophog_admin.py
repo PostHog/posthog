@@ -6,10 +6,20 @@ from urllib.parse import urlencode
 from django.contrib import admin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import render
+from django.urls import reverse
 
+from posthog.models.team.team import Team
 from posthog.models.tophog.queries import query_tophog_filter_options, query_tophog_metrics
 
 logger = logging.getLogger(__name__)
+
+# Maps tophog key fields to EventIngestionRestrictionConfig form fields for prefilling the add form
+RESTRICTION_PREFILL_FIELDS = {
+    "distinct_id": "distinct_ids",
+    "session_id": "session_ids",
+    "event_name": "event_names",
+    "event_uuid": "event_uuids",
+}
 
 PRESETS = OrderedDict(
     [
@@ -53,6 +63,32 @@ def _format_key(key: dict[str, str]) -> str:
     return ", ".join(f"{k}: {v}" for k, v in key.items())
 
 
+def _resolve_team_tokens(keys: list[dict[str, str]]) -> dict[str, str]:
+    """Map team_id (as it appears in tophog keys) to the team's API token."""
+    team_ids = {key["team_id"] for key in keys if key.get("team_id", "").isdigit()}
+    if not team_ids:
+        return {}
+    teams = Team.objects.filter(id__in=[int(team_id) for team_id in team_ids]).values_list("id", "api_token")
+    return {str(team_id): api_token for team_id, api_token in teams}
+
+
+def _key_token(key: dict[str, str], tokens_by_team_id: dict[str, str]) -> str:
+    token = key.get("token", "")
+    if token and token != "unknown":
+        return token
+    return tokens_by_team_id.get(key.get("team_id", ""), "")
+
+
+def _restriction_url(token: str, key: dict[str, str]) -> str:
+    """Link to the event ingestion restriction add form, prefilled from a tophog key."""
+    params = {"token": token}
+    for key_field, form_field in RESTRICTION_PREFILL_FIELDS.items():
+        value = key.get(key_field)
+        if value:
+            params[form_field] = value
+    return reverse("admin:posthog_eventingestionrestrictionconfig_add") + "?" + urlencode(params)
+
+
 def tophog_dashboard_view(request):
     if not request.user.is_staff:
         raise PermissionDenied
@@ -80,8 +116,11 @@ def tophog_dashboard_view(request):
             lane=selected_lane or None,
         )
 
+        tokens_by_team_id = _resolve_team_tokens([row["key"] for row in rows])
+
         for row in rows:
             table_name = f"{row['metric']} ({row['type']})"
+            token = _key_token(row["key"], tokens_by_team_id)
             metrics[table_name].append(
                 {
                     "key": _format_key(row["key"]),
@@ -89,6 +128,8 @@ def tophog_dashboard_view(request):
                     "count": row["obs"],
                     "pipeline": ", ".join(row["pipelines"]),
                     "lane": ", ".join(row["lanes"]),
+                    "token": token,
+                    "restriction_url": _restriction_url(token, row["key"]) if token else "",
                 }
             )
     except Exception as e:
