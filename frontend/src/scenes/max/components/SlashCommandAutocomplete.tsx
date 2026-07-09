@@ -67,7 +67,7 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
                 activateCommand(filteredCommands[activeItemIndex])
             }
         }
-        document.addEventListener('keydown', handleKeyDown, { capture: true }) // Capture phase to run this before AutosizeTextArea's onEnter
+        document.addEventListener('keydown', handleKeyDown, { capture: true }) // Capture phase to run this before LemonTextArea's onEnter
         return () => document.removeEventListener('keydown', handleKeyDown, { capture: true })
     }, [visible, filteredCommands, activeItemIndex, activateCommand, selectCommand, onClose])
 

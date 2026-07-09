@@ -3885,9 +3885,6 @@ importers:
       react-intersection-observer:
         specifier: ^9.5.3
         version: 9.5.3(react@18.3.1)
-      react-textarea-autosize:
-        specifier: '*'
-        version: 8.5.9(@types/react@18.3.27)(react@18.3.1)
       tailwind-merge:
         specifier: '*'
         version: 2.2.2

@@ -12,11 +12,9 @@ import {
 } from 'react'
 
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-
-import { AutosizeTextArea } from '../AutosizeTextArea'
 
 // Radix-style compound composer: a set of logic-free, presentational surfaces that reproduce the
 // PostHog AI input look (see scenes/max/components/QuestionInput.tsx) without any of its conversation
@@ -292,7 +290,7 @@ function ComposerTextarea({
 }: ComposerTextareaProps): JSX.Element {
     const { value, onChange, submit, textAreaRef, disabled, id } = useComposerContext()
     return (
-        <AutosizeTextArea
+        <LemonTextArea
             id={id}
             aria-describedby={!value ? `${id}-hint` : undefined}
             ref={textAreaRef}
@@ -302,8 +300,7 @@ function ComposerTextarea({
             minRows={minRows}
             maxRows={maxRows}
             autoFocus={autoFocus}
-            className={cn('py-2 pl-2', className)}
-            textareaClassName="!border-none !bg-transparent min-h-16 pr-12 resize-none"
+            className={cn('!border-none !bg-transparent min-h-16 py-2 pl-2 pr-12 resize-none', className)}
             hideFocus
             onPressEnter={() => submit()}
             {...rest}
