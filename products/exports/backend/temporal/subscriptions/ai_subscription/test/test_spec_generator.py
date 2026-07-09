@@ -666,7 +666,10 @@ class TestContextBlob(APIBaseTest):
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
-        assert "Group/account types (reference as group_<index>.properties.<name>" in blob
+        assert "properties via group_<index>.properties.<name>" in blob
+        # the raw group-key aggregation hint must be present so the planner counts accounts with
+        # $group_<index> rather than a bare group_<index> that fails with "Field not found"
+        assert "$group_<index>" in blob
         assert "group_0 = organization" in blob
 
     @parameterized.expand(

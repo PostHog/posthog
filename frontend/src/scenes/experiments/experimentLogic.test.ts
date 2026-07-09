@@ -1326,6 +1326,32 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('unfreezeExposure', () => {
+        it('calls unfreeze_exposure endpoint, updates experiment, and toggles the loading guard', async () => {
+            const unfrozenResponse = { ...experiment, status: 'running' }
+            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(unfrozenResponse)
+
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment({ ...experiment, status: 'exposure_frozen' } as Experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.unfreezeExposure()
+            })
+                .toDispatchActions(['unfreezeExposure', 'setUnfreezeExposureLoading', 'setExperiment'])
+                .toFinishAllListeners()
+
+            expect(createSpy).toHaveBeenCalledWith(
+                expect.stringContaining(`/experiments/${experiment.id}/unfreeze_exposure`)
+            )
+            expect(keyed.values.experiment.status).toBe('running')
+            expect(keyed.values.unfreezeExposureLoading).toBe(false)
+
+            createSpy.mockRestore()
+            keyed.unmount()
+        })
+    })
+
     describe('resetRunningExperiment', () => {
         it('calls reset endpoint and updates experiment to draft state', async () => {
             const runningExperiment = {
@@ -2038,9 +2064,9 @@ describe('experimentLogic', () => {
     })
 
     describe('variants', () => {
-        const parameterVariants: MultivariateFlagVariant[] = [
+        const draftVariants: MultivariateFlagVariant[] = [
             { key: 'control', rollout_percentage: 50 },
-            { key: 'param-test', rollout_percentage: 50 },
+            { key: 'draft-test', rollout_percentage: 50 },
         ]
         const flagVariants: MultivariateFlagVariant[] = [
             { key: 'control', rollout_percentage: 50 },
@@ -2049,23 +2075,23 @@ describe('experimentLogic', () => {
 
         it.each<{
             desc: string
-            parameterVariants?: MultivariateFlagVariant[]
+            draftVariants?: MultivariateFlagVariant[]
             flagVariants?: MultivariateFlagVariant[]
             expected: MultivariateFlagVariant[]
         }>([
             {
-                desc: 'prefers the linked flag variants over the parameters mirror',
-                parameterVariants,
+                desc: 'prefers the linked flag variants over the draft config',
+                draftVariants,
                 flagVariants,
                 expected: flagVariants,
             },
             {
-                desc: 'falls back to parameters.feature_flag_variants when the flag has no variants (creation flow)',
-                parameterVariants,
-                expected: parameterVariants,
+                desc: 'falls back to the draft flag config when the flag has no variants (creation flow)',
+                draftVariants,
+                expected: draftVariants,
             },
             {
-                desc: 'reads the linked flag variants when parameters has no mirror',
+                desc: 'reads the linked flag variants when there is no draft config',
                 flagVariants,
                 expected: flagVariants,
             },
@@ -2077,7 +2103,9 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: { ...experiment.parameters, feature_flag_variants: row.parameterVariants },
+                    feature_flag_config: row.draftVariants
+                        ? { filters: { multivariate: { variants: row.draftVariants } } }
+                        : undefined,
                     feature_flag: {
                         ...experiment.feature_flag,
                         filters: {

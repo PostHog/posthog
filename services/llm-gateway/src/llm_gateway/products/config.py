@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final
 
 from fastapi import HTTPException
 
 from llm_gateway.bedrock import BEDROCK_MODEL_IDS, get_bedrock_model_access_candidates, get_bedrock_region_name
 from llm_gateway.config import get_settings
+
+
+class CreditBucket(StrEnum):
+    """Customer credit bucket a product's generations bill into.
+
+    Values match (or, once created, will match) the Django quota resource keys
+    (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
+    quota resolver checks against. Only AI_CREDITS has a QuotaResource and
+    gateway-side quota enforcement today; POSTHOG_CODE_CREDITS bills without
+    blocking until its resource lands.
+    """
+
+    AI_CREDITS = "ai_credits"
+    POSTHOG_CODE_CREDITS = "posthog_code_credits"
 
 
 @dataclass(frozen=True)
@@ -16,10 +31,13 @@ class ProductConfig:
     allowed_application_ids: frozenset[str] | None = frozenset()
     allowed_models: frozenset[str] | None = None  # None = all allowed
     allow_api_keys: bool = True
-    # Tag emitted $ai_generation events with $ai_billable=true so the usage reporter
-    # (posthog/tasks/usage_report.py) rolls them into the customer team's credit bucket
-    # for this product's ai_product (e.g. PostHog AI credits, or signals credits).
-    billable: bool = False
+    # Which customer credit bucket this product bills into. None = not billed: emitted
+    # $ai_generation events are tagged $ai_billable=false and the usage reporter
+    # (posthog/tasks/usage_report.py) ignores them. A bucket value tags events billable
+    # so the reporter rolls them into that bucket's credit counter, and requests are
+    # blocked when the bucket's quota is exhausted — currently only AI_CREDITS has
+    # gateway-side quota enforcement; other buckets bill without blocking.
+    credit_bucket: CreditBucket | None = None
 
 
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
@@ -77,7 +95,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
+        # Bills as posthog_code credits (pass-through model costs, no markup) — see
+        # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
+        credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
     ),
+    # PostHog-initiated internal task runs (Task.internal=True without a more specific
+    # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
+    # "work completed by PostHog" per the pricing RFC, which gets its own (marked-up)
+    # pricing later rather than posthog_code's pass-through bucket. Interim spend
+    # control is the product/user cost limits in llm_gateway/config.py.
     "background_agents": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
@@ -98,12 +124,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             | BEDROCK_MODELS
         ),
         allow_api_keys=False,
+        credit_bucket=None,
     ),
     "slack_app": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
-        billable=True,
+        credit_bucket=CreditBucket.AI_CREDITS,
     ),
     # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
     # bot. Authenticates with a personal API key (not OAuth), so no application
@@ -114,7 +141,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=None,
         allow_api_keys=True,
-        billable=False,
+        credit_bucket=None,
     ),
     "wizard": ProductConfig(
         allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
@@ -135,7 +162,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
-        billable=True,
+        credit_bucket=CreditBucket.AI_CREDITS,
     ),
     "growth": ProductConfig(
         allowed_application_ids=None,
@@ -171,7 +198,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
-        billable=False,
+        credit_bucket=None,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
@@ -184,13 +211,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"}),
         allow_api_keys=True,
-        billable=False,
+        # Deliberately unbilled: autonomous support-reply drafting is "work completed by
+        # PostHog" per the pricing RFC — it gets its own pricing later, not posthog_code's
+        # pass-through bucket.
+        credit_bucket=None,
     ),
     "warehouse_semantic_enrichment": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
-        billable=False,
+        credit_bucket=None,
     ),
     # Drafts a Custom REST source manifest from API docs. Low volume, high stakes, long context —
     # pinned to Opus rather than the cheap per-row model the enrichment context layer uses.
@@ -198,13 +228,13 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-opus-4-8"}),
         allow_api_keys=True,
-        billable=False,
+        credit_bucket=None,
     ),
     "posthog_ai": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
         allowed_models=None,  # any model
         allow_api_keys=True,
-        billable=True,
+        credit_bucket=CreditBucket.AI_CREDITS,
     ),
 }
 

@@ -1108,6 +1108,9 @@
                     "$ref": "#/definitions/LogPropertyFilter"
                 },
                 {
+                    "$ref": "#/definitions/MetricPropertyFilter"
+                },
+                {
                     "$ref": "#/definitions/SpanPropertyFilter"
                 },
                 {
@@ -12943,6 +12946,18 @@
             },
             "type": "object"
         },
+        "ChartStyle": {
+            "additionalProperties": false,
+            "description": "Per-insight chart rendering style. Pure presentation — no field changes the computed values. Every field is optional; unset fields fall through to the app-level chart defaults.",
+            "properties": {
+                "curve": {
+                    "description": "Line interpolation: straight segments or a smoothed curve through the points.",
+                    "enum": ["linear", "smooth"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "ClickhouseQueryProgress": {
             "additionalProperties": false,
             "properties": {
@@ -20748,19 +20763,8 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
-                "feature_flag_variants": {
-                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariant"
-                    },
-                    "type": "array"
-                },
                 "minimum_detectable_effect": {
                     "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
-                    "type": "number"
-                },
-                "rollout_percentage": {
-                    "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
                     "type": "number"
                 },
                 "variant_notes": {
@@ -21384,29 +21388,6 @@
                 "p_value",
                 "credible_intervals"
             ],
-            "type": "object"
-        },
-        "ExperimentVariant": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
-                    "type": "string"
-                },
-                "name": {
-                    "description": "Human-readable variant name.",
-                    "type": "string"
-                },
-                "rollout_percentage": {
-                    "deprecated": "Use split_percent instead. Accepted for backward compatibility.",
-                    "type": "number"
-                },
-                "split_percent": {
-                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.",
-                    "type": "number"
-                }
-            },
-            "required": ["key"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {
@@ -22259,7 +22240,32 @@
                 "Teachable",
                 "PeecAI",
                 "Healthchecks",
-                "Impact"
+                "Impact",
+                "AikidoSecurity",
+                "Alguna",
+                "Anthropic",
+                "Appwrite",
+                "BlandAI",
+                "BrowseAI",
+                "BrowserUse",
+                "ChartHop",
+                "Cody",
+                "Cursor",
+                "Decagon",
+                "Deepgram",
+                "ElevenLabs",
+                "Harvey",
+                "Hyperspell",
+                "Langfuse",
+                "LingoDev",
+                "M3ter",
+                "Maxio",
+                "Metorial",
+                "OpenRouter",
+                "TogetherAI",
+                "Vapi",
+                "Vespa",
+                "Writesonic"
             ],
             "type": "string"
         },
@@ -22442,6 +22448,10 @@
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "user_access_level": {
+                    "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
+                    "type": ["string", "null"]
                 },
                 "visualOrder": {
                     "description": "Order of object in tree",
@@ -22655,6 +22665,10 @@
                 "type": {
                     "description": "Type of object, used for icon, e.g. feature_flag, insight, etc",
                     "type": "string"
+                },
+                "user_access_level": {
+                    "description": "Access level the user has for the referenced object ('none' means no access); null/absent when access controls don't apply",
+                    "type": ["string", "null"]
                 },
                 "visualOrder": {
                     "description": "Order of object in tree",
@@ -23399,6 +23413,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape). Only applies to historical-trends funnels."
                 },
                 "customAggregationTarget": {
                     "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
@@ -30503,6 +30521,29 @@
             "enum": ["campaigns"],
             "type": "string"
         },
+        "MetricPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "metric_attribute",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "MinimalHedgehogConfig": {
             "additionalProperties": false,
             "properties": {
@@ -32106,6 +32147,7 @@
                 "log",
                 "log_attribute",
                 "log_resource_attribute",
+                "metric_attribute",
                 "span",
                 "span_attribute",
                 "span_resource_attribute",
@@ -39751,6 +39793,10 @@
                     "enum": ["count", "sum", "avg"],
                     "type": "string"
                 },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "cohortLabelStartIndex": {
                     "$ref": "#/definitions/integer",
                     "default": 0,
@@ -42402,7 +42448,15 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
+            "enum": [
+                "assistant:write",
+                "canvases:write",
+                "channels:manage",
+                "commands",
+                "files:write",
+                "im:history",
+                "mpim:read"
+            ],
             "type": "string"
         },
         "SlashCommandName": {
@@ -42991,6 +43045,10 @@
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
+                },
                 "computedAs": {
                     "$ref": "#/definitions/StickinessComputationMode"
                 },
@@ -43978,6 +44036,7 @@
                 "logs",
                 "log_attributes",
                 "log_resource_attributes",
+                "metric_attributes",
                 "spans",
                 "span_attributes",
                 "span_resource_attributes",
@@ -44550,7 +44609,7 @@
             "type": "string"
         },
         "TraceSpanBreakdownType": {
-            "enum": ["span_attribute", "span_resource_attribute"],
+            "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
         "TraceSpansAggregationQuery": {
@@ -44656,12 +44715,12 @@
             "additionalProperties": false,
             "properties": {
                 "breakdownKey": {
-                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`). For the `span` breakdown type, must be an allowlisted top-level column (`service_name`, `status_code`).",
                     "type": "string"
                 },
                 "breakdownType": {
                     "$ref": "#/definitions/TraceSpanBreakdownType",
-                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                    "description": "Where the key lives: an allowlisted top-level span column, span-level attributes, or resource-level attributes."
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -44669,6 +44728,10 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "excludeBreakdownFilter": {
+                    "description": "Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name` breakdown) so a facet's value list stays complete while one of its values is selected.",
+                    "type": "boolean"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -45278,6 +45341,10 @@
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
+                },
+                "chartStyle": {
+                    "$ref": "#/definitions/ChartStyle",
+                    "description": "Chart rendering style overrides (line shape)."
                 },
                 "confidenceLevel": {
                     "type": "number"

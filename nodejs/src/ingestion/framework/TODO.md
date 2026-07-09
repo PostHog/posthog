@@ -6,7 +6,7 @@
 - ~~Feed refactor~~ — feed() only accepts OkResultWithContext
 - ~~as-any casts in test feed() calls~~ — removed, use createMockPipeline instead
 - ~~Doc comments for R parameter~~ — added to PipelineResult, Pipeline, ProcessingStep, BatchProcessingStep
-- ~~Living docs updated~~ — 01-introduction and 07-result-handling reflect named outputs
+- ~~Living docs updated~~ — chapters reflect current builder API (`concurrentlyPerGroup`, per-step `{ retry }`, `maxConcurrency`, redirect `awaitAck`/`preserveKey`) plus new chapters for batching, consuming pipelines, and TopHog metrics
 - ~~Dead config cleanup~~ — removed overflowTopic from subpipeline configs, PERSON_MERGE_ASYNC_TOPIC from options
 
 ## Remaining (low priority)
