@@ -1,7 +1,8 @@
 """
 Facade API for user_interviews.
 
-This is the ONLY module other apps are allowed to import.
+The primary facade module for data capabilities. Other facade submodules
+(max_tools.py) expose wiring; external code must import only from backend/facade/.
 
 Responsibilities:
 - Accept primitives / contracts as input
