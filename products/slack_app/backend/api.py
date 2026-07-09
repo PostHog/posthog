@@ -1103,6 +1103,11 @@ def _app_mention_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
+def _thread_message_event_has_files(event: dict[str, Any]) -> bool:
+    files = event.get("files")
+    return isinstance(files, list) and len(files) > 0
+
+
 def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """Return a short reason if this ``message`` event shouldn't be considered as an
     untagged thread follow-up, else None.
@@ -1114,7 +1119,10 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     """
     if not event.get("user"):
         return "no_user"
-    if not event.get("text"):
+    # A file-only reply has empty text and the ``file_share`` subtype — both
+    # must be admitted here or the attachment silently never reaches the agent.
+    has_files = _thread_message_event_has_files(event)
+    if not event.get("text") and not has_files:
         return "no_text"
     if event.get("edited") or event.get("subtype") == "message_changed":
         return "edit"
@@ -1132,8 +1140,9 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     # etc.) is system noise from this gate's perspective. ``thread_broadcast``
     # is the only one a human types, but it's typically an announcement to the
     # parent channel, not agent-directed work.
-    if event.get("subtype"):
-        return f"subtype:{event.get('subtype')}"
+    subtype = event.get("subtype")
+    if subtype and not (subtype == "file_share" and has_files):
+        return f"subtype:{subtype}"
     return None
 
 
