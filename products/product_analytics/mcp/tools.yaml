@@ -83,8 +83,10 @@ tools:
         description: >
             Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /
             query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.
-            Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if
-            you want to see the computed results.
+            Set `name`, `description`, `tags`, and `dashboards` here at creation instead of patching them in afterwards
+            with insight-update. If the insight is destined for a dashboard, create the dashboard first
+            (dashboard-create) and pass its ID in `dashboards`. Returns insight metadata only — after creating, call the
+            insight-query tool with the returned `short_id` if you want to see the computed results.
         exclude_params:
             - query
         include_params:
