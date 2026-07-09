@@ -4658,7 +4658,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
