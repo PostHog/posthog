@@ -470,10 +470,11 @@ class ExternalAccountCustomPropertiesResult:
 
 @stdlib_dataclass(frozen=True)
 class EventStreamView:
-    """The team's event stream as returned by the event-stream endpoints.
+    """A user's event stream as returned by the event-stream endpoints.
 
-    A single stream per team: the events to watch (``event_names``), the Slack delivery
-    target, and the member accounts (``account_ids``) whose users' events are streamed.
+    One stream per user per team (``created_by`` is the owner): the events to watch
+    (``event_names``), the owner's Slack delivery target, and the member accounts
+    (``account_ids``) whose users' events are streamed.
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`).
     """

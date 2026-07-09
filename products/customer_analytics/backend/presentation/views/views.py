@@ -1172,6 +1172,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+
 _EVENT_STREAM_ID_PARAM = OpenApiParameter(
     "id",
     OpenApiTypes.STR,
@@ -1191,9 +1193,11 @@ class EventStreamViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    """The team's event stream: a live feed of selected accounts' events posted to a Slack
-    channel. Delivery runs through a managed CDP destination that is re-provisioned inside
-    the same transaction as every write, so config and delivery can't drift apart."""
+    """The caller's event stream: a live feed of selected accounts' events posted to a
+    Slack channel of their choice. Per-user — each team member owns at most one stream, and
+    every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+    destination that is re-provisioned inside the same transaction as every write, so
+    config and delivery can't drift apart."""
 
     scope_object = "account"
     serializer_class = EventStreamSerializer
@@ -1201,11 +1205,12 @@ class EventStreamViewSet(
     queryset = None  # data is reached through the facade; declared for router/schema only
 
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return Response(EventStreamSerializer(instance=api.list_event_streams(self.team_id), many=True).data)
+        streams = api.list_event_streams(self.team_id, user=cast(User, request.user))
+        return Response(EventStreamSerializer(instance=streams, many=True).data)
 
     @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        stream = api.get_event_stream(self.team_id, self.kwargs["pk"])
+        stream = api.get_event_stream(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
         if stream is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(EventStreamSerializer(instance=stream).data)
@@ -1247,6 +1252,7 @@ class EventStreamViewSet(
                     team_id=self.team_id,
                     stream_id=self.kwargs["pk"],
                     fields=_event_stream_write_fields(serializer.validated_data, request.data),
+                    user=user,
                 )
                 if stream is None:
                     return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1264,11 +1270,12 @@ class EventStreamViewSet(
 
     @extend_schema(parameters=[_EVENT_STREAM_ID_PARAM])
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        user = cast(User, request.user)
         with transaction.atomic():
             event_stream_destination.archive_event_stream_destination_by_id(
-                team_id=self.team_id, stream_id=self.kwargs["pk"]
+                team_id=self.team_id, stream_id=self.kwargs["pk"], user=user
             )
-            deleted = api.delete_event_stream(team_id=self.team_id, stream_id=self.kwargs["pk"])
+            deleted = api.delete_event_stream(team_id=self.team_id, stream_id=self.kwargs["pk"], user=user)
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1300,7 +1307,7 @@ class EventStreamViewSet(
     def send_test_message(self, request: Request, *args, **kwargs) -> Response:
         try:
             channel_id = event_stream_destination.send_test_slack_message(
-                team_id=self.team_id, stream_id=self.kwargs["pk"]
+                team_id=self.team_id, stream_id=self.kwargs["pk"], user=cast(User, request.user)
             )
         except event_stream_destination.EventStreamTestMessageError as e:
             raise ValidationError(str(e))

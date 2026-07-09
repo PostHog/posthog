@@ -7,16 +7,17 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     """A live feed of selected customers' events, delivered to a Slack channel.
 
-    One per team. Delivery happens through a managed ``template-slack`` HogFunction
-    destination (referenced by ``hog_function_id``) whose filters are rebuilt from
-    ``event_names`` and the members' account group keys on every change.
+    One per user per team (``created_by`` is the owner): each team member picks their own
+    channel and member accounts. Delivery happens through a managed ``template-slack``
+    HogFunction destination (referenced by ``hog_function_id``) whose filters are rebuilt
+    from ``event_names`` and the members' account group keys on every change.
     """
 
-    team = models.OneToOneField(
+    team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="customer_analytics_event_stream",
+        related_name="customer_analytics_event_streams",
     )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
@@ -32,6 +33,11 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
     slack_channel_name = models.CharField(max_length=200, blank=True, default="")
 
     hog_function_id = models.UUIDField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "created_by"], name="unique_event_stream_per_user"),
+        ]
 
 
 class EventStreamMember(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):

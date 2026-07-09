@@ -624,9 +624,11 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsCreateBodyEnabledDefault = false
 export const eventStreamsCreateBodyEventNamesItemMax = 400
@@ -665,13 +667,15 @@ export const EventStreamsCreateBody = /* @__PURE__ */ zod
             .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
     })
     .describe(
-        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
     )
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsUpdateBodyEnabledDefault = false
 export const eventStreamsUpdateBodyEventNamesItemMax = 400
@@ -710,13 +714,15 @@ export const EventStreamsUpdateBody = /* @__PURE__ */ zod
             .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
     })
     .describe(
-        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
     )
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsPartialUpdateBodyEnabledDefault = false
 export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
@@ -755,13 +761,15 @@ export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
     })
     .describe(
-        "The team's event stream — a live feed of selected accounts' events posted to a\nSlack channel. One stream per team."
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
     )
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
     .object({
@@ -770,9 +778,11 @@ export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
     .describe('Request body for adding or removing an event-stream member account.')
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
     .object({

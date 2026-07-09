@@ -1945,6 +1945,8 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+
+
 # --- EventStream ---
 
 
@@ -1954,7 +1956,12 @@ class EventStreamValidationError(Exception):
 
 
 class EventStreamConflictError(Exception):
-    """Raised when creating a second event stream for a team (→ 409)."""
+    """Raised when a user creates a second event stream in a team (→ 409)."""
+
+
+def _own_streams(team_id: int, user: "User"):
+    """Streams are per-user: every read and write is scoped to the caller's own stream."""
+    return EventStream.objects.for_team(team_id).filter(created_by=user)
 
 
 def _to_event_stream_view(stream: EventStream) -> contracts.EventStreamView:
@@ -1985,13 +1992,13 @@ def _normalize_event_names(event_names: Iterable[str]) -> list[str]:
     return [name for name in dict.fromkeys(event_names) if name and name.strip()]
 
 
-def list_event_streams(team_id: int) -> list[contracts.EventStreamView]:
-    """The team's event streams — at most one exists (the team FK is one-to-one)."""
-    return [_to_event_stream_view(s) for s in EventStream.objects.for_team(team_id).order_by("created_at")]
+def list_event_streams(team_id: int, *, user: "User") -> list[contracts.EventStreamView]:
+    """The caller's event streams — at most one exists per user (unique per team+owner)."""
+    return [_to_event_stream_view(s) for s in _own_streams(team_id, user).order_by("created_at")]
 
 
-def get_event_stream(team_id: int, stream_id: str | UUID) -> contracts.EventStreamView | None:
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+def get_event_stream(team_id: int, stream_id: str | UUID, *, user: "User") -> contracts.EventStreamView | None:
+    stream = _own_streams(team_id, user).filter(id=stream_id).first()
     return _to_event_stream_view(stream) if stream is not None else None
 
 
@@ -2005,8 +2012,8 @@ def create_event_stream(
     slack_channel_name: str,
     user: "User",
 ) -> contracts.EventStreamView:
-    """Create the team's event stream. Raises :class:`EventStreamConflictError` when one
-    already exists and :class:`EventStreamValidationError` for a foreign Slack integration."""
+    """Create the caller's event stream. Raises :class:`EventStreamConflictError` when they
+    already have one and :class:`EventStreamValidationError` for a foreign Slack integration."""
     _validate_slack_integration(team_id, slack_integration_id)
     try:
         stream = EventStream.objects.for_team(team_id).create(
@@ -2021,16 +2028,16 @@ def create_event_stream(
     except IntegrityError as exc:
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
-        raise EventStreamConflictError("An event stream already exists for this project.")
+        raise EventStreamConflictError("You already have an event stream in this project.")
     return _to_event_stream_view(stream)
 
 
 def update_event_stream(
-    *, team_id: int, stream_id: str | UUID, fields: dict[str, Any]
+    *, team_id: int, stream_id: str | UUID, fields: dict[str, Any], user: "User"
 ) -> contracts.EventStreamView | None:
     """Apply ``fields`` (enabled / event_names / slack_integration_id / slack_channel_id /
-    slack_channel_name) to the team's stream. Returns None (→ 404) when no stream matches."""
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    slack_channel_name) to the caller's stream. Returns None (→ 404) when no stream matches."""
+    stream = _own_streams(team_id, user).filter(id=stream_id).first()
     if stream is None:
         return None
     if "slack_integration_id" in fields:
@@ -2043,19 +2050,19 @@ def update_event_stream(
     return _to_event_stream_view(stream)
 
 
-def delete_event_stream(*, team_id: int, stream_id: str | UUID) -> bool:
-    """Delete the team's stream (memberships cascade). Returns False when none matched (→ 404)."""
-    deleted, _ = EventStream.objects.for_team(team_id).filter(id=stream_id).delete()
+def delete_event_stream(*, team_id: int, stream_id: str | UUID, user: "User") -> bool:
+    """Delete the caller's stream (memberships cascade). Returns False when none matched (→ 404)."""
+    deleted, _ = _own_streams(team_id, user).filter(id=stream_id).delete()
     return deleted > 0
 
 
 def set_event_stream_member(
-    *, team_id: int, stream_id: str | UUID, account_id: str | UUID, included: bool, user: "User | None" = None
+    *, team_id: int, stream_id: str | UUID, account_id: str | UUID, included: bool, user: "User"
 ) -> contracts.EventStreamView | None:
-    """Add or remove an account from the stream. Idempotent in both directions. Returns
-    None (→ 404) when no stream matches; raises ``Account_DoesNotExist`` for a foreign or
-    unknown account."""
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+    """Add or remove an account from the caller's stream. Idempotent in both directions.
+    Returns None (→ 404) when no stream matches; raises ``Account_DoesNotExist`` for a
+    foreign or unknown account."""
+    stream = _own_streams(team_id, user).filter(id=stream_id).first()
     if stream is None:
         return None
     account = Account.objects.for_team(team_id).filter(id=account_id).first()

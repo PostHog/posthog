@@ -982,9 +982,11 @@ export const getEventStreamsListUrl = (projectId: string) => {
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsList = async (projectId: string, options?: RequestInit): Promise<EventStreamApi[]> => {
     return apiMutator<EventStreamApi[]>(getEventStreamsListUrl(projectId), {
@@ -998,9 +1000,11 @@ export const getEventStreamsCreateUrl = (projectId: string) => {
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsCreate = async (
     projectId: string,
@@ -1020,9 +1024,11 @@ export const getEventStreamsRetrieveUrl = (projectId: string, id: string) => {
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsRetrieve = async (
     projectId: string,
@@ -1040,9 +1046,11 @@ export const getEventStreamsUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsUpdate = async (
     projectId: string,
@@ -1063,9 +1071,11 @@ export const getEventStreamsPartialUpdateUrl = (projectId: string, id: string) =
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsPartialUpdate = async (
     projectId: string,
@@ -1086,9 +1096,11 @@ export const getEventStreamsDestroyUrl = (projectId: string, id: string) => {
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getEventStreamsDestroyUrl(projectId, id), {
@@ -1102,9 +1114,11 @@ export const getEventStreamsAddAccountCreateUrl = (projectId: string, id: string
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsAddAccountCreate = async (
     projectId: string,
@@ -1125,9 +1139,11 @@ export const getEventStreamsRemoveAccountCreateUrl = (projectId: string, id: str
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsRemoveAccountCreate = async (
     projectId: string,
@@ -1148,9 +1164,11 @@ export const getEventStreamsSendTestMessageCreateUrl = (projectId: string, id: s
 }
 
 /**
- * The team's event stream: a live feed of selected accounts' events posted to a Slack
- * channel. Delivery runs through a managed CDP destination that is re-provisioned inside
- * the same transaction as every write, so config and delivery can't drift apart.
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
  */
 export const eventStreamsSendTestMessageCreate = async (
     projectId: string,

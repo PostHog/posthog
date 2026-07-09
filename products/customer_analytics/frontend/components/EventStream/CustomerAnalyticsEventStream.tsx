@@ -62,8 +62,9 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <p className="mb-0">
-                Stream the events of selected customers to a Slack channel in real time. Choose which events to watch
-                here, then add customers to the stream from their account profiles.
+                Stream the events of selected customers to a Slack channel of your choice in real time. This is your
+                personal stream — each team member configures their own. Choose which events to watch here, then add
+                customers to the stream from their account profiles.
             </p>
 
             <div className="flex flex-col gap-2">
@@ -127,11 +128,11 @@ export function CustomerAnalyticsEventStream(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2">
-                <h4 className="secondary uppercase text-secondary mb-0">Customers in the stream</h4>
+                <h4 className="secondary uppercase text-secondary mb-0">Customers in your stream</h4>
                 <p className="mb-0 text-secondary">
                     {memberCount === 0
                         ? 'No customers yet — open an account in '
-                        : `${memberCount} ${memberCount === 1 ? 'customer' : 'customers'} in the stream. Manage them from `}
+                        : `${memberCount} ${memberCount === 1 ? 'customer' : 'customers'} in your stream. Manage them from `}
                     <Link to={urls.customerAnalyticsAccounts()}>the accounts list</Link> and use the "Include in event
                     stream" toggle on the account's profile.
                 </p>

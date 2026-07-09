@@ -24,20 +24,18 @@ export function AccountEventStreamToggle({
 
     return (
         <div className="flex flex-col gap-2 items-start">
-            <p className="mb-0 text-secondary">
-                Stream this customer's events to your team's Slack channel in real time.
-            </p>
+            <p className="mb-0 text-secondary">Stream this customer's events to your Slack channel in real time.</p>
             <LemonSwitch
                 checked={included}
                 onChange={(checked) => setAccountMembership(accountId, checked)}
                 disabledReason={
                     !eventStream && !eventStreamLoading
-                        ? 'Set up the event stream in settings first'
+                        ? 'Set up your event stream in settings first'
                         : eventStreamLoading || updating
                           ? 'Updating…'
                           : undefined
                 }
-                label="Include in event stream"
+                label="Include in my event stream"
                 size="small"
                 bordered
             />

@@ -127,13 +127,26 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertFalse(function.enabled)
         self.assertEqual(self._group_filter(function)["value"], [_NO_MEMBERS_SENTINEL])
 
-    def test_second_stream_for_team_conflicts(self):
+    def test_second_stream_for_same_user_conflicts(self):
         self._create_stream()
 
         response = self.client.post(self.base_url, self.valid_data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(EventStream.objects.unscoped().filter(team_id=self.team.id).count(), 1)
+
+    def test_streams_are_per_user(self):
+        stream = self._create_stream()
+        teammate = self._create_user("teammate@posthog.com")
+        self.client.force_login(teammate)
+
+        self.assertEqual(self.client.get(self.base_url).json(), [])
+        response = self.client.patch(f"{self.base_url}{stream['id']}/", {"enabled": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(self.base_url, self.valid_data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(EventStream.objects.unscoped().filter(team_id=self.team.id).count(), 2)
 
     def test_foreign_slack_integration_is_rejected(self):
         other_org = Organization.objects.create(name="other org")

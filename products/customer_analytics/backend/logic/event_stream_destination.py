@@ -172,12 +172,12 @@ def sync_event_stream_destination_by_id(*, team: "Team", stream_id: str, user: "
         sync_event_stream_destination(stream, team=team, user=user)
 
 
-def send_test_slack_message(*, team_id: int, stream_id: str) -> str | None:
-    """Post a test message to the stream's configured Slack channel, mirroring how the
-    managed destination delivers. Returns the channel id on success, ``None`` when the
-    stream doesn't exist; raises :class:`EventStreamTestMessageError` when the stream has
-    no Slack config or Slack rejects the message."""
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> str | None:
+    """Post a test message to the caller's stream's configured Slack channel, mirroring how
+    the managed destination delivers. Returns the channel id on success, ``None`` when the
+    caller has no such stream; raises :class:`EventStreamTestMessageError` when the stream
+    has no Slack config or Slack rejects the message."""
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id, created_by=user).first()
     if stream is None:
         return None
     if not (stream.slack_integration_id and stream.slack_channel_id):
@@ -207,9 +207,10 @@ def send_test_slack_message(*, team_id: int, stream_id: str) -> str | None:
     return stream.slack_channel_id
 
 
-def archive_event_stream_destination_by_id(*, team_id: int, stream_id: str) -> None:
-    """Archive the destination of the stream with the given id (before the stream row is deleted)."""
-    stream = EventStream.objects.for_team(team_id).filter(id=stream_id).first()
+def archive_event_stream_destination_by_id(*, team_id: int, stream_id: str, user: "User") -> None:
+    """Archive the destination of the caller's stream (before the stream row is deleted).
+    Owner-scoped so a delete that will 404 can't archive someone else's destination."""
+    stream = EventStream.objects.for_team(team_id).filter(id=stream_id, created_by=user).first()
     if stream is not None:
         archive_event_stream_destination(stream)
 
