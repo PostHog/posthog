@@ -21,8 +21,7 @@ Kafka message
     → sequentially() for preprocessing
     → filterMap() to enrich context (e.g., team lookup)
     → teamAware()
-      → groupBy(token:distinctId)
-        → concurrently() for per-entity processing
+      → concurrentlyPerGroup(token:distinctId) for per-entity processing
       → gather()
       → pipeBatch() for batch operations
       → handleIngestionWarnings()
@@ -31,18 +30,18 @@ Kafka message
   → build()
 ```
 
-See `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` for the real implementation.
+See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for the real implementation.
 
 ## Key file locations
 
-| What              | Where                                                         |
-| ----------------- | ------------------------------------------------------------- |
-| Step type         | `nodejs/src/ingestion/pipelines/steps.ts`                     |
-| Result types      | `nodejs/src/ingestion/pipelines/results.ts`                   |
-| Doc-test chapters | `nodejs/src/ingestion/pipelines/docs/*.test.ts`               |
-| Joined pipeline   | `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` |
-| Doctor agents     | `.claude/agents/ingestion/`                                   |
-| Test helpers      | `nodejs/src/ingestion/pipelines/docs/helpers.ts`              |
+| What              | Where                                                                   |
+| ----------------- | ----------------------------------------------------------------------- |
+| Step type         | `nodejs/src/ingestion/framework/steps.ts`                               |
+| Result types      | `nodejs/src/ingestion/framework/results.ts`                             |
+| Doc-test chapters | `nodejs/src/ingestion/framework/docs/*.test.ts`                         |
+| Joined pipeline   | `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` |
+| Doctor agents     | `.claude/agents/ingestion/`                                             |
+| Test helpers      | `nodejs/src/ingestion/framework/docs/helpers.ts`                        |
 
 ## Which agent to use
 
@@ -59,7 +58,7 @@ See `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` for the real i
 
 **Results**: Use `ok()`, `dlq()`, `drop()`, `redirect()` constructors. Side effects as promises in `ok(value, [effects])`. Warnings as third parameter.
 
-**Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `groupBy` + `concurrently` for per-entity work. `gather` before batch steps.
+**Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `concurrentlyPerGroup` for per-entity work. `gather` before batch steps.
 
 **Testing**: Step tests call factory directly. Use `consumeAll()`/`collectBatches()` helpers. Fake timers for async. Type guards for result assertions. No `any`.
 

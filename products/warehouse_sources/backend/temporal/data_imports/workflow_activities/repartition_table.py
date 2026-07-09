@@ -8,10 +8,11 @@ just proceeds on the old layout (status quo) and the table is retried on a later
 """
 
 import time
+import asyncio
 import dataclasses
 from typing import Any
 
-from django.db import close_old_connections
+from django.db import InterfaceError, OperationalError, close_old_connections
 
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
@@ -55,6 +56,15 @@ class RepartitionActivityInputs:
     schema_id: str
     job_id: str
     source_id: str
+
+
+def _is_cancellation(error: BaseException) -> bool:
+    """Whether `error` is an activity cancellation, however it surfaced.
+
+    `async_to_sync` can wrap a worker-shutdown `asyncio.CancelledError` (a `BaseException` since 3.8) so
+    it arrives Exception-derived; match on the type name too so it's never mistaken for a real failure.
+    """
+    return isinstance(error, asyncio.CancelledError) or type(error).__name__ == "CancelledError"
 
 
 def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
@@ -229,9 +239,28 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="skipped").inc()
         capture_exception(e)
         return
+    except asyncio.CancelledError:
+        # Worker shutdown / deploy interrupted the (possibly long) rewrite. Not a repartition failure —
+        # Temporal reschedules the activity — so propagate rather than record it, else every deploy fills
+        # error tracking with `warehouse_repartition_failed` noise and burns a repartition attempt.
+        logger.info("repartition: cancelled mid-run, will be retried")
+        raise
     except Exception as e:
         # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
         # later run, on the old layout in the meantime.
+        if _is_cancellation(e):
+            # Some cancellations surface through async_to_sync as an Exception-derived CancelledError.
+            # Treat identically to the branch above: propagate, never record it as a failure.
+            logger.info("repartition: cancelled mid-run, will be retried")
+            raise
+        if isinstance(e, OperationalError | InterfaceError):
+            # Transient app-DB pooler drop mid-repartition (not a repartition bug). The rewrite/swap is
+            # idempotent via the swap marker, so the next sync retries cleanly. Don't consume an attempt
+            # or emit a failure event over infra noise — capture for visibility and move on.
+            logger.warning("repartition: transient database error, will retry on next sync", exc_info=True)
+            capture_exception(e)
+            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
+            return
         _handle_failure(inputs, schema, pending, trigger_reason, e)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         return

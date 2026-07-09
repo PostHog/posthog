@@ -1,6 +1,0 @@
-{
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "No input required. Returns core data warehouse schemas.",
-    "properties": {},
-    "type": "object"
-}
