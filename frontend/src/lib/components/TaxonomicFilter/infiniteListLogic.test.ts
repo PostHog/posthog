@@ -1502,6 +1502,50 @@ describe('infiniteListLogic', () => {
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
 
+        it('hides a recent whose value is excluded for its source group (logs group-by drops `message`)', () => {
+            // The logs group-by picker excludes `message`, but a `message contains …` search is
+            // recorded as a recent under Log attributes — it must not leak back into the Recent tab.
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'message',
+                item: { name: 'message' },
+                propertyFilter: {
+                    type: PropertyFilterType.Log,
+                    key: 'message',
+                    value: 'blah',
+                    operator: PropertyOperator.IContains,
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.LogAttributes,
+                groupName: 'Log attributes',
+                value: 'level',
+                item: { name: 'level' },
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'logs-group-by-recents-test',
+                listGroupType: TaxonomicFilterGroupType.RecentFilters,
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.LogAttributes,
+                    TaxonomicFilterGroupType.RecentFilters,
+                ],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.LogAttributes]: ['message'] },
+                selectingKeyOnly: true,
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredRecentItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('message')
+            expect(names).toContain('level')
+        })
+
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
             // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
             // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of
