@@ -153,6 +153,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                         size="sm"
                         data-attr="insight-date-filter-next"
                         data-quill
+                        data-lemon-skin
                         disabled={disabled || !!editingDisabledReason}
                         title={editingDisabledReason ?? undefined}
                     >
@@ -161,7 +162,10 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                     </Button>
                 }
             />
-            <PopoverContent align="start" className="w-auto p-0 overflow-hidden">
+            {/* data-lemon-skin opts these surfaces into the quill-as-lemon skin (lemon-skin.scss, shipping
+                separately) so the filter sits next to Lemon chrome without a visual jump. Portaled content
+                needs the attribute on itself. Inert until the skin lands. */}
+            <PopoverContent data-lemon-skin align="start" className="w-auto p-0 overflow-hidden">
                 <div className="flex items-stretch">
                     <div className="flex w-60 flex-col">
                         {/* Preset rail */}
@@ -214,7 +218,7 @@ export function InsightDateFilterNext({ disabled }: InsightDateFilterNextProps):
                                     <SelectTrigger size="sm" aria-label="Rolling period unit">
                                         <SelectValue />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent data-lemon-skin>
                                         {Object.entries(ROLLING_UNITS).map(([value, label]) => (
                                             <SelectItem key={value} value={value}>
                                                 {label}
