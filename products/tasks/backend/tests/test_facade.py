@@ -450,3 +450,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
         self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+        # The agent-server self-delivers pending_user_message the moment it boots, so an
+        # overlap-clone-boot launch (before run_wizard) burns the prompt on an untouched repo
+        # and the run never opens a PR. Wizard runs must pin the overlap boot off.
+        self.assertIs(run.state.get("overlap_clone_boot_enabled"), False)
