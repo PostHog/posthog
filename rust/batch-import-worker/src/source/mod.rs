@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Error;
+use anyhow::{Context, Error};
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -121,11 +121,15 @@ impl RemoteStaging {
     }
 
     /// `DataSource::cleanup_after_data_error` delegation: move staged objects to
-    /// quarantine for post-mortem instead of deleting them, best-effort.
-    pub(crate) async fn quarantine_job(&self) {
-        if let Err(e) = self.backend.quarantine_job().await {
-            warn!("Failed to quarantine remote staging after data error: {e:#}");
-        }
+    /// quarantine for post-mortem instead of deleting them. The evidence copy is
+    /// best-effort, but a canonical object that could not be deleted is an error:
+    /// it stays attachable, so a resume could read stale staged bytes instead of
+    /// re-downloading the fixed source data.
+    pub(crate) async fn quarantine_job(&self) -> Result<(), Error> {
+        self.backend
+            .quarantine_job()
+            .await
+            .context("Failed to quarantine remote staging after data error")
     }
 
     /// Ingest a downloaded part into the backend and return its decompressed size.

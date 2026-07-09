@@ -27,6 +27,13 @@ const DEFAULT_UPLOAD_PART_SIZE_BYTES: usize = 64 * 1024 * 1024;
 /// (origin download + gzip decode), so a small window keeps uploads fully
 /// overlapped without multiplying memory. Config-overridable.
 const DEFAULT_UPLOAD_CONCURRENCY: usize = 4;
+/// Ceiling on the size of a staged object retained as quarantine evidence on a
+/// data-error pause. Objects above it are deleted without an evidence copy:
+/// pause-and-recreate loops with highly compressible parts would otherwise let
+/// one team pin ceiling-sized objects (potentially >100 GiB each) in the temp
+/// bucket until the TTL. 10 GiB retains evidence for realistic parts while
+/// bounding the amplification. Config-overridable; 0 disables the cap.
+const DEFAULT_QUARANTINE_MAX_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
 /// Stages part plaintext as an object in an internal S3 "temp bucket", reading it back
 /// with ranged GETs. Layout: `{prefix}{job_id}/{sanitized_key}.data`.
@@ -42,6 +49,7 @@ pub struct TempBucketBackend {
     job_id: String,
     upload_part_size: usize,
     upload_concurrency: usize,
+    quarantine_max_bytes: u64,
     // Sizes recorded at stage time; on a cold process they are recovered via `head`.
     sizes: Mutex<HashMap<String, u64>>,
 }
@@ -63,6 +71,7 @@ impl TempBucketBackend {
             job_id: job_id.into(),
             upload_part_size: DEFAULT_UPLOAD_PART_SIZE_BYTES,
             upload_concurrency: DEFAULT_UPLOAD_CONCURRENCY,
+            quarantine_max_bytes: DEFAULT_QUARANTINE_MAX_BYTES,
             sizes: Mutex::new(HashMap::new()),
         }
     }
@@ -76,15 +85,21 @@ impl TempBucketBackend {
         self
     }
 
+    /// Cap the per-object quarantine evidence size (0 disables the cap).
+    pub fn with_quarantine_cap(mut self, max_bytes: u64) -> Self {
+        self.quarantine_max_bytes = max_bytes;
+        self
+    }
+
     /// Construct from config, building the S3 client from the standard credential chain.
     pub async fn from_config(config: &Config, job_id: impl Into<String>) -> Result<Self, Error> {
         let store = create_temp_bucket_store(config).await?;
-        Ok(
-            Self::new(store, config.temp_bucket_prefix.clone(), job_id).with_upload_tuning(
+        Ok(Self::new(store, config.temp_bucket_prefix.clone(), job_id)
+            .with_upload_tuning(
                 config.temp_bucket_upload_part_size_bytes as usize,
                 config.temp_bucket_upload_concurrency,
-            ),
-        )
+            )
+            .with_quarantine_cap(config.temp_bucket_quarantine_max_bytes))
     }
 
     fn object_path(&self, key: &str) -> ObjectPath {
@@ -127,19 +142,32 @@ impl StagingBackend for TempBucketBackend {
     /// Server-side move of every staged object into `quarantine/` under the job
     /// prefix. The quarantine location is never produced by `object_path`, so
     /// `size`/`read` (and therefore a resume) cannot attach to it, while
-    /// `cleanup_job` and the bucket TTL still reclaim it. Per-object failures
-    /// leave that object in place, which degrades to today's behavior at worst
-    /// (a stale canonical object is unreachable for resume only if moved, so a
-    /// failed move is logged loudly).
+    /// `cleanup_job` and the bucket TTL still reclaim it.
+    ///
+    /// Deleting the canonical object is NOT conditional on the evidence copy
+    /// succeeding: a canonical object left behind would let a resume attach to
+    /// stale staged bytes instead of re-downloading the customer's fixed source
+    /// data. Correctness (delete) always wins over evidence (copy); a delete
+    /// that fails even after a retry is reported as an error so callers surface
+    /// it loudly rather than pausing as if the staging were clean.
     async fn quarantine_job(&self) -> Result<(), Error> {
         let prefix = self.job_prefix();
         let quarantine_prefix = self.quarantine_prefix();
         let mut stream = self.store.list(Some(&prefix));
-        let mut moves: Vec<(ObjectPath, ObjectPath)> = Vec::new();
+        // `None` destination = delete without an evidence copy (over the cap).
+        let mut moves: Vec<(ObjectPath, Option<ObjectPath>)> = Vec::new();
         while let Some(item) = stream.next().await {
             match item {
                 Ok(meta) => {
                     if meta.location.as_ref().starts_with(&quarantine_prefix) {
+                        continue;
+                    }
+                    if self.quarantine_max_bytes > 0 && meta.size > self.quarantine_max_bytes {
+                        warn!(
+                            "Staged object {} ({} bytes) exceeds the quarantine evidence cap                              ({} bytes); deleting without evidence",
+                            meta.location, meta.size, self.quarantine_max_bytes
+                        );
+                        moves.push((meta.location, None));
                         continue;
                     }
                     let name = meta
@@ -148,21 +176,47 @@ impl StagingBackend for TempBucketBackend {
                         .unwrap_or("unnamed.data")
                         .to_string();
                     let to = ObjectPath::from(format!("{quarantine_prefix}{name}"));
-                    moves.push((meta.location, to));
+                    moves.push((meta.location, Some(to)));
                 }
                 Err(e) => warn!("Failed to list staged objects under {prefix}: {e}"),
             }
         }
+        let mut undeleted: Vec<ObjectPath> = Vec::new();
         for (from, to) in moves {
-            if let Err(e) = self.store.copy(&from, &to).await {
-                warn!("Failed to quarantine staged object {from}: {e}");
-                continue;
+            if let Some(to) = to {
+                if let Err(e) = self.store.copy(&from, &to).await {
+                    warn!(
+                        "Failed to quarantine staged object {from}, deleting without evidence: {e}"
+                    );
+                }
             }
-            if let Err(e) = self.store.delete(&from).await {
-                warn!("Failed to delete staged object {from} after quarantining: {e}");
+            let deleted = match self.store.delete(&from).await {
+                Ok(()) => true,
+                Err(object_store::Error::NotFound { .. }) => true,
+                Err(first_err) => {
+                    warn!("Failed to delete staged object {from}, retrying: {first_err}");
+                    match self.store.delete(&from).await {
+                        Ok(()) => true,
+                        Err(object_store::Error::NotFound { .. }) => true,
+                        Err(retry_err) => {
+                            warn!("Retried delete of staged object {from} failed: {retry_err}");
+                            false
+                        }
+                    }
+                }
+            };
+            if !deleted {
+                undeleted.push(from);
             }
         }
         self.sizes.lock().await.clear();
+        if !undeleted.is_empty() {
+            return Err(Error::msg(format!(
+                "{} staged object(s) could not be deleted during quarantine and remain \
+                 attachable by a resume: {undeleted:?}",
+                undeleted.len()
+            )));
+        }
         Ok(())
     }
 
@@ -325,6 +379,194 @@ mod tests {
         ));
         let result = store.get(&path).await.ok()?;
         Some(result.bytes().await.ok()?.to_vec())
+    }
+
+    /// Delegating store that injects failures into copies and/or deletes, for
+    /// proving quarantine keeps its correctness guarantee (canonical object
+    /// deleted) when the storage misbehaves mid-move.
+    #[derive(Debug)]
+    struct FailingStore {
+        inner: Arc<InMemory>,
+        fail_copies: bool,
+        fail_deletes: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl std::fmt::Display for FailingStore {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "FailingStore({})", self.inner)
+        }
+    }
+
+    fn injected(op: &'static str) -> object_store::Error {
+        object_store::Error::Generic {
+            store: "FailingStore",
+            source: format!("injected {op} failure").into(),
+        }
+    }
+
+    #[async_trait]
+    impl ObjectStore for FailingStore {
+        async fn put_opts(
+            &self,
+            location: &ObjectPath,
+            payload: object_store::PutPayload,
+            opts: object_store::PutOptions,
+        ) -> object_store::Result<object_store::PutResult> {
+            self.inner.put_opts(location, payload, opts).await
+        }
+
+        async fn put_multipart_opts(
+            &self,
+            location: &ObjectPath,
+            opts: object_store::PutMultipartOptions,
+        ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+            self.inner.put_multipart_opts(location, opts).await
+        }
+
+        async fn get_opts(
+            &self,
+            location: &ObjectPath,
+            options: object_store::GetOptions,
+        ) -> object_store::Result<object_store::GetResult> {
+            self.inner.get_opts(location, options).await
+        }
+
+        fn delete_stream(
+            &self,
+            locations: futures_util::stream::BoxStream<'static, object_store::Result<ObjectPath>>,
+        ) -> futures_util::stream::BoxStream<'static, object_store::Result<ObjectPath>> {
+            use std::sync::atomic::Ordering;
+            let counter = Arc::clone(&self.fail_deletes);
+            let inner = Arc::clone(&self.inner);
+            locations
+                .then(move |res| {
+                    let counter = Arc::clone(&counter);
+                    let inner = Arc::clone(&inner);
+                    async move {
+                        let location = res?;
+                        if counter
+                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                            .is_ok()
+                        {
+                            return Err(injected("delete"));
+                        }
+                        inner.delete(&location).await?;
+                        Ok(location)
+                    }
+                })
+                .boxed()
+        }
+
+        fn list(
+            &self,
+            prefix: Option<&ObjectPath>,
+        ) -> futures_util::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>>
+        {
+            self.inner.list(prefix)
+        }
+
+        async fn list_with_delimiter(
+            &self,
+            prefix: Option<&ObjectPath>,
+        ) -> object_store::Result<object_store::ListResult> {
+            self.inner.list_with_delimiter(prefix).await
+        }
+
+        async fn copy_opts(
+            &self,
+            from: &ObjectPath,
+            to: &ObjectPath,
+            options: object_store::CopyOptions,
+        ) -> object_store::Result<()> {
+            if self.fail_copies {
+                return Err(injected("copy"));
+            }
+            self.inner.copy_opts(from, to, options).await
+        }
+    }
+
+    /// The evidence copy failing must not leave the canonical object behind:
+    /// a resume attaching to stale staged bytes (instead of re-downloading the
+    /// fixed source data) is strictly worse than lost evidence.
+    #[tokio::test]
+    async fn quarantine_copy_failure_still_deletes_canonical() {
+        let inner = Arc::new(InMemory::new());
+        let store = Arc::new(FailingStore {
+            inner: inner.clone(),
+            fail_copies: true,
+            fail_deletes: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        });
+        let be = TempBucketBackend::new(store, "batch-import-staging/", "job-TEST");
+        stage_bytes(&be, "k", b"stale bytes").await;
+
+        be.quarantine_job().await.unwrap();
+
+        assert_eq!(
+            be.size("k").await.unwrap(),
+            None,
+            "canonical object must be deleted even when the evidence copy fails"
+        );
+        assert!(quarantined_bytes(&inner, "k").await.is_none());
+    }
+
+    /// A transient delete failure is retried; a persistent one surfaces as an
+    /// error (the canonical object remains attachable) instead of reporting a
+    /// clean quarantine.
+    #[tokio::test]
+    async fn quarantine_delete_failure_retries_then_errors() {
+        // One injected failure: the retry succeeds and the move completes.
+        let inner = Arc::new(InMemory::new());
+        let store = Arc::new(FailingStore {
+            inner: inner.clone(),
+            fail_copies: false,
+            fail_deletes: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+        });
+        let be = TempBucketBackend::new(store, "batch-import-staging/", "job-TEST");
+        stage_bytes(&be, "k", b"bytes").await;
+        be.quarantine_job().await.unwrap();
+        assert_eq!(be.size("k").await.unwrap(), None);
+        assert_eq!(
+            quarantined_bytes(&inner, "k").await.as_deref(),
+            Some(b"bytes".as_slice())
+        );
+
+        // Persistent failures: quarantine_job must report the attachable leftover.
+        let inner = Arc::new(InMemory::new());
+        let store = Arc::new(FailingStore {
+            inner: inner.clone(),
+            fail_copies: false,
+            fail_deletes: Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX)),
+        });
+        let be = TempBucketBackend::new(store, "batch-import-staging/", "job-TEST");
+        stage_bytes(&be, "k", b"bytes").await;
+        let err = be
+            .quarantine_job()
+            .await
+            .expect_err("an undeletable canonical object must surface as an error");
+        assert!(err.to_string().contains("remain"), "got: {err}");
+    }
+
+    /// The evidence cap: an over-cap staged object must be deleted without a
+    /// quarantine copy, so pause-and-recreate loops with highly compressible
+    /// parts cannot pin ceiling-sized objects in the temp bucket until the TTL.
+    #[tokio::test]
+    async fn quarantine_cap_deletes_oversized_objects_without_evidence() {
+        let (store, be) = backend_with_store();
+        let be = be.with_quarantine_cap(16);
+        stage_bytes(&be, "big", b"more than sixteen bytes of data").await;
+        stage_bytes(&be, "small", b"tiny").await;
+
+        be.quarantine_job().await.unwrap();
+
+        // Both canonical objects are gone regardless of size.
+        assert_eq!(be.size("big").await.unwrap(), None);
+        assert_eq!(be.size("small").await.unwrap(), None);
+        // Only the under-cap object is retained as evidence.
+        assert!(quarantined_bytes(&store, "big").await.is_none());
+        assert_eq!(
+            quarantined_bytes(&store, "small").await.as_deref(),
+            Some(b"tiny".as_slice())
+        );
     }
 
     #[tokio::test]
