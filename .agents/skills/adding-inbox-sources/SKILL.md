@@ -17,10 +17,10 @@ must change both:
 This skill lives in `posthog/posthog`; the UI half lives in the separate
 `posthog/code` repo. Both must change:
 
-| Repo | What changes |
-| --- | --- |
+| Repo                          | What changes                                                                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do). |
-| `posthog/code` | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources). |
+| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                  |
 
 > Backend work in `posthog/posthog` should be done in a **git worktree** (see
 > "Worktree setup" below). Merges in both repos go through the Trunk merge queue —
@@ -51,13 +51,13 @@ A new credential-based source needs **zero form code** — just route its
 
 Three cases still need bespoke handling (the generic renderer flags `oauth`/`ssh-tunnel`/`file-upload` as unsupported and disables submit):
 
-| Case | When | Existing example |
-| --- | --- | --- |
-| **Generic dynamic form** | Credential inputs only (Jira, Zendesk, Freshdesk, Front, Gorgias, Sentry, GitLab). | `DynamicSourceSetup` (route the switch case to it) |
-| **OAuth + integration polling** | Source authenticates via OAuth grant (Intercom `kind=intercom`); poll `getIntegrationsForProject` for the `kind`, pass `<source>_integration_id`. | `LinearSetup` |
-| **Deep-link OAuth + resource picker** | User must pick a specific resource (repo/board) during setup. | `GitHubSetup` |
+| Case                                  | When                                                                                                                                              | Existing example                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Generic dynamic form**              | Credential inputs only (Jira, Zendesk, Freshdesk, Front, Gorgias, Sentry, GitLab).                                                                | `DynamicSourceSetup` (route the switch case to it) |
+| **OAuth + integration polling**       | Source authenticates via OAuth grant (Intercom `kind=intercom`); poll `getIntegrationsForProject` for the `kind`, pass `<source>_integration_id`. | `LinearSetup`                                      |
+| **Deep-link OAuth + resource picker** | User must pick a specific resource (repo/board) during setup.                                                                                     | `GitHubSetup`                                      |
 
-`ZendeskSetup`/`PgAnalyzeSetup` are the *old* hardcoded forms — leave them or
+`ZendeskSetup`/`PgAnalyzeSetup` are the _old_ hardcoded forms — leave them or
 migrate them to `DynamicSourceSetup` opportunistically; don't add new ones.
 
 Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
@@ -66,7 +66,7 @@ google-analytics, google-search-console, google-sheets, snapchat, linkedin-ads,
 reddit-ads, tiktok-ads, bing-ads, meta-ads, intercom, linear, clickup, jira,
 pinterest-ads, stripe` (+ `github` via App install). **A source not in this list
 must use the API-key form** — its warehouse connector takes credentials directly,
-independent of the OAuth integration list. (Note: even Jira's *warehouse source*
+independent of the OAuth integration list. (Note: even Jira's _warehouse source_
 uses an API token, not the OAuth `kind=jira`.)
 
 ## Source catalog (Tier-1)
@@ -75,15 +75,15 @@ uses an API token, not the OAuth `kind=jira`.)
 Verify exact `source_type` + `payload` key names against the posthog
 `external_data_sources` serializer / the source's `source.py` at implementation time.
 
-| Product | `source_type` | Table | Auth | Setup template | `payload` keys |
-| --- | --- | --- | --- | --- | --- |
-| Jira | `Jira` | `issues` | API token | Zendesk | `subdomain`, `email`, `api_token` |
-| GitLab | `GitLab` | `issues` | API token | Zendesk | `gitlab_host`, `personal_access_token`, `project` |
-| Sentry | `Sentry` | `issues` | API token | Zendesk | `auth_token`, `organization_slug`, `api_base_url?` |
-| Freshdesk | `Freshdesk` | `tickets` | API key | Zendesk | `subdomain`, `api_key` |
-| Front | `Front` | `conversations` | API token | Zendesk | `api_token` |
-| Gorgias | `Gorgias` | `tickets` | API key | Zendesk | `gorgias_domain`, `email`, `api_key` |
-| Intercom | `Intercom` | `conversations` | OAuth (`kind=intercom`) | Linear | `intercom_integration_id` |
+| Product   | `source_type` | Table           | Auth                    | Setup template       | `payload` keys                                     |
+| --------- | ------------- | --------------- | ----------------------- | -------------------- | -------------------------------------------------- |
+| Jira      | `Jira`        | `issues`        | API token               | `DynamicSourceSetup` | `subdomain`, `email`, `api_token`                  |
+| GitLab    | `GitLab`      | `issues`        | API token               | `DynamicSourceSetup` | `gitlab_host`, `personal_access_token`, `project`  |
+| Sentry    | `Sentry`      | `issues`        | API token               | `DynamicSourceSetup` | `auth_token`, `organization_slug`, `api_base_url?` |
+| Freshdesk | `Freshdesk`   | `tickets`       | API key                 | `DynamicSourceSetup` | `subdomain`, `api_key`                             |
+| Front     | `Front`       | `conversations` | API token               | `DynamicSourceSetup` | `api_token`                                        |
+| Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
+| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | Linear               | `intercom_integration_id`                          |
 
 (Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`
 are already shipped — copy them, don't re-add.)
@@ -97,10 +97,12 @@ Product key is the lowercase `source_product` (e.g. `"jira"`). Grep the repo for
 source-list-relevant is a place you must add the new product. The canonical list:
 
 ### Type gates (every source)
+
 1. `packages/shared/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
 2. `packages/api-client/src/posthog-client.ts` — add to `SignalSourceConfig.source_product` union; add a new `source_type` value only if the record type isn't already `issue`/`ticket`.
 
 ### Live UI path (every source)
+
 3. `packages/ui/src/features/inbox/hooks/useSignalSourceToggles.ts` — `SetupSourceProduct`, `SOURCE_TYPE_MAP`, `SOURCE_LABELS`, `DATA_WAREHOUSE_SOURCES` (`{ dwSourceType, requiredTable }`), `ALL_SOURCE_PRODUCTS`, and the `computeValues` initializer object.
 4. `packages/ui/src/features/inbox/components/SignalSourceToggles.tsx` — `SignalSourceValues` field, a `toggleX`/`setupX` callback, and a `<SignalSourceToggleCard>` in the "External connections" column (icon/label/description + `requiresSetup`/`onSetup`/`loading`/`syncStatus`).
 5. `packages/ui/src/features/inbox/components/DataSourceSetup.tsx` — `DataSourceType`, `REQUIRED_SCHEMAS`, and the `switch` case. For a credential source, route the case to `<DynamicSourceSetup sourceType="Jira" title="Connect Jira" schemas={schemasPayload("jira")} … />` — **no new form component**. Only OAuth/resource-picker sources need a bespoke `XSetup`.
@@ -108,10 +110,12 @@ source-list-relevant is a place you must add the new product. The canonical list
 7. `packages/ui/src/features/inbox/filterOptions.tsx` — `INBOX_SOURCE_OPTIONS` entry (source-filter dropdown).
 
 ### Core mirror (keep in sync — `SignalSourceService`/`DataSourceService` mirror the maps; not on the live UI path today but keep them consistent)
+
 8. `packages/core/src/inbox/signalSourceService.ts` — mirror `SOURCE_TYPE_MAP`, `DATA_WAREHOUSE_SOURCES`, `ALL_SOURCE_PRODUCTS`, `computeSourceValues` init, plus `WarehouseSourceProduct`/`SignalSourceValues`.
 9. `packages/core/src/inbox/dataSourceService.ts` — `DataSourceType`, `REQUIRED_SCHEMAS`, a `createXDataSource` method.
 
 ### OAuth plumbing — **only** for OAuth sources (Intercom); API-key sources skip this
+
 10. `packages/core/src/integrations/<source>.ts` — `XIntegrationService.startFlow(region, projectId)` (clone `linear.ts`).
 11. `packages/core/src/integrations/identifiers.ts` — new `X_INTEGRATION_SERVICE` symbol.
 12. `packages/core/src/integrations/integrations.module.ts` — bind it.
@@ -119,11 +123,13 @@ source-list-relevant is a place you must add the new product. The canonical list
 14. `packages/host-router/src/router.ts` — import + register the router in `appRouter`.
 
 ### Setup-form specifics
+
 - **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup` (above). Nothing else — the fields come from the wizard endpoint.
 - **OAuth form:** clone `LinearSetup`. Change the `kind` matched in the poll loop and the `<source>_integration_id` payload key; swap `trpc.linearIntegration.startFlow` for the new router.
 - Issues sources (`github`/`linear`/`jira`) force `issues` to `full_refresh` in `ensureRequiredTableSyncing` (`useSignalSourceToggles.ts`) — add the new product to that condition if it syncs an `issues` table (issues get edited/closed, so incremental append would miss updates). Ticket/conversation sources only force `should_sync=true`.
 
 ### Verify
+
 - `pnpm --filter @posthog/shared build` after touching `inbox-types.ts` (it's a published type).
 - `pnpm typecheck` (whole repo — the unions are consumed across packages).
 - `biome lint packages/core packages/ui` — zero `noRestrictedImports`, imports ordered.
@@ -141,11 +147,13 @@ generic; only the per-source emitter + registry entry are new.
 4. **Emitter** — new module `products/signals/backend/emission/<source>_<table>.py` exporting a `SignalSourceTableConfig`: `partition_field` (incremental cursor column), `fields` (columns to SELECT), optional `where_clause`, `partition_field_is_datetime_string`, an `emitter(row) -> SignalEmitterOutput(source_product, source_type, source_id, description, weight, extra)`, and optional LLM `actionability_prompt`/`summarization_prompt`. **Copy `github_issues.py` and adapt to the warehouse table's columns** (read the source's `settings.py`/`canonical_descriptions.py` under `products/warehouse_sources/backend/temporal/data_imports/sources/<name>/` for exact column names).
 
    ⚠️ **Not every source stores flat columns.** GitHub/Linear expose `title`/`body`/`created_at` as top-level columns, so the generic `data_warehouse_record_fetcher` (`SELECT {fields} FROM {table} WHERE {partition_field} > cursor`) works directly. Others do **not**: e.g. **Jira's `issues` table has only `id`, `key`, `self`, `fields` (a nested JSON blob), `expand`** — `summary`/`description`/`status`/`created` all live inside `fields`. For such sources you must SELECT `fields` and `JSONExtractString(fields, '…')` in the emitter, and the `partition_field` must be a JSON expression (`JSONExtractString(fields, 'created')`, `partition_field_is_datetime_string=True`). **Verify the generic fetcher accepts a JSON-expression `partition_field`** (it interpolates it into HogQL `WHERE`) before assuming a clone works — this is the single most likely thing to be subtly wrong, and it can only be confirmed by running a sync, not by reading code. Inspect the real column shape via the source's `canonical_descriptions.py` first.
+
 5. **Register** — `products/signals/backend/emission/registry.py` `_register_all_emitters()`: `register((ExternalDataSourceType.X, "<table>"), <config>)`.
 6. **Contract** — `products/signals/backend/contracts.py`: add a `Literal[SignalSourceProduct.X]` variant.
 7. The generic fetcher (`emission/fetchers/data_warehouse.py`), the gate (`emission/gate.py`), and the warehouse hook plumbing need **no** changes.
 
 ### Verify
+
 - Migration applies cleanly; `python manage.py makemigrations --check` is clean afterward.
 - The `ExternalDataSourceType` member exists in `products/warehouse_sources/backend/types.py`.
 
@@ -154,15 +162,19 @@ generic; only the per-source emitter + registry entry are new.
 ## Worktree setup (posthog/posthog backend work)
 
 ```bash
-cd /Users/tomowers/dev/posthog/posthog
+# from your local posthog/posthog clone
 git fetch origin
-git worktree add ../worktrees/inbox-<source> -b tom/inbox-<source>-source origin/master
+git worktree add ../worktrees/inbox-<source> -b <your-branch-prefix>/inbox-<source>-source origin/master
 ```
 
-Commit with signing/hooks bypassed (per global git rules):
-`git -c commit.gpgsign=false commit --no-verify`. Open PRs **ready for review**
-(not draft). Use semantic commit prefix `feat(data-warehouse):` for anything
-touching warehouse sources / signals. Clean up the worktree when merged:
+If the agent sandbox has no GPG signing key configured, disable signing for the
+commit (`git -c commit.gpgsign=false commit`) so it doesn't fail on a missing
+key. Do **not** reflexively add `--no-verify`: the pre-commit/pre-push hooks run
+lint, type-check, and `ci:preflight`, and skipping them lets breakage reach CI.
+Only bypass a specific hook if it genuinely can't run in the worktree, and run
+the Verify steps above by hand first. Open PRs **ready for review** (not draft).
+Use semantic commit prefix `feat(data-warehouse):` for anything touching
+warehouse sources / signals. Clean up the worktree when merged:
 `git worktree remove ../worktrees/inbox-<source>`.
 
 ## PR conventions
