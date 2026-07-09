@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 // Allow an empty numeric part so a cleared input keeps its unit instead of resetting to a default.
@@ -30,6 +32,15 @@ export function HogFlowDuration({
     // Floor any decimal so a stored value like "1.5d" shows as "1d" and gets rewritten to a whole number on next save.
     const numberValue = numberValueString === '' ? undefined : Math.floor(parseFloat(numberValueString))
 
+    // The parent commits config through an async kea listener, so binding the field straight to the derived
+    // value re-applies the previous digit for one render and swallows a keystroke on clear. Mirror it locally
+    // so the user's edit shows immediately; reconcile only when the derived value changes externally (unit
+    // clamp, switching nodes). NaN (not undefined) keeps LemonInput controlled when empty.
+    const [displayNumber, setDisplayNumber] = useState(numberValue)
+    useEffect(() => {
+        setDisplayNumber(numberValue)
+    }, [numberValue])
+
     const clamp = (n: number): number =>
         Math.min(Math.max(MIN_VALUE_FOR_DURATION_UNIT, Math.floor(n)), MAX_VALUE_FOR_DURATION_UNIT[unit])
 
@@ -37,7 +48,7 @@ export function HogFlowDuration({
         <div className="flex gap-2">
             <LemonInput
                 type="number"
-                value={numberValue}
+                value={displayNumber ?? NaN}
                 min={MIN_VALUE_FOR_DURATION_UNIT}
                 max={MAX_VALUE_FOR_DURATION_UNIT[unit]}
                 step={1}
@@ -47,13 +58,11 @@ export function HogFlowDuration({
                     }
                 }}
                 onChange={(v) => {
-                    if (v == null || !Number.isFinite(v)) {
-                        onChange(`${unit}`)
-                        return
-                    }
-                    onChange(`${Math.floor(v)}${unit}`)
+                    const next = v == null || !Number.isFinite(v) ? undefined : Math.floor(v)
+                    setDisplayNumber(next)
+                    onChange(next === undefined ? `${unit}` : `${next}${unit}`)
                 }}
-                onBlur={() => numberValue !== undefined && onChange(`${clamp(numberValue)}${unit}`)}
+                onBlur={() => displayNumber !== undefined && onChange(`${clamp(displayNumber)}${unit}`)}
             />
 
             <LemonSelect
@@ -65,7 +74,7 @@ export function HogFlowDuration({
                 value={unit}
                 onChange={(v) =>
                     onChange(
-                        `${numberValue === undefined ? '' : Math.min(numberValue, MAX_VALUE_FOR_DURATION_UNIT[v])}${v}`
+                        `${displayNumber === undefined ? '' : Math.min(displayNumber, MAX_VALUE_FOR_DURATION_UNIT[v])}${v}`
                     )
                 }
             />
