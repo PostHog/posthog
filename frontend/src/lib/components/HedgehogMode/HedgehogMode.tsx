@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { inStorybook } from 'lib/utils/dom'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'

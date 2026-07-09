@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 export interface TextCardModalBodyFieldProps {
     shouldUseLegacyMarkdownEditor: boolean

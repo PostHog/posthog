@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import { type ComponentType, type LazyExoticComponent } from 'react'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetProductAccess } from '../types'

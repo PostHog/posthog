@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { Suspense } from 'react'
 
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 

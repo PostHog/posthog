@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 

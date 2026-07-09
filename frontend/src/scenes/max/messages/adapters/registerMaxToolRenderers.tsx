@@ -16,7 +16,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import {
     registerToolRenderers,

@@ -18,7 +18,7 @@ import {
 
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 

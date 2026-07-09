@@ -5,7 +5,7 @@ import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { getHedgehogModeAssetsUrl } from 'lib/components/HedgehogMode/HedgehogMode'
 import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 const LazyHedgehogCustomization =
     typeof window !== 'undefined'

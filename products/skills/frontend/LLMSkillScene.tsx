@@ -25,7 +25,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 

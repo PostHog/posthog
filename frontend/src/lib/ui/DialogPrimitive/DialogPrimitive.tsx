@@ -4,7 +4,7 @@ import { Suspense } from 'react'
 import { IconX } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { WrappingLoadingSkeleton } from '../WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 

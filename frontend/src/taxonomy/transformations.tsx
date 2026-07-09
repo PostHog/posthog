@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { CoreFilterDefinition } from '~/types'
 

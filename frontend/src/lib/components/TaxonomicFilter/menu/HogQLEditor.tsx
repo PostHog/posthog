@@ -15,7 +15,7 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { Button, DialogFooter, Field, FieldContent, FieldDescription, FieldLabel, Skeleton } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { TaxonomicFilterGroupType } from '../types'

@@ -1,6 +1,6 @@
 import { ComponentType } from 'react'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 

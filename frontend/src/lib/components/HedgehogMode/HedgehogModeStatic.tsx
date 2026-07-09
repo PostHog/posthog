@@ -3,7 +3,7 @@ import { Suspense, useMemo } from 'react'
 
 import type { HedgehogActorOptions } from '@posthog/hedgehog-mode'
 
-import { lazyWithRetry } from 'lib/utils/lazyWithRetry'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
