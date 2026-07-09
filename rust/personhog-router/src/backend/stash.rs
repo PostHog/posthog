@@ -1,17 +1,21 @@
-//! Per-partition stash queue for the write-path.
+//! Per-partition stash queue for the leader path.
 //!
 //! During a partition handoff, the coordinator advances the handoff state
 //! through `Freezing → Draining → Warming → Complete`. From the moment
 //! the handoff is created (in `Freezing`) and until the routing table
-//! flips at `Complete`, routers buffer (stash) incoming write requests
-//! for that partition here. When `Complete` arrives the stashed
-//! requests are drained in arrival order to the new owner.
+//! flips at `Complete`, routers buffer (stash) incoming leader-path
+//! requests — writes and strong reads alike — for that partition here.
+//! When `Complete` arrives the stashed requests are drained in arrival
+//! order to the new owner.
 //!
-//! This gives the protocol a clean "no split-brain writes" guarantee
-//! without returning errors to callers — every write that hits the
-//! router during the handoff window is either delivered to the new
-//! owner in arrival order or fails fast with `UNAVAILABLE` once its
-//! per-request deadline expires (see `RouterStashHandler`).
+//! Stashing both request kinds gives the protocol two guarantees at once:
+//! no split-brain writes, and strong reads that stay read-your-write
+//! through the handoff — a read queued behind the write it must observe
+//! (per-key FIFO) drains after it, instead of racing ahead to the old
+//! owner's frozen cache. Every request that hits the router during the
+//! handoff window is either delivered in arrival order or fails fast with
+//! `UNAVAILABLE` once its per-request deadline expires (see
+//! `RouterStashHandler`).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -55,9 +59,12 @@ fn approximate_size(frame: &Bytes) -> usize {
     PER_REQUEST_OVERHEAD + frame.len()
 }
 
-/// A raw write held in the stash along with everything needed to replay it
-/// to the new owner and return the response to the original caller.
+/// A raw leader-path request held in the stash along with everything
+/// needed to replay it and return the response to the original caller.
 pub struct StashedRequest {
+    /// gRPC method the frame targets, so drain replays each request to
+    /// the path it arrived on (writes and strong reads share the stash).
+    pub method: &'static str,
     /// The raw gRPC request frame, forwarded verbatim on replay.
     pub frame: Bytes,
     /// The client's request headers, forwarded verbatim (the router stamps
@@ -185,6 +192,7 @@ impl StashTable {
     pub async fn enqueue_or_forward(
         &self,
         partition: u32,
+        method: &'static str,
         frame: &Bytes,
         headers: &HeaderMap,
         key: (i64, i64),
@@ -223,6 +231,7 @@ impl StashTable {
 
         let (tx, rx) = oneshot::channel();
         queue.requests.push_back(StashedRequest {
+            method,
             frame: frame.clone(),
             headers: headers.clone(),
             key,
@@ -345,6 +354,7 @@ mod tests {
         table
             .enqueue_or_forward(
                 partition,
+                "UpdatePersonProperties",
                 &Bytes::from_static(b"x"),
                 &HeaderMap::new(),
                 (1, person_id),
@@ -363,6 +373,7 @@ mod tests {
         table
             .enqueue_or_forward(
                 partition,
+                "UpdatePersonProperties",
                 &Bytes::from(vec![0u8; payload]),
                 &HeaderMap::new(),
                 (1, person_id),

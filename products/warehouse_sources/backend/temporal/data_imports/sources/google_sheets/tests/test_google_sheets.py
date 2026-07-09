@@ -326,6 +326,12 @@ def test_retry_on_transient_api_error_does_not_retry_non_transient():
         requests.exceptions.ConnectionError("Connection aborted."),
         requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
         requests.exceptions.ConnectTimeout("Connection timed out."),
+        # A connection reset mid-download surfaces as ChunkedEncodingError, which is a sibling of
+        # ConnectionError in the requests hierarchy (not a subclass), so it must be caught explicitly.
+        requests.exceptions.ChunkedEncodingError(
+            "('Connection broken: ConnectionResetError(104, 'Connection reset by peer')', "
+            "ConnectionResetError(104, 'Connection reset by peer'))"
+        ),
     ],
 )
 def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error):
@@ -346,6 +352,7 @@ def test_retry_on_transient_api_error_retries_network_error_then_succeeds(error)
     [
         requests.exceptions.ConnectionError("Connection aborted."),
         requests.exceptions.ReadTimeout("Read timed out. (read timeout=120.0)"),
+        requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError(104, ...)"),
     ],
 )
 def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(error):

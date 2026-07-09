@@ -213,12 +213,13 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 name="status",
                 location=OpenApiParameter.QUERY,
                 type=str,
-                enum=["draft", "running", "paused", "stopped", "complete", "all"],
+                enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
                 description=(
-                    'Filter by experiment status. "running" and "paused" are mutually exclusive: "running" returns '
-                    'launched experiments with an active feature flag, "paused" returns launched experiments whose '
-                    'feature flag is deactivated. "complete" is an alias for "stopped". "all" disables status '
-                    "filtering."
+                    'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
+                    '"running" returns launched experiments with an active feature flag, "paused" returns launched '
+                    'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
+                    "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
+                    'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
                 ),
                 required=False,
             ),
@@ -619,6 +620,30 @@ class EnterpriseExperimentsViewSet(
         service = ExperimentService(team=self.team, user=request.user)
         resumed_experiment = service.resume_experiment(experiment, request=request)
         return Response(ExperimentSerializer(resumed_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def freeze_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Freeze exposure on a running experiment while metrics keep flowing.
+
+        Snapshots the already-exposed users into a static cohort and narrows the
+        linked feature flag so only those users keep matching — new users can no
+        longer enter the experiment. ``end_date`` is left null so long-term metrics
+        (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+        their assigned variant. The serialized status becomes 'exposure_frozen'.
+
+        Returns 400 if the experiment is not running, exposure is already frozen,
+        the experiment is group-aggregated (group flags cannot be frozen with a
+        person cohort), or the exposed set is too large to snapshot synchronously.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        frozen_experiment = service.freeze_exposure(experiment, request=request)
+        return Response(ExperimentSerializer(frozen_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,

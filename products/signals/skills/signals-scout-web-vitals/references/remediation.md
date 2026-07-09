@@ -19,7 +19,7 @@ slice the same `$web_vitals` data:
 - **By `$browser`** — a regression isolated to one engine is often a polyfill, a CSS
   feature, or a JS API doing extra work there.
 - **For a regression, date the onset** with a daily p75 series and line it up against
-  `activity-log-list`. "Stepped on {day}, consistent with a deploy" is the most actionable
+  `advanced-activity-logs-list`. "Stepped on {day}, consistent with a deploy" is the most actionable
   framing — but you usually can't see their releases, so frame it as correlation to confirm.
 
 A regression that holds across every device/region/browser slice is a real shared cause
