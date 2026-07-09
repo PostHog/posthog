@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BriefConfigApi,
+    ExecuteTestClusterRequestApi,
+    ExecuteTestClusterResponseApi,
     FeedbackVoteRequestApi,
     GenerateBriefRequestApi,
     OpportunityApi,
@@ -325,5 +327,25 @@ export const pulseOpportunitiesReopenCreate = async (
     return apiMutator<OpportunityApi>(getPulseOpportunitiesReopenCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getQueryPerformanceProxyExecuteTestCreateUrl = () => {
+    return `/api/query_performance_proxy/execute-test/`
+}
+
+/**
+ * Forwards SQL to the restricted autoresearch ClickHouse user for query-performance analysis (query_log_archive and related tables). Read-only; row and time limited.
+ * @summary Run a read-only query against the autoresearch test cluster
+ */
+export const queryPerformanceProxyExecuteTestCreate = async (
+    executeTestClusterRequestApi: ExecuteTestClusterRequestApi,
+    options?: RequestInit
+): Promise<ExecuteTestClusterResponseApi> => {
+    return apiMutator<ExecuteTestClusterResponseApi>(getQueryPerformanceProxyExecuteTestCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(executeTestClusterRequestApi),
     })
 }

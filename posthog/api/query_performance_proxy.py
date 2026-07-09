@@ -46,6 +46,7 @@ _ACTION_SCOPES: dict[str, list[str]] = {
 }
 
 
+@extend_schema(extensions={"x-product": "pulse"})
 class QueryPerformanceProxyViewSet(viewsets.ViewSet):
     authentication_classes = [OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
