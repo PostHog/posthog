@@ -544,3 +544,33 @@ class TestDashboardQueriesRateLimiter(BaseTest):
                     org_id=str(self.organization.id), dashboard_id=123, team_id=self.team.id, is_api=True
                 )
                 self.assertFalse(is_applicable)
+
+
+class TestAppOrgRateLimiter(BaseTest):
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_temporal_activity(self):
+        """Temporal activity queries (e.g. experiment recalc) must not count against the per-org app limit"""
+        from temporalio.testing import ActivityEnvironment
+
+        from posthog.clickhouse.client.limit import get_app_org_rate_limiter
+
+        async def check_rate_limiter_in_activity():
+            rate_limiter = get_app_org_rate_limiter()
+            return rate_limiter.applicable(org_id=str(self.organization.id), team_id=self.team.id)
+
+        env = ActivityEnvironment()
+        result = asyncio.run(env.run(check_rate_limiter_in_activity))
+
+        self.assertFalse(result, "Rate limiter should not apply in Temporal activity context")
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_applies_for_regular_requests(self):
+        """Test that rate limiter is applicable for regular web requests"""
+        from posthog.clickhouse.client.limit import get_app_org_rate_limiter
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        with patch("posthog.clickhouse.client.limit.current_task", None):
+            with patch("temporalio.workflow.in_workflow", return_value=False):
+                is_applicable = rate_limiter.applicable(org_id=str(self.organization.id), team_id=self.team.id)
+                self.assertTrue(is_applicable)
