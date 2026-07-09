@@ -17,6 +17,7 @@ import { dayjs } from 'lib/dayjs'
 import { holidaysMatcher, isChristmas } from 'lib/holidays'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconChristmasOrnament, IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isTrustedImageSrc } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -60,7 +61,9 @@ const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 
-const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
+// Stop the capture before trailing sentence punctuation so a URL ending a sentence (".", ")") keeps
+// a clean href. No `g` flag: split() already splits on every match and reuses the capture group.
+const DETAIL_URL_REGEX = /(https?:\/\/[^\s]*[^\s.,;:!?)\]}'"])/
 
 export function InsightEmptyState({
     heading,
@@ -528,25 +531,14 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-function isPostHogDocsUrl(url: string): boolean {
-    try {
-        const { protocol, hostname } = new URL(url)
-        return (
-            (protocol === 'https:' || protocol === 'http:') &&
-            (hostname === 'posthog.com' || hostname.endsWith('.posthog.com'))
-        )
-    } catch {
-        return false
-    }
-}
-
 // Render embedded URLs (e.g. a docs link the backend includes) as clickable links. Only PostHog
 // URLs are linkified — error detail can echo user-controlled text (e.g. a HogQL parse error), so we
-// don't turn arbitrary strings into clickable external links.
+// don't turn arbitrary strings into clickable external links (isTrustedImageSrc is the
+// same-origin/posthog.com host allowlist used for untrusted markdown images).
 export function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
     // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
     return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        index % 2 === 1 && isPostHogDocsUrl(part) ? (
+        index % 2 === 1 && isTrustedImageSrc(part) ? (
             <Link key={index} to={part} target="_blank">
                 {part}
             </Link>
@@ -572,6 +564,8 @@ export function InsightValidationError({
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    const defaultCta =
+        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
     return (
         <div
@@ -594,30 +588,24 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
-            {(() => {
-                const defaultCta =
-                    cta ??
-                    (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
-                // For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
-                // beside it so users who decline AI consent (or lack AI access) still have a next step.
-                if (isMemoryLimitError && !cta) {
-                    return (
-                        <div className="flex items-center gap-2">
-                            <AIConsentPopoverWrapper onApprove={debugWithAI}>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={debugWithAI}
-                                    data-attr="insight-memory-limit-debug-with-ai"
-                                >
-                                    Debug with PostHog AI
-                                </LemonButton>
-                            </AIConsentPopoverWrapper>
-                            {defaultCta}
-                        </div>
-                    )
-                }
-                return defaultCta
-            })()}
+            {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
+                beside it so users who decline AI consent (or lack AI access) still have a next step. */}
+            {isMemoryLimitError && !cta ? (
+                <div className="flex items-center gap-2">
+                    <AIConsentPopoverWrapper onApprove={debugWithAI}>
+                        <LemonButton
+                            type="primary"
+                            onClick={debugWithAI}
+                            data-attr="insight-memory-limit-debug-with-ai"
+                        >
+                            Debug with PostHog AI
+                        </LemonButton>
+                    </AIConsentPopoverWrapper>
+                    {defaultCta}
+                </div>
+            ) : (
+                defaultCta
+            )}
 
             {detail.includes('Exclusion') && (
                 <div className="mt-4">

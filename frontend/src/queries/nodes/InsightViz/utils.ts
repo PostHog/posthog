@@ -182,29 +182,36 @@ export const getQueryBasedDashboard = (
     }
 }
 
+// Statuses whose responses carry an actionable validation message: 400 (bad query), 512 (query
+// estimated too expensive to run), 513 (out of memory). Kept in one place so the two extractors and
+// isTimeoutError agree on which statuses are actionable and only isTimeoutError keys on 512 alone.
+const VALIDATION_ERROR_STATUSES = new Set([400, 512, 513])
+
+const hasValidationErrorStatus = (error: Error | Record<string, any> | null | undefined): boolean =>
+    (error instanceof ApiError || (error != null && typeof error === 'object' && 'status' in error)) &&
+    VALIDATION_ERROR_STATUSES.has((error as Record<string, any>)?.status)
+
 export const extractValidationError = (error: Error | Record<string, any> | null | undefined): string | null => {
-    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        // 400/512/513 all carry an actionable validation message (bad query / too slow / out of memory).
+    if (hasValidationErrorStatus(error)) {
         // Async queries put the error message on data.error_message, while synchronous ones use detail
-        return error?.status === 400 || error?.status === 512 || error?.status === 513
-            ? (error.detail || error.data?.error_message)?.replace('Try ', 'Try\u00A0') // Add unbreakable space for better line breaking
-            : null
+        const anyError = error as Record<string, any>
+        // Add unbreakable space for better line breaking
+        return (anyError.detail || anyError.data?.error_message)?.replace('Try ', 'Try\u00A0') ?? null
     }
 
     return null
 }
 
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
-    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
-        if (error?.status === 400 || error?.status === 512 || error?.status === 513) {
-            return error.code ?? error.data?.code ?? null
-        }
+    if (hasValidationErrorStatus(error)) {
+        const anyError = error as Record<string, any>
+        return anyError.code ?? anyError.data?.code ?? null
     }
 
     return null
 }
 
-// Query took too long. Out-of-memory errors use their own status (513), so this stays unambiguous.
+// 512 only (query estimated too expensive) — OOM is 513, so this can't misfire on a memory error.
 export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         return error?.status === 512

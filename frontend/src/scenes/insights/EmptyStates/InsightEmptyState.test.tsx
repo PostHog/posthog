@@ -88,6 +88,11 @@ describe('EmptyStates', () => {
         it.each([
             ['links a PostHog docs URL', 'see https://posthog.com/docs/x for help', ['https://posthog.com/docs/x']],
             ['links a PostHog subdomain URL', 'visit https://eu.posthog.com/foo now', ['https://eu.posthog.com/foo']],
+            [
+                'strips trailing punctuation from the href',
+                'read https://posthog.com/docs/x.',
+                ['https://posthog.com/docs/x'],
+            ],
             ['leaves an external URL as plain text', 'go to https://evil.example.com/phish', []],
             ['leaves a lookalike host as plain text', 'open https://posthog.com.evil.com/x here', []],
             ['renders plain detail with no links', 'This query ran out of memory.', []],
