@@ -160,10 +160,13 @@ def _resolve_sort_mode(
     pagination via sort=created&direction=asc) and only flip to their
     configured sort once a cutoff exists. workflow_runs is different: it ignores
     sort/direction and always returns newest-first, so it emits desc on every
-    sync — including the first. workflow_jobs inherits that order: it fans out
-    over workflow_runs newest-first, so its jobs land newest-first too.
+    sync, including the first. Fan-out children inherit the parent walk's order
+    on every sync too, first incremental sync included: the initial_lookback_days
+    floor gives that sync a cutoff, which makes the parent walk descend. Reporting
+    asc for it would let the pipeline persist the cursor per batch and, on an
+    interrupted backfill, strand every row older than the batches that flushed.
     """
-    if endpoint in ("workflow_runs", "workflow_jobs"):
+    if endpoint == "workflow_runs" or config.fan_out_parent is not None:
         return config.sort_mode
     if should_use_incremental_field and db_incremental_field_last_value:
         return config.sort_mode
@@ -378,8 +381,10 @@ def _is_issue_not_pr(item: dict[str, Any]) -> bool:
 
 def _is_submitted_review(item: dict[str, Any]) -> bool:
     """Drop the caller's own draft (PENDING) reviews. GitHub returns them from the list endpoint with
-    submitted_at=null; they are not metrics data and a null would land in the partition/cursor column."""
-    return item.get("state") != "PENDING"
+    submitted_at=null; they are not metrics data and a null would land in the partition/cursor column.
+    Keyed on submitted_at rather than the state string so the non-null invariant is enforced directly,
+    whatever shape the state field takes."""
+    return item.get("submitted_at") is not None
 
 
 def _make_parent_field_injector(
@@ -592,7 +597,6 @@ def _fan_out_get_rows(
     resumable_source_manager: ResumableSourceManager[GithubResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-    incremental_field: str | None,
     egress_identity: GithubEgressIdentity | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
@@ -605,13 +609,8 @@ def _fan_out_get_rows(
     id. Full-refresh parents (teams) have no cursor, so every parent is walked each sync; the data
     volume is tiny, and there is no timestamp to bound on anyway.
 
-    The field bounding the parent walk is decoupled from the child's incremental field: a child can
-    sync on a timestamp the parent row does not carry. reviews sync on submitted_at (which lives on
-    the review, not the pull request), so the walk bounds on the PR's updated_at instead. The
-    invariant that keeps this correct: submitting a review bumps the PR's updated_at, so any PR with a
-    review newer than the child watermark (max synced submitted_at) necessarily has updated_at above
-    it; PRs bumped for other reasons get re-fanned harmlessly since reviews upsert by id. workflow_jobs
-    leaves fan_out_parent_cursor_field None, so it keeps bounding on created_at exactly as before.
+    The walk bounds on the parent's own cursor field, compared against the child's watermark; see
+    the parent_cursor_field comment below for the invariant that keeps that comparison sound.
 
     Same created_at-cursor staleness workflow_runs carries applies to its jobs: a run that was
     in_progress when first synced drops below the watermark once it finishes, so later job state is
@@ -625,15 +624,13 @@ def _fan_out_get_rows(
 
     # A parent with no incremental fields (teams) has no cursor to bound on, so walk it whole.
     parent_is_incremental = bool(parent_config.incremental_fields)
-    # Read the parent rows with the PARENT's cursor field, not the child's incremental field: the
-    # child field may not exist on the parent row. Falls back to the child field then the parent
-    # default when unset, preserving today's behavior for workflow_jobs.
-    parent_cursor_field = (
-        child_config.fan_out_parent_cursor_field
-        or incremental_field
-        or parent_config.default_incremental_field
-        or "created_at"
-    )
+    # Bound the walk on the PARENT's own cursor field, never the child's incremental field, which
+    # may not exist on parent rows (reviews sync on submitted_at, which lives on the review, not
+    # the pull request). Comparing the parent cursor against the child watermark is sound because
+    # whatever creates a child row also bumps the parent's cursor (a submitted review bumps the
+    # PR's updated_at), so a parent holding children newer than the watermark always sorts above
+    # it; parents bumped for other reasons get re-fanned harmlessly since children upsert by key.
+    parent_cursor_field = parent_config.default_incremental_field or "created_at"
     parent_cutoff = (
         db_incremental_field_last_value if (should_use_incremental_field and parent_is_incremental) else None
     )
@@ -655,21 +652,25 @@ def _fan_out_get_rows(
     if resume_config is not None:
         parent_url: str = resume_config.next_url
         logger.debug(f"Github: resuming {endpoint} fan-out from parent URL: {parent_url}")
-    else:
+    elif parent_is_incremental:
         # Build the parent list URL with the parent's own incremental params so it arrives sorted on
-        # parent_cursor_field descending once a cutoff exists. Without this the parent would come back
-        # in its default order (pull_requests: created asc), and _should_stop_desc below would see an
-        # old record on the first page and halt early, dropping newer parents. workflow_runs is
-        # unaffected: _build_initial_params returns per_page only for it (the API ignores sort/
-        # direction and always returns newest-first), so the runs walk is byte-identical to before.
+        # parent_cursor_field descending once a cutoff exists. Without the sort, pull_requests would
+        # come back in its default order (created asc) and _should_stop_desc below would see an old
+        # record on the first page and halt early, dropping newer parents. workflow_runs takes its
+        # per_page-only branch inside _build_initial_params (the API ignores sort/direction and
+        # always returns newest-first).
         parent_params = _build_initial_params(
             parent_config,
             parent_config.name,
-            should_use_incremental_field and parent_is_incremental,
+            should_use_incremental_field,
             parent_cutoff,
             parent_cursor_field,
         )
         parent_url = _build_initial_url(parent_config, repository, parent_params)
+    else:
+        # Cursor-less parents (teams) take a plain paged read; the generic state/sort defaults in
+        # _build_initial_params belong to list endpoints that define those params.
+        parent_url = _build_initial_url(parent_config, repository, {"per_page": parent_config.page_size})
 
     for parents, page_url in _iter_pages(
         parent_url, headers, parent_config.response_data_path, logger, egress_identity=egress_identity
@@ -726,7 +727,6 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
             egress_identity=egress_identity,
         )
         return

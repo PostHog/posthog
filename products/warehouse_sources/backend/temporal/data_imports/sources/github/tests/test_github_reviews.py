@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import pyarrow as pa
@@ -56,8 +57,8 @@ def _run_reviews_fan_out(
 def test_reviews_fan_out_drops_pending_and_injects_pr_number() -> None:
     # PENDING reviews come back with submitted_at=null and must be dropped before rows leave the
     # fan-out walk, otherwise a null lands in the partition/cursor column. This also guards that the
-    # item filter is applied on the fan-out path at all (it historically ran only on the top-level
-    # path), and that each surviving review carries its PR number injected from the parent.
+    # item filter runs on the fan-out path (not just the top-level path), and that each surviving
+    # review carries its PR number injected from the parent.
     responses = {
         "/pulls/10/reviews": _response(
             [
@@ -142,3 +143,23 @@ def test_reviews_parent_walk_requests_pull_requests_sorted_updated_desc() -> Non
     parent_call = next(c for c in calls if "/pulls?" in c)
     assert "sort=updated" in parent_call
     assert "direction=desc" in parent_call
+
+
+@pytest.mark.parametrize(
+    "endpoint,last_value,expected",
+    [
+        # First incremental sync: no watermark yet, but the lookback floor makes the parent walk
+        # descend, so reviews emit newest-first. Declaring asc here would let the pipeline persist
+        # the submitted_at watermark per batch and strand older reviews if the backfill is
+        # interrupted; desc defers the watermark commit to end of sync.
+        ("reviews", None, "desc"),
+        ("reviews", datetime(2026, 1, 25, tzinfo=UTC), "desc"),
+        # Top-level endpoints still start asc on the first sync (stable created-asc pagination).
+        ("issues", None, "asc"),
+    ],
+)
+def test_resolve_sort_mode_matches_fan_out_emission_order(
+    endpoint: str, last_value: datetime | None, expected: str
+) -> None:
+    config = github.GITHUB_ENDPOINTS[endpoint]
+    assert github._resolve_sort_mode(config, endpoint, True, last_value) == expected

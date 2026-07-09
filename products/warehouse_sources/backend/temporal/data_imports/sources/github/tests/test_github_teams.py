@@ -18,9 +18,10 @@ def _response(rows: list[dict[str, Any]], next_url: str | None = None) -> mock.M
 
 def _fetch_page_by_url(responses_by_url: dict[str, mock.Mock]):
     def fetch_page(url: str, *_args: Any, **_kwargs: Any) -> mock.Mock:
-        for needle, response in responses_by_url.items():
+        # Longest needle first, so "/orgs/acme/teams/core/members" never routes to "/orgs/acme/teams".
+        for needle in sorted(responses_by_url, key=len, reverse=True):
             if needle in url:
-                return response
+                return responses_by_url[needle]
         raise AssertionError(f"Unexpected URL requested: {url}")
 
     return fetch_page
@@ -74,8 +75,6 @@ def test_team_members_fan_out_injects_parent_fields_and_keeps_composite_rows() -
     # The same user (id 7) belongs to two teams. Each membership must become its own row carrying
     # its team's id/slug/name, so ["team_id", "id"] stays unique table-wide. If parent injection or
     # the per-team fan-out regressed, the user would collapse to one row or lose team context.
-    # Member URLs first: substring matching would otherwise route them to the teams list, since
-    # "/orgs/acme/teams" is a prefix of "/orgs/acme/teams/core/members".
     responses = {
         "/orgs/acme/teams/core/members": _response([{"id": 7, "login": "ada"}]),
         "/orgs/acme/teams/growth/members": _response([{"id": 7, "login": "ada"}]),

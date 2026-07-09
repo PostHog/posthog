@@ -40,12 +40,6 @@ class GithubEndpointConfig:
     # "team_slug" -> {team_slug}) and the parent field to read for it.
     fan_out_path_param: str = "run_id"
     fan_out_parent_field: str = "id"
-    # Which field on the PARENT row bounds the fan-out walk (desc early-stop + per-parent skip).
-    # Decoupled from the child's own incremental field on purpose: a child can be keyed on a
-    # timestamp the parent row doesn't carry (reviews sync on submitted_at, which lives on the
-    # review, not the pull request). When None the walk falls back to the child incremental field
-    # then the parent default, which keeps workflow_jobs unchanged (both sides use created_at).
-    fan_out_parent_cursor_field: Optional[str] = None
     # Parent fields to copy onto each child row, mapped to the child column name
     # (e.g. {"id": "team_id", "slug": "team_slug"}). Gives fan-out children the
     # parent context the child API omits; team_members rows are plain users.
@@ -131,11 +125,9 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # The raw review only carries pull_request_url, so inject the PR number for trivial attribution
         # joins against the pull_requests table.
         fan_out_include_parent_fields={"number": "pr_number"},
-        # Bound the parent walk on the PR's updated_at, NOT the child's submitted_at (which pull
-        # requests don't carry). Submitting a review bumps the PR's updated_at, so any PR with a
-        # review newer than the child watermark necessarily has updated_at above it; PRs bumped for
-        # other reasons get re-fanned harmlessly since reviews upsert by id.
-        fan_out_parent_cursor_field="updated_at",
+        # The parent walk bounds on the PR's updated_at (the parent's own default cursor); the
+        # invariant making that sound against the submitted_at watermark is documented at
+        # parent_cursor_field in github.py.
         # Full-history backfill would be one request per PR over the repo's whole life (tens of
         # thousands of requests). Floor the first incremental sync at 30 days of PR updates; older
         # history is a deliberate one-off backfill, not paid for on every connect.
