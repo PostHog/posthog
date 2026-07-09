@@ -124,7 +124,7 @@ function main() {
         },
     ]
 
-    let hasUnexpected = false
+    const mismatchedTypes = new Set()
 
     for (const { name, key, counts } of scopes) {
         const typesToCheck = new Set([...Object.keys(counts), ...Object.keys(ALLOWED_VIOLATIONS)])
@@ -137,14 +137,21 @@ function main() {
                     `✗ ${type} in ${name}: found ${found}, expected ${expected}${source ? ` (${source})` : ''}. ` +
                         'Update ALLOWED_VIOLATIONS if this is intentional.'
                 )
-                hasUnexpected = true
+                mismatchedTypes.add(type)
             }
         }
     }
 
-    if (hasUnexpected) {
+    if (mismatchedTypes.size > 0) {
+        // Only dump the violation types whose count is off — the allowed ones would drown the
+        // offender. Every instance of a mismatched type prints (counts can't tell which
+        // occurrence is new), tagged by scope since an expected total can still fail a scope.
+        const eagerSet = new Set(eagerJs)
         for (const { type, file, start } of [...loaderViolations, ...appViolations]) {
-            console.error(`  ${type}: ${file} line ${start.line}:${start.column}`)
+            if (mismatchedTypes.has(type)) {
+                const scope = file === 'dist/toolbar.js' ? 'loader' : eagerSet.has(file) ? 'eager' : 'deferred'
+                console.error(`  ${type} [${scope}]: ${file} line ${start.line}:${start.column}`)
+            }
         }
         process.exit(1)
     }
