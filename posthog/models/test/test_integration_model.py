@@ -38,6 +38,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -2434,6 +2435,46 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         )
         with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
             S3CompatibleIntegration(integration)
+
+
+class TestGoogleAdsIntegrationModel(BaseTest):
+    def _integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+        )
+
+    @staticmethod
+    def _customer_client(customer_id: str, name: str, level: Optional[str] = None, manager: bool = False) -> dict:
+        client: dict = {"clientCustomer": f"customers/{customer_id}", "descriptiveName": name, "status": "ENABLED"}
+        # Google's REST responses omit proto3 defaults, so level 0 and manager=false are absent.
+        if level is not None:
+            client["level"] = level
+        if manager:
+            client["manager"] = True
+        return {"customerClient": client}
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_reads_every_search_stream_chunk(self, mock_request):
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/6501924158"]}
+        # searchStream's REST body is an array of batches; a large hierarchy spans several.
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {"results": [self._customer_client("6501924158", "Acme Corp", manager=True)]},
+            {"results": [self._customer_client("1234567890", "Client One", level="1")]},
+        ]
+        mock_request.side_effect = [accessible, stream]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["6501924158", "1234567890"]
+        assert accounts[0]["manager"] is True
+        assert accounts[1]["parent_id"] == "6501924158"
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):

@@ -122,10 +122,14 @@ function IntegrationAccountFieldWithDropdown({
                 account.display_name === account.value
                     ? account.display_name
                     : `${account.display_name} (${account.value})`
-            const searchText =
-                account.display_name === account.value
-                    ? `${account.value} ${account.secondary_text ?? ''}`
-                    : `${account.display_name} ${account.value} ${account.secondary_text ?? ''}`
+            const searchText = [
+                account.display_name === account.value ? '' : account.display_name,
+                account.value,
+                account.secondary_text ?? '',
+                account.group ?? '',
+            ]
+                .filter(Boolean)
+                .join(' ')
             return {
                 value: account.value,
                 label: (
@@ -137,6 +141,7 @@ function IntegrationAccountFieldWithDropdown({
                                 {badge}
                             </LemonTag>
                         ))}
+                        {account.group && <span className="text-xs text-secondary">under {account.group}</span>}
                     </div>
                 ),
                 searchText,

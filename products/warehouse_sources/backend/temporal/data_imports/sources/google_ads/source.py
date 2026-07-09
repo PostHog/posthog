@@ -1,6 +1,8 @@
 import re
 from typing import Optional, cast
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -8,12 +10,13 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GoogleAdsIntegration, Integration, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
@@ -27,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
+    format_customer_id,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -50,6 +58,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
 # enforced at the creation/update endpoints.
 GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+
+
+def _hierarchy_level(account: dict) -> int:
+    """Depth of an account below the manager the walk started from. Google's REST responses omit
+    proto3 default values, so the level-0 account (the queried one) carries no `level` at all, and
+    the rest arrive as strings."""
+    return int(account.get("level") or 0)
 
 
 @SourceRegistry.register
@@ -192,20 +207,20 @@ class GoogleAdsSource(
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="customer_id",
-                        label="Customer ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="123-456-7890",
-                        secret=False,
-                    ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id",
                         label="Google Ads account",
                         required=True,
                         kind="google-ads",
                         requiredScopes="https://www.googleapis.com/auth/adwords",
+                    ),
+                    SourceFieldOauthAccountSelectConfig(
+                        name="customer_id",
+                        label="Customer ID",
+                        integrationField="google_ads_integration_id",
+                        integrationKind="google-ads",
+                        required=True,
+                        placeholder="123-456-7890",
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -239,6 +254,44 @@ class GoogleAdsSource(
                 ),
             ],
         )
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        try:
+            integration = self.get_oauth_integration(integration_id, team_id)
+        except ValueError as e:
+            raise IntegrationAccountListingError(
+                "The linked Google Ads integration could not be found. Please reconnect your Google Ads integration."
+            ) from e
+
+        oauth = OauthIntegration(integration)
+        if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
+            oauth.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise IntegrationAccountListingError(
+                "Could not refresh the Google Ads credentials. Please reconnect your Google Ads integration."
+            )
+
+        try:
+            accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except ValidationError as e:
+            # Raised only for a 401/403 from Google: revoked credentials, or the connected account
+            # lost access. Any other failure stays an unhandled 500.
+            raise IntegrationAccountListingError(
+                "Google rejected the credentials for this integration. Please reconnect your Google Ads "
+                "integration and make sure the connected account can access your Google Ads accounts."
+            ) from e
+
+        names_by_id = {account["id"]: account["name"] for account in accounts}
+        return [
+            IntegrationAccount(
+                value=format_customer_id(account["id"]),
+                display_name=account["name"],
+                is_primary=_hierarchy_level(account) == 0,
+                badges=("Manager",) if account.get("manager") else (),
+                group=names_by_id.get(account["parent_id"]) if _hierarchy_level(account) else None,
+            )
+            for account in accounts
+        ]
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         is_valid, errors = super().validate_config(job_inputs)

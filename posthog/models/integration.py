@@ -1448,7 +1448,7 @@ class GoogleAdsIntegration:
 
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
-    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
             "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
@@ -1484,7 +1484,7 @@ class GoogleAdsIntegration:
             raise Exception("There was an internal error")
 
         accessible_accounts = response.json()
-        all_accounts: list[dict[str, str]] = []
+        all_accounts: list[dict[str, Any]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
@@ -1507,9 +1507,12 @@ class GoogleAdsIntegration:
             if response.status_code != 200:
                 return accounts
 
+            # searchStream's REST body is an array of response objects, one per streamed batch. A
+            # hierarchy large enough to be split across batches loses every account past the first.
             data = response.json()
+            results = [row for chunk in data for row in chunk.get("results", [])]
 
-            for nested_account in data[0]["results"]:
+            for nested_account in results:
                 if any(
                     account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
                     and account["level"] > nested_account["customerClient"]["level"]
@@ -1534,6 +1537,7 @@ class GoogleAdsIntegration:
                         "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
                         "level": nested_account["customerClient"].get("level"),
                         "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                        "manager": nested_account["customerClient"].get("manager", False),
                     }
                 )
 

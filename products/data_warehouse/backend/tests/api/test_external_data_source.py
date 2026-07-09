@@ -10741,6 +10741,7 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
     _BING_LIST_ACCOUNTS = (
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
     )
+    _GOOGLE_ADS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source"
 
     def setUp(self):
         super().setUp()
@@ -10844,6 +10845,47 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "reconnect your account" in str(response.json()).lower()
+
+    def test_google_ads_maps_hierarchy_to_accounts(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            config={},
+            sensitive_config={"access_token": "token"},
+            integration_id="google_ads_test",
+            created_by=self.user,
+        )
+        listed = [
+            {"parent_id": "6501924158", "id": "6501924158", "level": None, "name": "Acme Corp", "manager": True},
+            {"parent_id": "6501924158", "id": "1234567890", "level": "1", "name": "Client One", "manager": False},
+        ]
+        with (
+            patch(f"{self._GOOGLE_ADS_MODULE}.OauthIntegration") as mock_oauth,
+            patch(f"{self._GOOGLE_ADS_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.return_value = listed
+            response = self.client.get(self._url("GoogleAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "650-192-4158",
+                "display_name": "Acme Corp",
+                "is_primary": True,
+                "badges": ["Manager"],
+                "group": None,
+                "secondary_text": None,
+            },
+            {
+                "value": "123-456-7890",
+                "display_name": "Client One",
+                "is_primary": False,
+                "badges": [],
+                "group": "Acme Corp",
+                "secondary_text": None,
+            },
+        ]
 
     @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
     def test_bing_success_returns_accounts(self):
