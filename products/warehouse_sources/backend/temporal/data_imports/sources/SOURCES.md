@@ -97,6 +97,7 @@ the row lists both.
 | chargify                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
 | churnkey                | HTTP                        | requests                                                        | ✅                          |
+| coassemble              | HTTP                        | requests                                                        | ✅                          |
 | coda                    | HTTP                        | requests                                                        | ✅                          |
 | codefresh               | HTTP                        | requests                                                        | ✅                          |
 | coin_api                | HTTP                        | requests                                                        | ✅                          |
@@ -430,7 +431,6 @@ doesn't conflict with concurrent PRs.
 - clarifai
 - clazar
 - cloudbeds
-- coassemble
 - cockroachdb
 - constant_contact
 - copper

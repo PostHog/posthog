@@ -749,7 +749,8 @@ class CloudflareSourceConfig(config.Config):
 
 @config.config
 class CoassembleSourceConfig(config.Config):
-    pass
+    workspace_id: str
+    api_key: str
 
 
 @config.config
