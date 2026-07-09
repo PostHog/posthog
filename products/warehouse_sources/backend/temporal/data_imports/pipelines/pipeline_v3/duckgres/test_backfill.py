@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     backfill_run_uuid,
+    enqueue_chunks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_snapshot import (
     CHUNK_TARGET_BYTES,
@@ -513,8 +514,6 @@ class TestDeletedSchemaPurge:
 
 class TestEnqueueLockTimeout:
     def test_lock_timeout_skips_replay_and_resets(self):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import backfill_queue
-
         conn = MagicMock()
 
         def execute(query, *args, **kwargs):
@@ -523,7 +522,7 @@ class TestEnqueueLockTimeout:
             return MagicMock()
 
         conn.execute.side_effect = execute
-        assert backfill_queue.enqueue_chunks(conn, MagicMock(), "run-x", []) == 0
+        assert enqueue_chunks(conn, MagicMock(), "run-x", []) == 0
         executed = [str(call.args[0]) for call in conn.execute.call_args_list]
         assert any("SET lock_timeout" in query for query in executed)
         assert any("RESET lock_timeout" in query for query in executed)
