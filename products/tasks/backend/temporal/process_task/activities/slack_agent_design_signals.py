@@ -57,10 +57,15 @@ class SlackAgentDesignSignalEmitter:
     ``relay_sandbox_events._relay_loop`` — keep the two in sync.
     """
 
-    def __init__(self, slack_thread_context: dict[str, Any] | None) -> None:
+    def __init__(self, slack_thread_context: dict[str, Any] | None, turn_active: bool = False) -> None:
         self._slack_thread_context = slack_thread_context or {}
-        self._turn_active = False
+        # Seeded on a resumed activity attempt so a retry landing mid-turn doesn't re-open the turn.
+        self._turn_active = turn_active
         self._emitted_tool_call_ids: set[str] = set()
+
+    @property
+    def turn_active(self) -> bool:
+        return self._turn_active
 
     def process(self, event_data: dict) -> list[tuple[str, Any]]:
         """Return the ordered ``(signal_name, arg)`` pairs to send for one event."""
@@ -110,6 +115,29 @@ def _agent_proxy_base_url() -> str | None:
     )
 
 
+def _event_method(event_data: dict) -> str | None:
+    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
+    notification = event_data.get("notification")
+    if isinstance(notification, dict):
+        return notification.get("method")
+    return None
+
+
+def _resume_position() -> tuple[str | None, bool]:
+    """Recover ``(last-processed SSE id, turn-active)`` from a prior attempt's heartbeat details.
+
+    On an activity retry Temporal replays ``heartbeat_details`` from the last heartbeat, letting the
+    new attempt resume the SSE read past what it already relayed instead of re-reading the stream
+    from ``0`` — which would re-emit ``turn_started`` for turns already delivered to Slack. The
+    turn-active flag seeds the fresh emitter so a retry landing mid-turn doesn't re-open the turn on
+    the first resumed ``session/update``.
+    """
+    details = activity.info().heartbeat_details
+    last_event_id = details[0] if details and isinstance(details[0], str) and details[0] else None
+    turn_active = bool(details[1]) if len(details) > 1 else False
+    return last_event_id, turn_active
+
+
 def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
     """Whether the read-via-proxy flag (``tasks-stream-via-proxy``) is on for this run.
 
@@ -155,8 +183,6 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         logger.warning("relay_agent_design_signals_handle_init_failed", run_id=input.run_id, error=str(e))
         return
 
-    emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
-
     # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
     # the run — the same decision the task UI makes. Otherwise tail the Django-side Redis stream.
     base_url = _agent_proxy_base_url()
@@ -176,16 +202,16 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
     )
 
     if base_url and stream_via_proxy and task_run is not None:
-        await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
+        await _relay_from_agent_proxy(base_url, task_run, input, workflow_handle)
         return
-    await _relay_from_redis(input, emitter, workflow_handle)
+    # The Redis leg reads from 0 with a fresh emitter — no resume, so no turn to carry over.
+    await _relay_from_redis(input, SlackAgentDesignSignalEmitter(input.slack_thread_context), workflow_handle)
 
 
 async def _relay_from_agent_proxy(
     base_url: str,
     task_run: TaskRunModel,
     input: RelayAgentDesignSignalsInput,
-    emitter: SlackAgentDesignSignalEmitter,
     workflow_handle: Any,
 ) -> None:
     """Consume the run's live agent-proxy SSE stream and drive the Slack signals.
@@ -196,8 +222,19 @@ async def _relay_from_agent_proxy(
     """
     events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
 
-    async with Heartbeater():
-        last_event_id: str | None = None
+    async with Heartbeater() as heartbeater:
+        # Resume past what a prior attempt already relayed rather than replaying the stream from 0,
+        # seeding the emitter's turn state so a retry mid-turn doesn't re-open the turn.
+        last_event_id, turn_active = _resume_position()
+        emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context, turn_active=turn_active)
+        if last_event_id:
+            heartbeater.details = (last_event_id, turn_active)
+            logger.info(
+                "relay_agent_design_signals_resumed",
+                run_id=input.run_id,
+                last_event_id=last_event_id,
+                turn_active=turn_active,
+            )
         reconnect_count = 0
         while True:
             # Re-mint per connection: the read token is short-lived and a run can outlast it.
@@ -238,8 +275,22 @@ async def _relay_from_agent_proxy(
                                 event_data = json.loads(sse_event.data)
                             except json.JSONDecodeError:
                                 continue
-                            for signal_name, arg in emitter.process(event_data):
+                            signals = emitter.process(event_data)
+                            # Temporary trace to pin the duplicate-turn cause: a repeated turn from a
+                            # replay shows the same event_id twice; a trailing event shows a distinct id.
+                            logger.info(
+                                "relay_agent_design_event",
+                                run_id=input.run_id,
+                                event_id=sse_event.id,
+                                method=_event_method(event_data),
+                                signals=[name for name, _ in signals],
+                            )
+                            for signal_name, arg in signals:
                                 await _signal_safely(workflow_handle, signal_name, arg)
+                            # Checkpoint only after the event is fully relayed, so a retry resumes past
+                            # it with the matching turn state rather than re-opening a delivered turn.
+                            if sse_event.id:
+                                heartbeater.details = (last_event_id, emitter.turn_active)
             except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
                 error = e
 
@@ -265,7 +316,11 @@ async def _relay_from_redis(
     emitter: SlackAgentDesignSignalEmitter,
     workflow_handle: Any,
 ) -> None:
-    """Fallback: tail the Django-side Redis stream. Works without a proxy, but arrives batched."""
+    """Fallback: tail the Django-side Redis stream. Works without a proxy, but arrives batched.
+
+    Unlike the proxy leg this reads from ``0`` each attempt without heartbeat-based resume: it is the
+    local/no-proxy path, so the retry replay the resume guards against is not worth the plumbing here.
+    """
     redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
     try:
         async for item in redis_stream.read_stream_entries(

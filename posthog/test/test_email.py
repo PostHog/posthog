@@ -287,6 +287,7 @@ class TestEmail(BaseTest):
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
                     "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
                 },
+                timeout=30,
             )
 
             mock_capture.assert_called_once_with(
@@ -333,6 +334,7 @@ class TestEmail(BaseTest):
                         "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
                     },
                 },
+                timeout=30,
             )
 
     @patch("posthog.email.requests.post")
