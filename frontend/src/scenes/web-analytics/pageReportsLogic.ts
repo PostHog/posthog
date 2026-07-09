@@ -64,7 +64,10 @@ export interface PageURLSearchResult {
 }
 
 export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
-    const parsed = parseWebAnalyticsURL(url)
+    // kea-router JSON-parses query params (?pageURL=123 arrives as a number) and pageUrl is
+    // persisted, so a non-string value would otherwise crash `url.split` below on every recompute
+    const urlString: string = typeof url === 'string' ? url : String(url ?? '')
+    const parsed = parseWebAnalyticsURL(urlString)
 
     if (parsed.isValid && parsed.host && parsed.pathname) {
         return [
@@ -87,7 +90,7 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     return [
         {
             key: '$current_url',
-            value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+            value: stripQueryParams ? `^${urlString.split('?')[0]}(\\?.*)?$` : urlString,
             operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
             type: PropertyFilterType.Event,
         },
@@ -164,7 +167,7 @@ export function buildPageUrlOptions(
     }
 
     const representativeByCleaned = new Map<string, string>()
-    if (pageUrl) {
+    if (typeof pageUrl === 'string' && pageUrl) {
         representativeByCleaned.set(cleanPageURLForDisplay(pageUrl, filters), pageUrl)
     }
     for (const { url } of pagesUrls) {
@@ -957,8 +960,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     urlToAction: ({ actions, values }) => ({
         '/web/page-reports': (_, searchParams) => {
-            if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
-                actions.setPageUrl(searchParams.pageURL)
+            // kea-router JSON-parses query params, so ?pageURL=123 arrives as a number
+            const pageURL = searchParams.pageURL == null ? null : String(searchParams.pageURL)
+            if (pageURL && pageURL !== values.pageUrl) {
+                actions.setPageUrl(pageURL)
             }
         },
     }),
