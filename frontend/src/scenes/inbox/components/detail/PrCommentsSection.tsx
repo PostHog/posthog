@@ -6,12 +6,14 @@ import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
+import type { PullRequestCommentApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { PullRequestComment, SignalReport } from '../../types'
+import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 
 /** A single PR comment row: avatar, author, relative time, optional file path, then the markdown body. */
-function CommentRow({ comment }: { comment: PullRequestComment }): JSX.Element {
+function CommentRow({ comment }: { comment: PullRequestCommentApi }): JSX.Element {
     return (
         <li className="flex gap-2.5 min-w-0">
             {comment.author_avatar_url ? (

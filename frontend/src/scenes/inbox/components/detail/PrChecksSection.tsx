@@ -3,14 +3,16 @@ import { useValues } from 'kea'
 import { IconCheckCircle, IconClock, IconMinus, IconWarning, IconX } from '@posthog/icons'
 import { LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
+import type { PullRequestCheckApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
-import { PullRequestCheck, SignalReport } from '../../types'
+import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
 
 type CheckVariant = 'failure' | 'cancelled' | 'pending' | 'success' | 'neutral'
 
 /** Collapse a GitHub check's (status, conclusion) pair into one of the buckets we render. */
-function resolveCheckVariant(check: PullRequestCheck): CheckVariant {
+function resolveCheckVariant(check: PullRequestCheckApi): CheckVariant {
     if (check.status !== 'completed') {
         return 'pending'
     }

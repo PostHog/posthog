@@ -21,9 +21,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsReportArtefactsDiff,
+    signalsReportPrChecks,
+    signalsReportPrComments,
+    signalsReportsSignalsRetrieve,
+} from 'products/signals/frontend/generated/api'
+import type {
+    CommitDiffResponseApi,
+    PullRequestCheckApi,
+    PullRequestCommentApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
 import {
@@ -39,8 +47,6 @@ import {
 } from '../components/detail/reviewerDisplay'
 import {
     EnrichedReviewer,
-    PullRequestCheck,
-    PullRequestComment,
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -432,20 +438,28 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // every 15s while the detail is mounted (see the `setReport` listener) so a running build's
         // status stays current, mirroring the desktop PR-review view.
         prChecks: [
-            null as PullRequestCheck[] | null,
+            null as readonly PullRequestCheckApi[] | null,
             {
                 loadPrChecks: async () => {
-                    const response = await api.signalReports.prChecks(props.reportId)
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrChecks(String(teamId), props.reportId)
                     return response.checks
                 },
             },
         ],
         // Conversation + review comments on the report's implementation PR, merged chronologically.
         prComments: [
-            null as PullRequestComment[] | null,
+            null as readonly PullRequestCommentApi[] | null,
             {
                 loadPrComments: async () => {
-                    const response = await api.signalReports.prComments(props.reportId)
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrComments(String(teamId), props.reportId)
                     return response.comments
                 },
             },

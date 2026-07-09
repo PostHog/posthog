@@ -130,29 +130,6 @@ export interface SignalReportArtefactResponse {
     count: number
 }
 
-/** One CI check on a report's implementation PR (GitHub Actions check run or legacy commit status). */
-export interface PullRequestCheck {
-    name: string
-    /** 'queued' | 'in_progress' | 'completed'. */
-    status: string | null
-    /** 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out' | 'action_required' | null. */
-    conclusion: string | null
-    url: string | null
-}
-
-/** One comment on a report's implementation PR — a conversation comment or an inline review comment. */
-export interface PullRequestComment {
-    id: string
-    author: string | null
-    author_avatar_url: string | null
-    body: string
-    created_at: string | null
-    url: string | null
-    comment_type: 'conversation' | 'review'
-    /** File path the review comment is anchored to (review comments only). */
-    path: string | null
-}
-
 export interface SignalSourceConfig {
     id: string
     source_product: SignalSourceProduct

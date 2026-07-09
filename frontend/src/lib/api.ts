@@ -19,8 +19,6 @@ import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculati
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import {
-    PullRequestCheck,
-    PullRequestComment,
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
@@ -5249,16 +5247,6 @@ const api = {
             params: { limit?: number } = {}
         ): Promise<SignalReportArtefactResponse> {
             return await new ApiRequest().signalReport(id).withAction('artefacts').withQueryString(params).get()
-        },
-        // CI checks on the report's implementation PR, via the team's GitHub integration.
-        // Backend: SignalReportViewSet.pr_checks.
-        async prChecks(reportId: SignalReport['id']): Promise<{ checks: PullRequestCheck[] }> {
-            return await new ApiRequest().signalReport(reportId).withAction('pr_checks').get()
-        },
-        // Conversation + review comments on the report's implementation PR, merged chronologically.
-        // Backend: SignalReportViewSet.pr_comments.
-        async prComments(reportId: SignalReport['id']): Promise<{ comments: PullRequestComment[] }> {
-            return await new ApiRequest().signalReport(reportId).withAction('pr_comments').get()
         },
         async delete(id: SignalReport['id']): Promise<void> {
             await new ApiRequest().signalReport(id).delete()
