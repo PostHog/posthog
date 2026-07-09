@@ -1083,7 +1083,9 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -2248,7 +2250,9 @@ export const ErrorTrackingBypassRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingBypassRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -3384,7 +3388,9 @@ export const ErrorTrackingBypassRulesUpdateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingBypassRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -4550,7 +4556,9 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -5713,7 +5721,9 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                             ]),
                             type: zod
                                 .literal('account_custom_property')
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                                .default(
+                                    errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                                )
                                 .describe(
                                     'Customer analytics account custom property — the key is the property definition id'
                                 ),
@@ -7440,7 +7450,9 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
@@ -8587,7 +8599,9 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                         ]),
                         type: zod
                             .literal('account_custom_property')
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault)
+                            .default(
+                                errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemAccountCustomPropertyTypeDefault
+                            )
                             .describe(
                                 'Customer analytics account custom property — the key is the property definition id'
                             ),
