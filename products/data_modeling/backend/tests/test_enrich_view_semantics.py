@@ -211,6 +211,20 @@ class TestEnrichViewSemanticsSync:
         assert _annotations(team, sq) == {}
 
 
+class TestGatherLineage:
+    def test_resolution_failure_degrades_to_empty_lineage_without_capturing(self):
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"))
+        with (
+            patch.object(enrich, "get_parents_from_model_query", side_effect=Exception("Field not found")),
+            patch.object(enrich, "capture_exception") as mock_capture,
+        ):
+            lineage = enrich._gather_lineage(team, sq, "SELECT billing__subscription__type FROM some_view")
+
+        assert lineage == []
+        mock_capture.assert_not_called()
+
+
 class TestBuildViewEnrichmentPrompt:
     def test_includes_lineage_descriptions_and_sample_rows(self):
         prompt = build_view_enrichment_prompt(

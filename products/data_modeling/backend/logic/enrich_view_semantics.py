@@ -112,7 +112,15 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     try:
         parent_names = get_parents_from_model_query(team, saved_query.name, query_str)
     except Exception as e:
-        capture_exception(e)
+        # Expected outcome of best-effort lineage: a view can reference a field the HogQL resolver can't
+        # resolve (e.g. a double-underscore path). Log rather than capture — this degrades to no lineage
+        # and isn't an error tracking issue.
+        logger.warning(
+            "view_enrichment.lineage_resolution_failed",
+            team_id=team.id,
+            saved_query_id=str(saved_query.id),
+            error=str(e),
+        )
         return []
     parent_names = {name for name in parent_names if name and name != saved_query.name}
     if not parent_names:
