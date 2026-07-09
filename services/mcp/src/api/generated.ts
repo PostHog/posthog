@@ -35044,6 +35044,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**
@@ -42209,6 +42211,8 @@ export namespace Schemas {
          * @nullable
          */
       invite_message?: string | null;
+      /** On create, whether to immediately deliver the subscription once so the creator can confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update. */
+      send_test_now?: boolean;
       /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
       summary_enabled?: boolean;
       /**

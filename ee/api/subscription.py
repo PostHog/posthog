@@ -215,6 +215,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Optional message included in the invitation email when adding new recipients.",
     )
+    send_test_now = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "On create, whether to immediately deliver the subscription once so the creator can "
+            "confirm it looks right (default true). The recurring schedule is unaffected. Ignored on update."
+        ),
+    )
     integration_id = serializers.IntegerField(
         required=False,
         allow_null=True,
@@ -274,6 +282,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "next_delivery_date",
             "integration_id",
             "invite_message",
+            "send_test_now",
             "summary_enabled",
             "summary_prompt_guide",
         ]
@@ -721,6 +730,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
 
         invite_message = validated_data.pop("invite_message", "")
+        # The immediate confirmation delivery (TARGET_CHANGE below) is separate from the
+        # recurring schedule, which the scheduler drives off next_delivery_date. Creators
+        # can opt out of that first send via send_test_now; the schedule is unaffected.
+        send_test_now = validated_data.pop("send_test_now", True)
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
@@ -732,16 +745,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
-
-        # The immediate confirmation delivery (TARGET_CHANGE below) is separate from the
-        # recurring schedule, which the scheduler drives off next_delivery_date. Creators
-        # can opt out of that first send via send_test_now; the schedule is unaffected.
-        raw_send_test_now = request.data.get("send_test_now", True)
-        send_test_now = (
-            raw_send_test_now.strip().lower() not in ("false", "0")
-            if isinstance(raw_send_test_now, str)
-            else bool(raw_send_test_now)
-        )
 
         # Skip the workflow trigger when the new subscription is created in a disabled
         # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
@@ -803,6 +806,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
+        validated_data.pop("send_test_now", None)  # create-only knob, ignored on update
         # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
         # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
         export_insights_in_payload = "dashboard_export_insights" in validated_data

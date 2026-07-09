@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -17,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { subscriptionsLogic } from '../subscriptionsLogic'
-import { SubscriptionBaseProps } from '../utils'
+import { SubscriptionBaseProps, formatNextDeliveryDate } from '../utils'
 
 const PROMPT_PREVIEW_MAX_CHARS = 80
 // AI subscriptions are supplementary context in this modal, so only a few are shown inline —
@@ -118,7 +117,7 @@ export function SubscriptionListItem({
                         </LemonTag>
                     ) : subscription.next_delivery_date ? (
                         <div className="text-xs text-secondary">
-                            Next delivery: {dayjs(subscription.next_delivery_date).format('ddd, MMM D [at] HH:mm')}
+                            Next delivery: {formatNextDeliveryDate(subscription.next_delivery_date)}
                         </div>
                     ) : null}
                 </div>

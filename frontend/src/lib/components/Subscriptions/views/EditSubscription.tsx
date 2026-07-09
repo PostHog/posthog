@@ -46,6 +46,7 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    formatNextDeliveryDate,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
@@ -741,7 +742,7 @@ function EditSubscriptionForm({
                             </div>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
-                                    Next delivery: {dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')}
+                                    Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}
                                 </div>
                             )}
                         </div>
@@ -840,7 +841,7 @@ function EditSubscriptionForm({
                                 <LemonField name="send_test_now">
                                     {({ value, onChange }) => (
                                         <LemonSwitch
-                                            checked={value !== false}
+                                            checked={value}
                                             onChange={onChange}
                                             bordered
                                             fullWidth
@@ -851,10 +852,7 @@ function EditSubscriptionForm({
                                 <p className="text-xs text-secondary mt-1 mb-0">
                                     On save we send this report once to the destination above, so you can confirm it
                                     looks right. Turn this off to wait for the first scheduled delivery
-                                    {nextDeliveryDate
-                                        ? ` (${dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')})`
-                                        : ''}
-                                    .
+                                    {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
                                 </p>
                             </div>
                         )}

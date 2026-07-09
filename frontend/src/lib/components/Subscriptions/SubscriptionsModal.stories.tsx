@@ -32,6 +32,8 @@ const meta: Meta<StoryArgs> = {
     render: (args) => {
         const { noIntegrations = false, aiSummaryAtLimit = false, freeTierSubscriptionCount, ...props } = args
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
+        // Dashboard-context stories must not also pass an insight, or the modal renders the insight flow.
+        const insightShortId = props.dashboard ? undefined : insightShortIdRef.current
         const [modalOpen, setModalOpen] = useState(false)
 
         useStorybookMocks({
@@ -95,7 +97,7 @@ const meta: Meta<StoryArgs> = {
                             // eslint-disable-next-line no-console
                             console.log('close')
                         }}
-                        insightShortId={props.dashboard ? undefined : insightShortIdRef.current}
+                        insightShortId={insightShortId}
                         isOpen={true}
                         inline
                     />
@@ -110,7 +112,7 @@ const meta: Meta<StoryArgs> = {
                 <SubscriptionsModal
                     {...(props as SubscriptionsModalProps)}
                     closeModal={() => setModalOpen(false)}
-                    insightShortId={props.dashboard ? undefined : insightShortIdRef.current}
+                    insightShortId={insightShortId}
                     isOpen={modalOpen}
                 />
             </div>

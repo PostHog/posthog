@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DashboardType, InsightShortId } from '~/types'
 
-import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
+import { SubscriptionBaseProps, getDashboardInsightIds, urlForSubscription, urlForSubscriptions } from './utils'
 import { EditSubscription } from './views/EditSubscription'
 import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { TabbedManageSubscriptions } from './views/TabbedManageSubscriptions'
@@ -32,12 +32,9 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
 
     const dashboardId = dashboard?.id
     const baseProps: SubscriptionBaseProps = { insightShortId, dashboardId }
-    const dashboardInsightIds = dashboard?.tiles
-        ?.filter((tile) => !tile.deleted && tile.insight && !tile.insight.deleted)
-        .map((tile) => tile.insight?.id)
-        .filter((id): id is number => typeof id === 'number')
     // Experiment-gated: the flag resolves to a variant string, so only the test variant gets the new UI.
     const useTabbedOverview = featureFlags[FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW] === 'test'
+    const dashboardInsightIds = useTabbedOverview ? getDashboardInsightIds(dashboard) : undefined
 
     if (userLoading) {
         return <Spinner className="text-2xl" />

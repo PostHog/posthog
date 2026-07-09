@@ -1,6 +1,5 @@
-import { useState } from 'react'
-
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -103,50 +102,54 @@ export function TabbedManageSubscriptions({
     const isInsightContext = !!insightShortId
 
     // Tabs always render (including at count 0) so the available scopes stay discoverable.
-    const tabs: (LemonTab<SubscriptionTabKey> | false)[] = [
+    const tabConfigs: (
+        | false
+        | {
+              key: SubscriptionTabKey
+              label: string
+              subscriptions: SubscriptionType[]
+              loading: boolean
+              emptyMessage: string
+          }
+    )[] = [
         {
             key: 'resource',
-            label: `${isInsightContext ? 'This insight' : 'This dashboard'} (${subscriptions.length})`,
-            content: (
-                <SubscriptionTabList
-                    logicProps={logicProps}
-                    paginationId="resource"
-                    subscriptions={subscriptions}
-                    loading={subscriptionsLoading}
-                    emptyMessage={`No subscriptions for this ${isInsightContext ? 'insight' : 'dashboard'} yet.`}
-                    onSelect={onSelect}
-                />
-            ),
+            label: isInsightContext ? 'This insight' : 'This dashboard',
+            subscriptions,
+            loading: subscriptionsLoading,
+            emptyMessage: `No subscriptions for this ${isInsightContext ? 'insight' : 'dashboard'} yet.`,
         },
         !isInsightContext && {
             key: 'insights',
-            label: `Insights (${insightSubscriptions.length})`,
-            content: (
-                <SubscriptionTabList
-                    logicProps={logicProps}
-                    paginationId="insights"
-                    subscriptions={insightSubscriptions}
-                    loading={insightSubscriptionsLoading}
-                    emptyMessage="No subscriptions on this dashboard's insights yet."
-                    onSelect={onSelect}
-                />
-            ),
+            label: 'Insights',
+            subscriptions: insightSubscriptions,
+            loading: insightSubscriptionsLoading,
+            emptyMessage: "No subscriptions on this dashboard's insights yet.",
         },
         {
             key: 'ai',
-            label: `AI prompt reports (${aiSubscriptions.length})`,
+            label: 'AI prompt reports',
+            subscriptions: aiSubscriptions,
+            loading: aiSubscriptionsLoading,
+            emptyMessage: 'No AI prompt reports yet.',
+        },
+    ]
+    const tabs: LemonTab<SubscriptionTabKey>[] = tabConfigs
+        .filter((tab): tab is Exclude<typeof tab, false> => !!tab)
+        .map(({ key, label, subscriptions, loading, emptyMessage }) => ({
+            key,
+            label: `${label} (${subscriptions.length})`,
             content: (
                 <SubscriptionTabList
                     logicProps={logicProps}
-                    paginationId="ai"
-                    subscriptions={aiSubscriptions}
-                    loading={aiSubscriptionsLoading}
-                    emptyMessage="No AI prompt reports yet."
+                    paginationId={key}
+                    subscriptions={subscriptions}
+                    loading={loading}
+                    emptyMessage={emptyMessage}
                     onSelect={onSelect}
                 />
             ),
-        },
-    ]
+        }))
 
     return (
         <>

@@ -3,12 +3,13 @@ import { RRule } from 'rrule'
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { DashboardType, InsightShortId, SubscriptionType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -20,6 +21,18 @@ export interface SubscriptionBaseProps {
 export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
     /** Numeric IDs of the insights tiled on a dashboard, used to populate the Insights tab. */
     dashboardInsightIds?: number[]
+}
+
+/** Numeric IDs of the live (non-deleted) insights tiled on a dashboard. */
+export function getDashboardInsightIds(dashboard: DashboardType<any> | null | undefined): number[] | undefined {
+    return dashboard?.tiles
+        ?.filter((tile) => !tile.deleted && tile.insight && !tile.insight.deleted)
+        .map((tile) => tile.insight?.id)
+        .filter((id): id is number => typeof id === 'number')
+}
+
+export function formatNextDeliveryDate(date: string | Date): string {
+    return dayjs(date).format('ddd, MMM D [at] HH:mm')
 }
 
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {

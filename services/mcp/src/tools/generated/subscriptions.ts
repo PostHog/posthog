@@ -77,6 +77,9 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
         }
+        if (params.send_test_now !== undefined) {
+            body['send_test_now'] = params.send_test_now
+        }
         if (params.summary_enabled !== undefined) {
             body['summary_enabled'] = params.summary_enabled
         }
@@ -264,6 +267,9 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.integration_id !== undefined) {
             body['integration_id'] = params.integration_id
+        }
+        if (params.send_test_now !== undefined) {
+            body['send_test_now'] = params.send_test_now
         }
         if (params.summary_enabled !== undefined) {
             body['summary_enabled'] = params.summary_enabled
