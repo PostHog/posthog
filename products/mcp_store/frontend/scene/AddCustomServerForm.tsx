@@ -5,11 +5,17 @@ import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonSelect, LemonT
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import type { McpInstallationScope } from '../mcpStoreLogic'
 import { mcpStoreLogic } from '../mcpStoreLogic'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'api_key', label: 'API key' },
     { value: 'oauth', label: 'OAuth' },
+]
+
+const SCOPE_OPTIONS: { value: McpInstallationScope; label: string }[] = [
+    { value: 'personal', label: 'Personal (only you)' },
+    { value: 'shared', label: 'Shared (everyone in project)' },
 ]
 
 export function AddCustomServerForm(): JSX.Element {
@@ -53,6 +59,17 @@ export function AddCustomServerForm(): JSX.Element {
                 enableFormOnSubmit
                 className="deprecated-space-y-3"
             >
+                <LemonField
+                    name="scope"
+                    label="Visibility"
+                    help="Shared servers are available to all project members and autonomous agents."
+                >
+                    <LemonSelect
+                        onChange={(val) => setCustomServerFormValue('scope', val)}
+                        options={SCOPE_OPTIONS}
+                        fullWidth
+                    />
+                </LemonField>
                 {!customServerFormPrefilled && (
                     <>
                         <LemonField name="name" label="Name">

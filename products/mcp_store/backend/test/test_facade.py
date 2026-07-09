@@ -2,7 +2,9 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from posthog.models import User
+
+from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 
@@ -30,6 +32,7 @@ class TestGetActiveInstallations(BaseTest):
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
+                scope="personal",
             )
         ]
 
@@ -115,6 +118,13 @@ class TestGetActiveInstallations(BaseTest):
 
         assert len(results) == 1
 
+    def test_excludes_shared_installations(self) -> None:
+        self._create_installation(scope="shared")
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert len(results) == 0
+
     @parameterized.expand(
         [
             ("enabled_api_key", True, "api_key", {}, True),
@@ -132,5 +142,86 @@ class TestGetActiveInstallations(BaseTest):
         )
 
         results = get_active_installations(self.team.id, self.user.id)
+
+        assert (len(results) == 1) == expected_included
+
+
+class TestGetInstallationsForSandbox(BaseTest):
+    def _create_installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "display_name": "Server",
+            "url": "https://mcp.example.com/mcp",
+            "auth_type": "api_key",
+            "is_enabled": True,
+            "scope": "personal",
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def test_shared_always_returned(self) -> None:
+        shared = self._create_installation(scope="shared", display_name="Shared Server")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert len(results) == 1
+        assert results[0].id == str(shared.id)
+        assert results[0].scope == "shared"
+
+    def test_personal_excluded_by_default(self) -> None:
+        self._create_installation(scope="personal")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert len(results) == 0
+
+    def test_personal_included_when_requested(self) -> None:
+        personal = self._create_installation(scope="personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 1
+        assert results[0].id == str(personal.id)
+        assert results[0].scope == "personal"
+
+    def test_shared_plus_personal_combined(self) -> None:
+        self._create_installation(scope="shared", url="https://shared.example.com/mcp", display_name="Shared")
+        self._create_installation(scope="personal", url="https://personal.example.com/mcp", display_name="Personal")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 2
+        scopes = {r.scope for r in results}
+        assert scopes == {"shared", "personal"}
+
+    def test_shared_visible_to_any_team_member(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="shared", user=other_user, display_name="Other's Shared")
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id)
+
+        assert len(results) == 1
+
+    def test_other_users_personal_not_returned(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._create_installation(scope="personal", user=other_user)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+
+        assert len(results) == 0
+
+    @parameterized.expand(
+        [
+            ("shared_include_personal", "shared", True, True),
+            ("shared_no_personal", "shared", False, True),
+            ("personal_include_personal", "personal", True, True),
+            ("personal_no_personal", "personal", False, False),
+        ]
+    )
+    def test_scope_gating_matrix(self, _name: str, scope: str, include_personal: bool, expected_included: bool) -> None:
+        self._create_installation(scope=scope)
+
+        results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included

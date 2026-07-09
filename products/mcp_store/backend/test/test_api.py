@@ -192,6 +192,27 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert response.json()["name"] == "Updated"
         assert response.json()["description"] == "New description"
 
+    def test_put_not_allowed(self):
+        # PUT is disabled: it would bypass the field allowlist and shared-row
+        # ownership guard that partial_update (PATCH) enforces.
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Original",
+            url="https://mcp.example.com",
+            auth_type="api_key",
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/",
+            data={"display_name": "Updated", "url": "https://evil.example.com", "auth_type": "oauth"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        installation.refresh_from_db()
+        assert installation.url == "https://mcp.example.com"
+        assert installation.auth_type == "api_key"
+
     def test_toggle_installation_enabled(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,
@@ -1519,3 +1540,134 @@ class TestInstallDispatchesToolSync(ClickhouseTestMixin, APIBaseTest, QueryMatch
 
         assert response.status_code == 302
         mock_task.delay.assert_called_once_with(str(installation.id))
+
+
+class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _api_url(self, suffix: str = "") -> str:
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        return f"{base}{suffix}" if suffix else base
+
+    def _create_installation(self, user=None, scope="personal", **kwargs) -> MCPServerInstallation:
+        import uuid as _uuid
+
+        defaults: dict = {
+            "team": self.team,
+            "user": user or self.user,
+            "display_name": f"Server-{_uuid.uuid4().hex[:6]}",
+            "url": f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
+            "auth_type": "api_key",
+            "is_enabled": True,
+            "scope": scope,
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def test_list_shows_own_personal_and_all_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        own_personal = self._create_installation(scope="personal")
+        own_shared = self._create_installation(scope="shared")
+        other_shared = self._create_installation(user=other, scope="shared")
+        self._create_installation(user=other, scope="personal")
+
+        response = self.client.get(self._api_url())
+        assert response.status_code == status.HTTP_200_OK
+        returned_ids = {r["id"] for r in response.json()["results"]}
+        assert returned_ids == {str(own_personal.id), str(own_shared.id), str(other_shared.id)}
+
+    def test_scope_returned_in_serializer(self) -> None:
+        self._create_installation(scope="shared")
+
+        response = self.client.get(self._api_url())
+        assert response.json()["results"][0]["scope"] == "shared"
+
+    def test_non_owner_cannot_delete_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert MCPServerInstallation.objects.filter(id=shared.id).exists()
+
+    def test_owner_can_delete_shared(self) -> None:
+        shared = self._create_installation(scope="shared")
+
+        response = self.client.delete(self._api_url(f"{shared.id}/"))
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_non_owner_cannot_patch_shared(self) -> None:
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared")
+
+        response = self.client.patch(
+            self._api_url(f"{shared.id}/"),
+            data={"display_name": "Hijacked"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_any_member_can_proxy_shared(self) -> None:
+        from unittest.mock import (
+            MagicMock,
+            patch as mock_patch,
+        )
+
+        from posthog.models import User
+
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
+
+        with mock_patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None)):
+            with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.headers = {"content-type": "application/json"}
+                mock_resp.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+                mock_client = MagicMock()
+                mock_client.build_request.return_value = MagicMock()
+                mock_client.send.return_value = mock_resp
+                mock_client_cls.return_value = mock_client
+
+                response = self.client.post(
+                    self._api_url(f"{shared.id}/proxy/"),
+                    data={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
+                    format="json",
+                )
+
+        assert response.status_code == 200
+
+    @ALLOW_URL
+    def test_install_custom_shared(self, _mock) -> None:
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Shared Custom",
+                "url": "https://mcp.shared-custom.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+                "scope": "shared",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "shared"
+
+    @ALLOW_URL
+    def test_install_custom_defaults_to_personal(self, _mock) -> None:
+        response = self.client.post(
+            self._api_url("install_custom/"),
+            data={
+                "name": "Personal Custom",
+                "url": "https://mcp.personal-custom.example.com/mcp",
+                "auth_type": "api_key",
+                "api_key": "key123",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["scope"] == "personal"

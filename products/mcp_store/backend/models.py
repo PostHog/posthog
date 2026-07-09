@@ -1,6 +1,7 @@
 from typing import Literal, TypedDict
 
 from django.db import models
+from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -26,6 +27,11 @@ CATEGORY_CHOICES = [
     ("dev", "Developer Tools & APIs"),
     ("infra", "Infrastructure"),
     ("productivity", "Productivity & Collaboration"),
+]
+
+SCOPE_CHOICES = [
+    ("personal", "Personal"),
+    ("shared", "Shared"),
 ]
 
 
@@ -102,6 +108,7 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     description = models.TextField(blank=True, default="")
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES, default="oauth")
     is_enabled = models.BooleanField(default=True)
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES, default="personal")
     # Cached per-installation OAuth metadata for custom (non-template) installs. Non-secret.
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
@@ -109,7 +116,18 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     class Meta:
         db_table = "mcp_store_mcpserverinstallation"
-        unique_together = [("team", "user", "url")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "url"],
+                condition=Q(scope="personal"),
+                name="uniq_personal_install",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "url"],
+                condition=Q(scope="shared"),
+                name="uniq_shared_install",
+            ),
+        ]
 
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
