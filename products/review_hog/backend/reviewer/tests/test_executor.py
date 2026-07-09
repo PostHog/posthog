@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, patch
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review, start_sandbox_session
+from products.review_hog.backend.reviewer.sandbox.executor import (
+    end_sandbox_session,
+    run_sandbox_review,
+    start_sandbox_session,
+)
 from products.tasks.backend.facade.api import TaskOriginProduct
 
 _EXECUTOR_PREFIX = "products.review_hog.backend.reviewer.sandbox.executor"
@@ -136,6 +140,25 @@ class TestRunSandboxReview:
         assert call_kwargs["internal"] is True
         assert call_kwargs["ai_stage"] == "validation-c3"
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
+
+    @parameterized.expand(
+        [
+            ("clean_teardown", {}, "completed", None),
+            ("failed_turn_teardown", {"status": "failed", "error": "turn failed"}, "failed", "turn failed"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_end_session_forwards_terminal_status(
+        self, _name, end_kwargs, expected_status, expected_error
+    ) -> None:
+        # A bare session.end() here records every teardown as "completed" — failed turns included —
+        # corrupting TaskRun status metrics. The activity tests mock this helper, so only this test
+        # catches the status/error being dropped on the way to MultiTurnSession.end().
+        mock_session = AsyncMock()
+
+        await end_sandbox_session(mock_session, **end_kwargs)
+
+        mock_session.end.assert_awaited_once_with(status=expected_status, error=expected_error)
 
     @pytest.mark.asyncio
     async def test_start_failure_propagates(self) -> None:

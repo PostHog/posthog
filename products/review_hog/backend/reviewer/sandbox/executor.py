@@ -181,6 +181,12 @@ async def continue_sandbox_session(
         raise
 
 
-async def end_sandbox_session(session: MultiTurnSession) -> None:
-    """End a session opened by ``start_sandbox_session`` (call in a ``finally``)."""
-    await session.end()
+async def end_sandbox_session(
+    session: MultiTurnSession, *, status: str = "completed", error: str | None = None
+) -> None:
+    """End a session opened by ``start_sandbox_session`` (call in a ``finally``).
+
+    Pass ``status="failed"`` (with ``error``) when tearing down after a failed turn, so the
+    underlying TaskRun isn't recorded as completed and run-status metrics stay honest.
+    """
+    await session.end(status=status, error=error)

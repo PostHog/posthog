@@ -977,6 +977,7 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
     validated = len(done)
     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
     session: MultiTurnSession | None = None
+    chunk_ok = False
     try:
         async with Heartbeater():
             for issue in pending:
@@ -1024,7 +1025,9 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                     # Out of retries — skip this issue (no verdict → not posted) and give the rest
                     # a fresh session; this one may be wedged after the failed turn.
                     logger.exception("Validation turn failed for issue %s on the final attempt; skipping it", issue.id)
-                    await end_sandbox_session(session)
+                    await end_sandbox_session(
+                        session, status="failed", error=f"validation turn failed for issue {issue.id}"
+                    )
                     session = None
                     continue
                 wrote = await database_sync_to_async(persist_verdict, thread_sensitive=False)(
@@ -1036,9 +1039,16 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                 )
                 if wrote:
                     validated += 1
+        chunk_ok = True
     finally:
+        # On an exception in flight (turn failure → chunk retry), record the session as failed so
+        # the TaskRun isn't counted as completed; only a cleanly finished loop ends as completed.
         if session is not None:
-            await end_sandbox_session(session)
+            await end_sandbox_session(
+                session,
+                status="completed" if chunk_ok else "failed",
+                error=None if chunk_ok else "validation chunk failed mid-session",
+            )
     return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=validated)
 
 

@@ -122,7 +122,10 @@ async def test_turn_failure_fails_the_activity_so_temporal_retries() -> None:
     assert mock_start.call_count == 1  # only the first pending issue opened the session — not the done one
     assert mock_persist.call_count == 1
     assert mock_persist.call_args.kwargs["issue"].id == ok_issue.id
-    mock_end.assert_awaited_once_with(session)
+    # The teardown after a failed turn must not record the session's TaskRun as completed.
+    mock_end.assert_awaited_once()
+    assert mock_end.await_args.args == (session,)
+    assert mock_end.await_args.kwargs["status"] == "failed"
     # The session's Temporal workflow id is branded with the review's workflow id + step, lowercased.
     expected_prefix = f"{env.info.workflow_id}:validation-c{_CHUNK_ID}".lower()
     assert mock_start.call_args.kwargs["workflow_id_prefix"] == expected_prefix
@@ -154,6 +157,8 @@ async def test_final_attempt_skips_the_failed_turn_and_continues_on_a_fresh_sess
     assert [call.kwargs["issue"].id for call in mock_persist.call_args_list] == [ok_issue.id, last_issue.id]
     assert mock_continue.call_count == 1  # the last issue went through a fresh start, not the wedged session
     assert [call.args[0] for call in mock_end.await_args_list] == [first_session, fresh_session]
+    # The wedged session ends failed; the fresh one finished the chunk cleanly and ends completed.
+    assert [call.kwargs["status"] for call in mock_end.await_args_list] == ["failed", "completed"]
 
 
 @pytest.mark.asyncio
