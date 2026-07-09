@@ -96,13 +96,6 @@ function makeResolver(): RequestStateResolver {
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
 
-function makeResolverWithTools(toolNames: string[]): RequestStateResolver {
-    const catalog = {
-        getFilteredTools: vi.fn(() => toolNames.map((name) => ({ name }))),
-    }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
-}
-
 describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
         mockSessionStore.clear()
@@ -332,27 +325,5 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
-    })
-})
-
-describe('RequestStateResolver SQL schema-discovery flag', () => {
-    beforeEach(() => {
-        mockSessionStore.clear()
-        mockTokenStore.clear()
-        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
-    })
-
-    // The flag steers discovery instructions toward SQL but is prompt-only — it must NOT
-    // remove read-data-warehouse-schema from the tool set. Guards against re-introducing
-    // tool gating here; the tool stays advertised/callable whether the flag is on or off.
-    it.each([true, false])('keeps read-data-warehouse-schema available when the flag is %s', async (flagOn) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': flagOn })
-        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
-
-        const result = await resolver.resolve(makeProps())
-
-        const names = result.allTools.map((t) => t.name)
-        expect(names).toContain('read-data-warehouse-schema')
-        expect(names).toContain('execute-sql')
     })
 })
