@@ -95,6 +95,11 @@ WEB_STATS_PATHS_LAZY_EMPTY = Counter(
     "Lazy precompute reads that returned zero rows (potential silent ingestion drop or fresh team).",
 )
 
+WEB_STATS_PATHS_LAZY_STALE_SERVED = Counter(
+    "web_stats_paths_lazy_precompute_stale_served_total",
+    "Reads served from expired-within-grace jobs instead of recomputing inline (serve-stale path).",
+)
+
 WEB_STATS_PATHS_LAZY_ROWS = Histogram(
     "web_stats_paths_lazy_precompute_rows",
     "Distinct `breakdown_value` rows returned by the lazy precompute read (post-LIMIT cap).",
@@ -433,6 +438,15 @@ _BACKGROUND_WARMING_TRIGGERS = frozenset({"webAnalyticsEagerBaselineWarming", "w
 # a hash rotation), which previously held requests for 30s+.
 PATHS_USER_ENSURE_WAIT_SECONDS = 10
 
+# Serve-stale grace for *user-facing* requests: windows that expired within this grace are
+# served from their existing (complete-but-stale) rows instantly instead of recomputing
+# inline. Refresh comes from the hourly eager warmer, which covers every enrolled team, so
+# observed staleness is normally bounded by the warmer cadence — the grace is the ceiling
+# for unwarmed query shapes and warmer outages. Must stay well under the framework's 48h
+# ClickHouse expiry buffer (rows must still exist). Background warmers never get the grace:
+# they are the refresh mechanism and would otherwise serve stale to themselves forever.
+PATHS_USER_STALE_GRACE_SECONDS = 6 * 60 * 60
+
 
 def ensure_web_stats_paths_precomputed(
     runner: "WebStatsTableQueryRunner",
@@ -481,6 +495,7 @@ def ensure_web_stats_paths_precomputed(
         query_type="web_stats_paths_lazy_insert",
         spill_to_disk=True,  # high-cardinality path breakdown GROUP BY; can build a large hash table
         wait_timeout_seconds=wait_timeout,
+        serve_stale_grace_seconds=None if is_background else PATHS_USER_STALE_GRACE_SECONDS,
     )
 
 
@@ -800,7 +815,13 @@ def execute_lazy_precomputed_read(
             team_id=team_id,
             job_count=len(result.job_ids),
             ensure_duration_ms=ensure_duration_ms,
+            stale=result.stale,
         )
+        if result.stale:
+            WEB_STATS_PATHS_LAZY_STALE_SERVED.inc()
+            # Tag the upcoming read query so query_log can split stale-served vs fresh
+            # reads (the Prometheus counter above can't be joined against query latency).
+            tag_queries(precompute_stale=True)
 
         if not result.job_ids:
             return None
