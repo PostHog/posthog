@@ -895,17 +895,109 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
 
-    def test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling(self):
+    def test_inline_materialization_stays_clipped_at_the_row_ceiling(self):
         # The kernel executor fetches whole frames with limit=_MATERIALIZE_ROW_CAP (2M, not
         # importable here: the executor module needs jupyter_client). The serializer must
-        # accept that limit (it once capped at 1000, 400-ing every materialization), and the
-        # async limit context then clips the frame at MAX_SELECT_RETURNED_ROWS (50k) — a
-        # deliberate bound until the object-storage frame store (sql_v2_frame_store.md)
-        # gives big frames a transport that doesn't round-trip through Redis.
+        # accept that limit (it once capped at 1000, 400-ing every materialization). The
+        # inline path is the frame store's degraded fallback and still rides the Redis JSON
+        # transport, so the async limit context must keep clipping it at
+        # MAX_SELECT_RETURNED_ROWS (50k) — whole frames go over the object path instead.
         response = self._run_to_completion({"query": "select number from numbers(50001)", "limit": 2_000_000})
         self.assertEqual(response.status_code, 200, response.content)
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(len(rows), 50_000)
+
+    def test_object_delivery_redirects_to_a_team_scoped_presigned_frame(self):
+        # The frame-store path end to end: delivery="object" routes to the materialize job,
+        # the poll answers 302 with a presigned URL under this team's prefix, the URL serves
+        # the frame without credentials, and the frame is NOT clipped at the 50k async
+        # ceiling (the silent-truncation regression that motivated the object path).
+        from posthog.storage import object_storage
+
+        from products.notebooks.backend import frame_store
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+            self.addCleanup(self._delete_team_frames)
+            response = self._run_to_completion(
+                {"query": "select number from numbers(50001)", "limit": 2_000_000, "delivery": "object"}
+            )
+            self.assertEqual(response.status_code, 302, response.content)
+            location = response["Location"]
+            self.assertIn(f"/team_{self.team.id}/", location)
+            self.assertIn(frame_store.FRAMES_PREFIX, location)
+            keys = object_storage.list_objects(frame_store.team_prefix(self.team.id)) or []
+            self.assertEqual(len(keys), 1)
+            with urllib.request.urlopen(location) as download:  # deliberately credential-free
+                _columns, rows, _types = decode_arrow_stream(download.read())
+        self.assertEqual(len(rows), 50_001)
+
+    def test_object_delivery_falls_back_to_inline_when_frame_store_disabled(self):
+        # Degraded mode: object storage off must not hard-fail the cell — the inline
+        # (Redis) path still serves the frame, clamped at the async ceiling.
+        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=False):
+            response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(len(rows), 3)
+
+    def test_object_delivery_failure_surfaces_error_and_stores_no_object(self):
+        # An upload failure must reach the kernel as an error status, and no (partial or
+        # stale) object may remain servable under the team prefix.
+        from posthog.storage import object_storage
+
+        from products.notebooks.backend import frame_store
+        from products.notebooks.backend.temporal import frame_materialize
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+            with patch.object(frame_materialize.frame_store, "write_stream", side_effect=Exception("upload torn")):
+                response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertTrue(response.json()["error"])
+            self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
+
+    def test_identical_inflight_materializations_share_one_job(self):
+        # Enqueue-time dedup: an impatient re-run of the same frame must join the running
+        # job instead of stacking a second ClickHouse execution.
+        from products.notebooks.backend.temporal import frame_materialize
+
+        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+            # Leave the job "running": the materialize body never executes, so the status
+            # stays incomplete and the cache-key mapping stays registered.
+            with patch.object(frame_materialize, "materialize_frame"):
+                first = self._post({"query": "select 1", "delivery": "object"}, token=self._token())
+                second = self._post({"query": "select 1", "delivery": "object"}, token=self._token())
+                different = self._post({"query": "select 2", "delivery": "object"}, token=self._token())
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 202)
+        self.assertEqual(first.json()["query_id"], second.json()["query_id"])
+        self.assertNotEqual(first.json()["query_id"], different.json()["query_id"])
+
+    def test_notebook_materialize_context_prints_the_tier_ceiling(self):
+        # The object path's row ceiling is the NOTEBOOK_MATERIALIZE tier: a 2M request must
+        # clamp to 500k — not fall back to the 50k async ceiling (silent truncation, the
+        # regression that got the first version of this context reverted) and not pass 2M
+        # through to a transport tier we haven't validated yet.
+        from posthog.hogql.constants import LimitContext
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        executor = HogQLQueryExecutor(
+            query="select number from numbers(10) limit 2000000",
+            team=self.team,
+            limit_context=LimitContext.NOTEBOOK_MATERIALIZE,
+            pretty=False,
+        )
+        sql, _context = executor.generate_clickhouse_sql()
+        self.assertIn("LIMIT 500000", sql)
+
+    def _delete_team_frames(self):
+        from posthog.storage import object_storage
+
+        from products.notebooks.backend import frame_store
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            keys = object_storage.list_objects(frame_store.team_prefix(self.team.id)) or []
+            if keys:
+                object_storage.delete_objects(keys)
 
     def test_execution_error_surfaces_through_status(self):
         # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
@@ -1235,11 +1327,66 @@ class TestSQLV2KernelPackage(SimpleTestCase):
 
         with (
             patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            # The poll goes through the no-redirect opener (302s become presigned fetches).
+            patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_urlopen),
             patch.object(kernel_data_plane.time, "sleep"),
         ):
             columns, rows, _types = kernel_data_plane.fetch_query_page("http://backend/dp", "t", "select 1", limit=5)
         self.assertEqual((columns, rows), (["n"], [(7,)]))
         self.assertEqual(polled_urls[1:], ["http://backend/dp/q1/", "http://backend/dp/q1/"])
+
+    def test_materialize_follows_the_302_without_forwarding_credentials(self):
+        # Object delivery: the poll's 302 must be fetched as a fresh, credential-free
+        # request. urllib's default redirect handling re-sends every header — shipping the
+        # data-plane bearer token to the object-store host (and S3 rejects a request that
+        # carries both header auth and presigned query auth).
+        import email.message
+
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        arrow_bytes = _rows_to_arrow_bytes(["n"], [(1,), (2,)], [["n", "Int64"]])
+        presigned_url = "http://frame-store.local/frames/team_1/nb/hash.arrow?X-Amz-Signature=abc"
+        download_requests: list[Any] = []
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            if request.full_url.startswith("http://frame-store.local/"):
+                download_requests.append(request)
+                return _FakeResponse("application/vnd.apache.arrow.stream", arrow_bytes)
+            return _FakeResponse("application/json", b'{"query_id": "q1"}')
+
+        def fake_poll_open(request, timeout=None):
+            headers = email.message.Message()
+            headers["Location"] = presigned_url
+            raise urllib.error.HTTPError(request.full_url, 302, "Found", headers, None)
+
+        import os
+        import tempfile
+
+        import pyarrow as pa
+
+        with tempfile.TemporaryDirectory() as directory:
+            dest = os.path.join(directory, "df.arrow")
+            with (
+                patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+                patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
+            ):
+                rows = kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "secret-token", "select 1", dest, limit=1000
+                )
+            self.assertEqual(rows, 2)
+            self.assertEqual(pa.ipc.open_file(pa.memory_map(dest)).read_all().num_rows, 2)
+
+        (download,) = download_requests
+        self.assertEqual(download.full_url, presigned_url)
+        self.assertFalse(download.has_header("Authorization"))
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()

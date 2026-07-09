@@ -36,6 +36,11 @@ OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
+# Notebooks SQLV2 frame store (products/notebooks/backend/sql_v2_frame_store.md): stream
+# python-node frame materializations to object storage instead of the Redis JSON transport.
+# Default off — rollout is env-gated per deployment on top of the product feature flag.
+NOTEBOOKS_FRAME_STORE_ENABLED = get_from_env("NOTEBOOKS_FRAME_STORE_ENABLED", False, type_cast=str_to_bool)
+
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 

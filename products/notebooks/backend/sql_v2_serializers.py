@@ -85,6 +85,18 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of rows to skip (applied as an outer OFFSET), for paging.",
     )
+    delivery = serializers.ChoiceField(
+        choices=["inline", "object"],
+        required=False,
+        default="inline",
+        help_text=(
+            "How the caller wants the result delivered. 'inline' (default) returns rows in the "
+            "poll response body as an Arrow IPC stream — right for pages and envelope fetches. "
+            "'object' streams the result to object storage and answers the poll with a 302 to a "
+            "short-lived presigned download URL — for whole-frame materializations; falls back "
+            "to 'inline' (clamped at the async row ceiling) when the frame store is unavailable."
+        ),
+    )
 
 
 class NotebookSQLV2MediaSerializer(serializers.Serializer):

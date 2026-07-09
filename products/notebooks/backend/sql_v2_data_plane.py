@@ -21,10 +21,11 @@ from typing import Any
 
 from django.conf import settings
 from django.core import signing
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
+from prometheus_client import Counter
 
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
@@ -33,6 +34,7 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 
+from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2 import verify_data_plane_token
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
@@ -40,6 +42,11 @@ from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlane
 logger = structlog.get_logger(__name__)
 
 ARROW_STREAM_CONTENT_TYPE = "application/vnd.apache.arrow.stream"
+
+FRAME_STORE_FALLBACK_COUNTER = Counter(
+    "posthog_notebooks_frame_store_fallback_inline",
+    "Number of object-delivery requests that fell back to the inline (Redis) path.",
+)
 
 
 def _rows_to_arrow_bytes(
@@ -140,6 +147,40 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
     wrapped = f"select * from ({data['query']}\n) limit {int(data['limit'])} offset {int(data['offset'])}"
 
+    if data["delivery"] == "object":
+        if frame_store.is_enabled():
+            # Whole-frame materialization: stream the result to object storage via a
+            # Temporal worker; the poll answers with a 302 to a presigned URL. The
+            # frame_materialize module is imported lazily — it pulls temporalio and the
+            # worker ClickHouse client, which must stay off the urls.py import path.
+            from products.notebooks.backend.temporal.frame_materialize import (  # noqa: PLC0415
+                enqueue_frame_materialization,
+            )
+
+            try:
+                with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
+                    status = enqueue_frame_materialization(
+                        team=team,
+                        user_id=user.id if user else None,
+                        notebook_short_id=notebook_short_id,
+                        query=wrapped,
+                        _test_only_inline=settings.TEST,
+                    )
+            except Exception:
+                logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
+                return JsonResponse({"error": "Query could not be scheduled."}, status=500)
+            return JsonResponse({"query_id": status.id}, status=202)
+        # Degraded mode: the cell still runs over the inline (Redis) transport, clamped at
+        # the async row ceiling, instead of hard-failing. Loud on purpose.
+        FRAME_STORE_FALLBACK_COUNTER.inc()
+        logger.warning(
+            "notebook_frame_store_fallback_inline",
+            notebook_short_id=notebook_short_id,
+            team_id=team_id,
+            frame_store_enabled=settings.NOTEBOOKS_FRAME_STORE_ENABLED,
+            object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
+        )
+
     try:
         with tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=team.id):
             status = enqueue_process_query_task(
@@ -162,6 +203,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     responses={
         (200, ARROW_STREAM_CONTENT_TYPE): OpenApiResponse(description="Query result as an Arrow IPC stream"),
         202: OpenApiResponse(description="Query is still running"),
+        302: OpenApiResponse(description="Object-delivery result; Location is a short-lived presigned download URL"),
         400: OpenApiResponse(description="Query failed"),
         401: OpenApiResponse(description="Missing or invalid data-plane token"),
         404: OpenApiResponse(description="Query not found or expired"),
@@ -169,7 +211,9 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     summary="SQLV2 data-plane query status",
     description=(
         "Internal endpoint the notebook sandbox polls for an enqueued data-plane query. "
-        "Returns 202 while the query runs and the rows as an Arrow IPC stream once complete."
+        "Returns 202 while the query runs; once complete, inline deliveries return the rows "
+        "as an Arrow IPC stream and object deliveries return a 302 redirect to a presigned "
+        "download URL for the same bytes."
     ),
 )
 def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> HttpResponse:
@@ -192,6 +236,19 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         return JsonResponse({"error": status.error_message or "Query execution failed."}, status=400)
 
     results: dict[str, Any] = status.results or {}
+
+    object_key = results.get("object_key")
+    if object_key:
+        # Object delivery: the status carries a pointer, not rows. The token was verified
+        # above; presign_get additionally refuses keys outside this team's prefix. The
+        # presigned URL is a bearer secret — it must never be logged.
+        try:
+            presigned_url = frame_store.presign_get(str(object_key), team_id)
+        except frame_store.FrameStoreError:
+            logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
+            return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
+        return HttpResponseRedirect(presigned_url)
+
     columns = [str(column) for column in (results.get("columns") or [])]
     types = [[str(name), str(type_name)] for name, type_name in (results.get("types") or [])]
     payload = _rows_to_arrow_bytes(columns, results.get("results") or [], types)

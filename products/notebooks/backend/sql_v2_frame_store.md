@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **proposal** — not started; materialization is deliberately clamped at 50k rows until phase 1 lands.
+Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
 
 ## Problem
 
@@ -14,12 +14,13 @@ When a python node reads an upstream SQLV2 frame, the sandbox kernel fetches the
 
 The frame is fully copied ~5 times, and the middle copy sits in Redis — the shared cache for the whole deployment.
 This transport is implicitly sized by the 50k row ceiling (`MAX_SELECT_RETURNED_ROWS` under the async limit context),
-so materialized frames are silently clipped at 50k rows today.
+so inline materialized frames are silently clipped at 50k rows.
 A `LimitContext.NOTEBOOK_MATERIALIZE` context raising the ceiling to 2M (`_MATERIALIZE_ROW_CAP`) was built and then
 **deliberately reverted**: without a better payload transport, wide multi-hundred-thousand-row frames stress Redis
 (single-threaded, 512MB per-value hard cap, eviction pressure) and the workers that render/parse the JSON.
-The clamp is pinned by `test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling` and comes off as
-part of phase 1, when the transport can carry what the limit allows.
+With phase 1 the context is back, applied **only on the object path** and at a 500k tier-1 ceiling
+(`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`, raised toward 2M on query-log evidence); the inline path — now the
+degraded fallback — keeps the 50k clamp, pinned by `test_inline_materialization_stays_clipped_at_the_row_ceiling`.
 
 ## Decision sketch: durable object handoff, not live push
 
@@ -104,18 +105,24 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Phased plan — start basic, improve later
 
-**Phase 0 (current state).** Materialization runs over the existing Redis transport, clipped at 50k rows.
+**Phase 0.** Materialization runs over the existing Redis transport, clipped at 50k rows.
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
+Since phase 1 this path survives only as the degraded fallback (frame store disabled or unconfigured).
 
-**Phase 1 — swap the payload path, minimal moving parts.**
-Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` (2M ceiling, the reverted change) together with the new transport.
-When the data-plane task runs under it, the worker streams the CH result
-(`output_format="ArrowStream"`, bounded batches — data-modeling pattern) into one object,
-stores the **object key** in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
-**302 redirect to a presigned URL**.
-The kernel's `requests` client follows redirects by default and drops the `Authorization` header on cross-host
-redirects, so the existing executor works nearly unchanged and the presigned URL needs no auth.
-Keep the Redis path as fallback when object storage is unconfigured (dev parity, degraded mode).
+**Phase 1 — swap the payload path, minimal moving parts. (Shipped, env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`.)**
+The kernel opts in per request with `delivery: "object"` (pages and envelope fetches stay `"inline"`).
+The data plane registers a `notebook-frame:{team}:{query_hash}` dedup mapping and dispatches a Temporal
+materialize workflow (`temporal/frame_materialize.py`, general-purpose queue, Redis-Lua concurrency slots
+global 10 / per-team 2): the activity prints the HogQL through the guarded executor under
+`LimitContext.NOTEBOOK_MATERIALIZE` (tier-1 ceiling 500k, not yet 2M), executes over the CH HTTP interface
+with `FORMAT ArrowStream`, and relays the raw bytes into one multipart upload
+(`frame_store.py`, key `notebooks/frames/team_{team}/{notebook}/{query_hash}.arrow`).
+The **object key** lands in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
+**302 redirect to a presigned URL** (≤5 min, minted only after token verification, team-prefix-checked).
+One correction to the sketch below: the kernel's client is `urllib`, not `requests` — urllib re-sends
+`Authorization` on redirects, so the client intercepts the 302 and fetches the presigned URL with a fresh,
+credential-free request instead of auto-following.
+The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
 
 **Phase 2 — let ClickHouse do the writing.**
 Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
@@ -130,8 +137,9 @@ tables without re-encoding.
 
 ## Open questions
 
-- Bucket choice: reuse `OBJECT_STORAGE_BUCKET` under a `notebooks/` prefix vs a dedicated bucket
-  (dedicated is cleaner for lifecycle rules and IAM scoping; more infra to provision).
+- ~~Bucket choice~~ — resolved in phase 1: `OBJECT_STORAGE_BUCKET` under the `notebooks/frames/` prefix
+  (a dedicated bucket stays an option if lifecycle/IAM scoping demands it). The lifecycle TTL (~24h) on
+  the frames prefix is an infra ticket — a bucket rule, not app code.
 - Does cloud CH's instance role already permit writes to the chosen bucket, or does that need infra work
   (batch exports suggests the pattern is established)?
 - Presign from SeaweedFS in local dev: verify the presigned host is reachable from the locally-run kernel.
