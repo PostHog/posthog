@@ -55,10 +55,6 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
                 DataWarehouseTable.objects.filter(team_id=team.pk)
                 .exclude(deleted=True)
                 .select_related("external_data_source")
-                # Exactly the fields get_data_warehouse_table_name reads (pks are always fetched).
-                # The fingerprint runs on every query run, even on cache hits, so the wide `columns`
-                # schema JSON must stay in Postgres; a field missing here would silently defer-load
-                # per row instead.
                 .only(
                     "name",
                     "external_data_source__source_type",
