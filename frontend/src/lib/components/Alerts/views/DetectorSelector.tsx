@@ -469,13 +469,7 @@ function SingleDetectorConfigSection({
     )
 }
 
-function AnomalyThresholdInput({
-    value,
-    onChange,
-}: {
-    value: number
-    onChange: (value: number) => void
-}): JSX.Element {
+function AnomalyThresholdInput({ value, onChange }: { value: number; onChange: (value: number) => void }): JSX.Element {
     return (
         <div>
             <Label
