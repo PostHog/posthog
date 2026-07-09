@@ -1,3 +1,4 @@
+import uuid
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -2233,8 +2234,6 @@ class TestAlertCheckInvestigationTaskUrl(APIBaseTest):
         assert check_data["investigation_task_url"] is None
 
     def test_check_with_task_run_resolves_task_url(self) -> None:
-        import uuid
-
         run_id = uuid.uuid4()
         task_id = uuid.uuid4()
         check = AlertCheck.objects.create(
@@ -2255,8 +2254,6 @@ class TestAlertCheckInvestigationTaskUrl(APIBaseTest):
         assert "/tasks/" in check_data["investigation_task_url"]
 
     def test_check_with_task_run_but_task_not_found_returns_null(self) -> None:
-        import uuid
-
         run_id = uuid.uuid4()
         check = AlertCheck.objects.create(
             alert_configuration=self.alert,
