@@ -27,7 +27,7 @@ const existingAlert = {
     name: 'alert-a',
     mode: 'alert',
     selection: { tags: ['rage-click'] },
-    alert_config: { metric: 'count', operator: 'gte', threshold: 3 },
+    alert_config: { metric: 'count', operator: 'gte', threshold: 3, window_days: 7 },
 } as unknown as VisionActionApi
 
 describe('actionEditorSceneLogic', () => {
@@ -88,6 +88,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_metric: 'count',
                     alert_operator: 'gte',
                     alert_threshold: 1,
+                    alert_window_days: 1,
                 },
             })
 
@@ -110,6 +111,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_metric: 'count',
                     alert_operator: 'gte',
                     alert_threshold: 3,
+                    alert_window_days: 7,
                     tags: ['rage-click'],
                 }),
             })

@@ -42,6 +42,7 @@ export interface VisionActionForm {
     alert_metric: VisionAlertMetricEnumApi
     alert_operator: VisionAlertOperatorEnumApi
     alert_threshold: number | null
+    alert_window_days: number
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -60,6 +61,7 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     alert_metric: VisionAlertMetricEnumApi.Count,
     alert_operator: VisionAlertOperatorEnumApi.Gte,
     alert_threshold: 1,
+    alert_window_days: 1,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
@@ -86,7 +88,11 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
         name: form.name.trim(),
         scanner: scannerId,
         mode: form.mode,
-        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        // Alerts have no user-facing schedule: they check on a fixed hourly cadence (each check
+        // evaluates the rolling window), while summaries run on the picked days/time.
+        trigger_config: isAlert
+            ? { rrule: 'FREQ=HOURLY', timezone: form.timezone }
+            : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
         selection,
         synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
         ...(isAlert && form.alert_threshold != null
@@ -95,6 +101,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                       metric: form.alert_metric,
                       operator: form.alert_operator,
                       threshold: form.alert_threshold,
+                      window_days: form.alert_window_days,
                   },
               }
             : {}),

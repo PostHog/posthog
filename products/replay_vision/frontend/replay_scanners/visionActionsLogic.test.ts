@@ -104,6 +104,7 @@ describe('visionActionsLogic', () => {
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
+            alert_window_days: 1,
         }
         expect(buildActionBody(form, 's1')).toEqual({
             name: 'Daily digest', // trimmed
@@ -134,6 +135,7 @@ describe('visionActionsLogic', () => {
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
+            alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
         expect(body.delivery_config).toEqual([])
@@ -159,11 +161,14 @@ describe('visionActionsLogic', () => {
             alert_metric: 'count',
             alert_operator: 'gte',
             alert_threshold: 1,
+            alert_window_days: 1,
         }
         const body = buildActionBody(form, 's1')
         expect(body.mode).toEqual('alert')
-        expect(body.alert_config).toEqual({ metric: 'count', operator: 'gte', threshold: 1 })
+        expect(body.alert_config).toEqual({ metric: 'count', operator: 'gte', threshold: 1, window_days: 1 })
         expect(body.selection).toEqual({ tags: ['rage-click'] })
+        // Alerts check on a fixed hourly cadence; there is no user-facing schedule.
+        expect(body.trigger_config).toEqual({ rrule: 'FREQ=HOURLY', timezone: 'UTC' })
         // Alerts never synthesize, so a stale guide from a mode switch must not persist.
         expect(body.synthesis_config).toEqual({ prompt_guide: '' })
     })

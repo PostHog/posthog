@@ -139,7 +139,11 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 name: !name?.trim() ? 'Give this summary a name' : undefined,
                 // kea-forms can't carry a string error on the weekdays array, so hang it on `hour` to
                 // mark the form invalid and block Enter-to-submit; the visible copy is the inline text.
-                cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
+                // Alerts have no schedule UI (fixed hourly checks), so weekdays don't apply.
+                cadence:
+                    mode !== VisionActionModeEnumApi.Alert && cadence.weekdays.length === 0
+                        ? { hour: 'Pick at least one day' }
+                        : undefined,
                 min_score:
                     min_score != null && max_score != null && min_score > max_score
                         ? "Min score can't exceed max score"
@@ -243,6 +247,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 alert_metric: action.alert_config?.metric ?? VisionAlertMetricEnumApi.Count,
                 alert_operator: action.alert_config?.operator ?? VisionAlertOperatorEnumApi.Gte,
                 alert_threshold: action.alert_config?.threshold ?? 1,
+                alert_window_days: Number(action.alert_config?.window_days ?? 1),
                 verdict: action.selection?.verdict ?? [],
                 tags: action.selection?.tags ?? [],
                 min_score: action.selection?.min_score ?? null,
