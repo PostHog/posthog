@@ -57,7 +57,12 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
+    # toolkit.py imports get_contextual_tool_class by value at module level,
+    # so it must be patched there too, not just on the registry module
+    with (
+        patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class),
+        patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class", return_value=mock_tool_class),
+    ):
         yield
 
 
@@ -113,10 +118,16 @@ def _create_agent_tools_node(
 class TestAgentToolkit(BaseTest):
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     @patch("ee.hogai.registry.get_contextual_tool_class")
-    async def test_get_tools_ignores_unknown_contextual_tools(self, mock_get_tool_class, mock_model):
+    # toolkit.py imports get_contextual_tool_class by value at module level, so the
+    # registry patch alone never reaches it and the real import-scanning path runs
+    @patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class")
+    async def test_get_tools_ignores_unknown_contextual_tools(
+        self, mock_toolkit_get_tool_class, mock_get_tool_class, mock_model
+    ):
         """Test that unknown contextual tools (None from get_contextual_tool_class) are ignored"""
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
         mock_get_tool_class.return_value = None  # Simulates unknown tool
+        mock_toolkit_get_tool_class.return_value = None
 
         state = AssistantState(messages=[HumanMessage(content="Test")])
         config = RunnableConfig(configurable={"contextual_tools": {"unknown_tool": {"some": "config"}}})
@@ -694,7 +705,10 @@ class TestRootNodeTools(BaseTest):
             root_tool_call_id="tool-123",
         )
 
-        with patch("ee.hogai.registry.get_contextual_tool_class", return_value=None):
+        with (
+            patch("ee.hogai.registry.get_contextual_tool_class", return_value=None),
+            patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class", return_value=None),
+        ):
             result = await node.arun(state, {})
 
             self.assertIsInstance(result, PartialAssistantState)

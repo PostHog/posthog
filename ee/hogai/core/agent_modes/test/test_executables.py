@@ -36,7 +36,12 @@ def mock_contextual_tool(mock_tool):
     mock_tool_class = MagicMock()
     mock_tool_class.create_tool_class = AsyncMock(return_value=mock_tool)
 
-    with patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class):
+    # toolkit.py imports get_contextual_tool_class by value at module level,
+    # so it must be patched there too, not just on the registry module
+    with (
+        patch("ee.hogai.registry.get_contextual_tool_class", return_value=mock_tool_class),
+        patch("ee.hogai.chat_agent.toolkit.get_contextual_tool_class", return_value=mock_tool_class),
+    ):
         yield
 
 
