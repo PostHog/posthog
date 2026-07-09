@@ -31,7 +31,7 @@ const EXCEPTION_CODE_LABELS: Record<string, string> = {
     '159': 'timeout',
     '241': 'out of memory',
     '202': 'cluster busy',
-    '164': 'readonly (AI context)',
+    '164': 'readonly',
     '47': 'unknown identifier',
 }
 

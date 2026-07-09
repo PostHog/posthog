@@ -37,8 +37,9 @@ export interface PrecomputeBuildStats {
     failed: number
     total_duration_ms: number
     total_read_bytes: number
-    failed_duration_ms: number
-    failed_read_bytes: number
+    // Optional: responses served by a backend from before these fields existed omit them.
+    failed_duration_ms?: number
+    failed_read_bytes?: number
     by_table: Record<string, { succeeded: number; failed: number }>
     failures_by_code: Record<string, number>
 }
