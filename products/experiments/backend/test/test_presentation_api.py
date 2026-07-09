@@ -5837,7 +5837,9 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
         # the config the deprecated keys were copied onto the flag.
         self.assertTrue(check(response.json()["parameters"]), response.json()["parameters"])
 
-    def _create_via_flag_object(self, key: str = "echo-source", start_date: str | None = None) -> int:
+    def _create_via_flag_object(
+        self, key: str = "echo-source", start_date: str | None = None, variants: list[dict] | None = None
+    ) -> int:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -5847,7 +5849,8 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
                 "feature_flag": {
                     "filters": {
                         "multivariate": {
-                            "variants": [
+                            "variants": variants
+                            or [
                                 {"key": "control", "name": "Control", "rollout_percentage": 50},
                                 {"key": "test", "name": "Test", "rollout_percentage": 50},
                             ]
@@ -5940,6 +5943,36 @@ class TestExperimentParametersFlagConfigCompatibility(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         flag.refresh_from_db()
         self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
+
+    @parameterized.expand(
+        [
+            # Read-modify-write: echo the full flag-config projection GET returns, plus a non-flag key.
+            ("echo_plus_non_flag_key", lambda echoed: {**echoed, "variant_notes": {"control": "n"}}),
+            # Bare non-flag PATCH carrying no flag-config keys at all.
+            ("non_flag_key_only", lambda _echoed: {"variant_notes": {"control": "n"}}),
+        ]
+    )
+    def test_draft_non_flag_parameters_patch_preserves_flag_variants(self, name: str, build_parameters) -> None:
+        key = f"preserve-{name}"
+        experiment_id = self._create_via_flag_object(
+            key=key,
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 30},
+                {"key": "test", "name": "Test", "rollout_percentage": 70},
+            ],
+        )
+        echoed_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "parameters"
+        ]
+        # A PATCH that carries no genuine flag-config change must never resync the linked flag: its
+        # non-default variants must survive, not reset to DEFAULT_VARIANTS (50/50).
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"parameters": build_parameters(echoed_parameters)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag = FeatureFlag.objects.get(key=key, team_id=self.team.id)
+        self.assertEqual([v["rollout_percentage"] for v in flag.variants], [30, 70], flag.filters)
 
 
 class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTestMixin, APILicensedTest):

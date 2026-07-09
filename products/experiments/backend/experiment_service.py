@@ -2362,7 +2362,11 @@ class ExperimentService:
             if "holdout" in update_data:
                 holdout = update_data["holdout"]
 
-            if update_data.get("parameters"):
+            # Only resync the flag from ``parameters`` when it actually carries flag-config keys.
+            # A read-modify-write PATCH that echoes non-flag params (e.g. variant_notes) alongside
+            # a stripped parameters dict must not reset the flag's variants to DEFAULT_VARIANTS.
+            params = update_data.get("parameters")
+            if params and any(key in params for key in self.FEATURE_FLAG_CONFIG_KEYS):
                 variants = update_data["parameters"].get("feature_flag_variants", [])
                 aggregation_group_type_index = update_data["parameters"].get("aggregation_group_type_index")
 
