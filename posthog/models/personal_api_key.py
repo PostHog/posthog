@@ -35,6 +35,7 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label = models.CharField(max_length=40)
+    description = models.TextField(null=True, blank=True, max_length=1000)
     mask_value = models.CharField(max_length=11, editable=False, null=True)
     secure_value = models.CharField(
         unique=True,

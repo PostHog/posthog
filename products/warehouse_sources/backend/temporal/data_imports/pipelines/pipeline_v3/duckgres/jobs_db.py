@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import psycopg
@@ -32,12 +34,41 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
     """Latest status row for one batch via the (batch_id, created_at DESC, id DESC)
     index. Drop-in for a join to the DISTINCT ON v_latest_source_batch* view, but a
     per-batch lookup instead of materializing the whole view. SELECTs `_ls.*` so all
-    downstream <alias>.<col> references (job_state, created_at, attempt, batch_id) work."""
+    downstream <alias>.<col> references (job_state, created_at, attempt, batch_id) work.
+
+    The created_at bound exists for partition pruning, mirroring the delta queue's
+    `latest_status_lateral`: both status tables are range-partitioned by created_at,
+    and without the predicate every probe descends into every partition. A batch's
+    status rows are always written within the queue's retention horizon, so the
+    2x-retention bound cannot hide a live row."""
     return (
         f"LATERAL (SELECT _ls.* FROM {status_table} _ls "
         f"WHERE _ls.batch_id = {batch_alias}.id "
+        f"AND _ls.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}' "
         f"ORDER BY _ls.created_at DESC, _ls.id DESC LIMIT 1)"
     )
+
+
+# Server-side guard for the heavy eligibility-CTE maintenance queries (supersede
+# + backlog): each scans PARTITION_PRUNING_INTERVAL of sourcebatch per enabled
+# team, and on a high-volume org an unbounded run can saturate the shared queue
+# DB. Worse, every ~30s poll starts another, so slow runs stack into many
+# concurrent multi-hour scans that also starve the Delta consumer on the same
+# DB. Cap each statement so a slow query fails fast and the poll loop retries on
+# the next tick instead of wedging. Tune up if a legitimate run needs longer.
+ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
+
+
+@asynccontextmanager
+async def _statement_timeout(conn: psycopg.AsyncConnection[Any], timeout_ms: int) -> AsyncIterator[None]:
+    """Bound the wrapped query with a server-side ``statement_timeout``.
+
+    The consumer connection is autocommit, so ``SET LOCAL`` needs an explicit
+    transaction; it scopes the timeout to this block and resets it on exit.
+    """
+    async with conn.transaction():
+        await conn.execute(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+        yield
 
 
 # Structured classification key written into duckgres status error_response by
@@ -408,7 +439,7 @@ class DuckgresBatchQueue:
         Skips batches currently 'executing' (their attempt resolves on its own)
         and anything already terminal. Returns the number of batches superseded.
         """
-        async with conn.cursor() as cur:
+        async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
@@ -485,7 +516,7 @@ class DuckgresBatchQueue:
         by an unprimed schema; reported separately so weeks of backfill cannot
         pin the alert gauge while still being visible.
         """
-        async with conn.cursor() as cur:
+        async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}

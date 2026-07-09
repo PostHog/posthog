@@ -10,6 +10,8 @@ interface ScopeAccessRowProps {
     value: string
     /** Called with the new value when the user picks an option. */
     onChange: (value: string) => void
+    /** Reason the No access option should be disabled. Set to a non-empty string to disable. */
+    noneDisabledReason?: string
     /** Reason the Read option should be disabled. Set to a non-empty string to disable. */
     readDisabledReason?: string
     /** Reason the Write option should be disabled. Set to a non-empty string to disable. */
@@ -26,6 +28,7 @@ export function ScopeAccessRow({
     label,
     value,
     onChange,
+    noneDisabledReason,
     readDisabledReason,
     writeDisabledReason,
     info,
@@ -36,7 +39,7 @@ export function ScopeAccessRow({
         <>
             <div className="flex items-center justify-between gap-2 min-h-8 group">
                 <div className={clsx('flex items-center gap-1', muted && 'text-muted')}>
-                    <b className="transition-colors group-hover:text-highlight">{label}</b>
+                    <b>{label}</b>
                     {info ? (
                         <Tooltip title={info}>
                             <IconInfo className="text-secondary text-base" />
@@ -47,7 +50,7 @@ export function ScopeAccessRow({
                     onChange={onChange}
                     value={value}
                     options={[
-                        { label: 'No access', value: 'none' },
+                        { label: 'No access', value: 'none', disabledReason: noneDisabledReason },
                         { label: 'Read', value: 'read', disabledReason: readDisabledReason },
                         { label: 'Write', value: 'write', disabledReason: writeDisabledReason },
                     ]}

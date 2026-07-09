@@ -10,6 +10,7 @@ transactional write, org-membership resolution, tag application, and exception
 capture live behind ``facade.api``.
 """
 
+import uuid
 import hashlib
 from typing import Any
 
@@ -70,6 +71,25 @@ def _customer_analytics_enabled(team: Team) -> bool:
     )
 
 
+HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
+
+
+def _workflow_id_from_request(request: Request) -> str | None:
+    """The originating HogFlow workflow id, when the request comes from a workflow step.
+
+    The header is caller-supplied, so only a well-formed UUID is accepted; worst case is a
+    token holder attributing a write to another workflow id within its own team.
+    """
+    hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
+    if not hog_flow_id:
+        return None
+    try:
+        uuid.UUID(hog_flow_id)
+    except (ValueError, TypeError):
+        return None
+    return hog_flow_id
+
+
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
     auth_header = request.headers.get("Authorization", "")
@@ -124,7 +144,7 @@ def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Res
         )
     if result.error == contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND:
         return Response(
-            {"error": f"{result.error_field}: no relationship definition with this name"},
+            {"error": f"{result.error_field}: no relationship definition with this ID"},
             status=status.HTTP_400_BAD_REQUEST,
         )
     assert result.error is not None
@@ -142,9 +162,9 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
         child=serializers.JSONField(allow_null=True),
         required=False,
         help_text=(
-            "Relationship assignments keyed by definition name (e.g. 'CSM'). Each value is an "
-            "assignee object `{type: 'user', id}` or null to end the active assignment. Only the "
-            "named definitions are changed."
+            "Relationship assignments keyed by definition UUID. Each value is an assignee object "
+            "`{type: 'user', id}` or null to end the active assignment. Only the supplied "
+            "definitions are changed."
         ),
     )
     tags = serializers.ListField(
@@ -230,6 +250,7 @@ class ExternalAccountView(APIView):
             relationship_assignments=data.get("relationships") or {},
             tags=data["tags"] if "tags" in data else None,
             tags_mode=data.get("tags_mode", "add"),
+            workflow_id=_workflow_id_from_request(request),
         )
         if result.account is None:
             return _update_error_response(result)

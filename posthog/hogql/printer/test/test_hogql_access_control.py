@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -194,6 +196,78 @@ class TestAccessControlGuard(BaseTest):
         for raw in ("dash-1", "dash-2", "dash-3"):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
+
+    def test_filtering_records_restricted_resource(self):
+        # The guard silently drops rows in SQL; recording the resource is what lets the response warn
+        # that results may be partial. Regression guard for the context recording.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="dash-1", access_level="none")
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == {"dashboard"}
+
+    def test_no_warning_when_nothing_filtered(self):
+        # Admins have no deny set, so no guard and no warning - otherwise every query would nag.
+        from posthog.hogql.parser import parse_select
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_restricted_resources == set()
+
+    @parameterized.expand(
+        [
+            (["insight"], "Results may exclude insights you don't have access to"),
+            (["insight", "dashboard"], "Results may exclude dashboards and insights you don't have access to"),
+            (
+                ["insight", "dashboard", "notebook"],
+                "Results may exclude dashboards, insights and notebooks you don't have access to",
+            ),
+        ]
+    )
+    def test_build_access_control_warning_message(self, resources, expected_message):
+        # "may exclude", not "were excluded": the guard firing doesn't prove any row was actually
+        # dropped — the user's blocked objects may not have matched the query.
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        warning = build_access_control_warning(resources)
+        assert warning is not None
+        assert warning.type == "access_control"
+        assert warning.resources == sorted(resources)
+        assert warning.message == expected_message
+
+    def test_build_access_control_warning_empty(self):
+        from posthog.hogql.printer.access_control import build_access_control_warning
+
+        assert build_access_control_warning(set()) is None
 
     def test_child_table_guard_filters_parent_fk_not_own_pk(self):
         # system.dashboard_tiles inherits the "dashboard" scope and sets access_control_id_field="dashboard_id".

@@ -413,6 +413,7 @@ export type HogFunctionInputSchemaType = {
         | 'push_subscription'
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
+        | 'customer_analytics_account_relationships'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

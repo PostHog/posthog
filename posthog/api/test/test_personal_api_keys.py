@@ -27,9 +27,16 @@ ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
+        description = "Test description"
         response = self.client.post(
             "/api/personal_api_keys",
-            {"label": label, "scopes": ["insight:read"], "scoped_organizations": [], "scoped_teams": []},
+            {
+                "label": label,
+                "description": description,
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
         )
         assert response.status_code == 201
         data = response.json()
@@ -39,6 +46,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
+            "description": description,
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,
@@ -51,6 +59,20 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "mask_value": data["mask_value"],
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
+
+    def test_create_personal_api_key_normalizes_blank_description_to_null(self):
+        response = self.client.post(
+            "/api/personal_api_keys",
+            {
+                "label": "test",
+                "description": "",
+                "scopes": ["insight:read"],
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+        assert response.status_code == 201
+        assert response.json()["description"] is None
 
     def test_create_too_many_api_keys(self):
         for i in range(0, 10):
@@ -207,6 +229,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response_data[0] == {
             "id": my_key.id,
             "label": my_label,
+            "description": None,
             "last_used_at": None,
             "last_rolled_at": None,
             "user_id": self.user.id,

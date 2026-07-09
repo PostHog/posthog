@@ -27,7 +27,6 @@ from django.db.models import Prefetch, Q
 from celery import current_app
 from pydantic import ValidationError as PydanticValidationError
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, changes_between, log_activity
@@ -36,6 +35,7 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.events import emit_account_tags_added
 from products.customer_analytics.backend.logic import (
     custom_property_values as _custom_property_values_logic,
     relationships as _relationships_logic,
@@ -293,40 +293,55 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
     return _to_external_account(account)
 
 
-def _apply_external_tags(account: Account, tags: list[str], mode: str) -> None:
+def _apply_external_tags(account: Account, tags: list[str], mode: str, workflow_id: str | None = None) -> None:
     normalized = list({tagify(t) for t in tags})
     if mode == "remove":
         account.tagged_items.filter(tag__name__in=normalized).delete()
     elif mode == "set":
-        set_tags_on_object(normalized, account)
+        _set_tags(normalized, account, workflow_id=workflow_id)
     else:
+        added_tags: list[Tag] = []
         for tag_name in normalized:
             tag, _ = Tag.objects.get_or_create(name=tag_name, team_id=account.team_id)
-            account.tagged_items.get_or_create(tag_id=tag.id)
+            _, created = account.tagged_items.get_or_create(tag_id=tag.id)
+            if created:
+                added_tags.append(tag)
+        _schedule_account_tags_added(account, added_tags, actor=None, workflow_id=workflow_id)
 
 
 def _apply_external_relationship_assignments(
     account: Account, assignments: dict[str, int | None]
 ) -> contracts.ExternalAccountUpdateResult | None:
-    """Apply provided relationship assignments, keyed by definition name (None ends the
+    """Apply provided relationship assignments, keyed by definition UUID (None ends the
     active assignment). Each non-None user id is resolved against an
     ``OrganizationMembership`` in the account's org so assignees are always trusted.
     Everything is validated before the first write — the caller's ``atomic()`` block
     returns (commits) on an error result rather than rolling back.
     """
+    keys_to_ids: dict[str, UUID] = {}
+    for key in assignments:
+        try:
+            keys_to_ids[key] = UUID(key)
+        except ValueError:
+            return contracts.ExternalAccountUpdateResult(
+                error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
+                error_field=key,
+            )
+
     definitions = {
-        definition.name: definition
+        definition.id: definition
         for definition in AccountRelationshipDefinition.objects.for_team(account.team_id).filter(
-            name__in=assignments.keys()
+            id__in=keys_to_ids.values()
         )
     }
+
     resolved: list[tuple[AccountRelationshipDefinition, User | None]] = []
-    for name, user_id in assignments.items():
-        definition = definitions.get(name)
+    for key, user_id in assignments.items():
+        definition = definitions.get(keys_to_ids[key])
         if definition is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND,
-                error_field=name,
+                error_field=key,
             )
         if user_id is None:
             resolved.append((definition, None))
@@ -339,7 +354,7 @@ def _apply_external_relationship_assignments(
         if membership is None:
             return contracts.ExternalAccountUpdateResult(
                 error=contracts.ExternalAccountUpdateError.USER_NOT_IN_ORGANIZATION,
-                error_field=name,
+                error_field=key,
             )
         resolved.append((definition, membership.user))
 
@@ -360,6 +375,7 @@ def update_external_account(
     relationship_assignments: dict[str, int | None],
     tags: list[str] | None,
     tags_mode: str,
+    workflow_id: str | None = None,
 ) -> contracts.ExternalAccountUpdateResult:
     """Apply relationship assignments and tags to an account, transactionally, for the
     external API.
@@ -386,7 +402,7 @@ def update_external_account(
             if error_result is not None:
                 return error_result
             if tags is not None:
-                _apply_external_tags(account, tags, tags_mode)
+                _apply_external_tags(account, tags, tags_mode, workflow_id=workflow_id)
     except Exception as e:
         capture_exception(e, {"team_id": team_id, "external_id": external_id, "account_id": str(account.id)})
         return contracts.ExternalAccountUpdateResult(error=contracts.ExternalAccountUpdateError.UPDATE_FAILED)
@@ -506,29 +522,53 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
     return messages
 
 
-def _set_tags(tags: list[str] | None, obj) -> None:
-    """Replace ``obj``'s tags, creating/deleting ``TaggedItem`` rows individually so each
-    change emits its own activity-log entry (the account activity stream depends on this).
+def _set_tags(
+    tags: list[str] | None, account: Account, actor: "User | None" = None, workflow_id: str | None = None
+) -> None:
+    """Replace the account's tags, creating/deleting ``TaggedItem`` rows individually so
+    each change emits its own activity-log entry (the account activity stream depends on
+    this).
 
     Mirrors ``posthog.api.tagged_item.set_tags_on_object`` + ``cleanup_orphan_tags`` but
     stays on pure-model imports so the facade keeps DRF off its import path. ``None`` means
     "tags not supplied" — leave them untouched (matches the serializer mixin).
 
-    Sets ``obj.prefetched_tags`` to the resulting rows so a freshly-written account renders
-    its new tags without re-reading a stale prefetch (the mixin did the same)."""
+    Sets ``account.prefetched_tags`` to the resulting rows so a freshly-written account
+    renders its new tags without re-reading a stale prefetch (the mixin did the same)."""
     if tags is None:
         return
     deduped_tags = list({tagify(t) for t in tags})
     tagged_item_objects = []
+    added_tags: list[Tag] = []
     for tag in deduped_tags:
-        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=account.team_id)
+        tagged_item_instance, created = account.tagged_items.get_or_create(tag_id=tag_instance.id)
         tagged_item_instance.tag = tag_instance
         tagged_item_objects.append(tagged_item_instance)
-    for tagged_item in obj.tagged_items.exclude(tag__name__in=deduped_tags):
+        if created:
+            added_tags.append(tag_instance)
+    for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags):
         tagged_item.delete()
-    Tag.objects.filter(Q(team_id=obj.team_id) & Q(tagged_items__isnull=True)).delete()
-    obj.prefetched_tags = tagged_item_objects
+    Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
+    account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
+    _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
+
+
+def _schedule_account_tags_added(
+    account: Account, tags: list[Tag], actor: "User | None", workflow_id: str | None = None
+) -> None:
+    """Single emission point for $account_tag_added: post-commit, newly created rows only —
+    so a workflow re-adding its own trigger tag fires nothing."""
+    if not tags:
+        return
+
+    def emit() -> None:
+        try:
+            emit_account_tags_added(account, tags, actor, workflow_id=workflow_id)
+        except Exception as e:
+            capture_exception(e)
+
+    transaction.on_commit(emit)
 
 
 def _log_activity_swallowing(
@@ -1310,7 +1350,7 @@ def create_account_for_view(
                 external_id=input.external_id,
                 properties=input.properties,
             )
-            _set_tags(input.tags, account)
+            _set_tags(input.tags, account, actor=user)
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
@@ -1356,7 +1396,7 @@ def update_account_for_view(
     try:
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
-            _set_tags(input.tags, account)
+            _set_tags(input.tags, account, actor=user)
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
     except PydanticValidationError as exc:
