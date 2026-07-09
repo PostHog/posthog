@@ -70,7 +70,7 @@ const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null => {
-    const { query, nodeId } = attributes
+    const { query, nodeId, isDefaultFilterApplied } = attributes
     const nodeLogic = useRequiredNotebookNode()
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
     const {
@@ -137,7 +137,7 @@ const Component = ({
     }, [query, insightName])
 
     const modifiedQuery = useMemo(() => {
-        let modifiedQuery = { ...query, full: false }
+        const modifiedQuery = { ...query, full: false }
 
         if (isDataTableNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)) {
             modifiedQuery.showOpenEditorButton = false
@@ -155,14 +155,25 @@ const Component = ({
             modifiedQuery.embedded = true
         }
 
-        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
-            modifiedQuery.source.fixedProperties = canvasFiltersOverride
-            updateAttributes({ isDefaultFilterApplied: true })
+        // Seed the canvas filter override once. Copy `source` rather than mutating in place —
+        // the spread above shares the original `source` reference with `query`.
+        if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source) && !isDefaultFilterApplied) {
+            modifiedQuery.source = { ...modifiedQuery.source, fixedProperties: canvasFiltersOverride }
         }
 
         return modifiedQuery
         // oxlint-disable-next-line react-hooks/exhaustive-deps
-    }, [query])
+    }, [query, canvasFiltersOverride, isDefaultFilterApplied])
+
+    // Latch the "default filter applied" flag outside of render. Doing this write inside the memo
+    // above committed a document update mid-render, producing a new `query` reference that re-ran
+    // the memo and looped until React aborted with error #185 (max update depth exceeded).
+    useEffect(() => {
+        if (isDataTableNode(query) && isEventsQuery(query.source) && !isDefaultFilterApplied) {
+            updateAttributes({ isDefaultFilterApplied: true })
+        }
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [query, isDefaultFilterApplied])
 
     if (!isOutputPaneOpen) {
         return null
