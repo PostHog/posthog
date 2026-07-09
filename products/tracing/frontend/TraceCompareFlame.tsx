@@ -9,7 +9,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { CHANGE_THRESHOLD } from './compareUtils'
+import { CHANGE_THRESHOLD, MIN_BASELINE_COUNT } from './compareUtils'
 import { formatDuration } from './TraceWaterfallView'
 
 interface TreeNode {
@@ -215,6 +215,11 @@ function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null)
     }
     if (previous.p50_duration_nano === 0) {
         return 'rgba(168, 168, 168, 0.6)'
+    }
+    // Same low-sample noise guard as the compare table's classification, so a node the table
+    // calls unchanged can't render as a deep-red regression here.
+    if (Math.min(current.count, previous.count) < MIN_BASELINE_COUNT) {
+        return 'rgba(120, 150, 200, 0.45)'
     }
     const ratio = current.p50_duration_nano / previous.p50_duration_nano
     if (ratio > 1 + CHANGE_THRESHOLD) {

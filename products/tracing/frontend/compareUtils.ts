@@ -16,9 +16,12 @@ export interface CompareRow {
     name: string
     current: AggregatedSpanRow | null
     previous: AggregatedSpanRow | null
+    status: CompareRowStatus
 }
 
-export const compareRowKey = (row: { service_name: string; name: string }): string => `${row.service_name} ${row.name}`
+// NUL separator, not a space: span names routinely contain spaces, so a printable separator
+// would let ("web api", "x") and ("web", "api x") collide on one key.
+export const compareRowKey = (row: { service_name: string; name: string }): string => `${row.service_name}\0${row.name}`
 
 export function buildRows(current: AggregatedSpanRow[], previous: AggregatedSpanRow[] | null): CompareRow[] {
     const previousByKey = new Map<string, AggregatedSpanRow>()
@@ -26,25 +29,29 @@ export function buildRows(current: AggregatedSpanRow[], previous: AggregatedSpan
         previousByKey.set(compareRowKey(row), row)
     }
 
-    const rows: CompareRow[] = current.map((row) => ({
-        service_name: row.service_name,
-        name: row.name,
-        current: row,
-        previous: previousByKey.get(compareRowKey(row)) ?? null,
-    }))
+    // A null `previous` means there is no baseline dataset at all (e.g. the compare fetch is
+    // still in flight) — that must not classify every row as 'new'.
+    const hasBaseline = previous !== null
+    const makeRow = (
+        base: { service_name: string; name: string },
+        currentRow: AggregatedSpanRow | null,
+        previousRow: AggregatedSpanRow | null
+    ): CompareRow => ({
+        service_name: base.service_name,
+        name: base.name,
+        current: currentRow,
+        previous: previousRow,
+        status: hasBaseline ? classifyRow({ current: currentRow, previous: previousRow }) : 'unchanged',
+    })
+
+    const rows: CompareRow[] = current.map((row) => makeRow(row, row, previousByKey.get(compareRowKey(row)) ?? null))
 
     // Append rows that existed in the previous window but disappeared in the current window —
     // useful for spotting fully regressed call sites.
     const currentKeys = new Set(current.map(compareRowKey))
     for (const row of previous ?? []) {
-        const key = compareRowKey(row)
-        if (!currentKeys.has(key)) {
-            rows.push({
-                service_name: row.service_name,
-                name: row.name,
-                current: null,
-                previous: row,
-            })
+        if (!currentKeys.has(compareRowKey(row))) {
+            rows.push(makeRow(row, null, row))
         }
     }
 
@@ -52,22 +59,32 @@ export function buildRows(current: AggregatedSpanRow[], previous: AggregatedSpan
 }
 
 /** Relative change (0.5 = +50%), or null when there's no meaningful baseline. */
-export function relativeDelta(current: number | null | undefined, previous: number | null | undefined): number | null {
+function relativeDelta(current: number | null | undefined, previous: number | null | undefined): number | null {
     if (current === null || current === undefined || previous === null || previous === undefined || previous === 0) {
         return null
     }
     return (current - previous) / previous
 }
 
-/** The row's p95 relative delta with the min-baseline-count noise guard applied. */
-function guardedP95Delta(row: CompareRow): number | null {
-    if (!row.current || !row.previous || row.previous.count < MIN_BASELINE_COUNT) {
+type CompareRowSides = Pick<CompareRow, 'current' | 'previous'>
+
+/**
+ * Percentage deltas on a handful of spans are noise on either side: a row that dropped from
+ * 1000 calls to 2 slow ones is not a p95 regression any more than a 2-sample baseline is.
+ */
+export function isLowSample(row: CompareRowSides): boolean {
+    return !row.current || !row.previous || Math.min(row.current.count, row.previous.count) < MIN_BASELINE_COUNT
+}
+
+/** The row's p95 relative delta with the low-sample noise guard applied. */
+function guardedP95Delta(row: CompareRowSides): number | null {
+    if (!row.current || !row.previous || isLowSample(row)) {
         return null
     }
     return relativeDelta(row.current.p95_duration_nano, row.previous.p95_duration_nano)
 }
 
-export function classifyRow(row: CompareRow): CompareRowStatus {
+export function classifyRow(row: CompareRowSides): CompareRowStatus {
     if (!row.current) {
         return 'gone'
     }
@@ -92,12 +109,14 @@ export function classifyRow(row: CompareRow): CompareRowStatus {
  * New rows are by definition maximal change; gone rows sort below everything, including
  * unchanged rows, so vanished call sites collect at the bottom under a descending sort.
  */
-export function changeMagnitude(row: CompareRow): number {
+export function changeMagnitude(row: CompareRowSides): number {
     if (!row.current) {
         return -1
     }
     if (!row.previous) {
-        return Number.MAX_VALUE
+        // Sparse new rows (unparameterized URLs and the like) would otherwise flood the top
+        // of the change sort — the same noise the low-sample guard suppresses elsewhere.
+        return row.current.count >= MIN_BASELINE_COUNT ? Number.MAX_VALUE : 0
     }
     return Math.abs(guardedP95Delta(row) ?? 0)
 }

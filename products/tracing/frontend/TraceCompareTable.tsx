@@ -1,7 +1,7 @@
 import { CSSProperties, useMemo, useState } from 'react'
 import { List } from 'react-window'
 
-import { LemonSegmentedButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
@@ -11,14 +11,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 
-import {
-    buildRows,
-    changeMagnitude,
-    classifyRow,
-    type CompareRow,
-    compareRowKey,
-    type CompareRowStatus,
-} from './compareUtils'
+import { buildRows, changeMagnitude, type CompareRow, type CompareRowStatus, isLowSample } from './compareUtils'
 import { formatDuration } from './TraceWaterfallView'
 
 const ROW_HEIGHT = 44
@@ -43,10 +36,14 @@ type SortOrder = 1 | -1
 
 type StatusFilter = 'all' | CompareRowStatus
 
-const STATUS_TAG: Partial<Record<CompareRowStatus, { label: string; type: 'success' | 'muted' }>> = {
-    new: { label: 'New', type: 'success' },
-    gone: { label: 'Gone', type: 'muted' },
+// One record drives both the quick-filter bar (label) and the row badge (tagType, New/Gone only).
+const STATUS_META: Partial<Record<CompareRowStatus, { label: string; tagType?: LemonTagType }>> = {
+    regressed: { label: 'Regressed' },
+    improved: { label: 'Improved' },
+    new: { label: 'New', tagType: 'success' },
+    gone: { label: 'Gone', tagType: 'muted' },
 }
+const FILTERABLE_STATUSES = Object.keys(STATUS_META) as CompareRowStatus[]
 
 const SORTERS: Record<SortColumn, (a: CompareRow, b: CompareRow) => number> = {
     change: (a, b) => changeMagnitude(a) - changeMagnitude(b),
@@ -230,13 +227,17 @@ function CompareListRow({
     style: CSSProperties
 } & CompareRowProps): JSX.Element {
     const row = dataSource[index]
+    const statusTag = STATUS_META[row.status]?.tagType ? STATUS_META[row.status] : undefined
+    // Low-sample rows classify as unchanged; color-judging their deltas red/green would
+    // contradict that in the same row, so they render neutral like the count delta.
+    const judged = isLowSample(row) ? undefined : true
     return (
         <div
             {...ariaAttributes}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
             data-index={index}
-            data-row-key={compareRowKey(row)}
+            data-row-key={`${row.service_name}:${row.name}`}
         >
             <div
                 className={cn(
@@ -267,14 +268,11 @@ function CompareListRow({
                 <Cell>
                     <span className="inline-flex items-center gap-1.5 max-w-full">
                         <span className="font-mono truncate">{row.name}</span>
-                        {(() => {
-                            const tag = STATUS_TAG[classifyRow(row)]
-                            return tag ? (
-                                <LemonTag type={tag.type} size="small">
-                                    {tag.label}
-                                </LemonTag>
-                            ) : null
-                        })()}
+                        {statusTag && (
+                            <LemonTag type={statusTag.tagType} size="small">
+                                {statusTag.label}
+                            </LemonTag>
+                        )}
                     </span>
                 </Cell>
                 <Cell width={COL_WIDTH.count} align="right">
@@ -289,7 +287,7 @@ function CompareListRow({
                         <Delta
                             current={row.current?.p50_duration_nano}
                             previous={row.previous?.p50_duration_nano}
-                            higherIsWorse
+                            higherIsWorse={judged}
                             format={formatDuration}
                         />
                     </div>
@@ -300,7 +298,7 @@ function CompareListRow({
                         <Delta
                             current={row.current?.p95_duration_nano}
                             previous={row.previous?.p95_duration_nano}
-                            higherIsWorse
+                            higherIsWorse={judged}
                             format={formatDuration}
                         />
                     </div>
@@ -308,7 +306,11 @@ function CompareListRow({
                 <Cell width={COL_WIDTH.errors} align="right">
                     <div className="flex flex-col items-end">
                         <span>{row.current ? humanFriendlyNumber(row.current.error_count) : '—'}</span>
-                        <Delta current={row.current?.error_count} previous={row.previous?.error_count} higherIsWorse />
+                        <Delta
+                            current={row.current?.error_count}
+                            previous={row.previous?.error_count}
+                            higherIsWorse={judged}
+                        />
                     </div>
                 </Cell>
             </div>
@@ -323,39 +325,31 @@ export interface TraceCompareTableProps {
     onRowClick?: (row: { service_name: string; name: string }) => void
 }
 
-const STATUS_FILTER_LABELS: Record<Exclude<StatusFilter, 'all'>, string> = {
-    regressed: 'Regressed',
-    improved: 'Improved',
-    new: 'New',
-    gone: 'Gone',
-    unchanged: 'Unchanged',
-}
-
 export function TraceCompareTable({ current, previous, loading, onRowClick }: TraceCompareTableProps): JSX.Element {
     const [sortColumn, setSortColumn] = useState<SortColumn>('change')
     const [sortOrder, setSortOrder] = useState<SortOrder>(-1)
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
-    const { allRows, statusByKey, statusCounts } = useMemo(() => {
+    const { allRows, statusCounts } = useMemo(() => {
         const built = buildRows(current, previous)
-        const byKey = new Map<string, CompareRowStatus>()
         const counts: Record<CompareRowStatus, number> = { regressed: 0, improved: 0, new: 0, gone: 0, unchanged: 0 }
         for (const row of built) {
-            const status = classifyRow(row)
-            byKey.set(compareRowKey(row), status)
-            counts[status] += 1
+            counts[row.status] += 1
         }
-        return { allRows: built, statusByKey: byKey, statusCounts: counts }
+        return { allRows: built, statusCounts: counts }
     }, [current, previous])
+
+    // A refetch can empty the selected bucket (e.g. baseline preset change) — fall back to
+    // All instead of rendering a selected-but-disabled option over an empty table.
+    const activeStatusFilter: StatusFilter =
+        statusFilter === 'all' || statusCounts[statusFilter] > 0 ? statusFilter : 'all'
 
     const rows = useMemo(() => {
         const filtered =
-            statusFilter === 'all'
-                ? allRows
-                : allRows.filter((row) => statusByKey.get(compareRowKey(row)) === statusFilter)
+            activeStatusFilter === 'all' ? allRows : allRows.filter((row) => row.status === activeStatusFilter)
         const sorter = SORTERS[sortColumn]
         return [...filtered].sort((a, b) => sorter(a, b) * sortOrder)
-    }, [allRows, statusByKey, statusFilter, sortColumn, sortOrder])
+    }, [allRows, activeStatusFilter, sortColumn, sortOrder])
 
     const onSort = (column: SortColumn): void => {
         if (column === sortColumn) {
@@ -378,34 +372,37 @@ export function TraceCompareTable({ current, previous, loading, onRowClick }: Tr
 
     const statusOptions = [
         { value: 'all' as StatusFilter, label: `All (${allRows.length})` },
-        ...(['regressed', 'improved', 'new', 'gone'] as const).map((status) => ({
+        ...FILTERABLE_STATUSES.map((status) => ({
             value: status as StatusFilter,
-            label: `${STATUS_FILTER_LABELS[status]} (${statusCounts[status]})`,
+            label: `${STATUS_META[status]?.label} (${statusCounts[status]})`,
             disabledReason: statusCounts[status] === 0 ? 'No spans in this bucket' : undefined,
         })),
     ]
 
+    // Without a baseline dataset there are no buckets to filter — every row is 'unchanged'.
+    const hasBaseline = previous !== null
+
     return (
         <div className="flex flex-col flex-1 min-h-0 gap-2" data-attr="tracing-compare-table">
-            <div className="flex items-center gap-2 flex-wrap">
-                <LemonSegmentedButton<StatusFilter>
-                    size="small"
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={statusOptions}
-                    data-attr="tracing-compare-status-filter"
-                />
-                {sortColumn !== 'change' && (
-                    <button
-                        type="button"
-                        className="text-xs text-link cursor-pointer"
-                        onClick={() => onSort('change')}
-                        data-attr="tracing-compare-sort-change"
-                    >
-                        Sort by biggest change
-                    </button>
-                )}
-            </div>
+            {hasBaseline && (
+                <div className="flex items-center gap-2 flex-wrap" data-attr="tracing-compare-status-filter">
+                    <LemonSegmentedButton<StatusFilter>
+                        size="small"
+                        value={activeStatusFilter}
+                        onChange={setStatusFilter}
+                        options={statusOptions}
+                    />
+                    {sortColumn !== 'change' && (
+                        <Link
+                            className="text-xs"
+                            onClick={() => onSort('change')}
+                            data-attr="tracing-compare-sort-change"
+                        >
+                            Sort by biggest change
+                        </Link>
+                    )}
+                </div>
+            )}
             <div className="flex flex-col flex-1 min-h-0 bg-bg-light border rounded overflow-hidden">
                 <AutoSizer
                     renderProp={({ width, height }: SizeProps) => {
