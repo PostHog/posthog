@@ -14,6 +14,9 @@ from pydantic import BaseModel, Field
 
 from posthog.utils import absolute_uri
 
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.skills.backend.models.skills import LLMSkill
+
 INVESTIGATION_SKILL_PREFIX = "investigation-"
 INVESTIGATION_SKILL_CATEGORY = "investigation"
 
@@ -57,8 +60,6 @@ def list_team_investigation_skills(team_id: int) -> list[str]:
     Side-effect: rows whose ``category`` is empty are stamped with
     ``INVESTIGATION_SKILL_CATEGORY`` so future queries can filter by category directly.
     """
-    from products.skills.backend.models.skills import LLMSkill  # noqa: PLC0415
-
     qs = LLMSkill.objects.filter(
         team_id=team_id,
         deleted=False,
@@ -71,8 +72,8 @@ def list_team_investigation_skills(team_id: int) -> list[str]:
 
 
 def build_investigation_prompt(
-    alert: Any,
-    alert_check: Any,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
     *,
     firing_context: dict[str, Any],
     skill_names: list[str],

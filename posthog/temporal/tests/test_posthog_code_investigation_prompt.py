@@ -4,6 +4,9 @@ posthog/temporal/alerts/posthog_code_investigation.py.
 
 from posthog.test.base import BaseTest
 
+import pydantic
+
+from posthog.models import Organization, Team
 from posthog.temporal.alerts.posthog_code_investigation import (
     AlertInvestigationReport,
     build_investigation_prompt,
@@ -66,8 +69,6 @@ class TestAlertInvestigationReport(BaseTest):
         assert report.pr_url == "https://github.com/org/repo/pull/1"
 
     def test_confidence_bounds(self) -> None:
-        import pydantic
-
         with self.assertRaises(pydantic.ValidationError):
             AlertInvestigationReport(
                 findings="f",
@@ -286,8 +287,6 @@ class TestListTeamInvestigationSkills(BaseTest):
         assert "investigation-v1" not in names
 
     def test_excludes_other_teams_skills(self) -> None:
-        from posthog.models import Organization, Team
-
         org2 = Organization.objects.create(name="Other Org")
         team2 = Team.objects.create(organization=org2, name="Other Team")
         LLMSkill.objects.create(team=team2, name="investigation-other", description="d", body="b")
