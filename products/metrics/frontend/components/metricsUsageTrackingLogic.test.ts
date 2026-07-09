@@ -234,6 +234,12 @@ describe('metricsUsageTrackingLogic', () => {
             SAMPLE,
             { has_span_id: true },
         ],
+        [
+            'metrics trace pivot clicked',
+            (sample: typeof SAMPLE) => logic.actions.tracePivotClicked(sample),
+            TRACELESS_SAMPLE,
+            { has_span_id: false },
+        ],
     ])('%s reports derived booleans/counts only', (event, dispatch, sample, expectedProperties) => {
         dispatch(sample)
         expect(captures(event)).toEqual([[event, expectedProperties]])
