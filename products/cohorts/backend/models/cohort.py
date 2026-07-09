@@ -1,8 +1,10 @@
 import re
 import time
+from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
@@ -26,7 +28,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
-from posthog.models.person.util import get_person_by_uuid
+from posthog.models.person.util import get_person_by_uuid, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -522,6 +524,33 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
         )
 
+    def insert_users_list_by_id_uuid_pairs(
+        self,
+        items: list[tuple[int, str]],
+        *,
+        team_id: int,
+        raise_on_error: bool = False,
+    ) -> int:
+        """
+        Insert already-resolved (person_id, person_uuid) members into the cohort, for the given team.
+
+        Skips the per-batch UUID → person id resolution that ``insert_users_list_by_uuid``
+        performs — for callers that resolved the persons themselves (e.g. a validation pass over
+        the same set) and must not pay for a second personhog lookup. Semantics otherwise match
+        ``insert_users_list_by_uuid``, including ``raise_on_error``.
+
+        Returns:
+            The number of batches processed.
+        """
+        batch_iterator = ArrayBatchIterator(items, batch_size=DEFAULT_COHORT_INSERT_BATCH_SIZE)
+        return self._insert_users_list_with_batching(
+            batch_iterator,
+            insert_in_clickhouse=True,
+            team_id=team_id,
+            raise_on_error=raise_on_error,
+            insert_batch=lambda batch: self._insert_resolved_batch(batch, insert_in_clickhouse=True, team_id=team_id),
+        )
+
     def insert_users_by_email(
         self,
         items: list[str],
@@ -592,11 +621,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def _insert_users_list_with_batching(
         self,
-        batch_iterator: BatchIterator[str],
+        batch_iterator: BatchIterator[Any],
         insert_in_clickhouse: bool = False,
         *,
         team_id: int,
         raise_on_error: bool = False,
+        insert_batch: Callable[[list[Any]], None] | None = None,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -605,18 +635,27 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             batch_iterator: BatchIterator of user UUIDs to be inserted into the cohort.
             insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             team_id: The ID of the team to which the cohort belongs.
+            insert_batch: Override for the per-batch write. Defaults to resolving each batch of
+                UUIDs via personhog and inserting (``_insert_batch_via_personhog``, which honors
+                ``insert_in_clickhouse``); callers whose batches are not plain UUID lists supply
+                a writer matching their item type.
 
         Returns:
             Number of batches processed.
         """
         from products.cohorts.backend.models.util import count_cohort_members
 
+        def _resolve_and_insert_batch(batch: list[Any]) -> None:
+            self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+
+        insert_batch = insert_batch or _resolve_and_insert_batch
+
         current_batch_index = -1
         processing_error = None
         try:
             for batch_index, batch in batch_iterator:
                 current_batch_index = batch_index
-                self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+                insert_batch(batch)
 
         except SoftTimeLimitExceeded as err:
             # Let a Celery soft-time-limit interruption propagate so the task's time limit
@@ -676,34 +715,42 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     ) -> None:
         """Personhog path for inserting a single batch of cohort members.
 
-        Resolves UUIDs → person IDs via personhog, then calls the
-        InsertCohortMembers RPC. ClickHouse inserts (if requested)
+        Resolves UUIDs → person IDs via personhog (field-masked — membership only needs
+        id/uuid, not properties or distinct IDs), then writes the resolved batch.
+        """
+        with personhog_caller_tag("cohorts/static-insert"):
+            id_uuid_pairs = get_person_ids_and_uuids_by_uuids(team_id, batch)
+        self._insert_resolved_batch(id_uuid_pairs, insert_in_clickhouse=insert_in_clickhouse, team_id=team_id)
+
+    def _insert_resolved_batch(
+        self,
+        id_uuid_pairs: list[tuple[int, str]],
+        *,
+        insert_in_clickhouse: bool,
+        team_id: int,
+    ) -> None:
+        """Write a single batch of already-resolved (person_id, person_uuid) cohort members.
+
+        Calls the InsertCohortMembers RPC. ClickHouse inserts (if requested)
         exclude persons already in the cohort because the
         person_static_cohort table's ORDER BY includes a per-row UUID,
         preventing ReplacingMergeTree from deduplicating repeated inserts.
         """
         from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
-        from posthog.models.person.util import get_persons_by_uuids
 
-        from products.cohorts.backend.models.util import insert_static_cohort
+        from products.cohorts.backend.models.util import insert_cohort_members, insert_static_cohort
 
-        # Cohort membership only needs id/uuid, so skip the unbounded per-person distinct-id fetch.
-        with personhog_caller_tag("cohorts/static-insert"):
-            persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
-        if not persons:
+        if not id_uuid_pairs:
             return
 
-        person_ids = [p.id for p in persons]
-        person_uuids = [p.uuid for p in persons]
+        person_ids = [person_id for person_id, _ in id_uuid_pairs]
+        person_uuids = [person_uuid for _, person_uuid in id_uuid_pairs]
 
         if insert_in_clickhouse:
-            uuid_strs = [str(u) for u in person_uuids]
-            existing_uuids = self._get_existing_ch_member_uuids(uuid_strs, team_id, PERSON_STATIC_COHORT_TABLE)
-            new_uuids = [u for u in person_uuids if str(u) not in existing_uuids]
+            existing_uuids = self._get_existing_ch_member_uuids(person_uuids, team_id, PERSON_STATIC_COHORT_TABLE)
+            new_uuids = [UUID(u) for u in person_uuids if u not in existing_uuids]
             if new_uuids:
                 insert_static_cohort(new_uuids, self.pk, team_id=team_id)
-
-        from products.cohorts.backend.models.util import insert_cohort_members
 
         insert_cohort_members(team_id, self.pk, person_ids, self.version, _skip_ownership_check=True)
 
